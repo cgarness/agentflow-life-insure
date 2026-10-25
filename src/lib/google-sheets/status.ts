@@ -1,4 +1,4 @@
-import type { ConnectionStatus, SheetSourceRow } from "./schema";
+import type { ConnectionStatus, RealtimeStatus, SheetSourceRow } from "./schema";
 
 export type Tone = "default" | "success" | "warning" | "destructive" | "muted";
 
@@ -13,6 +13,22 @@ export function sourceStatus(s: SheetSourceRow, conn: ConnectionStatus["connecti
   if (s.phase === "initial") return { label: "Importing", tone: "default" };
   if (s.lease_owner) return { label: "Checking", tone: "default" };
   return { label: "Active", tone: "success" };
+}
+
+const MONITORING = {
+  active: { label: "Real-time sync active", tone: "success" },
+  setting_up: { label: "Setting up monitoring", tone: "muted" },
+  interrupted: { label: "Monitoring interrupted", tone: "warning" },
+} as const;
+
+/**
+ * Real-time monitoring line for an enabled, healthy tab in push scope. Nothing for drafts, paused tabs, tabs that need
+ * review or lost access (their own status says why), or when real-time sync is off for this tab.
+ */
+export function monitoringStatus(s: SheetSourceRow, realtime: RealtimeStatus | null | undefined): { label: string; tone: Tone } | null {
+  if (!realtime || realtime.mode === "off" || s.state !== "enabled" || (s.health !== "ok" && s.health !== "error")) return null;
+  const entry = realtime.sources?.[s.id];
+  return entry ? { ...MONITORING[entry.state] } : null;
 }
 
 /** Flagged rows are part of imported, never a separate total. */

@@ -1,7 +1,14 @@
-## 2026-10-25 — PLAN ONLY, awaiting Chris's Gate A approval: Google Sheets real-time sync (Drive push notifications)
+## 2026-10-25 — Gate A APPROVED, Gate B BUILT (draft PR; NOT merged, applied, deployed or enabled): Google Sheets real-time sync (Drive push notifications)
 
-**Status.** Plan only, at `main` `27c8d0d` on `claude/modest-knuth-y5cqor`. Nothing has been built, applied,
-deployed or enabled. Production was read only (read-only SQL and Edge Function read-backs).
+**Status.**
+- **Gate A:** approved by Chris ("#APPROVE_PLAN", plan at `540e333`, decisions D1–D11; plan §17).
+- **Gate B:** built on `claude/modest-knuth-y5cqor` and opened as a draft PR; stopped at **Gate C** (Chris's review).
+- Nothing is applied, deployed, scheduled or enabled. There is no secret, no Google watch and no lead.
+- Evidence: `docs/plans/2026-10-25-google-sheets-realtime-sync/verification.md`. Draft legal copy:
+  `privacy-terms-draft.md` (`legal.ts` is unchanged).
+
+*Original plan-stage status:* plan only, at `main` `27c8d0d`. Production was read only (read-only SQL and Edge
+Function read-backs).
 
 **Plan:** `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md`.
 
@@ -15,7 +22,7 @@ deployed or enabled. Production was read only (read-only SQL and Edge Function r
 - A guard-only `pg_cron` maintenance job renews and stops channels and recovers failed jobs. **No spreadsheet
   polling**; the 5-minute pending schedule stays unapplied.
 
-**Decisions D1–D11 need Chris's answers.** They are listed in §0 of the plan, notably:
+**Decisions D1–D11 (answered at Gate A; see plan §17.1).** They were listed in §0 of the plan, notably:
 - D2: event-driven catch-up reads;
 - D4: `verify_jwt` for the maintenance function;
 - D8: the pilot row writer;

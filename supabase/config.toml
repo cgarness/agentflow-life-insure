@@ -260,3 +260,12 @@ verify_jwt = false
 
 [functions.google-sheets-sync-worker]
 verify_jwt = false
+
+# Google Sheets push sync (plan docs/plans/2026-10-25-google-sheets-realtime-sync/). The receiver is Google's
+# notification callback (no Supabase JWT; channel id HMAC + token digest + resource id validated in code and SQL);
+# maintenance is invoked only by pg_cron with the dedicated Vault token google_sheets_push_maintenance_token.
+[functions.google-sheets-push]
+verify_jwt = false
+
+[functions.google-sheets-push-maintenance]
+verify_jwt = false

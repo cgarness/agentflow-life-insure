@@ -1169,7 +1169,7 @@ Settings → Google Sheets uses a **dedicated** Google OAuth client and its own 
 - Leases are never proof of termination. A failed drain is reported as **BLOCKED**.
 - Shutdown never deletes leads, receipts, baselines or source intent.
 
-**Function inventory:** 31 private helpers + 21 public wrappers = 52. T1 in `supabase/tests/google_sheets_import.sql` pins the count and the ACL; update both together.
+**Function inventory:** 31 private helpers + 21 public wrappers = 52 from the foundation; the real-time sync migration (below) adds 13 + 10, so **75 = 44 private + 31 public** once it is applied. T1 in `supabase/tests/google_sheets_import.sql` pins the count and the ACL; update both together.
 
 **Verification:** `.github/workflows/google-sheets.yml` (SQL/PostgREST/regressions/concurrency/shutdown/end-to-end Review, real pg_cron in `supabase/postgres` with `--network none`, Deno, frontend, browser). The regression evidence is `scripts/google_sheets_regression_evidence.sh <reviewed-sha>`. A mocked Picker test is never the real Google-account test.
 
@@ -1182,3 +1182,61 @@ Settings → Google Sheets uses a **dedicated** Google OAuth client and its own 
 - the shutdown ops files are NOT RUN.
 
 The frontend (PR #442) ships only with Chris's Phase C approval, and Phase D and Phase E each need their own approval. Before Phase E, the pending cron migration must be re-stamped to sort after the hosted head. See `docs/plans/2026-10-13-google-sheets-import/{implementation_plan,release-package,verification}.md`.
+
+### Google Sheets real-time sync (Drive push) — built 2026-10-25 on `claude/modest-knuth-y5cqor`; migration `20261025120000` NOT applied, functions NOT deployed, no watch registered
+
+A new row reaches AgentFlow through a Google Drive `files.watch` notification, never through spreadsheet polling. Plan and decisions D1–D11: `docs/plans/2026-10-25-google-sheets-realtime-sync/implementation_plan.md`.
+
+**No polling**
+- Spreadsheet content is read only after a notification, Sync now, or an event-driven catch-up (Enable, Resume, save, Review apply, reconnect, monitoring recovery).
+- The once-a-minute `google-sheets-push-maintenance` cron only registers, renews and stops channels and recovers failed jobs. Its `cron.schedule` command fires only when `private.google_sheets_push_maintenance_due()` says there is maintenance work.
+- Keep `pending/20261013120100_google_sheets_sync_schedule.sql` (the 5-minute poll) unapplied. Never replace push with a frequent schedule.
+- Never promise instant or guaranteed detection: Google batches Sheets notifications (reported ~3 min) and can drop them.
+
+**Receiver (`google-sheets-push`, `verify_jwt=false`)**
+- The channel id is `gs1` + 18 random bytes + a 16-char HMAC tag under `GOOGLE_SHEETS_PUSH_KEY`. A bad tag → 404 with **no database call**.
+- The channel token is random. Only its SHA-256 digest is stored, compared in constant time (`private.google_sheets_ct_equal` in SQL, `timingSafeEqual` in Edge).
+- `push_accept` checks the resource id, channel state, expiry, connection generation and server-side scope, then durably queues the target.
+  - It answers 200 only after commit.
+  - A database error → 503, so Google retries.
+  - Unknown → 404; rejected → 401.
+- Never log tokens, headers or lead data. Log only `outcome / state / target / ms`.
+
+**Scope and kill switches (server-side, D7)**
+- `private.google_sheets_push_config.mode` (`off` | `pilot` | `on`, default `off`) plus `private.google_sheets_push_pilot_sources` decide which sources may be watched, kicked or claimed — inside SQL, not in env or UI.
+- Mode `off` refuses every claim, kick and registration.
+- `GOOGLE_SHEETS_PUSH_ENABLED` is the Edge kill switch.
+- Rollback levels:
+  - `supabase/ops/google_sheets_push_stop_all.sql`: mode off, then stop every channel;
+  - `google_sheets_push_unschedule.sql`;
+  - the foundation admission gate. Its pattern loop covers the push wrappers; while it is closed the receiver answers 503 and the Disconnect hook only logs.
+
+**No lost work**
+- Each target carries `requested_seq` / `processed_seq`. A claim snapshots `requested_seq`.
+- Only a `done` completion advances `processed_seq`, and only to the snapshot. A notification during a run leaves the target due again (`dirty`).
+- `push_complete` verifies `done` **in SQL**: every eligible source must have `health='ok'` and `last_success_at >= attempt start`, with no `last_result.backlog`. Otherwise the result is `retry`, `backlog`, `blocked` or `deferred`, never processed.
+  - Backoff: 30 s → 1 h ±20%.
+  - Never mark a target processed from Edge's word alone.
+- Leases:
+  - target lease 300 s;
+  - source lease 3 min, shared with Sync now through `push_claim_source`;
+  - global cap `max_concurrent_jobs` (4) under an advisory lock.
+- **Lock order:** channels of a target (by id) → target → source → connection. `watch_result`, `watch_release` and `push_complete` follow it, and the runner's 4h deadlock test and its negative control pin it.
+- The importer is still `runSource` with trigger `push`. Receipts, identity checks, duplicate rules and `google_sheets_finish` semantics are unchanged. `finish` only learned `'push'` and records `backlog`.
+
+**Watches**
+- One channel per connection × spreadsheet. Its expiry is at most 24 h, and it is renewed `renew_before_s` (3 h) early, with overlapping channels.
+- Old channels are stopped with `channels.stop`. A failed stop is retried; a channel whose resource id is unknown is `abandoned` (it expires on its own).
+- Disconnect releases with `force` before revoking the generation. Pause and remove release that spreadsheet's watch only when no other enabled source uses it.
+- The scope stays `drive.file`.
+
+**Status (`status` action):** `realtime: { mode, sources }`, read through the service role (D5). The private push tables are never exposed to clients. The UI shows "Real-time sync active / Setting up monitoring / Monitoring interrupted" and "Last successful sync …".
+
+**Testing gotcha:** psql's lexer treats an identifier named `begin` inside `CREATE FUNCTION` as the start of a `BEGIN ATOMIC` body and batches the rest of the file into one statement. Never name a test helper `begin`.
+
+**Release:** each gate needs its own approval.
+- Gate C: review.
+- Gate D: re-stamp the migration after the hosted head, apply it, deploy both functions with push mode `off`, set the secrets.
+- Gate E: Pilot B via the ChatGPT Google Drive integration for API writes, plus manual rows. Measure row → notification → lead.
+- Gate F: latency report, go/no-go.
+- Gate G: rollout, only after the separate privacy/Terms release (`src/content/legal.ts` still says "about every five minutes").

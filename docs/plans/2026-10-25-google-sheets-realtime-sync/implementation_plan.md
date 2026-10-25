@@ -1,8 +1,13 @@
 # Google Sheets real-time sync (Drive push notifications) — implementation plan
 
-**Status: PLAN ONLY — awaiting Chris's Gate A approval.** Nothing has been built, applied, deployed or enabled.
-Every production observation below came from read-only queries (`SET TRANSACTION READ ONLY`) and Edge Function
-read-backs. Branch: `claude/modest-knuth-y5cqor`, from `main` `27c8d0d`.
+**Status: GATE A APPROVED (2026-10-25, "#APPROVE_PLAN", plan at `540e333`); GATE B BUILT on
+`claude/modest-knuth-y5cqor` (draft PR, stopped at Gate C; evidence in `verification.md`).** Nothing is applied,
+deployed or enabled. Production stays read-only: no merge,
+production migration, Edge deploy, secret, live Google watch, monitoring activation, RLS or data change, and no
+synthetic production lead. Each of those needs its own approval. §17 records the approved decisions and the
+refinements they require, and **§17 supersedes the earlier sections wherever they differ**. Every production
+observation in this plan came from read-only queries (`SET TRANSACTION READ ONLY`) and Edge Function read-backs.
+Base: `main` `27c8d0d`.
 
 **Goal.** A new valid row in a connected spreadsheet becomes an AgentFlow lead automatically, driven by Google
 Drive change notifications (`files.watch`). Agents never press Sync Now, keep AgentFlow open, stay signed in,
@@ -794,3 +799,263 @@ No push to `main` without your approval. Supabase "Deploy to production" must st
 | R6 | Edge CPU limits on very large tabs | Same exposure as Sync Now today. The pilot is small. Follow-up optimization is noted in §12. |
 | R7 | Platform logs might capture channel headers | Checked at Gate D. A captured token still only allows idempotent extra reads (§4.3). |
 | R8 | Production state drifted from the WORK_LOG (§1.3) | D11. A fresh hosted read before each production gate. |
+
+---
+
+## 17. Gate A decisions (approved 2026-10-25) and the refinements they require
+
+### 17.1 Decisions as approved
+
+| # | Ruling | How the build implements it |
+|---|---|---|
+| D1 | APPROVED. Work must survive Edge termination. | `waitUntil` runs **only after** the durable commit. If an isolate dies, an expired target lease and `processed_seq` that never advanced let the next receiver or maintenance run reclaim the job (§5.3). |
+| D2 | APPROVED, with the reconciliation policy clarified | §17.3 |
+| D3 | APPROVED | The cron guard (`push_maintenance_due`) only sees watch work and jobs that already exist. No step reads a sheet unless a queued job asks for it. |
+| D4 | APPROVED FOR BUILD | `google-sheets-push`: HMAC-tagged channel id, then a constant-time token digest, resource id, state, expiry and generation. `google-sheets-push-maintenance`: a constant-time ≥ 32-character Vault bearer token, as `google-sheets-sync-worker` does. Both are `verify_jwt=false`. |
+| D5 | APPROVED | The private tables are never exposed. The UI reads `status.realtime`, produced by the service-role `google_sheets_push_status` wrapper. |
+| D6 | APPROVED | Unknown or malformed requests get a structured log line (outcome code plus a channel-id hash prefix). Rejections on a known channel are stored with that channel's org, with no secret or header values. |
+| D7 | APPROVED. **Enforced server-side.** | §17.2: a database-held mode and allowlist that every SQL entry point checks, plus the Edge kill switch. |
+| D8 | REVISED | §17.5: the pilot's API rows are written by Chris's connected **ChatGPT Google Drive integration**, outside AgentFlow's OAuth client and only after separate approval. Measurement is read-only SQL. There is no write harness and no `gcloud` or service-account setup. |
+| D9 | APPROVED | The draft is `privacy-terms-draft.md` in this folder; `legal.ts` is not changed in this PR. §17.7 evaluates the pilot timing. |
+| D10 | APPROVED | Protected, version-pinned release steps at Gate D only. |
+| D11 | CONFIRMED | Pilot B's 3 imported leads (including "First Test") must stay byte-unchanged and never duplicated. Receipts `pos:<source>:1:{2,3,4}` and `done` ledger rows already protect them, and Gate E re-checks them (§17.5). |
+
+### 17.2 Design refinements
+
+**R-a. Server-side pilot scope (D7).** Two new private tables hold the gate:
+- `private.google_sheets_push_config`: a single row with `mode IN ('off','pilot','on')` (seeded `off`),
+  `max_concurrent_jobs` (4) and `renew_before_s` (10,800);
+- `private.google_sheets_push_pilot_sources`: `(source_id, organization_id)`.
+
+`private.google_sheets_push_source_allowed(source)` is true only when mode is `on`, or mode is `pilot` and the
+source is listed. Mode `off` refuses everything except stops. These entry points refuse non-allowed sources:
+- `push_claim` (it filters the eligible sources);
+- `push_claim_source`;
+- `push_kick`;
+- `watch_begin`;
+- `push_maintenance_claim` (registration);
+- the cron guard.
+
+`push_accept` still queues durably, so notifications are never lost while scope is closed.
+
+The Edge flag `GOOGLE_SHEETS_PUSH_ENABLED` is a second gate (the kill switch). Processing and registration need
+**both**. Setting the database mode and allowlist is a production config write, prepared as the reviewed ops file
+`google_sheets_push_pilot_enable.sql` (not run).
+
+**This replaces the env-only `GOOGLE_SHEETS_PUSH_MODE` / `PILOT_SOURCES` of §0 and §15.** The renew window and the
+concurrency cap also live in this config row, so the cron guard and the claims read the same values.
+
+**R-b. A queued event is processed only when every eligible source really finished.** `push_complete` re-derives the
+outcome **in SQL**. The Edge result can only make it stricter: severity runs `done` < `backlog` < `retry` <
+`blocked`. For every source that is still eligible (enabled, health `ok`/`error`, allowed):
+- `health = 'ok'` and `last_success_at >=` the attempt's start is required. Otherwise the outcome is `retry`. This
+  covers an unfinished run, a failed or non-completed `finish`, health `error`, and a backoff, quota or reconnect
+  result.
+- `last_result.backlog` must be false, otherwise the outcome is `backlog`. The guarded `finish` replacement adds
+  `backlog` to `last_result`; the UI ignores the key.
+- The connection must be `connected`, otherwise the outcome is `blocked`.
+- Mode `off` at completion gives `deferred`.
+
+Only `done` advances `processed_seq`.
+
+**R-c. Monitoring state is derived.** `push_status` computes the UI state from the channels themselves:
+- an active, unexpired channel at the current generation → `active`;
+- a channel `registering` → `setting_up`;
+- registration failures, or no live channel after one existed → `interrupted`;
+- target `stopped` → nothing.
+
+A stored state therefore cannot drift. `watch_targets.state` is only `live` or `stopped`.
+
+**R-d. Constant-time compare** is `private.google_sheets_ct_equal(bytea, bytea)`. It is a SQL-language aggregate
+`bit_or` over every byte, with no early exit, plus a fixed-length check (digests are always 32 bytes).
+
+**R-e. Function inventory.** +13 private and +10 public functions, from 52 to **75** (44 private + 31 public). T1 is
+updated in the same change.
+
+**R-f. Lock order** (§5.2) is pinned by two-session tests in which the receiver, `watch_result`, `watch_release`,
+maintenance and `push_complete` run concurrently: no deadlock and no lost increment. Source leases and target leases
+each get a two-worker SKIP LOCKED test. Every new lease test has a negative control.
+
+### 17.3 Reconciliation policy (D2) and missed-notification recovery (requirement 4)
+
+**A notification is a trigger for a full reconciliation of the tab, never a row payload.** Each run reads the whole
+tab and diffs it against the identity ledger and permanent receipts. Any row not yet imported is a candidate,
+whatever change triggered the run. A missed notification therefore delays an import until the next reconciliation of
+that spreadsheet; it does not lose the row.
+
+**Reconciliation triggers (all event-driven):**
+1. any authenticated `add` / `update` / `remove` / `trash` / `untrash` / unknown-state notification;
+2. Enable;
+3. Resume;
+4. mapping save on an enabled source;
+5. structural review apply;
+6. identity review apply;
+7. a **fresh** channel registration, meaning no live channel existed just before. That covers first monitoring,
+   reconnect, recovery from interrupted monitoring, expiry without a successful renewal, and key rotation;
+8. Sync Now, unchanged.
+
+**Routine renewal does not reconcile.** Google documents an overlap period in which both channels are active, and
+both are accepted until the old one is stopped, so there is no gap. If renewal fails until the old channel expires,
+the next successful registration is fresh, which triggers item 7.
+
+**Delivery failures we can see:**
+- An answer of `503` (database unavailable, admission closed) makes Google retry 500/502/503/504 with exponential
+  backoff, for up to several days according to Google's APIs-Google documentation.
+- A Google 429 or 5xx on the *read* → job `retry` with backoff, never dropped.
+- A crashed worker → an expired lease → reclaimed.
+
+**Delivery failures we cannot see:** a notification Google never sends. AgentFlow cannot detect it. The rows in
+question are imported at the next trigger above.
+
+**What we do not promise:** instant delivery, or detection of every change without Google's notification. The UI
+shows "Monitoring interrupted" when we *know* monitoring is down, and Sync Now remains.
+
+**No periodic safety-net read is included.** A daily reconciliation at renewal time would be scheduled content
+reading. It is listed only as an option Chris could approve after Gate F evidence.
+
+### 17.4 Official webhook constraints (requirement 5)
+The Drive guide and the discovery document were checked on 2026-10-25. `developers.google.com` is unreachable from
+this container, so the guide was read through search excerpts of the official pages, and the discovery document was
+fetched from `www.googleapis.com`.
+
+**Request and channel limits:**
+- `files.watch` and `channels.stop` accept the `drive.file` scope (discovery document, revision 20261020).
+- The channel `id` is unique within the project, at most **64 characters**. Ours are 43.
+- The `token` is at most **256 characters**. Ours are 43.
+- `type` is `web_hook`.
+- `address` must be **HTTPS with a valid, trusted SSL certificate**. Self-signed, untrusted-issuer and revoked
+  certificates fail.
+- `expiration` is in Unix ms. For the **files resource it is at most 86,400 s; the default is 3,600 s**. The more
+  restrictive of the requested value and Google's limit applies. We request 24 h and store the returned value.
+
+**Responses Google expects:**
+- **Success codes are 200, 201, 202, 204 or 102.** The receiver answers 200.
+- On **500, 502, 503 or 504**, Google retries with exponential backoff. Every other code is a message failure, so we
+  answer 400/401/404 only to forged or unknown requests.
+
+**Notification contents:**
+- `sync` is message number 1. It "can arrive before the watch response" and may be ignored safely. We record it.
+- Message numbers increase but are **not sequential**. We never require contiguity.
+- `X-Goog-Changed` is `content` / `parents` / `children` / `permissions`.
+- There is no automatic renewal. Renew by calling watch again with a new id, and expect overlap.
+
+**Authentication.** Google signs nothing. Authentication is our channel token, which is documented for exactly this
+purpose (verifying that a message is for a channel we created). User agent and source IP are never relied on.
+
+**Domain verification.** An older guide version required registering and verifying the domain; the current excerpts
+show only HTTPS and a valid certificate. This stays risk R1, decided by the first real registration (Gate E).
+
+### 17.5 Pilot procedure and measurement (D8, requirements 1 and 6; Gate E only, separately approved)
+
+**Before.**
+- Read-only snapshot of Pilot B's 3 leads: `md5` over every column, keyed by lead id.
+- Their receipts and ledger.
+
+**API-written rows.**
+- Chris's ChatGPT Google Drive integration appends synthetic rows to Pilot B → Leads, one at a time and in a burst
+  of 3.
+- Each row uses a reserved fixture phone (702-555-0111…0114 and so on) and a unique last name, `PushApi-<n>`.
+- The writer reports each row's write time in UTC, to the second.
+
+**Manual rows.** Chris types rows `PushManual-<n>` in the Google Sheets UI and notes the time each row is complete.
+That time is reported as approximate.
+
+**Measurement.** `supabase/ops/google_sheets_push_pilot_evidence.sql` (read-only) is parameterized by those phones.
+Per row it reports:
+- the write time → `push_events.received_at` (**Google delivery latency**);
+- `received_at` → `queued_at` → `attempt.started_at` → `first_commit_at` / receipt `created_at` (**our latency**);
+- end to end;
+- whether the run was `push` or `manual`;
+- duplicate checks: exactly one lead per phone, and Pilot B's original 3 leads byte-identical.
+
+**Go / no-go for Gate G.** These are criteria; the thresholds are Chris's decision at Gate F.
+1. **Coverage:** 100% of API-written rows and 100% of manual rows import through `push` runs with no Sync Now.
+2. **Google delivery latency:** p50, p95 and max, reported separately for API and manual rows. The proposed bar is
+   p95 ≤ 5 minutes, to be decided at Gate F.
+3. **Our latency:** notification → commit p95 < 5 s.
+4. **Zero duplicates**, and Pilot B's original 3 leads unchanged.
+5. **Renewal:** at least one real renewal with overlap and a stopped old channel (forced through
+   `renew_before_s`, plus one natural 24 h cycle).
+6. **Recovery:** with the kill switch off, a row is queued; when it is turned back on, the row drains.
+
+If API-written rows are not notified, Gate E **stops and reports**. No polling substitute.
+
+### 17.6 Definitive file list (Gate B)
+
+**New:**
+- `supabase/migrations/20261025120000_google_sheets_push_sync.sql`. The version is provisional and re-stamped at
+  Gate D after a fresh hosted read.
+- `supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql`.
+- `supabase/migrations/pending/20261025120100_google_sheets_push_maintenance_schedule.sql`.
+- `supabase/functions/google-sheets-push/index.ts` and `index.test.ts`.
+- `supabase/functions/google-sheets-push-maintenance/index.ts` and `index.test.ts`.
+- `supabase/functions/_shared/googleSheets/push/`:
+  - `config.ts`, `headers.ts`, `channel.ts`, `db.ts`, `processor.ts`, `watches.ts`, `runtime.ts`;
+  - tests: `headers.test.ts`, `channel.test.ts`, `processor.test.ts`, `watches.test.ts`.
+- `supabase/functions/google-sheets-api/push.ts` and `push.test.ts`.
+- `supabase/tests/google_sheets_push.sql` and `supabase/tests/google_sheets_push_cron_check.sql`.
+- `supabase/ops/`:
+  - `google_sheets_push_metrics.sql` (read-only);
+  - `google_sheets_push_pilot_evidence.sql` (read-only);
+  - `google_sheets_push_pilot_enable.sql`, `google_sheets_push_stop_all.sql`, `google_sheets_push_unschedule.sql`.
+    These three are NOT RUN; each needs its own approval.
+- `scripts/google_sheets_push_e2e.ts`: push end-to-end through PostgREST with fake Google.
+- `docs/plans/2026-10-25-google-sheets-realtime-sync/verification.md` and `privacy-terms-draft.md`.
+
+**Modified:**
+- `supabase/functions/_shared/googleSheets/engine.ts`:
+  - the `"push"` trigger;
+  - the `already` count;
+  - an optional `onIngest` hook for the commit timestamp.
+- `supabase/functions/_shared/googleSheets/db.ts`: the `finish` trigger type.
+- `supabase/functions/google-sheets-api/actions.ts`: hook calls in activate, resume, save, review apply, identity
+  review apply, pause, remove, disconnect and status.
+- `supabase/functions/google-sheets-api/actions.test.ts`, if needed for the hooks.
+- `supabase/config.toml`: two `verify_jwt = false` entries.
+- `supabase/tests/google_sheets_import.sql`: the T1 count of 75.
+- `supabase/ops/google_sheets_drain_check.sql`: push columns appended at the end.
+- `scripts/run_google_sheets_tests.sh`:
+  - stacked migrations;
+  - the push suite;
+  - two-session push concurrency, with negative controls;
+  - re-targeted negative controls for `finish`;
+  - stacked rollback;
+  - push end-to-end.
+- `scripts/run_google_sheets_cron_check.sh`: the new schedule's guard.
+- `scripts/google_sheets_postgrest_check.mjs`: the new wrappers' ACL and a push cycle over HTTP.
+- `scripts/google_sheets_regression_evidence.sh`, only if the stacked build requires it.
+- `.github/workflows/google-sheets.yml`: paths, `deno test` and `deno check` for the two new entry points.
+- Frontend:
+  - `src/lib/google-sheets/schema.ts` and `src/lib/google-sheets/status.ts`;
+  - `src/components/settings/google-sheets/SheetSourceRow.tsx`, `SheetSourceList.tsx` and `GoogleSheetsSettings.tsx`;
+  - `src/hooks/useGoogleSheets.ts`;
+  - the tests `src/lib/google-sheets/__tests__/googleSheets.test.ts` and
+    `src/components/settings/google-sheets/__tests__/googleSheetsUi.test.tsx`;
+  - the browser harness `scripts/tests/google-sheets-ui/verify.mjs`.
+- `AGENT_RULES.md`, `WORK_LOG.md`, root `implementation_plan.md`, and this plan.
+
+**As built (delta from the list above).**
+- Added `supabase/tests/google_sheets_push_concurrency_fixture.sql`: the shared two-session fixture for runner
+  steps 4e–4h.
+- Not needed: `google-sheets-api/actions.test.ts` (the hooks are covered by `push.test.ts` and the push end-to-end
+  harness) and `scripts/google_sheets_regression_evidence.sh`.
+
+**Not touched:**
+- `google-sheets-oauth-start`, `google-sheets-oauth-callback` and `google-sheets-sync-worker` (code);
+- the foundation migration (immutable) and `pending/20261013120100_google_sheets_sync_schedule.sql` (byte-identical,
+  SHA-256 `6116f414…9665`);
+- `src/content/legal.ts`;
+- every RLS policy, the Gmail/Calendar code, and the Twilio dialer.
+
+### 17.7 Privacy timing (D9)
+The draft (`privacy-terms-draft.md`) replaces "about every five minutes". The new copy says that Google notifies
+AgentFlow when an enabled spreadsheet changes, that AgentFlow then reads that tab, and that monitoring is renewed
+about daily.
+
+**Evaluation.**
+- The pilot is limited by the server-side allowlist to Chris's own Pilot B sheet in Chris's own agency, with Chris's consent.
+  Data access is unchanged: the same `drive.file` reads of the same picked file.
+- The copy currently published describes *more frequent* reads than push produces.
+
+Publication is therefore **not required before the Gate E pilot**, but **is required before Gate G**. That is a
+recommendation; Chris decides.

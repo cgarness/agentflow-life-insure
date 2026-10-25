@@ -9,6 +9,12 @@
 #   4. the job runs and its worker request fails at the network layer (no HTTP response) → no reachability
 #   5. supabase/ops/google_sheets_unschedule.sql: job gone; no new cron run for 70 s; queue drained
 #   6. supabase/ops/google_sheets_drain_check.sql against real pg_cron / pg_net
+#   7. push sync: the old 5-minute schedule file is byte-identical (pinned SHA-256); the push migration applies on top;
+#      the EXACT pending push maintenance schedule: job exists, calls only the maintenance function through the cron
+#      guard (never the sync worker, never next_sync_at), replay refused
+#   8. nothing due (mode off) → the job runs but sends NO request for 70 s (no polling)
+#   9. work due (mode on: an enabled tab without a channel) → one maintenance request, failing at the network layer
+#  10. supabase/ops/google_sheets_push_unschedule.sql: job gone; idempotent
 # Usage: ./scripts/run_google_sheets_cron_check.sh   (GS_CRON_IMAGE overrides the image)
 # =====================================================================================================
 set -euo pipefail
@@ -76,5 +82,47 @@ echo; echo "== 6. drain check against real pg_cron / pg_net =="
 DRAIN="$(SQL -F '|' < "$ROOT/supabase/ops/google_sheets_drain_check.sql")"
 [ "$(echo "$DRAIN" | cut -d'|' -f4)" = 0 ] && [ "$(echo "$DRAIN" | cut -d'|' -f5)" = 0 ] || fail "drain check: $DRAIN"
 echo "   OK (queued_worker_requests=0, cron_jobs=0)"
+
+echo; echo "== 7. push sync: pinned old schedule, push migration, exact pending maintenance schedule =="
+OLD_SHA="$(sha256sum "$ROOT/supabase/migrations/pending/20261013120100_google_sheets_sync_schedule.sql" | cut -d' ' -f1)"
+[ "$OLD_SHA" = 6116f414faf8313b3d09fa2b721eee79ac43d57f16e9de29ef143b92c54f9665 ] || fail "the old 5-minute schedule file changed: $OLD_SHA"
+SQL -1 < "$ROOT/supabase/migrations/20261025120000_google_sheets_push_sync.sql" >/dev/null || fail "push migration"
+SQL < "$ROOT/supabase/tests/google_sheets_push_cron_check.sql" >/dev/null || fail "push fixtures"
+PUSH_PENDING="$ROOT/supabase/migrations/pending/20261025120100_google_sheets_push_maintenance_schedule.sql"
+SQL < "$PUSH_PENDING" >/dev/null || fail "pending push maintenance schedule"
+PJOB="$(SQL -c "select schedule || '|' || (command like '%/functions/v1/google-sheets-push-maintenance%')::text || '|' || (command like '%google_sheets_push_maintenance_token%')::text || '|' || (command like '%private.google_sheets_push_maintenance_due()%')::text || '|' || (command like '%google-sheets-sync-worker%')::text || '|' || (command like '%next_sync_at%')::text from cron.job where jobname = 'google-sheets-push-maintenance-every-minute'")"
+[ "$PJOB" = "* * * * *|true|true|true|false|false" ] || fail "unexpected push job: $PJOB"
+if SQL < "$PUSH_PENDING" >/dev/null 2>&1; then fail "push schedule replay was not refused"; fi
+echo "   OK (old schedule pinned $OLD_SHA; push job '* * * * *' → maintenance only, behind the guard; replay refused)"
+
+echo; echo "== 8. nothing due → the job runs, no request is sent =="
+SQL -c "select cron.unschedule('google-sheets-sync-every-minute') from cron.job where jobname = 'google-sheets-sync-every-minute'" >/dev/null
+[ "$(SQL -c "select private.google_sheets_push_maintenance_due()")" = f ] || fail "guard true with push mode off and no channels"
+T_P="$(SQL -c "select now()")"; R0="$(SQL -c "select count(*) from net._http_response")"; Q0="$(SQL -c "select count(*) from net.http_request_queue")"
+sleep 70
+PRUNS="$(SQL -c "select count(*) from cron.job_run_details d join cron.job j on j.jobid = d.jobid where j.jobname = 'google-sheets-push-maintenance-every-minute' and d.start_time > '$T_P'")"
+[ "$PRUNS" -ge 1 ] || fail "the push job never ran"
+[ "$(SQL -c "select count(*) from net._http_response")" = "$R0" ] && [ "$(SQL -c "select count(*) from net.http_request_queue")" = "$Q0" ] || fail "a request was sent although nothing was due"
+echo "   OK ($PRUNS run(s) in 70 s, 0 requests)"
+
+echo; echo "== 9. work due → one maintenance request (fails at the network layer) =="
+SQL -c "update private.google_sheets_push_config set mode = 'on'" >/dev/null
+[ "$(SQL -c "select private.google_sheets_push_maintenance_due()")" = t ] || fail "guard false although an enabled tab has no channel"
+for _ in $(seq 1 90); do
+  NEWR="$(SQL -c "select count(*) from net._http_response")"
+  [ "$NEWR" -gt "$R0" ] && break; sleep 1
+done
+[ "$NEWR" -gt "$R0" ] || fail "no maintenance request was attempted"
+POUT="$(SQL -c "select coalesce(status_code::text, 'none') from net._http_response order by id desc limit 1")"
+[ "$POUT" = none ] || fail "a maintenance request got an HTTP response: $POUT"
+echo "   OK (request attempted only once work was due; no HTTP response under --network none)"
+
+echo; echo "== 10. unschedule push maintenance (exact ops file) =="
+SQL < "$ROOT/supabase/ops/google_sheets_push_unschedule.sql" >/dev/null || fail "push unschedule"
+[ "$(SQL -c "select count(*) from cron.job where jobname = 'google-sheets-push-maintenance-every-minute'")" = 0 ] || fail "push job still scheduled"
+SQL < "$ROOT/supabase/ops/google_sheets_push_unschedule.sql" >/dev/null || fail "push unschedule is not idempotent"
+DRAINP="$(SQL -F '|' < "$ROOT/supabase/ops/google_sheets_drain_check.sql")"
+[ "$(echo "$DRAINP" | cut -d'|' -f17)" = 0 ] || fail "drain check push_cron_jobs: $DRAINP"
+echo "   OK (push job gone, idempotent; drain check push_cron_jobs=0)"
 
 echo; echo "ALL GOOGLE SHEETS CRON CHECKS PASSED"

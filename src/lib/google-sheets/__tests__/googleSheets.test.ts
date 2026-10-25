@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { autoMap, customFieldOptions } from "../autoMap";
 import { identityDecisionsSchema, sourceDraftSchema, toPayload } from "../schema";
-import { resultSummary, sourceStatus, isBusy, reviewKind, syncToast, REVIEW_REASONS } from "../status";
+import { resultSummary, sourceStatus, isBusy, reviewKind, syncToast, monitoringStatus, REVIEW_REASONS } from "../status";
 import type { SheetSourceRow } from "../schema";
 import { splitFullName as sheetsSplit, parseDOB as sheetsParseDOB, normalizeFieldName as sheetsNorm } from "../../../../supabase/functions/_shared/googleSheets/mapping";
 import { parseDOB } from "@/utils/dobUtils";
@@ -65,6 +65,19 @@ describe("status and results", () => {
     expect(sourceStatus(src({}), conn).label).toBe("Active");
     expect(isBusy([src({ phase: "initial" })])).toBe(true);
     expect(isBusy([src({ state: "paused", phase: "initial" })])).toBe(false);
+  });
+  it("real-time monitoring line: only for enabled, healthy tabs in push scope; never claims more than the server reports", () => {
+    const entry = (state: "active" | "setting_up" | "interrupted") => ({ state, last_notification_at: null, last_processed_at: null, pending: false });
+    const rt = (state: "active" | "setting_up" | "interrupted", mode: "off" | "pilot" | "on" = "pilot") => ({ mode, sources: { s: entry(state) } });
+    expect(monitoringStatus(src({}), rt("active"))).toEqual({ label: "Real-time sync active", tone: "success" });
+    expect(monitoringStatus(src({}), rt("setting_up"))?.label).toBe("Setting up monitoring");
+    expect(monitoringStatus(src({ health: "error" }), rt("interrupted"))).toEqual({ label: "Monitoring interrupted", tone: "warning" });
+    expect(monitoringStatus(src({}), rt("active", "off"))).toBeNull();
+    expect(monitoringStatus(src({}), { mode: "pilot", sources: {} })).toBeNull(); // not in the pilot allowlist
+    expect(monitoringStatus(src({}), null)).toBeNull();
+    expect(monitoringStatus(src({}), undefined)).toBeNull();
+    for (const o of [{ state: "paused" }, { state: "draft" }, { health: "needs_review" }, { health: "reconnect_required" }] as Partial<SheetSourceRow>[])
+      expect(monitoringStatus(src(o), rt("active"))).toBeNull();
   });
 });
 

@@ -1,7 +1,7 @@
 -- =====================================================================================================
 -- Google Sheets — READ-ONLY drain / quiescence check (release-package.md §5). Safe to run repeatedly.
 -- Stopped means ALL of: admission closed (wrappers_executable = 0), no backend executing a Sheets wrapper,
--- no queued worker request, and the markers unchanged across two reads at least two minutes apart.
+-- no queued worker or push-maintenance request, and the markers unchanged across two reads at least two minutes apart.
 -- Unexpired leases are informational only: a lease expiring is NOT proof that a process has terminated.
 -- If any marker moves between the two reads, the shutdown is BLOCKED — investigate; do not report it stopped.
 -- =====================================================================================================
@@ -31,4 +31,26 @@ SELECT
                        config_version::text || ':' || updated_at::text, ',' ORDER BY id), '')) FROM public.google_sheets_sources) AS sources_digest,
   (SELECT md5(COALESCE(string_agg(id::text || ':' || status || ':' || auth_generation::text, ',' ORDER BY id), ''))
      FROM public.google_sheets_connections) AS connections_digest,
-  (SELECT count(*) FROM public.google_sheets_sources WHERE lease_expires_at > now()) AS unexpired_leases_informational;
+  (SELECT count(*) FROM public.google_sheets_sources WHERE lease_expires_at > now()) AS unexpired_leases_informational,
+  -- Push sync (20261025120000). Columns 16-20 are markers; column 21 is informational. Absent objects read NULL.
+  (CASE WHEN to_regclass('net.http_request_queue') IS NULL THEN NULL ELSE
+     (xpath('/row/c/text()', query_to_xml(
+        'SELECT count(*) AS c FROM net.http_request_queue WHERE url LIKE ''%/functions/v1/google-sheets-push-maintenance%''',
+        false, true, '')))[1]::text::int END) AS queued_push_maintenance_requests,
+  (CASE WHEN to_regnamespace('cron') IS NULL THEN NULL ELSE
+     (xpath('/row/c/text()', query_to_xml(
+        'SELECT count(*) AS c FROM cron.job WHERE jobname = ''google-sheets-push-maintenance-every-minute''', false, true, '')))[1]::text::int END) AS push_cron_jobs,
+  (CASE WHEN to_regclass('private.google_sheets_watch_targets') IS NULL THEN NULL ELSE
+     (xpath('/row/c/text()', query_to_xml(
+        'SELECT md5(COALESCE(string_agg(id::text || '':'' || requested_seq || '':'' || processed_seq, '','' ORDER BY id), '''')) AS c FROM private.google_sheets_watch_targets',
+        false, true, '')))[1]::text END) AS push_targets_digest,
+  (CASE WHEN to_regclass('private.google_sheets_watch_channels') IS NULL THEN NULL ELSE
+     (xpath('/row/c/text()', query_to_xml(
+        'SELECT md5(COALESCE(string_agg(id::text || '':'' || state, '','' ORDER BY id), '''')) AS c FROM private.google_sheets_watch_channels',
+        false, true, '')))[1]::text END) AS push_channels_digest,
+  (CASE WHEN to_regclass('private.google_sheets_push_attempts') IS NULL THEN NULL ELSE
+     (xpath('/row/c/text()', query_to_xml(
+        'SELECT count(*) AS c FROM private.google_sheets_push_attempts', false, true, '')))[1]::text::int END) AS push_attempts,
+  (CASE WHEN to_regclass('private.google_sheets_watch_targets') IS NULL THEN NULL ELSE
+     (xpath('/row/c/text()', query_to_xml(
+        'SELECT count(*) AS c FROM private.google_sheets_watch_targets WHERE lease_expires_at > now()', false, true, '')))[1]::text::int END) AS unexpired_push_leases_informational;

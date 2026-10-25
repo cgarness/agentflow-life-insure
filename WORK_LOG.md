@@ -1,3 +1,86 @@
+## 2026-10-25 — Google Sheets real-time sync: Gate B BUILT (draft PR; NOT merged, applied, deployed or enabled)
+
+**Approval.** Chris approved Gate A ("#APPROVE_PLAN", plan at `540e333`) with decisions D1–D11 and build
+requirements 1–10. The build was authorized on this branch with a draft PR, stopping at Gate C. Still forbidden
+without separate approval:
+- merge;
+- production migrations, Edge deploys and secrets;
+- live Google watches and monitoring activation;
+- RLS or data changes;
+- synthetic production leads.
+
+**Read first.** AGENT_RULES (§1–§11, invariants #2, #25, #28, #37, and the Google Sheets invariant), VISION, the
+newest WORK_LOG entries, and the plan.
+
+**Built.** File list in plan §17.6.
+- **Migration `20261025120000_google_sheets_push_sync.sql`.** The version is provisional and is re-stamped at Gate D.
+  - Private tables, all with RLS on and no policies: push config (mode `off`), pilot allowlist, watch targets,
+    channels, events, attempts.
+  - 13 private helpers and 10 service-role-only wrappers (75 Sheets functions in all).
+  - `finish` accepts trigger `push` and records `backlog`. A preimage guard pins the live md5 `f1cf66be…`.
+  - An exact rollback.
+- **Pending (not applied):** `pending/20261025120100_google_sheets_push_maintenance_schedule.sql`, a guarded
+  once-a-minute maintenance job. The 5-minute poll schedule is unchanged and unapplied.
+- **Edge.**
+  - `google-sheets-push`, the receiver. HMAC-tagged channel id; a bad tag → 404 with no DB call. Digest-only token,
+    compared in constant time. It answers 200 only after commit; a DB error → 503.
+  - `google-sheets-push-maintenance`, with a constant-time bearer.
+  - `_shared/googleSheets/push/*`.
+  - API hooks: activate, resume, save, Review apply, pause/remove release, Disconnect release, `status.realtime`.
+  - Engine: the `push` trigger, an `already` count and an `onIngest` hook.
+  - Both new functions use `verify_jwt=false` in `config.toml` (D4).
+- **Frontend.** The monitoring line (Real-time sync active / Setting up monitoring / Monitoring interrupted) and
+  "Last successful sync …". Tailwind only; no new form.
+- **Ops**, NOT RUN:
+  - pilot enable (Pilot B allowlist), stop-all and unschedule;
+  - read-only metrics and pilot-evidence queries;
+  - push columns 16–21 appended to the drain check.
+- **CI.** `.github/workflows/google-sheets.yml` covers the new migration paths and the two new entry points.
+
+**Key invariants** (AGENT_RULES "Google Sheets real-time sync"):
+- no polling;
+- a maintenance-only cron;
+- server-side scope (mode plus allowlist) and an Edge kill switch;
+- `requested_seq`/`processed_seq`, with `done` verified in SQL;
+- lock order: channels → target → source → connection;
+- psql's lexer chokes on a `begin` identifier.
+
+**Verification** (`docs/plans/2026-10-25-google-sheets-realtime-sync/verification.md`):
+- Full runner on PG 17.6 and 16.15: ALL PASSED.
+  - T1–T18 and P1–P14.
+  - Regressions.
+  - Concurrency 3/4/4b/4c plus the new 4e/4f/4g/4h, each with a negative control that reproduces the bug.
+  - The 80-notification burst.
+  - Shutdown.
+  - Rollback and re-apply.
+  - PostgREST: 62 checks.
+  - Review e2e: 40 checks.
+  - Push e2e: 37 checks across 12 scenarios.
+- Real pg_cron/pg_net check: ALL PASSED. With nothing due, the job makes 0 requests in 70 s.
+- Deno: 112 passed; `deno check` passed on all six entry points.
+- `tsc` exit 0; strict app tsc: 0 new errors vs base.
+- Focused Vitest: 99 passed. ESLint clean. Build OK.
+- Browser harness: 68 PASS at 1440 and 390 px.
+
+**Not done.**
+- No production read or write during the build.
+- `src/content/legal.ts` is unchanged. Draft copy is in `privacy-terms-draft.md`: required before Gate G, not before
+  the Gate E pilot.
+
+**Open risks.**
+- R1: domain verification for the Supabase Functions URL.
+- R2: Google coalesces Sheets notifications (reported ~3 min).
+- R3: API-written rows may not notify.
+- R4: quota.
+- R5: refresh-token lifetime while the OAuth app is in Testing mode.
+- R6: Edge CPU on large tabs.
+- R7: platform logs.
+
+**Next.** Gate C: Chris reviews the draft PR and CI. Then Gate D: re-stamp the version, apply, deploy with mode `off`
+and set secrets. Gate D needs its own approval.
+
+---
+
 ## 2026-10-25 — Google Sheets real-time sync: Phase 0 review and plan (PLAN ONLY; awaiting Gate A)
 
 **Request.** Chris asked for a push-first Google Sheets integration: a new valid row becomes a lead from Google

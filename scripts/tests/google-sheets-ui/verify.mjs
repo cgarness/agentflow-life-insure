@@ -25,7 +25,9 @@ function apiResponse(body) {
   state.calls.push(body.action);
   const conn = state.connected ? { status: "connected", google_email: "agent.sheets@example.test", connected_at: now(), last_error_code: null } : null;
   switch (body.action) {
-    case "status": return { enabled: true, eligible: true, connection: conn };
+    case "status": return { enabled: true, eligible: true, connection: conn, realtime: { mode: "pilot", sources: Object.fromEntries(
+      state.sources.filter((x) => x.state === "enabled" && x.health === "ok").map((x) => [x.id,
+        { state: "active", last_notification_at: null, last_processed_at: null, pending: false }])) } };
     case "context": return { duplicate_action: "flag", default_status: "New", lead_sources: ["Facebook"], has_lead_created_workflows: true,
       custom_fields: [{ id: "33333333-3333-3333-3333-333333333333", name: "Coverage Amount", created_by: null, created_at: null }] };
     case "picker_token": return { access_token: "ya29.fake-local-token", expires_in: 3599 };
@@ -253,6 +255,8 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
   await page.getByRole("button", { name: "Sync now" }).click();
   await page.getByText(/2 imported \(1 flagged\) · 1 error/).waitFor({ timeout: 10000 });
   check(true, `${vp.name}: Sync now shows imported (flagged subset) and errors`);
+  await page.getByText("Real-time sync active").waitFor({ timeout: 10000 });
+  check(await page.getByText(/Last successful sync .* ago/).isVisible(), `${vp.name}: real-time monitoring line and last successful sync shown`);
   await page.screenshot({ path: `${OUT}/gs-${vp.name}-4-active.png`, fullPage: true });
 
   // A check interrupted by a concurrent change (stale finish) is never reported as "Checked"
