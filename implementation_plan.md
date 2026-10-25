@@ -1,3 +1,312 @@
+## 2026-10-25 — BUGFIX PLAN (AWAITING APPROVAL; no source edited, no production action): Approval D `configure-secrets` failed (run 40234513215)
+
+**Status.**
+- Diagnosis only. This plan is the only file changed.
+- Production was read through the connector, read-only. Only names, counts, digests and settings were read: no
+  decrypted value, no secret value, no header.
+- Nothing was retried, rolled back or dispatched. Real-time sync is still OFF.
+
+**Read first.** AGENT_RULES (§1–§11, both Google Sheets invariants), VISION, the newest WORK_LOG entries, the focused
+plan, `release-package.md`, the deployed runner on `main` `0e5b957`, and runs 40233075500 … 40234513215.
+- No conflicting work. `main` = `0e5b957` = this branch.
+- No open PR touches the runner or the push release.
+- The five runner runs are `check`, `apply-migration`, `record-history` and `deploy-functions` (all green), then
+  `configure-secrets` (failed). There has been no retry.
+- WORK_LOG and AGENT_RULES do not yet record the execution of Approvals A–C. The implementation will fix that.
+
+### 1. Evidence (run 40234513215, job 121293097099)
+
+- Every gate passed up to `PASS: generated 64-char secrets` at 21:15:15.2347.
+- Then `STOP: execution failed …` at 21:15:15.3634, **≤ 129 ms later**. That message comes only from the catch-all
+  `except BaseException`.
+- The only operation between those two lines is `management('secrets', 'POST', […])`, in particular
+  `urllib.request.urlopen`. So **the POST raised**:
+  - an HTTP 200/201 would have printed `PASS: push secrets stored`;
+  - any other 2xx would have printed `STOP: push secrets stored`;
+  - neither appears.
+- **Not a timeout.** The limit is 30 s.
+- **Fast.** The two GETs in the same run (secrets, functions) took about 205 ms each, so the POST was rejected faster
+  than a read.
+- **The Vault write never ran.** The last pooler session closed at 21:15:15.258 and no session opened after it
+  (`supavisor_logs`). The runner opens psql only after a 2xx.
+- **No Sheets function traffic** since the Approval C probes at 21:11:30–32 (405 / 503 `not_configured` / 403 /
+  401). The §7 log check is `0|0` over 1,325 rows. No postgres log mentions `create_secret` or the Vault name.
+
+### 2. Root cause
+
+**Confirmed: the runner made the failure undiagnosable.**
+- `management()` lets `urllib.error.HTTPError`, `URLError` and socket timeouts escape.
+- The catch-all prints a fixed message and drops even the non-secret HTTP status.
+- `management()` also follows a 301/302/303 on a POST as a GET (urllib's default). A redirect would therefore be
+  reported as success with nothing written. That has not happened, but it is a latent bug.
+- The synthetic tests mock `management()` whole, so no HTTP failure path was ever exercised.
+
+**Confirmed correct (official reference `v1-bulk-create-secrets` and the official CLI v2.121.0 source):**
+- Endpoint `POST /v1/projects/{ref}/secrets`.
+- Body: an array of `{name, value}` (at most 100; the name must not start with `SUPABASE_`; the value at most 24,576
+  characters).
+- `Content-Type: application/json`, Bearer auth.
+- Success is **201** with an empty body, which the runner never reads. DELETE answers 200.
+- Documented errors: 401, 403 "Forbidden action", 429, and 500 "Failed to create project's secrets".
+- The runner would have read a 201 correctly as success, and the request shape was valid.
+- **No name conflict.** Both push names were verified absent 6.6 s earlier, the endpoint upserts (the CLI's
+  `secrets set` overwrites), and 409 is not a documented response.
+
+**Most probable cause (not provable from the retained evidence): HTTP 403.** The `google-sheets-production`
+`SUPABASE_ACCESS_TOKEN` lacks **Edge Function Secrets: Read-write**.
+- This was the token's **first secrets write ever**:
+  - Chris entered all six B1 secrets by hand (`docs/plans/2026-10-13-google-sheets-import/release-package.md`, "Secrets" lines 150 and 841);
+  - every earlier runner call was a GET or a CLI function deploy.
+- Supabase scoped PATs (public alpha) grant three separate permissions:
+  - **Edge Function Secrets: Read** (list);
+  - **Edge Function Secrets: Read-write** (bulk create / bulk delete);
+  - **Edge Functions: Read-write** (deploy).
+- That matches exactly what we observed: list worked, deploy worked, create was refused. The rejection was also faster
+  than a read, which fits an authorization layer.
+- **Not excluded:** 429, 5xx, an edge/WAF refusal of the default `Python-urllib` user agent (the CLI sends its own),
+  and 400.
+- **Consequence:** with the same token, `rollback-secrets` (DELETE) would be refused too.
+
+### 3. Production inventory (connector, read-only, 2026-10-25 21:25 UTC)
+
+| Item | State |
+|---|---|
+| `GOOGLE_SHEETS_PUSH_KEY` (Edge) | **Not readable with the available tools.** The connector has no secret-list tool. It was absent at 21:15:08 (runner), and no 2xx was received for the write, so it is expected absent. **Unproven.** |
+| `GOOGLE_SHEETS_PUSH_MAINTENANCE_TOKEN` (Edge) | Same as above |
+| `GOOGLE_SHEETS_PUSH_ENABLED` (Edge) | Absent at 21:15:08 (runner). It was never part of any request. |
+| Vault `google_sheets_push_maintenance_token` | **ABSENT** (count 0, by name; nothing decrypted). The only Sheets Vault secret is Pilot B's refresh token. |
+| Push mode / config | `off\|4\|10800\|900\|3600` |
+| Targets / channels / events / attempts / pilot sources | 0 / 0 / 0 / 0 / 0 (no Google watch) |
+| Sheets cron jobs | 0 (13 jobs in total) |
+| Migration history | head `20261025120000`, 347 rows |
+| Sheets functions | `private:44, public:31` = 75; digest `6e8c4365…` (the reviewed postimage) |
+| Edge functions | `google-sheets-push` v1, `google-sheets-push-maintenance` v1, `google-sheets-api` v7, all ACTIVE with `verify_jwt=false`. The worker and the OAuth functions are still v6. |
+| Pilot B data fingerprint | `1\|1\|3\|3\|3\|2\|98aae47446d6778fb467f78b78023b3f` (unchanged) |
+
+**State classification.**
+- **D is impossible**, because Vault is absent.
+- The state is **A** (expected), **B** (both Edge secrets, no Vault) or **C** (one Edge secret).
+- No **E** signal was found.
+- A versus B/C needs a names-only read, which the runner already does. Two zero-risk ways to settle it:
+  - **(a)** Chris looks at Dashboard → Edge Functions → Secrets (names only);
+  - **(b)** the **existing** `check` stage (read-only, already reviewed). It prints `STATE: deployed` for A, STOPs at
+    `push secrets all present or all absent` for C, and STOPs at `push maintenance Vault token present` for B.
+
+**Settings relevant to credential safety:**
+- `log_statement=ddl` and `log_min_duration_statement=-1`, but `log_min_error_statement=error`. A **failing**
+  `vault.create_secret('<token>', …)` statement would therefore be written to `postgres_logs` with the token in it.
+  That is a latent leak for any recovery where a Vault row already exists.
+- `log_parameter_max_length_on_error=0`, so a **bind parameter** is never logged.
+
+### 4. Correction (surgical; runner and its tests only; release content `24fa809` unchanged)
+
+**`management()`**
+- Use a no-redirect opener and send an explicit `User-Agent` (defense in depth, not the claimed cause).
+- Accept success codes per method: GET 200, POST 201 (200 tolerated), DELETE 200 (204 tolerated). Any other 2xx →
+  `unexpected success status; write outcome unknown`.
+- Map every failure to `Stop` with a fixed category, the numeric status and an allowlisted content kind
+  (`json` / `html` / `text` / `other`):
+  - 400/422 → invalid payload;
+  - 401 → API authentication failure;
+  - 403 → permission failure (the token lacks Edge Function Secrets Read-write);
+  - 404 → not found;
+  - 409 → conflict;
+  - 429 → rate limited;
+  - 5xx → server error;
+  - 3xx → unexpected redirect;
+  - timeout → network timeout;
+  - `URLError` / `OSError` → network failure;
+  - non-JSON or non-list GET → unexpected response format.
+- **Never** a body, a reason phrase, a URL, a header or exception text. A `json` versus `html` 403 tells an API
+  refusal from an edge/WAF refusal.
+
+**`command()`**
+- `TimeoutExpired` → `Stop('command timed out …')`. Output is still never printed.
+
+**Secret inventory**
+- `secret_inventory()` returns name → platform digest. It is held in memory only and never printed.
+- The digest scheme is undocumented, so correctness never depends on it.
+- `vault_token_rows()` returns `0|1`; anything else STOPs.
+
+**State machine**
+- The two hard STOPs for partial secrets are replaced:
+
+  | Edge push secrets | Vault | State |
+  |---|---|---|
+  | none | absent | `deployed` |
+  | both | present | `configured` |
+  | anything else | — | `partial` |
+
+- `STATE: partial (KEY=present|absent TOKEN=present|absent vault=present|absent)`. Names only.
+- `check` in `partial` runs every read-back, then STOPs: `partial push secret configuration; recover-secrets or
+  rollback-secrets required`.
+- `operations_gate` takes the expected Vault presence from the state, or for `partial` only requires at most one row.
+- The kill switch is still refused in every state.
+
+**`configure()`, shared by `configure-secrets` (from `deployed` only) and the new `recover-secrets`**
+1. Generate the pair and mask it, as today.
+2. POST exactly the two names.
+3. **On any failure, read back before STOP:**
+   `SECRETS AFTER FAILURE: KEY=… TOKEN=… vault=…`, or `unknown (read-back <category>)`. The same applies when the
+   Vault step fails after a successful Edge write.
+4. Write the Vault token in one transaction: `delete from vault.secrets where name = …;` then
+   `select vault.create_secret($1, $2, $3) \bind '<token>' '<name>' '<desc>' \g`.
+   - This is psql 16 `\bind`, so the value is a bind parameter: never in the statement text, `pg_stat_activity` or
+     error logs.
+   - It still travels only over stdin.
+5. Keep the Vault check by SHA-256 inside SQL.
+6. Read the names back.
+7. For each name that already existed (recovery), require that its platform digest **changed**. This proves the
+   overwrite took effect without assuming the scheme.
+8. Print one informational line saying whether the digests equal SHA-256 of the stored values. It is not a gate.
+9. `http_checks(configured=True)`.
+
+**`recover-secrets` (new stage; explicit name and confirmation; `partial` only)**
+- It is the controlled replacement of an incomplete credential set.
+- It never claims to match a stored value it cannot see. All three copies are replaced together in one run, so
+  Edge and Vault match by construction: the API accepted those exact values (201), and the Vault hash equals the same
+  in-memory token.
+- **Rotation is safe only while nothing depends on the old values.** Every stage already requires:
+  - 0 channels (the HMAC key signs channel ids);
+  - 0 Sheets cron jobs (the bearer);
+  - mode `off`;
+  - the kill switch absent.
+- It is refused from `configured`, so no needless rotation. Rotation stays `rollback-secrets` → `configure-secrets`.
+
+**`rollback-secrets`**
+- Allowed from `configured` or `partial`.
+- DELETEs only the push names actually present (nothing if none), then deletes the Vault row.
+- Same failure read-back.
+- Verifies the names are absent and runs `http_checks(configured=False)`.
+
+**Unchanged:**
+- the protected environment;
+- main-only;
+- the stage confirmation;
+- the pinned source and its checksums;
+- every read-back;
+- the stage order for everything else;
+- no automatic retry.
+
+### 5. Files (intended, after approval)
+
+1. `.github/workflows/google-sheets-push-release.yml`: everything in §4, plus `recover-secrets` in the dispatch options.
+2. `scripts/tests/google_sheets_push_release_runner.py`: regression tests (§6).
+3. `docs/plans/2026-10-25-google-sheets-realtime-sync/release-package.md`: §5, §6 and §11. Adds `recover-secrets`,
+   the token-permission prerequisite and Approval D-R.
+4. `docs/plans/2026-10-25-google-sheets-realtime-sync/verification.md`: new §10 (results).
+5. `AGENT_RULES.md`: the Google Sheets real-time status line (A–C executed, D failed). Also adds runner invariants:
+   sanitized API categories, the read-back after a failed write, `partial`/`recover-secrets`, Vault through `\bind`,
+   and the token needing Edge Function Secrets Read-write.
+6. `WORK_LOG.md`: newest-first entry, including A–C as executed.
+7. `implementation_plan.md`: this entry plus its implementation record.
+
+**Not touched:**
+- migrations;
+- Edge Functions;
+- `src/`;
+- `google-sheets-push-release-check.yml` (it already triggers on both runner files and installs psql 16);
+- every other workflow.
+
+### 6. Tests (synthetic only; no production access)
+
+**HTTP layer.** `urlopen` and the opener are faked, never `management()` itself:
+- POST 201;
+- POST 200 tolerated;
+- POST 202/204 → unexpected success, with the read-back;
+- GET 200 with an HTML or dict body → unexpected format;
+- 400, 401, 403 (json and html), 409, 429, 500 and 503, each with the exact sanitized label;
+- `socket.timeout` and `TimeoutError` → network timeout;
+- `URLError` → network failure;
+- 302 on POST → unexpected redirect, with no follow-up GET.
+
+**States**, as a matrix for every stage:
+- none / KEY only / TOKEN only / both;
+- times Vault absent / present.
+
+Each stage must run or refuse exactly as in §4, with no mutator called on a refusal.
+
+**Recovery** (real synthetic PostgreSQL 17.6 and the real Vault stand-in):
+- `recover-secrets` from every partial state, including a pre-existing Vault row;
+- the digest-changed check;
+- recovery when the fake API keeps the old digest → STOP;
+- `rollback-secrets` from `partial` deletes only what is present.
+
+**Failure paths.**
+- POST failure → `SECRETS AFTER FAILURE` with the right inventory, and no Vault write.
+- Vault failure after an Edge success → `partial`.
+
+**Redaction.**
+- Sentinel strings in fake bodies, reasons, headers and exception text never appear in stdout.
+- The generated values never appear.
+- The token is absent from the SQL statement text (`\bind`).
+
+**Real-time stays OFF.**
+- Every POST body holds exactly the two push names, never the kill switch.
+- `operations_gate` (mode `off`, 0 channels, 0 cron) passes after every failure path.
+
+**Repeated execution:**
+- `configure-secrets` twice: the second run is refused (`configured`);
+- `recover-secrets` after a success: refused;
+- `check` is idempotent.
+
+**Unchanged suite:** everything existing (the refusal counts are updated for the new state).
+
+**Then run:**
+- the runner test on PostgreSQL 17.6 (CI, plus locally if a 17.6 server can run here);
+- `python3 -m py_compile` of the embedded program and the YAML/AST checks;
+- the Google Sheets regression evidence where the sandbox allows;
+- `npx tsc --noEmit`;
+- ESLint (both sets);
+- `npm run build`;
+- `git diff --check`.
+
+### 7. Recovery procedure (each step needs its own approval; Gate E is not included)
+
+0. **Chris (credentials; no agent can or should do this):**
+   - Dashboard → Account → Access tokens → find the token stored as `google-sheets-production` /
+     `SUPABASE_ACCESS_TOKEN`.
+   - **If** it is scoped without **Edge Function Secrets: Read-write** on `jncvvsvckxhqgqvkppmj`:
+     1. create a project-only scoped token with **Edge Functions: Read-write** and **Edge Function Secrets:
+        Read-write**;
+     2. replace the environment secret (GitHub → Settings → Environments → `google-sheets-production`);
+     3. revoke the old token.
+   - Never paste a token anywhere else.
+   - Optional now: approve one run of the **existing** read-only `check`, to settle A, B or C before the fix merges.
+1. **Approve this plan.** Then: implement on this branch, update WORK_LOG, open a draft PR and get CI green.
+2. **Merge approval** (merge commit).
+3. Corrected `check`, then connector verification.
+4. **One** of these, separately approved:
+   - `configure-secrets` (`deployed`);
+   - `recover-secrets` (`partial`).
+
+   Then the connector checks:
+   - Vault row count 1 (by name);
+   - mode `off`; 0 channels, targets, events and attempts; 0 Sheets cron;
+   - functions unchanged;
+   - fingerprint `1|1|3|3|3|2|98aae474…`;
+   - log check `0|0`;
+   - `postgres_logs` `create_secret` hits 0.
+5. **Stop.** Gate E gets its own package.
+
+**A failed stage is never retried automatically.** The corrected runner says exactly what failed and what is
+stored.
+
+### 8. Risks
+
+- The 403 diagnosis is inference. The corrected runner will name the real status on its next write.
+- If the token is fixed but the cause was 5xx or WAF, the classification shows that and nothing is lost.
+- Edge secret values can never be read back. The Edge↔Vault match rests on the API's 201 contract plus the Vault
+  hash in the same run. The digest-changed check catches a silent no-op.
+- `recover-secrets` rotates a credential set that was never used. It is safe only under the existing 0-channel /
+  0-cron / mode-off gates, and those are enforced.
+- After configuration the receiver answers 400 instead of 503 to malformed requests. This is the expected Approval D
+  behavior.
+- Changing the token is an out-of-band credential action, and the new token's scope is Chris's choice. Least
+  privilege: one project, the two permissions above.
+
+---
+
 ## 2026-10-25 — GATE D RELEASE PACKAGE PREPARED (read-only; NOT merged, applied, deployed or configured): Google Sheets real-time sync, PR #491
 
 **Status.**
