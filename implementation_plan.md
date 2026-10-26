@@ -1,3 +1,210 @@
+## 2026-10-26 — PLAN (AWAITING APPROVAL; no source edited, no production action): PR #492 final credential-state hardening — durable verification marker
+
+**Status.**
+- Plan only.
+- Production was read through the connector for privilege and function metadata only: no decrypted value, no secret
+  value.
+
+**Read first.** AGENT_RULES (§1–§11, both Google Sheets invariants, including the push credential-set rules added in
+`ab638ad`), VISION, and the newest WORK_LOG entry (the Approval D runner fix).
+- `main` is still `0e5b957`.
+- PR #492's head `ab638ad` is green and mergeable, with no review threads.
+- No conflicting work.
+
+### 1. Finding (confirmed in the code at `ab638ad`)
+
+**What `main()` does today.**
+- It classifies the set as `configured` when both Edge push names and the Vault row are present. Nothing else is
+  checked.
+
+**The gap after a failed verification.**
+- In `configure()`, `vault.create_secret` commits in its own psql transaction, and the SHA-256 check runs after it.
+- The window stays open until the stage ends. Any of these leaves all three names present:
+  - the check fails;
+  - `http_checks` fails;
+  - the job is cancelled or times out.
+- The next run then reads that set as `configured`:
+  - `check` passes;
+  - `configure-secrets` and `recover-secrets` are refused;
+  - an unverified set would look ready for Gate E.
+
+**The gap after a success.**
+- Drift leaves all three names in place, so the set still reads as `configured`. Examples:
+  - a dashboard edit of an Edge push secret;
+  - a change to the Vault row.
+
+### 2. Production facts (read-only metadata, 2026-10-26)
+
+- `supabase_vault` is 0.3.1.
+- The `postgres` role has:
+  - SELECT and DELETE on `vault.secrets`, but **not UPDATE**;
+  - SELECT on `vault.decrypted_secrets`;
+  - EXECUTE on `vault.create_secret` and `vault.update_secret` (SECURITY DEFINER).
+- `vault.secrets` has no triggers.
+- `vault.update_secret(id, NULL, NULL, new_description)` keeps the secret (`CASE WHEN new_secret IS NULL THEN
+  s.secret`) and sets `description = coalesce(new_description, …)`.
+- So the marker can live in the Vault row's plaintext description, written **only** through `vault.update_secret`.
+  - A direct `UPDATE vault.secrets` would be refused in production.
+  - The synthetic stand-in would allow it, so a static test pins the function call.
+- The push Vault row count is 0, unchanged.
+
+### 3. Design: a durable verification marker bound to the stored values
+
+**Where the marker lives.**
+- In the `description` of the Vault row `google_sheets_push_maintenance_token`.
+- No new object, no migration, no schema change.
+- Deleting the row (stale-copy removal, `rollback-secrets`) also deletes the marker.
+
+**When it is written.**
+- The row is created as `Google Sheets push maintenance bearer (unverified)`.
+- It becomes `Google Sheets push maintenance bearer; verified v1 <sig>` only as the **last** step of a successful
+  `configure-secrets` / `recover-secrets`, after every check:
+  - the Edge read-back;
+  - the digest change;
+  - the Vault SHA-256;
+  - `http_checks`.
+
+**What the marker contains.**
+- `sig` = SHA-256(`v1|` + SHA-256(Vault value) + `|` + `edge_binding`). It is computed **inside SQL** from
+  `vault.decrypted_secrets`.
+- `edge_binding` = SHA-256 of the two Edge platform digests. The digests come from the Management API and are not
+  secret. The hash is computed in Python, so only `[0-9a-f]{64}` reaches SQL.
+- The marker therefore holds only hashes of hashes, never a value. Python only ever receives booleans.
+
+**Guarded write.**
+- One statement: `select vault.update_secret(s.id, NULL, NULL, <marker>) … where s.name = … and sha256(decrypted) =
+  <this run's token digest>`.
+- The marker is written only while Vault holds exactly this run's token.
+
+**Classification.** One function, `credential_state()`, is used by `main()` and by `configure()`'s final self-check:
+
+| State | Condition |
+|---|---|
+| `deployed` | no Edge push name, no Vault row |
+| `configured` | both names, exactly one Vault row, **and** the marker equals `sig`(current Vault value, current Edge digests) |
+| `partial` | anything else, **now including** all three present with the marker missing or mismatched, shown as `STATE: partial (… vault=present verification=missing)` |
+
+**Final self-check.**
+- `configure()` re-reads the inventory and requires `credential_state == 'configured'`. Otherwise it STOPs with the
+  read-back.
+- This also fails closed if a platform digest were unstable between reads. Such a set is never shown as configured.
+
+**Consequences.**
+- **A failed or interrupted verification → `partial`.** Only two stages may then run:
+  - `recover-secrets`: removes the row and marker first, replaces all three, then verifies again;
+  - `rollback-secrets`.
+- **Drift after success → `partial`.** `check` stops. Drift means any of:
+  - an Edge digest change;
+  - a changed Vault value;
+  - an edited description.
+
+**Unchanged:**
+- the stages, every gate, the protected environment and the pinned source;
+- the write order (the marker becomes its last step);
+- the sanitized errors and `\bind`;
+- mode `off`, the kill switch absent, 0 channels, 0 cron;
+- no automatic retry.
+
+### 4. Files (intended, after approval)
+
+1. `.github/workflows/google-sheets-push-release.yml`:
+   - the marker constants;
+   - `edge_binding()`, `vault_verified()` and `credential_state()`;
+   - `main()` classifies through `credential_state()`;
+   - `configure()`:
+     - creates the row with the unverified description;
+     - moves `http_checks` inside the failure block;
+     - writes the guarded marker through `vault.update_secret`;
+     - ends with the final self-check;
+   - the state and failure lines add `verification=missing`.
+2. `scripts/tests/google_sheets_push_release_runner.py`: the regression tests (§5).
+3. `docs/plans/2026-10-25-google-sheets-realtime-sync/release-package.md`:
+   - §5: the marker;
+   - §12: the post-check, the Vault description prefix read by name through the connector.
+4. `docs/plans/2026-10-25-google-sheets-realtime-sync/verification.md`: §11 (results).
+5. `AGENT_RULES.md`: the credential-set invariant. `configured` requires the marker; the marker is written only
+   through `vault.update_secret`; a set is never classified by names alone.
+6. `WORK_LOG.md`: the entry.
+7. `implementation_plan.md`: this entry and its implementation record.
+
+**Not touched:**
+- migrations, Edge Functions and `src/`;
+- `supabase/ops`: `verify.sql` counts the row by name and stays correct;
+- every other workflow.
+
+### 5. Tests
+
+**Required regression.** It runs on the real synthetic database through the real stage machine: `main()`, with only
+the environment, the CLI and the Edge function inventory patched.
+1. `configure-secrets` writes the Vault row and the write commits. The harness then swaps the committed value through
+   `vault.update_secret`, so the checksum check fails.
+2. Expect STOP `Vault holds exactly the maintenance token` and
+   `SECRETS AFTER FAILURE: … vault=present verification=missing`.
+3. `check` → `STATE: partial (… verification=missing)`, then stops.
+4. `configure-secrets` is refused.
+5. `recover-secrets` is accepted and ends `configured`, with the marker.
+6. `check` passes with `STATE: configured`.
+
+**Same pattern** for two more cases:
+- `http_checks` failing after the Vault write;
+- a run cut off before the marker (description still `(unverified)`).
+
+**Drift after success → `partial`:**
+- an Edge digest change (fake API);
+- the Vault value changed;
+- the description edited.
+
+**Static checks:**
+- the marker is written only through `vault.update_secret(`;
+- the code contains no `update vault.secrets`;
+- the marker holds only the fixed prefix and hex;
+- no value appears in any printed line or in SQL statement text.
+
+**`drive()` matrix:**
+- `vault_verified` is patched;
+- a new partial shape, "all three present, unverified";
+- `configured` requires the marker.
+
+**Negative control.** Classifying by names plus Vault presence (today's code) fails the new regression.
+
+**One-off local validation** against the real `supabase_vault` 0.3.1 in `supabase/postgres:17.6.1.063`, as the
+non-superuser `postgres` role:
+- `\bind` create;
+- a description-only `update_secret` keeps the value;
+- the marker check returns t/f;
+- a direct UPDATE is refused;
+- DELETE works.
+
+This is recorded in `verification.md` §11. It is not added to CI, to keep the change surgical.
+
+**Then run:**
+- the runner suite three times;
+- YAML / AST / `py_compile`;
+- `run_google_sheets_tests.sh`;
+- `tsc`, ESLint and the build;
+- `git diff --check`;
+- PR CI.
+
+### 6. Risks
+
+- **Digest stability.** The marker binds to the platform digests. If a digest were unstable between reads, the final
+  self-check fails closed (`partial`), never a false `configured`. Recovery would then need a separate decision to
+  drop the Edge binding. Digests are expected to be stable, since the CLI presents them as each value's DIGEST.
+- **Decrypted values stay inside SQL.** Python only receives booleans. This is the same pattern already approved for
+  the Vault hash check.
+- **Visibility.** The description is visible to dashboard users. It holds only non-secret hex.
+- **Dashboard edits.** Editing the description in the dashboard makes the set `partial`. That fails closed and needs
+  `recover-secrets` or `rollback-secrets`.
+
+### 7. Approval request
+
+**"APPROVED — PR #492 credential marker"**: implement §3–§5 on `claude/approval-d-sheets-credentials-b0sper`, pushing
+only there. Then update WORK_LOG and run the tests and CI.
+
+No merge, deploy, production write, credential change or real-time activation.
+
+---
+
 ## 2026-10-25 — BUGFIX APPROVED and IMPLEMENTED (draft PR; NOT merged; no production action): Approval D `configure-secrets` failed (run 40234513215)
 
 **Status.**
