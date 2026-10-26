@@ -366,3 +366,58 @@ Deno 2.5.6.
 - a real Management API response;
 - whether the platform digest is SHA-256 of the value (the runner prints an `INFO` line and never gates on it);
 - the scoped token's permissions.
+
+## 11. PR #492 credential-state hardening: verification marker (2026-10-26; approved plan `4a3f9b2`; nothing executed)
+
+Runner and tests only. `git diff 0e5b957 HEAD -- supabase src` is still empty.
+
+| Check (this head) | Result |
+|---|---|
+| `google_sheets_push_release_runner.py` (PostgreSQL 17.6, CLI 2.121.0) | **ALL PUSH RELEASE RUNNER CHECKS PASSED**, 3 of 3 runs (about 110 s; the new end-to-end stage runs add about 70 s) |
+| Static checks | No `UPDATE vault.secrets` in any statement line. Exactly one `vault.update_secret(` (the marker). |
+| Real `supabase_vault` 0.3.1 (`supabase/postgres:17.6.1.063` via `mirror.gcr.io`), as the non-superuser `postgres` role whose privileges equal production's (UPDATE on `vault.secrets` refused; DELETE and `decrypted_secrets` allowed) | The runner's own `configure()` stores ciphertext via `\bind` and writes the marker via `update_secret`, and `credential_state` reads `configured`. A direct UPDATE is refused (`permission denied`). A description-only `update_secret` keeps the value. An edited marker and Vault-value drift each read `partial`. Recovery re-marks. `rollback_secrets` deletes the row. A failing `create_secret` logs only the name and the function's internal SQL; the bound value appears 0 times in the server log. |
+| `run_google_sheets_tests.sh`, PostgreSQL 17.6 | **ALL GOOGLE SHEETS CHECKS PASSED**: PostgREST 62, Review e2e 40, push e2e 43 |
+| Focused Vitest | 6 files, **99 passed** |
+| `npx tsc --noEmit` / ESLint (Sheets set) / `npm run build` / `git diff --check` | exit 0 / exit 0 / built / clean |
+
+**What the runner test adds.**
+- **Required regression.** It runs through the real stage machine, `main()`, on the real synthetic database (only the
+  environment, CLI, Edge function inventory and HTTP probes are patched).
+  1. `configure-secrets` writes the Vault row and the write commits.
+  2. The test then swaps the value, so the checksum fails: STOP `Vault holds exactly the maintenance token`, with
+     `SECRETS AFTER FAILURE: … vault=present verification=missing` and the description still `(unverified)`.
+  3. `check` → `STATE: partial (… verification=missing)`, then stops.
+  4. `configure-secrets`, `deploy-functions`, `rollback-functions` and `apply-migration` are refused.
+  5. `recover-secrets` verifies the set and marks it.
+  6. `check` then reads `configured`. `recover-secrets` and `configure-secrets` are refused on it (no needless
+     rotation).
+- **Drift after success → `partial`, and `recover-secrets` re-verifies each.** Five cases:
+  - an Edge digest change;
+  - the Vault value;
+  - an edited marker;
+  - a forged marker (the wrong binding);
+  - a reset to `(unverified)`.
+- **Further failures, each leaving `partial` that `rollback-secrets` clears:**
+  - the authentication probe fails after the Vault write;
+  - the run is cut off at the marker step;
+  - Vault changes after its checksum passed but before the guarded marker;
+  - platform digests are unstable (the final self-check fails closed).
+- **`drive()` matrix:** a new verification dimension. `configured` requires the marker, and all three names without
+  it form a seventh partial shape: 73 out-of-order and 8 inconsistent-state refusals.
+- **The secrets scenarios** now also assert the marker after success (prefix plus 64 hex). A refused DELETE leaves the
+  verified set `configured`.
+
+**Negative controls.** Each mutated copy of the runner fails the suite:
+- **New:**
+  - classifying by names plus Vault only;
+  - a marker not bound to the Edge digests;
+  - a direct `UPDATE vault.secrets`;
+  - the marker written before `http_checks`;
+  - no final self-check;
+  - an unguarded marker;
+  - verified at create.
+- **Earlier, re-run on the new code:**
+  - leaking the HTTP reason;
+  - a literal token in SQL;
+  - following redirects;
+  - no failure read-back.

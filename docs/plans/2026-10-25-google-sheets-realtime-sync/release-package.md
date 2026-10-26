@@ -203,10 +203,19 @@ files, sorted. It reproduces Phase B's pinned `oauth-start` / `oauth-callback` d
   A failure at any step therefore leaves a `partial` state, never all three names with mismatched values.
 - **Any failed write** prints a sanitized label (category, HTTP status, `json`/`html`/`text`/`other`; never a
   body). It then reads back `SECRETS AFTER FAILURE: <name>=present|absent … vault=present|absent` and stops.
+- **Verification marker (PR #492 hardening).**
+  - The Vault row is created with the description `Google Sheets push maintenance bearer (unverified)`.
+  - It becomes `…; verified v1 <sig>` only as the **last** step, after the Edge read-back, the digest change, the Vault
+    SHA-256 and `http_checks`. The write goes through `vault.update_secret` (production `postgres` cannot UPDATE
+    `vault.secrets`) and is guarded: Vault must still hold this run's token.
+  - `sig` = SHA-256(`v1|` + SHA-256(Vault value) + `|` + SHA-256 of both Edge platform digests). It is computed inside
+    SQL, so only non-secret hex is stored and Python receives booleans.
+  - A final self-check re-reads the Edge digests and the marker.
 - **Credential-set states:**
   - `deployed` = none of the three;
-  - `configured` = all three;
-  - `partial` = anything else.
+  - `configured` = all three **and** a marker matching the current Vault value and Edge digests;
+  - `partial` = anything else, including all three names after a failed, interrupted or drifted verification
+    (`vault=present verification=missing`).
 
   `partial` is used by nothing, and only `recover-secrets` (replace all three in one run) or `rollback-secrets`
   (delete what exists) may touch it. `check` names a partial set and stops.
@@ -384,7 +393,8 @@ All of this is tested against real PostgreSQL 17.6 and the real CLI (§8).
 - the `partial` state and the `recover-secrets` stage;
 - `rollback-secrets` from `partial`;
 - the Vault copy through `\bind`;
-- the write order.
+- the write order;
+- the verification marker (§5), the final verification step, which `configured` requires.
 
 Tests: `verification.md` §10.
 
@@ -398,7 +408,8 @@ Tests: `verification.md` §10.
 2. Run the corrected `check`. It prints `STATE: deployed`, or `STATE: partial (…)` and stops.
 3. Run `configure-secrets` if the state is `deployed`, or `recover-secrets` if it is `partial`.
 4. Connector checks:
-   - Vault row count 1, by name;
+   - Vault row count 1, by name, whose description starts with `Google Sheets push maintenance bearer; verified v1 `
+     followed by 64 hex characters (the description is non-secret);
    - mode `off`; 0 targets, channels, events and attempts; 0 Sheets cron;
    - `list_edge_functions` unchanged;
    - the data fingerprint unchanged;

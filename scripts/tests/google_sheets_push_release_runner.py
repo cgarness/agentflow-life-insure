@@ -17,6 +17,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import threading
@@ -47,6 +48,10 @@ assert steps[0]['with']['persist-credentials'] is False
 assert all(len(x['uses'].split('@')[1].split()[0]) == 40 for x in steps if 'uses' in x)
 code = steps[-1]['run'].split("<<'PYCODE'\n", 1)[1].rsplit('PYCODE', 1)[0]
 ast.parse(code)
+# Vault rows change only through Vault's own functions (postgres cannot UPDATE vault.secrets in production).
+statements = [line for line in code.splitlines() if not line.strip().startswith('#')]
+assert not any(re.search(r'\bupdate\s+vault\.secrets\b', line, re.I) for line in statements), 'direct UPDATE of vault.secrets'
+assert code.count('vault.update_secret(') == 1, 'the verification marker is written only through vault.update_secret'
 assert steps[0]['with']['ref'] in code, 'checkout ref and pinned SOURCE agree'
 assert set(steps[-1]['env']) == {'STAGE', 'CONFIRM', 'SUPABASE_DB_PASSWORD', 'SUPABASE_POOLER_HOST', 'SUPABASE_ACCESS_TOKEN'}
 STAGES = ['check', 'apply-migration', 'record-history', 'deploy-functions', 'configure-secrets', 'recover-secrets',
@@ -238,7 +243,7 @@ with tempfile.TemporaryDirectory() as folder:
         KEY, TOKEN = m.PUSH_SECRETS
         BOTH = set(m.PUSH_SECRETS)
 
-        def drive(stage, state_key, functions, secret_set, expect, vault=False, called=None):
+        def drive(stage, state_key, functions, secret_set, expect, vault=False, called=None, verified=False):
             names = set(m.B1_SECRETS) | secret_set
             out = io.StringIO()
             with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/main', 'STAGE': stage, 'CONFIRM': stage}), \
@@ -246,16 +251,16 @@ with tempfile.TemporaryDirectory() as folder:
                  patch.object(m, 'command', side_effect=list(CLI)), patch.object(m, 'management', return_value=[{'name': n} for n in names]), \
                  patch.object(m, 'inventory', return_value=dict(functions)), patch.object(m, 'state', return_value=m.expected(state_key)), \
                  patch.object(m, 'sql', return_value=m.FUNCTIONS_PRE if state_key == 'before' else m.FUNCTIONS_POST), \
-                 patch.object(m, 'vault_token_rows', return_value=vault), \
+                 patch.object(m, 'vault_token_rows', return_value=vault), patch.object(m, 'vault_verified', return_value=verified), \
                  patch.object(m, 'data_fingerprint', return_value='x'), patch.object(m, 'operations_gate') as gate, \
                  patch.object(m, 'readbacks'), contextlib.redirect_stdout(out), contextlib.ExitStack() as stack:
                 mutators = {name: stack.enter_context(patch.object(m, name)) for name in MUTATORS}
                 try:
                     m.main()
                 except m.Stop as error:
-                    assert expect is not None and str(error) == expect, (stage, state_key, secret_set, vault, str(error))
+                    assert expect is not None and str(error) == expect, (stage, state_key, secret_set, vault, verified, str(error))
                 else:
-                    assert expect is None, f'{stage} accepted in {state_key} {secret_set} vault={vault}'
+                    assert expect is None, f'{stage} accepted in {state_key} {secret_set} vault={vault} verified={verified}'
                 for name, call in mutators.items():
                     if name == called:
                         call.assert_called_once()
@@ -265,12 +270,16 @@ with tempfile.TemporaryDirectory() as folder:
 
         wrong_order = 'stage order and exact production state'
         partial_stop = 'partial push secret configuration; only recover-secrets or rollback-secrets may run'
-        DEPLOYED = ('recorded', PUSH_FNS, set(), False)
-        CONFIGURED = ('recorded', PUSH_FNS, BOTH, True)
-        # Every incomplete credential set: one Edge secret, both without Vault, Vault alone, one Edge secret with Vault.
-        PARTIAL = [('recorded', PUSH_FNS, {KEY}, False), ('recorded', PUSH_FNS, {TOKEN}, False), ('recorded', PUSH_FNS, BOTH, False),
-                   ('recorded', PUSH_FNS, set(), True), ('recorded', PUSH_FNS, {KEY}, True), ('recorded', PUSH_FNS, {TOKEN}, True)]
-        EARLY = [('before', {}, set(), False), ('applied', {}, set(), False), ('recorded', {}, set(), False)]
+        # (history, push functions, Edge push names, Vault row, verification marker matches)
+        DEPLOYED = ('recorded', PUSH_FNS, set(), False, False)
+        CONFIGURED = ('recorded', PUSH_FNS, BOTH, True, True)
+        # Every incomplete or unverified set: one Edge secret, both without Vault, Vault alone, one Edge secret with
+        # Vault, and all three without a matching marker (a failed, interrupted or drifted verification).
+        PARTIAL = [('recorded', PUSH_FNS, {KEY}, False, False), ('recorded', PUSH_FNS, {TOKEN}, False, False),
+                   ('recorded', PUSH_FNS, BOTH, False, False), ('recorded', PUSH_FNS, set(), True, False),
+                   ('recorded', PUSH_FNS, {KEY}, True, False), ('recorded', PUSH_FNS, {TOKEN}, True, False),
+                   ('recorded', PUSH_FNS, BOTH, True, False)]
+        EARLY = [('before', {}, set(), False, False), ('applied', {}, set(), False, False), ('recorded', {}, set(), False, False)]
         refusals = 0
         for stage, cases in {
             'rollback-secrets': EARLY + [DEPLOYED],
@@ -282,8 +291,8 @@ with tempfile.TemporaryDirectory() as folder:
             'configure-secrets': EARLY + [CONFIGURED] + PARTIAL,
             'recover-secrets': EARLY + [DEPLOYED, CONFIGURED],
         }.items():
-            for state_key, functions, secret_set, vault in cases:
-                drive(stage, state_key, functions, secret_set, wrong_order, vault)
+            for state_key, functions, secret_set, vault, verified in cases:
+                drive(stage, state_key, functions, secret_set, wrong_order, vault, verified=verified)
                 refusals += 1
         inconsistent = [('check', 'recorded', {}, {m.KILL_SWITCH}, 'GOOGLE_SHEETS_PUSH_ENABLED absent (real-time sync off)', False),
                         ('check', 'recorded', {m.NEW_FUNCTIONS[0]: {}}, set(), 'push functions all present or all absent', False),
@@ -300,22 +309,24 @@ with tempfile.TemporaryDirectory() as folder:
         # check: complete states pass (and repeat identically); each partial state is named (names only) and stops after
         # every read-back; the operations gate is asked for the Vault presence that matches the state.
         for case, label, vault_expect in ((DEPLOYED, 'deployed', False), (CONFIGURED, 'configured', True)):
-            first = drive('check', *case[:3], None, case[3])
-            assert f'STATE: {label}\n' in first[0] and drive('check', *case[:3], None, case[3]) == first, label
+            first = drive('check', *case[:3], None, case[3], verified=case[4])
+            assert f'STATE: {label}\n' in first[0] and drive('check', *case[:3], None, case[3], verified=case[4]) == first, label
             assert [c.args[1:] for c in first[1]] == [(True, vault_expect)], first[1]
-        for state_key, functions, secret_set, vault in PARTIAL:
-            out, gates = drive('check', state_key, functions, secret_set, partial_stop, vault)
+        for state_key, functions, secret_set, vault, verified in PARTIAL:
+            out, gates = drive('check', state_key, functions, secret_set, partial_stop, vault, verified=verified)
             detail = ' '.join([f"{n}={'present' if n in secret_set else 'absent'}" for n in m.PUSH_SECRETS] +
-                              [f"vault={'present' if vault else 'absent'}"])
+                              [f"vault={'present' if vault else 'absent'}"] +
+                              (['verification=missing'] if secret_set == BOTH and vault else []))
             assert f'STATE: partial ({detail})\n' in out, out
             assert [c.args[1:] for c in gates] == [(True, None)], gates
         # Accepted stages: configure only from nothing, recover only from a partial set, rollback from either.
         drive('configure-secrets', *DEPLOYED[:3], None, DEPLOYED[3], called='configure')
         for case in PARTIAL:
-            drive('recover-secrets', *case[:3], None, case[3], called='configure')
-            drive('rollback-secrets', *case[:3], None, case[3], called='rollback_secrets')
-        drive('rollback-secrets', *CONFIGURED[:3], None, CONFIGURED[3], called='rollback_secrets')
-        print(f'PASS: check names {len(PARTIAL)} partial states and stops; deployed/configured pass and repeat identically; '
+            drive('recover-secrets', *case[:3], None, case[3], called='configure', verified=case[4])
+            drive('rollback-secrets', *case[:3], None, case[3], called='rollback_secrets', verified=case[4])
+        drive('rollback-secrets', *CONFIGURED[:3], None, CONFIGURED[3], called='rollback_secrets', verified=True)
+        print(f'PASS: check names {len(PARTIAL)} partial states (including all three names without a matching marker) and stops; '
+              'deployed/configured (marker verified) pass and repeat identically; '
               'configure only from deployed, recover only from partial, rollback-secrets from configured or partial')
 
         # deploy(): exactly three functions, never with push secrets present, unrelated inventory pinned.
@@ -577,8 +588,11 @@ with tempfile.TemporaryDirectory() as folder:
                         assert stdin.count(v) == 1 and v not in stdin.split('\\bind', 1)[0], 'a value in SQL statement text'
             return error, text, values, http
 
-        def after_failure(names, vault):
-            return 'SECRETS AFTER FAILURE: ' + m.secret_detail(names, vault) + '\n'
+        def after_failure(names, vault, verified=False):
+            return 'SECRETS AFTER FAILURE: ' + m.secret_detail(names, vault, verified) + '\n'
+
+        def description():
+            return run(f"select description from vault.secrets where name = '{m.VAULT_TOKEN}'", good)
 
         def vault_digest():
             return run(f"select encode(sha256(convert_to(decrypted_secret, 'UTF8')), 'hex') from vault.decrypted_secrets "
@@ -617,14 +631,20 @@ with tempfile.TemporaryDirectory() as folder:
         http.assert_called_once_with(configured=True)
         assert sum(line.startswith('::add-mask::') for line in text.splitlines()) == 2
         assert 'INFO: platform digests equal SHA-256 of the stored values' in text and vault_digest() == sha(values[-1])
+        assert 'PASS: credential set verified (fresh Edge digests and Vault marker)' in text
+        assert description().startswith(m.VERIFIED) and re.fullmatch(r'[0-9a-f]{64}', description()[len(m.VERIFIED):])
+        assert m.credential_state(good, api.store)[0] == 'configured'
         m.operations_gate(good, True, True)
-        print('PASS: configure stores two 64-char secrets, Vault (bind parameter) verified by hash, values masked and never printed')
+        print('PASS: configure stores two 64-char secrets, Vault (bind parameter) verified by hash, marker (hex only) written '
+              'last; values masked and never printed')
 
         # 3. rollback-secrets: from configured, from each partial shape, and a refused DELETE (state left intact, reported).
-        error, text, _, http = run_secrets(m.rollback_secrets, FakeApi(B1 | BOTH, delete=http_error(403)))
+        api.delete = http_error(403)
+        error, text, _, http = run_secrets(m.rollback_secrets, api)
         assert error == f'Management API DELETE secrets: HTTP 403 (permission failure; json response{hint})'
-        assert after_failure(BOTH, True) in text and m.vault_token_rows(good) and not http.called
-        api = FakeApi(B1 | BOTH)
+        assert after_failure(BOTH, True, True) in text and not http.called
+        assert m.credential_state(good, api.store)[0] == 'configured', 'a refused DELETE must leave the verified set intact'
+        api.delete, api.writes = None, []
         error, text, _, http = run_secrets(m.rollback_secrets, api)
         assert error is None and api.writes == [('DELETE', sorted(m.PUSH_SECRETS))] and not m.vault_token_rows(good)
         http.assert_called_once_with(configured=False)
@@ -682,6 +702,116 @@ with tempfile.TemporaryDirectory() as folder:
         m.operations_gate(good, True, False)
         print('PASS: Vault failure after the Edge write, a silent no-op (digest unchanged) and a refused write all leave '
               'partial (Vault absent); recover then rollback repeat cleanly; real-time stays off throughout')
+
+        # REGRESSION (verification marker): the real stage machine — main() on the real synthetic database, with only the
+        # environment, the CLI, the Edge function inventory and the HTTP probes patched. A set whose Vault write committed
+        # but whose verification then failed, was cut off, or later drifted must read as partial, never configured.
+        def run_stage(stage, api, after=None, fail_on=None, probe_fails=False, during_probes=None):
+            out, real = io.StringIO(), m.command
+
+            def command(args, env=None, timeout=30, stdin=None, cwd=None):
+                if args[0] == 'supabase':
+                    return '2.121.0' if args[1] == '--version' else '--db-url --project-ref --no-verify-jwt --use-api'
+                if fail_on and stdin and fail_on in stdin:
+                    raise m.Stop('command failed; stop and inspect state independently; no automatic retry')
+                result = real(args, env, timeout, stdin, cwd)
+                if after and stdin and after[0] in stdin:  # once the runner's own statement has committed
+                    real(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', after[1]], env)
+                return result
+
+            def probes(configured):
+                if during_probes:
+                    during_probes()
+                if probe_fails:
+                    raise m.Stop('google-sheets-push POST → 400')
+            with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/main', 'STAGE': stage, 'CONFIRM': stage}), \
+                 patch.object(m, 'files_gate'), patch.object(m, 'connection_env', return_value=good), patch.object(m, 'identity'), \
+                 patch.object(m, 'command', side_effect=command), patch.object(m, 'inventory', return_value=dict(PUSH_FNS)), \
+                 patch.object(m, 'expected', side_effect=lambda k: local_expected(k, dbs[0])), \
+                 patch.object(m, 'http_checks', side_effect=probes), opened(Opener(api)), contextlib.redirect_stdout(out):
+                try:
+                    m.main()
+                    error = None
+                except m.Stop as stop:
+                    error = str(stop)
+            text = out.getvalue()
+            values = [i['value'] for method, body in api.writes if method == 'POST' for i in body]
+            printed = [line for line in text.splitlines() if not line.startswith('::add-mask::')]
+            assert not any(v in line for v in values for line in printed), 'a secret value reached the log'
+            assert m.KILL_SWITCH not in json.dumps(api.writes)
+            m.operations_gate(good, True, None)  # mode off, 0 channels / targets / events / attempts, 0 Sheets cron
+            return error, text
+
+        unverified_state = 'STATE: partial (' + m.secret_detail(BOTH, True) + ')\n'
+        assert unverified_state.endswith('vault=present verification=missing)\n')
+        verified_ok = 'PASS: credential set verified (fresh Edge digests and Vault marker)'
+        swap = ('vault.create_secret', f"select vault.update_secret(id, 'synthetic-swapped-after-commit') from vault.secrets "
+                                       f"where name = '{m.VAULT_TOKEN}'")
+        api = FakeApi(B1)
+        error, text = run_stage('check', api)
+        assert error is None and 'STATE: deployed\n' in text, (error, text)
+        error, text = run_stage('configure-secrets', api, after=swap)  # the Vault write commits, then its checksum fails
+        assert error == 'Vault holds exactly the maintenance token', error
+        assert after_failure(BOTH, True) in text and m.vault_token_rows(good) and description() == m.UNVERIFIED
+        error, text = run_stage('check', api)
+        assert error == partial_stop and unverified_state in text, (error, text)
+        for refused in ('configure-secrets', 'deploy-functions', 'rollback-functions', 'apply-migration'):
+            assert run_stage(refused, api)[0] == wrong_order, refused
+        error, text = run_stage('recover-secrets', api)
+        assert error is None and verified_ok in text and description().startswith(m.VERIFIED), (error, text)
+        error, text = run_stage('check', api)
+        assert error is None and 'STATE: configured\n' in text, (error, text)
+        assert run_stage('recover-secrets', api)[0] == wrong_order and run_stage('configure-secrets', api)[0] == wrong_order
+        print('PASS: REGRESSION committed Vault write + checksum mismatch → partial (vault=present verification=missing); '
+              'check stops; configure/deploy/rollback-functions/apply refused; recover-secrets verifies and marks; '
+              'check then reads configured; no needless rotation')
+
+        def vault_update(arguments):
+            run(f"select vault.update_secret(id, {arguments}) from vault.secrets where name = '{m.VAULT_TOKEN}'", good)
+        drifts = [('an Edge digest', lambda: api.store.__setitem__(KEY, 'digest-changed-in-the-dashboard')),
+                  ('the Vault value', lambda: vault_update("'synthetic-drifted-value'")),
+                  ('an edited marker', lambda: vault_update("NULL, NULL, 'edited in the dashboard'")),
+                  ('a marker with the wrong binding', lambda: vault_update(f"NULL, NULL, '{m.VERIFIED}' || repeat('0', 64)")),
+                  ('the unverified description', lambda: vault_update(f"NULL, NULL, '{m.UNVERIFIED}'"))]
+        for label, drift in drifts:
+            drift()
+            error, text = run_stage('check', api)
+            assert error == partial_stop and unverified_state in text, (label, error, text)
+            error, text = run_stage('recover-secrets', api)
+            assert error is None and verified_ok in text and run_stage('check', api)[0] is None, (label, error, text)
+        print(f'PASS: {len(drifts)} drifts after success (Edge digest, Vault value, marker edited, forged or reset) → partial; '
+              'recover-secrets re-verifies each')
+
+        assert run_stage('rollback-secrets', api)[0] is None and not m.vault_token_rows(good)
+        error, text = run_stage('configure-secrets', api, probe_fails=True)  # authentication probe fails after the Vault write
+        assert error == 'google-sheets-push POST → 400' and after_failure(BOTH, True) in text and description() == m.UNVERIFIED
+        assert run_stage('check', api)[0] == partial_stop
+        assert run_stage('recover-secrets', api)[0] is None and run_stage('rollback-secrets', api)[0] is None
+        error, text = run_stage('configure-secrets', api, fail_on='vault.update_secret')  # cut off at the marker step
+        assert error == 'command failed; stop and inspect state independently; no automatic retry'
+        assert after_failure(BOTH, True) in text and description() == m.UNVERIFIED
+        assert run_stage('check', api)[0] == partial_stop
+        assert run_stage('rollback-secrets', api)[0] is None and run_stage('check', api)[0] is None
+        # The marker is guarded: Vault changed after its checksum passed (here: during the probes) → no marker, partial.
+        error, text = run_stage('configure-secrets', api, during_probes=lambda: vault_update("'synthetic-changed-before-marker'"))
+        assert error == 'credential set verified (fresh Edge digests and Vault marker)' and description() == m.UNVERIFIED, error
+        assert after_failure(BOTH, True) in text and run_stage('check', api)[0] == partial_stop
+        assert run_stage('rollback-secrets', api)[0] is None
+
+        class Unstable(FakeApi):  # platform digests that change on every read after a write: must fail closed
+            def __call__(self, request):
+                if request.get_method() == 'GET' and self.writes:
+                    self.store = {n: d + '+' if n in BOTH else d for n, d in self.store.items()}
+                return super().__call__(request)
+        unstable = Unstable(B1)
+        error, text = run_stage('configure-secrets', unstable)
+        assert error == 'credential set verified (fresh Edge digests and Vault marker)', error
+        assert after_failure(BOTH, True) in text and run_stage('check', unstable)[0] == partial_stop
+        assert run_stage('rollback-secrets', unstable)[0] is None and not m.vault_token_rows(good)
+        m.operations_gate(good, True, False)
+        print('PASS: an authentication-probe failure after the Vault write, a run cut off at the marker step, a Vault change '
+              'before the guarded marker and unstable digests (final self-check) all leave partial; rollback-secrets clears '
+              'each; real-time stays off throughout')
 
         # Rollbacks, in reverse order: secrets (above) → functions → migration (real SQL, real CLI).
         calls = []

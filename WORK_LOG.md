@@ -1,3 +1,85 @@
+## 2026-10-26 — PR #492 credential-state hardening: durable Vault verification marker (approved plan `4a3f9b2`; draft PR; NOT merged; nothing executed)
+
+**Finding (Chris).**
+- The runner classified the push credential set as `configured` from the presence of both Edge names plus the Vault
+  row.
+- A Vault write that committed and then failed its checksum (or `http_checks`, or was cut off) left all three names
+  in place. The set read as `configured`.
+- Drift after success (a dashboard edit) did the same.
+
+**Read first.** AGENT_RULES, VISION, the newest WORK_LOG entry. `main` is still `0e5b957`; no conflicting work.
+
+**Production metadata** (connector, read-only; no values):
+- `supabase_vault` 0.3.1.
+- `postgres` may SELECT and DELETE `vault.secrets` but **not UPDATE**. It may SELECT `vault.decrypted_secrets` and
+  EXECUTE `create_secret` / `update_secret`.
+- `update_secret(id, NULL, NULL, description)` keeps the secret.
+
+**Fix** (runner and tests only; migrations, functions, `src/` and `supabase/ops` unchanged):
+- **The marker.** The Vault row's plaintext description is the durable, non-secret verification marker.
+  - It is created as `Google Sheets push maintenance bearer (unverified)`.
+  - Only as the last step of `configure-secrets` / `recover-secrets` does it become `…; verified v1 <sig>`. That step
+    runs after the Edge read-back, the digest change, the Vault SHA-256 and `http_checks`, and only through
+    `vault.update_secret`.
+  - The marker write is guarded: Vault must still hold this run's token.
+  - `sig` = SHA-256(`v1|` + SHA-256(Vault value) + `|` + SHA-256 of both Edge platform digests), computed inside SQL.
+    Only hex is stored; Python receives booleans.
+- **New helpers:** `edge_binding()`, `marker_sql()`, `vault_verified()` and `credential_state()` (used by `main()`
+  and by the final self-check).
+- **Classification:** `configured` = all three names **and** a marker matching the current values. Anything else
+  is `partial` (`vault=present verification=missing`); only `recover-secrets` or `rollback-secrets` may run.
+- **Final self-check:** a fresh read of the Edge digests and the marker must classify `configured`, otherwise STOP
+  (fail-closed, including for unstable digests).
+
+**Tests** (`verification.md` §11):
+- **Required regression, through the real stage machine** on the synthetic database:
+  1. A committed Vault write followed by a checksum mismatch → `partial`.
+  2. `check` stops.
+  3. `configure-secrets`, `deploy-functions`, `rollback-functions` and `apply-migration` are refused.
+  4. `recover-secrets` verifies and marks the set; `check` then reads `configured`.
+- **Five drifts → `partial`:** an Edge digest, the Vault value, and an edited, forged or reset marker.
+- **Failures that leave `partial`:**
+  - the authentication probe fails after the Vault write;
+  - the run is cut off at the marker;
+  - Vault changes before the guarded marker;
+  - digests are unstable.
+- **`drive()` matrix:** a verification dimension, with 7 partial shapes.
+- **Static guard:** no `UPDATE vault.secrets`; one `vault.update_secret(`.
+- **11 negative-control mutations** each fail the suite: 7 new, plus 4 earlier ones re-run.
+- **Real `supabase_vault` 0.3.1** (`supabase/postgres:17.6.1.063`), as the non-superuser `postgres` role:
+  - the runner's `configure()` / `credential_state()` / `rollback_secrets()` work;
+  - a direct UPDATE is refused;
+  - a description-only update keeps the value;
+  - a bound value never reaches the server log.
+
+**Verification:**
+- runner suite **ALL PASSED**, 3 of 3 runs (about 110 s);
+- `run_google_sheets_tests.sh` **ALL PASSED** (PostgREST 62, Review e2e 40, push e2e 43);
+- Vitest 99 passed;
+- `tsc` exit 0;
+- ESLint (Sheets set) exit 0;
+- build OK;
+- `git diff --check` clean.
+
+**Files:**
+- `.github/workflows/google-sheets-push-release.yml`;
+- `scripts/tests/google_sheets_push_release_runner.py`;
+- `release-package.md` §5 and §12;
+- `verification.md` §11;
+- AGENT_RULES (credential-set invariant);
+- this entry;
+- `implementation_plan.md` (record).
+
+**Not done:**
+- no merge;
+- no production write, secret change, recovery, migration or deploy;
+- real-time not enabled, no watch, no schedule.
+
+**Next:** Chris's final review of PR #492. Then the token prerequisite and the corrected `check` (`release-package.md`
+§12).
+
+---
+
 ## 2026-10-25 — BUGFIX: Approval D `configure-secrets` failure — runner fix (approved plan `a569dbe`; draft PR; NOT merged; nothing executed)
 
 **Release record so far (all on `main` `0e5b957`, protected `google-sheets-production` runner).**

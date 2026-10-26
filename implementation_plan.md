@@ -1,7 +1,9 @@
-## 2026-10-26 — PLAN (AWAITING APPROVAL; no source edited, no production action): PR #492 final credential-state hardening — durable verification marker
+## 2026-10-26 — APPROVED and IMPLEMENTED (draft PR #492; NOT merged; no production action): PR #492 final credential-state hardening — durable verification marker
 
 **Status.**
-- Plan only.
+- Chris approved this plan at `4a3f9b2` ("APPROVED — PR #492 CREDENTIAL MARKER"). It is implemented on
+  `claude/approval-d-sheets-credentials-b0sper`; see §8.
+- At planning time this was a plan only.
 - Production was read through the connector for privilege and function metadata only: no decrypted value, no secret
   value.
 
@@ -202,6 +204,18 @@ This is recorded in `verification.md` §11. It is not added to CI, to keep the c
 only there. Then update WORK_LOG and run the tests and CI.
 
 No merge, deploy, production write, credential change or real-time activation.
+
+### 8. Implementation record (after approval)
+
+Built as planned in §3–§5. Files: exactly §4's list. Results: `verification.md` §11.
+
+Two additions found while testing, both inside the approved scope:
+1. **A guarded-marker regression.** The test changes Vault after its checksum passes but before the marker, and
+   expects no marker and `partial`. It pins the `… = <token digest>` guard: with an unguarded marker, a mismatched set
+   would be marked verified (negative control `unguarded-marker`).
+2. **Real-Vault validation came from `mirror.gcr.io/supabase/postgres:17.6.1.063`.** Docker Hub returned 429 and
+   public ECR hit its anonymous data limit. The role and privileges were checked equal to production's before the
+   run.
 
 ---
 

@@ -1264,6 +1264,17 @@ A new row reaches AgentFlow through a Google Drive `files.watch` notification, n
     A `partial` set is used by nothing and touched only by `recover-secrets` (replaces all three in one run, never
     assumes a stored value matches) or `rollback-secrets` (deletes what exists). `check` names it and stops. Never
     rotate a complete set with `recover-secrets`; rotation is `rollback-secrets` → `configure-secrets`.
+  - **`configured` requires the verification marker.** Never classify a set by its names alone.
+    - **Where:** the Vault row's description, `Google Sheets push maintenance bearer; verified v1 <sig>`.
+    - **Value:** `sig` = SHA-256(`v1|` + SHA-256(Vault value) + `|` + SHA-256 of both Edge platform digests),
+      computed inside SQL. Only non-secret hex is stored; Python only ever receives booleans.
+    - **When:** written last, after every check (Edge read-back, digest change, Vault SHA-256, `http_checks`), and
+      only while Vault still holds this run's token. A final self-check then re-reads the Edge digests and the
+      marker.
+    - **How:** only through `vault.update_secret(id, NULL, NULL, …)`. Production `postgres` cannot UPDATE
+      `vault.secrets`; the synthetic stand-in can, so a static test pins this.
+    - **Fail-closed:** a missing, stale or mismatched marker reads `partial` (`vault=present
+      verification=missing`). That covers a failed, interrupted or drifted verification.
   - **Write order** in `configure()`:
     1. delete any stale Vault copy;
     2. POST;
