@@ -1,9 +1,15 @@
 # Google Sheets real-time sync — Gate D production release package
 
-**Status: PREPARED, NOT EXECUTED.**
+**Status (2026-10-25 21:25 UTC): A, B and C EXECUTED; D FAILED (run 40234513215); recovery in §12.**
 
-- Nothing is merged, applied, deployed, configured, scheduled or registered. Real-time sync is OFF and stays OFF
-  through every step below.
+- A: PR #491 merged as `0e5b957`.
+- B: `check` 40233075500, `apply-migration` 40233249217, `record-history` 40233582885.
+- C: `deploy-functions` 40234132795 (`google-sheets-push` v1, `google-sheets-push-maintenance` v1,
+  `google-sheets-api` v7).
+- D: `configure-secrets` 40234513215 stopped at the Management API write. Vault is absent (verified). The Edge push
+  secret names are unproven (expected absent), so the stage is not retried.
+- Real-time sync is OFF and stays OFF: push mode `off`, no kill switch, no watch, no schedule. Pilot B is unchanged.
+- The text below is the package as prepared. Its "today" columns describe the 15:08 UTC baseline.
 - Prepared 2026-10-25, against production `jncvvsvckxhqgqvkppmj` (read-only reads at 15:08–15:12 UTC) and Vercel
   project `agentflow`.
 - Each step needs its own approval (§11). Approving one step approves nothing else.
@@ -177,12 +183,44 @@ files, sorted. It reproduces Phase B's pinned `oauth-start` / `oauth-callback` d
 | `google_sheets_push_maintenance_token` | Vault | the pending maintenance schedule (Gate E) | absent | step D (the same value, written over psql stdin) |
 | `GOOGLE_SHEETS_PUSH_ENABLED` | Edge | kill switch | absent | **Gate E only**. Every Gate D stage refuses if it exists. |
 
-**Secure setup (step D, `configure-secrets`).**
+**Secure setup (step D, `configure-secrets`; corrected after run 40234513215, §12).**
+- **Token prerequisite:** the environment's `SUPABASE_ACCESS_TOKEN` needs **Edge Function Secrets: Read-write**
+  (bulk create/delete) as well as **Edge Functions: Read-write** (deploy/delete). A scoped token with only Edge
+  Function Secrets *Read* lists names but is refused on every write, `rollback-secrets` included.
 - The runner generates both values with `secrets.token_urlsafe(48)` and masks them in the log before any use.
-- It sends them only to the Management API (`POST /v1/projects/{ref}/secrets`) and, over psql **stdin**, to
-  `vault.create_secret`.
+- It sends them only to the Management API (`POST /v1/projects/{ref}/secrets`) and, over psql **stdin** as a
+  **`\bind` parameter**, to `vault.create_secret`.
+  - The value never appears in statement text, so never in `pg_stat_activity`.
+  - Production has `log_min_error_statement=error`, so a failing statement's text is logged; bind parameters are not
+    (`log_parameter_max_length_on_error=0`).
 - It verifies Vault by comparing a SHA-256 inside SQL; only the hash is passed.
+- **Write order:**
+  1. remove any stale Vault copy;
+  2. POST both names;
+  3. read the names back and require that each pre-existing name's platform digest changed;
+  4. write the Vault copy last.
+
+  A failure at any step therefore leaves a `partial` state, never all three names with mismatched values.
+- **Any failed write** prints a sanitized label (category, HTTP status, `json`/`html`/`text`/`other`; never a
+  body). It then reads back `SECRETS AFTER FAILURE: <name>=present|absent … vault=present|absent` and stops.
+- **Verification marker (PR #492 hardening).**
+  - The Vault row is created with the description `Google Sheets push maintenance bearer (unverified)`.
+  - It becomes `…; verified v1 <sig>` only as the **last** step, after the Edge read-back, the digest change, the Vault
+    SHA-256 and `http_checks`. The write goes through `vault.update_secret` (production `postgres` cannot UPDATE
+    `vault.secrets`) and is guarded: Vault must still hold this run's token.
+  - `sig` = SHA-256(`v1|` + SHA-256(Vault value) + `|` + SHA-256 of both Edge platform digests). It is computed inside
+    SQL, so only non-secret hex is stored and Python receives booleans.
+  - A final self-check re-reads the Edge digests and the marker.
+- **Credential-set states:**
+  - `deployed` = none of the three;
+  - `configured` = all three **and** a marker matching the current Vault value and Edge digests;
+  - `partial` = anything else, including all three names after a failed, interrupted or drifted verification
+    (`vault=present verification=missing`).
+
+  `partial` is used by nothing, and only `recover-secrets` (replace all three in one run) or `rollback-secrets`
+  (delete what exists) may touch it. `check` names a partial set and stops.
 - No person sees, copies or stores a value. Rotation is `rollback-secrets` followed by `configure-secrets`.
+  `recover-secrets` is refused on a complete set.
 
 ## 6. Release order (each step separately approved), verification and rollback
 
@@ -194,7 +232,7 @@ files, sorted. It reproduces Phase B's pinned `oauth-start` / `oauth-callback` d
 | B2 | Runner `apply-migration` | Single transaction | `STATE` applied; the runner's 75-function postimage, ACL, RLS, `off\|4\|10800\|900\|3600`, empty push tables, no Sheets cron, data fingerprint unchanged; then `verify.sql` via the connector: all `*_ok` true except `history_ok` (history row not yet written) | Runner `rollback-migration` |
 | B3 | Runner `record-history` | `supabase migration repair --status applied` | 347 rows; head `20261025120000`; `google_sheets_push_sync\|57\|0561e767…`; `verify.sql` all true | Runner `rollback-migration` (rollback SQL plus `--status reverted`) |
 | C | Runner `deploy-functions` | Deploy the 3 bundles; push secrets must be absent | Inventory: 3 ACTIVE, `verify_jwt=false`, API version > 6, the other 78 unchanged (incl. worker and oauth v6); HTTP: push 405/503, maintenance 403, API status 401; `verify.sql` all true. The receiver probe carries the dummy `X-Goog-Channel-Token: agentflow-gate-d-log-probe`, and the log check (§7) returns `0\|0`. | Runner `rollback-functions` (redeploys the exact v6 API `6ab61569…` from `27c8d0d`; deletes both push functions) |
-| D | Runner `configure-secrets` | Generate and store `GOOGLE_SHEETS_PUSH_KEY`, `_MAINTENANCE_TOKEN` and the Vault copy | Names present; Vault hash match; HTTP push POST 400, maintenance 403; kill switch still absent; `verify.sql` all true; log check `0\|0` | Runner `rollback-secrets` |
+| D | Runner `configure-secrets` (from `deployed`) or `recover-secrets` (from `partial`, §12) | Generate and store `GOOGLE_SHEETS_PUSH_KEY`, `_MAINTENANCE_TOKEN` and the Vault copy | Names present; Vault hash match; HTTP push POST 400, maintenance 403; kill switch still absent; `verify.sql` all true; log check `0\|0`; no `create_secret` in `postgres_logs` | Runner `rollback-secrets` (from `configured` or `partial`) |
 | — | Post-release | Connector: `get_advisors` (expected delta §3); `list_edge_functions`; optional: Chris clicks Sync now on Pilot B (imports only rows genuinely new in the sheet; with no new rows it imports nothing) | Matches §3 and §4 | per step |
 
 **Rollback order** is the reverse: D → C → B (`rollback-secrets`, `rollback-functions`, `rollback-migration`).
@@ -283,6 +321,8 @@ All of this is tested against real PostgreSQL 17.6 and the real CLI (§8).
 1. **Blocker for A (Chris, dashboard only).** Supabase GitHub integration "Deploy to production" must be **OFF**.
    If it were on, the merge could apply the migration or deploy functions outside these gates.
 2. Edge secret names can't be read from this session. The runner's `check` verifies them before anything mutates.
+   - Since D failed, `check` also names a `partial` set.
+   - **Blocker for D:** the runner token's Edge Function Secrets permission (§5, §12).
 3. The floating `supabase-js@2` import resolves at deploy time (pre-existing pattern, the same as v6).
 4. The worker stays on v6 (behaviour-identical; not invoked). A later redeploy is optional.
 5. Supabase Preview was skipped (branch limit), so there was no hosted preview. Mitigated by the exact-preimage
@@ -330,4 +370,49 @@ All of this is tested against real PostgreSQL 17.6 and the real CLI (§8).
 | **B** | Runner `check`, then `apply-migration`, then `record-history`, with connector verification between them. Rollback, if needed: `rollback-migration`. | `20261025120000`; 80,739 B; `2774557a…a609d`; preimage `6640fc30…`; postimage `6e8c4365…`; history `57\|0561e767…` | Edge deploys, secrets, cron, watches. Push mode stays `off`. |
 | **C** | Runner `deploy-functions`: `google-sheets-push` (new), `google-sheets-push-maintenance` (new), and `google-sheets-api` (replaced), from source `24fa809`; then the HTTP and log checks. Rollback: `rollback-functions` (restores the v6 API bundle `6ab61569…` from `27c8d0d`). | `ba1e374b…b239`, `f206df48…2c06`, `1416a03d…7605` | Worker and OAuth functions; secrets |
 | **D** | Runner `configure-secrets`: generate and store `GOOGLE_SHEETS_PUSH_KEY`, `GOOGLE_SHEETS_PUSH_MAINTENANCE_TOKEN` and the Vault `google_sheets_push_maintenance_token`. Values are never shown. Rollback: `rollback-secrets`. | The names only; hash-verified Vault copy | `GOOGLE_SHEETS_PUSH_ENABLED`; push mode; the maintenance schedule; any watch |
+| **D-R** | **After run 40234513215 (§12).** Corrected runner `check`, then **one of** `configure-secrets` (state `deployed`) or `recover-secrets` (state `partial`). Values are never shown. Rollback: `rollback-secrets`. Precondition: the token has Edge Function Secrets Read-write. | The names only; hash-verified Vault copy; the `check` state line | `GOOGLE_SHEETS_PUSH_ENABLED`; push mode; the maintenance schedule; any watch; any automatic retry |
 | **E** | **Not requested now.** Gate E (Pilot B real-time pilot) gets its own reviewed package after A–D are verified (§10). | — | — |
+
+## 12. Approval D failure (run 40234513215) and recovery
+
+**What happened.**
+- Every gate passed up to `PASS: generated 64-char secrets` (21:15:15.2347 UTC).
+- **≤ 129 ms later** the catch-all printed `STOP: execution failed`. The `POST /v1/projects/{ref}/secrets` had raised;
+  no 2xx was received.
+- The request shape matches the official reference and CLI: an array of `{name, value}`, 201 with an empty body.
+- The old runner discarded the HTTP status. The probable cause is a 403 from a token without Edge Function Secrets
+  Read-write: it was the token's first secrets write, and listing and deploying had worked. This is not proven.
+- The Vault write never ran: the pooler logs show no session after the POST. Vault is absent.
+- The Edge push secret names were not readable from the connector.
+- Real-time stayed off; Pilot B is unchanged (`1|1|3|3|3|2|98aae474…`). Full diagnosis:
+  `implementation_plan.md` (2026-10-25 Approval D entry).
+
+**Correction (runner only; the release content `24fa809` is unchanged).** Recorded in §5:
+- the sanitized Management API classification, with redirects refused and an explicit `User-Agent`;
+- the failure read-back;
+- the `partial` state and the `recover-secrets` stage;
+- `rollback-secrets` from `partial`;
+- the Vault copy through `\bind`;
+- the write order;
+- the verification marker (§5), the final verification step, which `configured` requires.
+
+Tests: `verification.md` §10.
+
+**Recovery procedure.** Each step is separately approved. Never retry automatically.
+0. **Chris** (credential action; the agent never handles it):
+   - confirm that the `google-sheets-production` `SUPABASE_ACCESS_TOKEN` has **Edge Function Secrets: Read-write** on
+     `jncvvsvckxhqgqvkppmj`;
+   - otherwise create a project-only scoped token with Edge Functions Read-write and Edge Function Secrets
+     Read-write, replace the environment secret, and revoke the old token.
+1. Merge the corrected runner (merge commit) after review and CI.
+2. Run the corrected `check`. It prints `STATE: deployed`, or `STATE: partial (…)` and stops.
+3. Run `configure-secrets` if the state is `deployed`, or `recover-secrets` if it is `partial`.
+4. Connector checks:
+   - Vault row count 1, by name, whose description starts with `Google Sheets push maintenance bearer; verified v1 `
+     followed by 64 hex characters (the description is non-secret);
+   - mode `off`; 0 targets, channels, events and attempts; 0 Sheets cron;
+   - `list_edge_functions` unchanged;
+   - the data fingerprint unchanged;
+   - the §7 log check `0|0`;
+   - 0 `postgres_logs` rows mentioning `create_secret`.
+5. Stop. Gate E needs its own package.

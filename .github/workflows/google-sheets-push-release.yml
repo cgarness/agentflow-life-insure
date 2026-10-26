@@ -3,6 +3,9 @@ name: Google Sheets push release (approval required)
 # Gate D of docs/plans/2026-10-25-google-sheets-realtime-sync (release-package.md). Every stage is separately approved;
 # real-time sync stays OFF throughout: push mode 'off', GOOGLE_SHEETS_PUSH_ENABLED absent, no watch, no schedule.
 # Merging this workflow deploys NO backend. A main commit does trigger the existing Vercel integration.
+# A push credential set counts as configured only with a Vault verification marker bound to its current values;
+# anything else (e.g. a failed write or verification) is partial and is touched only by recover-secrets (replaces all
+# three copies) or rollback-secrets. Management API failures log a sanitized category, never a body.
 on:
   workflow_dispatch:
     inputs:
@@ -10,7 +13,7 @@ on:
         description: Separately approved Gate D stage
         required: true
         type: choice
-        options: [check, apply-migration, record-history, deploy-functions, configure-secrets,
+        options: [check, apply-migration, record-history, deploy-functions, configure-secrets, recover-secrets,
                   rollback-secrets, rollback-functions, rollback-migration]
       confirm:
         description: Repeat the stage name exactly
@@ -58,6 +61,7 @@ jobs:
           python3 - <<'PYCODE'
           # Embedded in the dispatch-only workflow. Never prints secrets, external command output or response bodies.
           import hashlib
+          import http.client
           import json
           import os
           from pathlib import Path
@@ -110,6 +114,9 @@ jobs:
           PUSH_SECRETS = ('GOOGLE_SHEETS_PUSH_KEY', 'GOOGLE_SHEETS_PUSH_MAINTENANCE_TOKEN')
           KILL_SWITCH = 'GOOGLE_SHEETS_PUSH_ENABLED'
           VAULT_TOKEN = 'google_sheets_push_maintenance_token'
+          # The Vault row's plaintext description is the durable verification marker (non-secret hex only).
+          UNVERIFIED = 'Google Sheets push maintenance bearer (unverified)'
+          VERIFIED = 'Google Sheets push maintenance bearer; verified v1 '
           PUSH_TABLES = ('google_sheets_push_pilot_sources', 'google_sheets_watch_targets', 'google_sheets_watch_channels',
                          'google_sheets_push_events', 'google_sheets_push_attempts')
           CHILD = None
@@ -127,7 +134,10 @@ jobs:
 
           def command(args, env=None, timeout=30, stdin=None, cwd=None):
               # Only callers' fixed labels reach logs; errors can contain credentials/SQL/hostnames.
-              result = subprocess.run(args, env=env, input=stdin, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+              try:
+                  result = subprocess.run(args, env=env, input=stdin, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+              except subprocess.TimeoutExpired:
+                  raise Stop('command timed out; stop and inspect state independently; no automatic retry') from None
               if result.returncode:
                   raise Stop('command failed; stop and inspect state independently; no automatic retry')
               return result.stdout.strip()
@@ -225,10 +235,43 @@ jobs:
                   (select string_agg(source_id || ':' || row_key || ':' || kind, ',' order by source_id, row_key) from private.google_sheets_source_rows),
                   (select string_agg(id::text, ',' order by id) from public.google_sheets_sync_runs))))""", env)
 
+          def vault_token_rows(env):
+              rows = sql(f"select count(*) from vault.secrets where name = '{VAULT_TOKEN}'", env)
+              require(rows in ('0', '1'), 'at most one push maintenance Vault token')
+              return rows == '1'
+
+          # The marker binds the set's current values: SHA-256('v1|' || SHA-256(Vault value) || '|' || edge binding),
+          # computed inside SQL (only a boolean or hex leaves the database). It is written last, through
+          # vault.update_secret (postgres cannot UPDATE vault.secrets), so a missing, stale or mismatched marker — an
+          # interrupted or failed verification, or later drift of any copy — reads as 'partial', never 'configured'.
+          def edge_binding(inventory):
+              # The non-secret platform digests of both Edge push secrets, hashed so only hex reaches SQL.
+              return hashlib.sha256('|'.join(inventory.get(name, '') for name in PUSH_SECRETS).encode()).hexdigest()
+
+          def marker_sql(binding):
+              return (f"'{VERIFIED}' || encode(sha256(convert_to('v1|' || encode(sha256(convert_to(d.decrypted_secret, 'UTF8')), 'hex') "
+                      f"|| '|{binding}', 'UTF8')), 'hex')")
+
+          def vault_verified(env, inventory):
+              return sql(f"""select count(*) = 1 and coalesce(bool_and(s.description = {marker_sql(edge_binding(inventory))}), false)
+                from vault.secrets s join vault.decrypted_secrets d on d.id = s.id where s.name = '{VAULT_TOKEN}'""", env) == 't'
+
+          def credential_state(env, inventory):
+              # deployed = none of the three; configured = all three AND the marker matches them; anything else = partial.
+              stored = set(PUSH_SECRETS) & set(inventory)
+              vault = vault_token_rows(env)
+              if not stored and not vault:
+                  return 'deployed', stored, vault, False
+              verified = stored == set(PUSH_SECRETS) and vault and vault_verified(env, inventory)
+              return ('configured' if verified else 'partial'), stored, vault, verified
+
+          # vault_token: True / False = must be present / absent; None = partial state, already classified by main().
           def operations_gate(env, installed, vault_token):
               require(sql(r"select count(*) from cron.job where jobname like 'google-sheets%' or command like '%google-sheets%'", env) == '0', 'no Sheets cron job (no polling, no push maintenance schedule)')
-              require(sql(f"select count(*) from vault.secrets where name = '{VAULT_TOKEN}'", env) == ('1' if vault_token else '0'),
-                      'push maintenance Vault token ' + ('present' if vault_token else 'absent'))
+              if vault_token is None:
+                  vault_token_rows(env)
+              else:
+                  require(vault_token_rows(env) == vault_token, 'push maintenance Vault token ' + ('present' if vault_token else 'absent'))
               if installed:
                   require(sql("select concat_ws('|', mode, max_concurrent_jobs, renew_before_s, renew_overlap_s, late_grace_s) from private.google_sheets_push_config", env)
                           == 'off|4|10800|900|3600', 'push mode off with the reviewed defaults')
@@ -260,13 +303,56 @@ jobs:
                 and c.conname = 'google_sheets_sync_runs_trigger_check'""", env) ==
                       "CHECK ((trigger = ANY (ARRAY['schedule'::text, 'manual'::text, 'activation'::text, 'push'::text])))", 'sync_runs trigger CHECK accepts push')
 
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+
+          # Documented success codes (POST 201, DELETE 200); anything else, 2xx included, never counts as written.
+          SUCCESS = {'GET': (200,), 'POST': (201, 200), 'DELETE': (200, 204)}
+          CONTENT_KINDS = {'application/json': 'json', 'text/html': 'html', 'text/plain': 'text'}
+
+          def api_failure(status):
+              if 300 <= status < 400:
+                  return 'unexpected redirect'
+              if 500 <= status < 600:
+                  return 'server error'
+              return {400: 'invalid payload', 401: 'API authentication failure', 403: 'permission failure', 404: 'not found',
+                      409: 'conflict', 422: 'invalid payload', 429: 'rate limited'}.get(status, 'unexpected response status')
+
+          # Failures become Stop with a fixed category, the numeric status and an allowlisted content kind (json = API,
+          # html = edge refusal). Bodies, reason phrases, URLs, headers and exception text never reach logs: a rejected
+          # write can echo its payload. Redirects are refused (urllib would replay a POST as a GET and report success).
           def management(path, method='GET', body=None):
+              label = f'Management API {method} {path}'
               request = urllib.request.Request(f'https://api.supabase.com/v1/projects/{REF}/{path}', method=method,
                                               data=None if body is None else json.dumps(body).encode(),
                                               headers={'Authorization': 'Bearer ' + os.environ['SUPABASE_ACCESS_TOKEN'],
-                                                       'Content-Type': 'application/json'})
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  return json.load(response) if method == 'GET' else response.status
+                                                       'Content-Type': 'application/json',
+                                                       'User-Agent': 'agentflow-sheets-push-release'})
+              try:
+                  with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
+                      if response.status not in SUCCESS[method]:
+                          raise Stop(f'{label}: unexpected success status {response.status}' +
+                                     ('' if method == 'GET' else '; write outcome unknown'))
+                      if method != 'GET':
+                          return response.status
+                      try:
+                          return json.load(response)
+                      except ValueError:
+                          raise Stop(f'{label}: unexpected response format') from None
+              except urllib.error.HTTPError as error:
+                  kind = CONTENT_KINDS.get(error.headers.get_content_type() if error.headers else '', 'other')
+                  error.close()
+                  hint = ('; secrets writes need Edge Function Secrets read-write'
+                          if error.code == 403 and path == 'secrets' and method != 'GET' else '')
+                  raise Stop(f'{label}: HTTP {error.code} ({api_failure(error.code)}; {kind} response{hint})') from None
+              except urllib.error.URLError as error:
+                  timeout = isinstance(error.reason, TimeoutError)
+                  raise Stop(f'{label}: network ' + ('timeout' if timeout else 'failure')) from None
+              except TimeoutError:
+                  raise Stop(f'{label}: network timeout') from None
+              except (http.client.HTTPException, OSError):
+                  raise Stop(f'{label}: network failure') from None
 
           def cli_env():
               return {k: v for k, v in os.environ.items() if not k.startswith(('PG', 'SUPABASE_'))} | {
@@ -274,16 +360,46 @@ jobs:
 
           def inventory():
               items = management('functions')
-              require(isinstance(items, list), 'function inventory response')
+              require(isinstance(items, list) and all(isinstance(item, dict) and isinstance(item.get('slug'), str) for item in items),
+                      'function inventory response')
               by_name = {item['slug']: item for item in items}
               require(len(by_name) == len(items), 'unique function inventory')
               return by_name
 
+          # name → platform digest. The digest scheme is undocumented: a digest is only compared with an earlier digest of
+          # the same name, and never printed.
+          def secret_inventory():
+              items = management('secrets')
+              require(isinstance(items, list) and all(isinstance(item, dict) and isinstance(item.get('name'), str) for item in items),
+                      'secret inventory response')
+              return {item['name']: item['value'] if isinstance(item.get('value'), str) else '' for item in items}
+
+          def checked_inventory():
+              inventory = secret_inventory()
+              require(B1_SECRETS <= set(inventory), 'six B1 secret names present')
+              require(KILL_SWITCH not in inventory, 'GOOGLE_SHEETS_PUSH_ENABLED absent (real-time sync off)')
+              return inventory
+
           def secret_names():
-              names = {item['name'] for item in management('secrets')}
-              require(B1_SECRETS <= names, 'six B1 secret names present')
-              require(KILL_SWITCH not in names, 'GOOGLE_SHEETS_PUSH_ENABLED absent (real-time sync off)')
-              return names
+              return set(checked_inventory())
+
+          def secret_detail(names, vault, verified=False):
+              complete = set(PUSH_SECRETS) <= set(names) and vault
+              return ' '.join([f"{name}={'present' if name in names else 'absent'}" for name in PUSH_SECRETS] +
+                              [f"vault={'present' if vault else 'absent'}"] +
+                              (['verification=missing'] if complete and not verified else []))
+
+          def stored_after_failure(env):
+              # Names and the marker only, so a failed write never leaves its outcome to inference.
+              try:
+                  inventory = secret_inventory()
+                  _, _, vault, verified = credential_state(env, inventory)
+                  detail = secret_detail(set(inventory), vault, verified)
+              except Stop as error:
+                  detail = f'unknown (read-back stopped: {error})'
+              except Exception:
+                  detail = 'unknown (read-back failed)'
+              print('SECRETS AFTER FAILURE: ' + detail, flush=True)
 
           def unrelated_inventory(items):
               return {k: (v['version'], v.get('verify_jwt'), v.get('status'), v.get('ezbr_sha256'))
@@ -334,10 +450,6 @@ jobs:
                 from supabase_migrations.schema_migrations where version = '{VERSION}'""", env) ==
                       f'{NAME}|{STATEMENTS}|{STATEMENTS_SHA}', f'single history row with the exact {STATEMENTS} statements')
 
-          class NoRedirect(urllib.request.HTTPRedirectHandler):
-              def redirect_request(self, *args, **kwargs):
-                  return None
-
           # Public, non-secret marker for the plan §4.3 log check: after the stage, the platform logs must hold no
           # `x_goog_*` key and no attribute containing it (release-package.md §6).
           LOG_PROBE = 'agentflow-gate-d-log-probe'
@@ -378,26 +490,58 @@ jobs:
               http_checks(configured=False)
 
           def configure(env):
-              # Values are generated here, masked, sent only to the Management API and to Vault over psql stdin.
+              # configure-secrets (nothing stored) and recover-secrets (an incomplete set: every copy is replaced in this
+              # run, none is assumed to match). Values are generated here, masked, and sent only to the Management API and
+              # to Vault as a psql bind parameter over stdin (never in statement text, so never in an error log).
               # Nobody sees them; GOOGLE_SHEETS_PUSH_ENABLED stays absent, so nothing is registered or processed.
+              # Order: a stale Vault copy goes first and the Vault copy is written last, after the Edge write is verified,
+              # so a failure at any step leaves a 'partial' state (never all three names with mismatched values).
+              previous = {name: digest for name, digest in secret_inventory().items() if name in PUSH_SECRETS}
               key, token = secrets.token_urlsafe(48), secrets.token_urlsafe(48)
               for value in (key, token):
                   print('::add-mask::' + value, flush=True)
               require(re.fullmatch(r'[A-Za-z0-9_-]{64}', key) is not None and re.fullmatch(r'[A-Za-z0-9_-]{64}', token) is not None, 'generated 64-char secrets')
-              require(management('secrets', 'POST', [{'name': PUSH_SECRETS[0], 'value': key},
-                                                       {'name': PUSH_SECRETS[1], 'value': token}]) in (200, 201), 'push secrets stored')
-              command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--single-transaction'], env,
-                      stdin=f"select vault.create_secret('{token}', '{VAULT_TOKEN}', 'Google Sheets push maintenance bearer');\n")
-              digest = hashlib.sha256(token.encode()).hexdigest()
-              require(sql(f"select encode(sha256(convert_to(decrypted_secret, 'UTF8')), 'hex') = '{digest}' from vault.decrypted_secrets where name = '{VAULT_TOKEN}'", env) == 't',
-                      'Vault holds exactly the maintenance token')
-              require(set(PUSH_SECRETS) <= secret_names(), 'push secret names present')
-              http_checks(configured=True)
+              try:
+                  command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--single-transaction'], env,
+                          stdin=f"delete from vault.secrets where name = '{VAULT_TOKEN}';\n")
+                  require(management('secrets', 'POST', [{'name': PUSH_SECRETS[0], 'value': key},
+                                                           {'name': PUSH_SECRETS[1], 'value': token}]) in (200, 201), 'push secrets stored')
+                  after = secret_inventory()
+                  require(set(PUSH_SECRETS) <= set(after) and KILL_SWITCH not in after, 'push secret names present; kill switch absent')
+                  for name in PUSH_SECRETS:
+                      if previous.get(name):
+                          require(after[name] != previous[name], f'{name} replaced (platform digest changed)')
+                  command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--single-transaction'], env,
+                          stdin=f"select vault.create_secret($1::text, $2::text, $3::text) "
+                                f"\\bind '{token}' '{VAULT_TOKEN}' '{UNVERIFIED}' \\g\n")
+                  digest = hashlib.sha256(token.encode()).hexdigest()
+                  require(sql(f"select encode(sha256(convert_to(decrypted_secret, 'UTF8')), 'hex') = '{digest}' from vault.decrypted_secrets where name = '{VAULT_TOKEN}'", env) == 't',
+                          'Vault holds exactly the maintenance token')
+                  plain = all(after[name] == hashlib.sha256(value.encode()).hexdigest() for name, value in zip(PUSH_SECRETS, (key, token)))
+                  print('INFO: platform digests ' + ('equal' if plain else 'are not') + ' SHA-256 of the stored values', flush=True)
+                  http_checks(configured=True)
+                  # Every check passed: only now mark the set verified, and only while Vault still holds this run's token.
+                  command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--single-transaction'], env,
+                          stdin=f"select vault.update_secret(s.id, NULL, NULL, {marker_sql(edge_binding(after))}) "
+                                f"from vault.secrets s join vault.decrypted_secrets d on d.id = s.id where s.name = '{VAULT_TOKEN}' "
+                                f"and encode(sha256(convert_to(d.decrypted_secret, 'UTF8')), 'hex') = '{digest}';\n")
+                  require(credential_state(env, secret_inventory())[0] == 'configured',
+                          'credential set verified (fresh Edge digests and Vault marker)')
+              except Stop:
+                  stored_after_failure(env)
+                  raise
 
           def rollback_secrets(env):
-              require(management('secrets', 'DELETE', list(PUSH_SECRETS)) in (200, 204), 'push secrets deleted')
-              command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--single-transaction'], env,
-                      stdin=f"delete from vault.secrets where name = '{VAULT_TOKEN}';\n")
+              # Deletes only what exists, so a partial configuration can be rolled back too.
+              present = sorted(set(PUSH_SECRETS) & secret_names())
+              try:
+                  if present:
+                      require(management('secrets', 'DELETE', present) in (200, 204), 'push secrets deleted')
+                  command(['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '--single-transaction'], env,
+                          stdin=f"delete from vault.secrets where name = '{VAULT_TOKEN}';\n")
+              except Stop:
+                  stored_after_failure(env)
+                  raise
               require(not (set(PUSH_SECRETS) & secret_names()), 'push secret names absent')
               http_checks(configured=False)
 
@@ -432,7 +576,7 @@ jobs:
               stage = os.environ.get('STAGE')
               require(os.environ.get('GITHUB_REF') == 'refs/heads/main', 'main dispatch only')
               require(stage in ('check', 'apply-migration', 'record-history', 'deploy-functions', 'configure-secrets',
-                                'rollback-secrets', 'rollback-functions', 'rollback-migration')
+                                'recover-secrets', 'rollback-secrets', 'rollback-functions', 'rollback-migration')
                       and os.environ.get('CONFIRM') == stage, 'explicit stage confirmation')
               if stage != 'check':
                   migration_order_gate()
@@ -443,7 +587,7 @@ jobs:
               repair_help = command(['supabase', 'migration', 'repair', '--help'])
               deploy_help = command(['supabase', 'functions', 'deploy', '--help'])
               require('--db-url' in repair_help and all(flag in deploy_help for flag in ('--project-ref', '--no-verify-jwt', '--use-api')), 'reviewed CLI flags')
-              names = secret_names()
+              edge_secrets = checked_inventory()
               before = inventory()
               current = state(env)
               states = {expected(key): key for key in ('before', 'applied', 'recorded', 'reverted-recorded')}
@@ -451,26 +595,30 @@ jobs:
               label = states[current]
               deployed = all(name in before for name in NEW_FUNCTIONS)
               require(deployed or not any(name in before for name in NEW_FUNCTIONS), 'push functions all present or all absent')
-              configured = set(PUSH_SECRETS) <= names
-              require(configured or not (set(PUSH_SECRETS) & names), 'push secrets all present or all absent')
+              # Two Edge secrets plus the Vault copy are one credential set: none, all three with a matching verification
+              # marker, or 'partial' (e.g. a write or verification that failed). A partial set is never used and only
+              # recover-secrets (replace all three) or rollback-secrets (remove what exists) may touch it.
+              credentials, stored, vault, verified = credential_state(env, edge_secrets)
               if deployed:
                   require(label == 'recorded', 'functions deployed only after the recorded migration')
-                  label = 'configured' if configured else 'deployed'
+                  label = credentials
               else:
-                  require(not configured, 'secrets configured only after deployment')
-              print('STATE: ' + label, flush=True)
+                  require(not stored and not vault, 'secrets configured only after deployment')
+              print('STATE: ' + label + (f' ({secret_detail(edge_secrets, vault, verified)})' if label == 'partial' else ''), flush=True)
               installed = label not in ('before', 'reverted-recorded')
               require(sql(FUNCTION_DIGEST, env) == (FUNCTIONS_POST if installed else FUNCTIONS_PRE),
                       'exact ' + ('postimage of all 75' if installed else 'preimage of all 52') + ' Sheets functions')
               print('DATA: ' + data_fingerprint(env), flush=True)
-              operations_gate(env, installed, label == 'configured')
+              operations_gate(env, installed, {'configured': True, 'partial': None}.get(label, False))
               if stage == 'check':
                   if installed:
                       readbacks(env)
+                  if label == 'partial':
+                      raise Stop('partial push secret configuration; only recover-secrets or rollback-secrets may run')
                   return
               needed = {'apply-migration': ('before',), 'record-history': ('applied',), 'deploy-functions': ('recorded',),
-                        'configure-secrets': ('deployed',), 'rollback-secrets': ('configured',),
-                        'rollback-functions': ('deployed',),
+                        'configure-secrets': ('deployed',), 'recover-secrets': ('partial',),
+                        'rollback-secrets': ('configured', 'partial'), 'rollback-functions': ('deployed',),
                         'rollback-migration': ('applied', 'recorded', 'reverted-recorded')}[stage]
               require(label in needed, 'stage order and exact production state')
               if stage == 'apply-migration':
@@ -488,7 +636,7 @@ jobs:
                   readbacks(env)
                   deploy(before)
                   operations_gate(env, True, False)
-              elif stage == 'configure-secrets':
+              elif stage in ('configure-secrets', 'recover-secrets'):
                   readbacks(env)
                   configure(env)
                   operations_gate(env, True, True)
