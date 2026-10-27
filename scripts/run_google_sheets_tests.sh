@@ -613,7 +613,7 @@ echo "   OK (M2 rollback: trigger and functions removed, audit and status kept, 
 echo; echo "== 5d. two sessions provision one agency at once =="
 slf_race() { # $1 db → "<rows> <second session's states or error>"
   psql "$PGURL/$1" -qc "ALTER TABLE public.organizations DISABLE TRIGGER on_organization_created_seed_standard_lead_fields;
-    INSERT INTO public.organizations (id, name) VALUES ('f0000000-0000-0000-0000-0000000000aa', 'Race'); 
+    INSERT INTO public.organizations (id, name) VALUES ('f0000000-0000-0000-0000-0000000000aa', 'Race');
     ALTER TABLE public.organizations ENABLE TRIGGER on_organization_created_seed_standard_lead_fields;" >/dev/null
   psql "$PGURL/$1" -tAqc "BEGIN; SELECT private.provision_standard_lead_fields('f0000000-0000-0000-0000-0000000000aa', 'ops', NULL, false)->>'status'; SELECT pg_sleep(2); COMMIT;" > "$TMP/sa.out" 2>&1 &
   local pa=$!

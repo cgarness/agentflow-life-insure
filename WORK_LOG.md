@@ -1,3 +1,25 @@
+## 2026-10-27 — Google Sheets mapping reliability implemented (draft PR; NOT merged; nothing applied or deployed)
+
+Chris approved Amendment A and its file list for local implementation. Branch `claude/sheets-mapping-reliability-tvb445`
+contains `main` `f980c16`. Built: mapping v2 `{v:2, columns, ignored}` with v1 frozen (byte-for-byte golden test);
+lossless typed Number/Date values (ZIPs, leading zeros and ambiguous dates kept as typed); preview built by the
+ingest pass so it equals stored values; current headers on edit with blank/duplicate/missing/>200-column reporting;
+catalog Retry with no partial lists; searchable grouped picker, address auto-detection (never → Email), inline
+field creation under existing rules, ignored-columns acknowledgement (also enforced by `activate`). Gate: build flag
+`VITE_GOOGLE_SHEETS_MAPPING_V2` AND server `mapping_versions` 2; legacy editor files untouched.
+
+Address, City and ZIP Code become agency-wide standard fields for new agencies (M2): INSERT-only idempotent
+provisioning, non-fatal org trigger recording `failed` + SQLSTATE, Admin/SA retry and a read-only report for
+detection and recovery, snapshot-guarded audited personal → agency-wide conversion. No backfill; no production field
+ownership or data changed.
+
+Pending migrations `20261028120000` (M1) / `20261028120100` (M2) with rollbacks and ops files. Verification: tsc,
+build, ESLint, 174 focused Vitest, full Vitest (only `main`'s 10 pre-existing failures), 135 Deno + six checks, full
+SQL/PostgREST/e2e runner, browser legacy and v2 at 1440/390 px. Release steps R2–R8 each need Chris's approval:
+`docs/plans/2026-10-27-sheets-mapping-reliability/release.md`.
+
+---
+
 ## 2026-10-27 — Neutral Sheets containers
 
 Chris requested removal of green container backgrounds and borders after reviewing the released color update. Restored neutral account and active-source containers; preserved colored badges, icon, buttons and all behavior. TypeScript and diff checks passed.

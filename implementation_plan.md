@@ -1,3 +1,37 @@
+## 2026-10-27 — IMPLEMENTED (draft PR; NOT merged; M1/M2 NOT applied; Edge NOT deployed; flag unset): Google Sheets mapping reliability — implementation record for Amendment A
+
+**Status.** Amendment A and the A7 file list were approved for local implementation. Everything below is on
+`claude/sheets-mapping-reliability-tvb445` (contains `main` `f980c16`). Release steps R2–R8 are unchanged and each
+needs Chris's separate approval: `docs/plans/2026-10-27-sheets-mapping-reliability/release.md`. Results:
+`docs/plans/2026-10-27-sheets-mapping-reliability/verification.md`.
+
+**Additional requirement (failed automatic provisioning) — how it is met.**
+- Detectable: the organization trigger never blocks agency creation; any error is recorded in
+  `private.standard_lead_field_provisioning` as `failed` with its SQLSTATE and attempt count. The read-only
+  `supabase/ops/standard_lead_fields_report.sql` lists every agency that is not complete (pre-M2 agencies included);
+  the Admin's Standard lead fields panel shows the failed setup.
+- Recoverable: `public.provision_standard_lead_fields(false)` (Admin/Super Admin of their own agency; JWT role and
+  profile must agree) or the approved `standard_lead_fields_apply.sql`. Both are INSERT-only and idempotent under
+  the logical-name guard's advisory lock (two concurrent retries: one waits, never a duplicate — runner 5d).
+
+**Deviations from A7 (all test or wiring scope; no behaviour outside the plan).**
+- Added: `supabase/tests/google_sheets_harness.sql` now creates production's `custom_fields` columns and `profiles`
+  `first_name`/`last_name`, so the suites run against production shapes. New shared fixture
+  `_shared/googleSheets/fixtures/state-parity.json` (Deno ↔ SQL `normalize_us_state` parity, 367 cases).
+- Consolidated: `fieldCatalog`/`headerState`/`mappingGate` tests are one `mappingV2.test.ts`; legacy
+  `googleSheetsUi.test.tsx` and `googleSheets.test.ts` are untouched (v2 cases in `googleSheetsV2Ui.test.tsx`); the
+  `standard` classifier verdict is tested in `standardLeadFields.test.ts` instead of `importFieldMatching.test.ts`.
+- Not changed although listed: `push/processor.test.ts` (push e2e scenario 6b runs a v2 source through the push
+  path), `src/hooks/useGoogleSheets.ts`, `src/lib/custom-field-errors.ts` (messages live in
+  `standard-lead-fields.ts`), `contactManagementFieldLayout.test.tsx`, and the `organizations` trigger tests (they
+  pin specific trigger names or a historical offline fixture, not the live set).
+- The unavailable custom field is named by the editor from the saved mapping, not by a new
+  `custom_field_unavailable:<uuid>` server code; the engine's review reason and legacy copy stay unchanged.
+- `src/lib/standard-lead-fields.ts` loads the Supabase client lazily, so pure importers and tests need no env.
+- `verify.mjs` gained an opt-in `GS_MAPPING_V2` run (CI runs it on its own port); the legacy run is unchanged.
+
+---
+
 ## 2026-10-27 — AMENDMENT A (awaiting Chris's approval of this amendment and file list; nothing built, applied or deployed): Google Sheets mapping reliability
 
 **Status.**
