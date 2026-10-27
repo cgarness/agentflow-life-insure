@@ -1,0 +1,2432 @@
+{
+ "prod-5-standard": {
+  "validate": {
+   "ok": true,
+   "mapping": {
+    "v": 1,
+    "columns": [
+     {
+      "header": "Email",
+      "target": "email"
+     },
+     {
+      "header": "First Name",
+      "target": "first_name"
+     },
+     {
+      "header": "Last Name",
+      "target": "last_name"
+     },
+     {
+      "header": "Phone",
+      "target": "phone"
+     },
+     {
+      "header": "State",
+      "target": "state"
+     }
+    ]
+   }
+  },
+  "cols": {
+   "std": {
+    "email": 3,
+    "first_name": 0,
+    "last_name": 1,
+    "phone": 2,
+    "state": 4
+   },
+   "custom": [],
+   "idIdx": null,
+   "problems": []
+  },
+  "custom": {
+   "names": {},
+   "unresolved": []
+  },
+  "planned": [
+   {
+    "n": 2,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "70ffe41c8e7d3eaeac68c8e6e627bffb73ec4764783086e327c202f016aedb5f",
+    "sig": "e1ddf40c81de8567392fed03910133b6ee92890e2c569cc40bea4dc3c3832be1",
+    "lead": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "(555) 010-2000",
+     "email": "ANN@EXAMPLE.TEST",
+     "state": "TX",
+     "lead_source": ""
+    },
+    "display": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "(555) 010-2000",
+     "email": "ANN@EXAMPLE.TEST"
+    }
+   },
+   {
+    "n": 3,
+    "idValue": null,
+    "empty": true,
+    "valid": false,
+    "reason": "empty",
+    "fp": "695e6e3a76cac61b0f75de2833be51173e4a6aec9dff8d19d10612772bd16b32",
+    "sig": "1648f34d674eca1016222d7cdffb489aee8d809530e1f51a899ebf56ac2b1ef4",
+    "display": {
+     "first_name": "",
+     "last_name": "",
+     "phone": "",
+     "email": ""
+    }
+   },
+   {
+    "n": 4,
+    "idValue": null,
+    "empty": false,
+    "valid": false,
+    "reason": "missing_name",
+    "fp": "af2f519c0caa6131fbf252928938f704c0d249a0a33e2d8a1de8fdef621381f5",
+    "sig": "006ae193d02aef14ae179a6faf8b598f834be7065edd600d5f61e0ccaee86259",
+    "display": {
+     "first_name": "Bo",
+     "last_name": "",
+     "phone": "5550102001",
+     "email": ""
+    }
+   },
+   {
+    "n": 5,
+    "idValue": null,
+    "empty": false,
+    "valid": false,
+    "reason": "missing_phone",
+    "fp": "f17c8cd7dc1091b4026a8469ee15366f9cd9ed85d3a64f3548c105bf8fa9d367",
+    "sig": "830986d5da21d02697bbec537996b947c41c4e47f69b50cf42e749796b1abea0",
+    "display": {
+     "first_name": "Cy",
+     "last_name": "Diaz",
+     "phone": "",
+     "email": "cy@example.test"
+    }
+   },
+   {
+    "n": 6,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "6014359837b6550b9d2b2c9ca09c3dce915cf28a4d66921b77d10cde7ddbbe3f",
+    "sig": "0a5d06d0cb4c6248ea0f73c65fb834143f3a93b5f6b44f2b6ce66ac1f271d5a0",
+    "lead": {
+     "first_name": "Dee",
+     "last_name": "Ng",
+     "phone": "555.010.2002",
+     "email": "",
+     "state": "florida",
+     "lead_source": ""
+    },
+    "display": {
+     "first_name": "Dee",
+     "last_name": "Ng",
+     "phone": "555.010.2002",
+     "email": ""
+    }
+   }
+  ],
+  "idClasses": {
+   "2": "missing_id",
+   "4": "missing_id",
+   "5": "missing_id",
+   "6": "missing_id"
+  },
+  "identityRowPosition": [
+   {
+    "k": "pos:2",
+    "n": 2,
+    "f": "70ffe41c8e7d3eaeac68c8e6e627bffb73ec4764783086e327c202f016aedb5f"
+   },
+   {
+    "k": "pos:3",
+    "n": 3,
+    "f": "695e6e3a76cac61b0f75de2833be51173e4a6aec9dff8d19d10612772bd16b32"
+   },
+   {
+    "k": "pos:4",
+    "n": 4,
+    "f": "af2f519c0caa6131fbf252928938f704c0d249a0a33e2d8a1de8fdef621381f5"
+   },
+   {
+    "k": "pos:5",
+    "n": 5,
+    "f": "f17c8cd7dc1091b4026a8469ee15366f9cd9ed85d3a64f3548c105bf8fa9d367"
+   },
+   {
+    "k": "pos:6",
+    "n": 6,
+    "f": "6014359837b6550b9d2b2c9ca09c3dce915cf28a4d66921b77d10cde7ddbbe3f"
+   }
+  ],
+  "identitySourceId": [
+   {
+    "k": "blank:2",
+    "n": 2,
+    "f": "70ffe41c8e7d3eaeac68c8e6e627bffb73ec4764783086e327c202f016aedb5f"
+   },
+   {
+    "k": "blank:4",
+    "n": 4,
+    "f": "af2f519c0caa6131fbf252928938f704c0d249a0a33e2d8a1de8fdef621381f5"
+   },
+   {
+    "k": "blank:5",
+    "n": 5,
+    "f": "f17c8cd7dc1091b4026a8469ee15366f9cd9ed85d3a64f3548c105bf8fa9d367"
+   },
+   {
+    "k": "blank:6",
+    "n": 6,
+    "f": "6014359837b6550b9d2b2c9ca09c3dce915cf28a4d66921b77d10cde7ddbbe3f"
+   }
+  ],
+  "planRowPosition": {
+   "structural": null,
+   "candidates": [
+    {
+     "k": "pos:2",
+     "row": {
+      "n": 2,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "70ffe41c8e7d3eaeac68c8e6e627bffb73ec4764783086e327c202f016aedb5f",
+      "sig": "e1ddf40c81de8567392fed03910133b6ee92890e2c569cc40bea4dc3c3832be1",
+      "lead": {
+       "first_name": "Ann",
+       "last_name": "Lee",
+       "phone": "(555) 010-2000",
+       "email": "ANN@EXAMPLE.TEST",
+       "state": "TX",
+       "lead_source": ""
+      },
+      "display": {
+       "first_name": "Ann",
+       "last_name": "Lee",
+       "phone": "(555) 010-2000",
+       "email": "ANN@EXAMPLE.TEST"
+      }
+     }
+    },
+    {
+     "k": "pos:6",
+     "row": {
+      "n": 6,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "6014359837b6550b9d2b2c9ca09c3dce915cf28a4d66921b77d10cde7ddbbe3f",
+      "sig": "0a5d06d0cb4c6248ea0f73c65fb834143f3a93b5f6b44f2b6ce66ac1f271d5a0",
+      "lead": {
+       "first_name": "Dee",
+       "last_name": "Ng",
+       "phone": "555.010.2002",
+       "email": "",
+       "state": "florida",
+       "lead_source": ""
+      },
+      "display": {
+       "first_name": "Dee",
+       "last_name": "Ng",
+       "phone": "555.010.2002",
+       "email": ""
+      }
+     }
+    }
+   ],
+   "ops": [
+    {
+     "k": "pos:3",
+     "n": 3,
+     "f": "695e6e3a76cac61b0f75de2833be51173e4a6aec9dff8d19d10612772bd16b32",
+     "reason": "empty"
+    },
+    {
+     "k": "pos:4",
+     "n": 4,
+     "f": "af2f519c0caa6131fbf252928938f704c0d249a0a33e2d8a1de8fdef621381f5",
+     "reason": "missing_name"
+    },
+    {
+     "k": "pos:5",
+     "n": 5,
+     "f": "f17c8cd7dc1091b4026a8469ee15366f9cd9ed85d3a64f3548c105bf8fa9d367",
+     "reason": "missing_phone"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 4,
+     "reason": "missing_name"
+    },
+    {
+     "row": 5,
+     "reason": "missing_phone"
+    }
+   ],
+   "pendingCount": 2
+  },
+  "planSourceId": {
+   "structural": null,
+   "candidates": [],
+   "ops": [
+    {
+     "k": "noid:2",
+     "n": 2,
+     "f": "70ffe41c8e7d3eaeac68c8e6e627bffb73ec4764783086e327c202f016aedb5f",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:4",
+     "n": 4,
+     "f": "af2f519c0caa6131fbf252928938f704c0d249a0a33e2d8a1de8fdef621381f5",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:5",
+     "n": 5,
+     "f": "f17c8cd7dc1091b4026a8469ee15366f9cd9ed85d3a64f3548c105bf8fa9d367",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:6",
+     "n": 6,
+     "f": "6014359837b6550b9d2b2c9ca09c3dce915cf28a4d66921b77d10cde7ddbbe3f",
+     "reason": "missing_id"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 2,
+     "reason": "missing_id"
+    },
+    {
+     "row": 4,
+     "reason": "missing_id"
+    },
+    {
+     "row": 5,
+     "reason": "missing_id"
+    },
+    {
+     "row": 6,
+     "reason": "missing_id"
+    }
+   ],
+   "pendingCount": 4
+  }
+ },
+ "prod-19-custom": {
+  "validate": {
+   "ok": true,
+   "mapping": {
+    "v": 1,
+    "columns": [
+     {
+      "header": "Ad",
+      "target": "custom:00000001-0000-4000-8000-000000000001"
+     },
+     {
+      "header": "Age",
+      "target": "age"
+     },
+     {
+      "header": "Amt Requested",
+      "target": "custom:00000002-0000-4000-8000-000000000002"
+     },
+     {
+      "header": "Beneficiary",
+      "target": "custom:00000003-0000-4000-8000-000000000003"
+     },
+     {
+      "header": "Beneficiary Name",
+      "target": "custom:00000004-0000-4000-8000-000000000004"
+     },
+     {
+      "header": "Date/Time",
+      "target": "custom:00000005-0000-4000-8000-000000000005"
+     },
+     {
+      "header": "DOB",
+      "target": "date_of_birth"
+     },
+     {
+      "header": "Email",
+      "target": "email"
+     },
+     {
+      "header": "Favorite Hobby",
+      "target": "custom:00000006-0000-4000-8000-000000000006"
+     },
+     {
+      "header": "First Name",
+      "target": "first_name"
+     },
+     {
+      "header": "Gender",
+      "target": "custom:00000007-0000-4000-8000-000000000007"
+     },
+     {
+      "header": "Have Life Insurance",
+      "target": "custom:00000008-0000-4000-8000-000000000008"
+     },
+     {
+      "header": "History of Heart Attack Stroke Cancer",
+      "target": "custom:00000009-0000-4000-8000-000000000009"
+     },
+     {
+      "header": "Interested In",
+      "target": "custom:0000000a-0000-4000-8000-00000000000a"
+     },
+     {
+      "header": "Last Name",
+      "target": "last_name"
+     },
+     {
+      "header": "Phone",
+      "target": "phone"
+     },
+     {
+      "header": "Platform",
+      "target": "custom:0000000b-0000-4000-8000-00000000000b"
+     },
+     {
+      "header": "State",
+      "target": "state"
+     },
+     {
+      "header": "Status",
+      "target": "custom:0000000c-0000-4000-8000-00000000000c"
+     }
+    ]
+   }
+  },
+  "cols": {
+   "std": {
+    "age": 1,
+    "date_of_birth": 6,
+    "email": 7,
+    "first_name": 9,
+    "last_name": 14,
+    "phone": 15,
+    "state": 17
+   },
+   "custom": [
+    {
+     "idx": 0,
+     "customFieldId": "00000001-0000-4000-8000-000000000001"
+    },
+    {
+     "idx": 2,
+     "customFieldId": "00000002-0000-4000-8000-000000000002"
+    },
+    {
+     "idx": 3,
+     "customFieldId": "00000003-0000-4000-8000-000000000003"
+    },
+    {
+     "idx": 4,
+     "customFieldId": "00000004-0000-4000-8000-000000000004"
+    },
+    {
+     "idx": 5,
+     "customFieldId": "00000005-0000-4000-8000-000000000005"
+    },
+    {
+     "idx": 8,
+     "customFieldId": "00000006-0000-4000-8000-000000000006"
+    },
+    {
+     "idx": 10,
+     "customFieldId": "00000007-0000-4000-8000-000000000007"
+    },
+    {
+     "idx": 11,
+     "customFieldId": "00000008-0000-4000-8000-000000000008"
+    },
+    {
+     "idx": 12,
+     "customFieldId": "00000009-0000-4000-8000-000000000009"
+    },
+    {
+     "idx": 13,
+     "customFieldId": "0000000a-0000-4000-8000-00000000000a"
+    },
+    {
+     "idx": 16,
+     "customFieldId": "0000000b-0000-4000-8000-00000000000b"
+    },
+    {
+     "idx": 18,
+     "customFieldId": "0000000c-0000-4000-8000-00000000000c"
+    }
+   ],
+   "idIdx": null,
+   "problems": []
+  },
+  "custom": {
+   "names": {
+    "00000001-0000-4000-8000-000000000001": "Ad",
+    "00000002-0000-4000-8000-000000000002": "Amt Requested",
+    "00000003-0000-4000-8000-000000000003": "Beneficiary",
+    "00000004-0000-4000-8000-000000000004": "Beneficiary Name",
+    "00000005-0000-4000-8000-000000000005": "Date/Time",
+    "00000006-0000-4000-8000-000000000006": "Favorite Hobby",
+    "00000007-0000-4000-8000-000000000007": "Gender",
+    "00000008-0000-4000-8000-000000000008": "Have Life Insurance",
+    "00000009-0000-4000-8000-000000000009": "History of Heart Attack Stroke Cancer",
+    "0000000a-0000-4000-8000-00000000000a": "Interested In",
+    "0000000b-0000-4000-8000-00000000000b": "Platform",
+    "0000000c-0000-4000-8000-00000000000c": "Status"
+   },
+   "unresolved": []
+  },
+  "planned": [
+   {
+    "n": 2,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "d206887da701f6a7b3b84a9af70a6864da3217f03aa29f62c3120492ef5168a7",
+    "sig": "ad331ffc6a931d752e5301aac0a278b248981368db90d511ab2a85b499b7778f",
+    "lead": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550103000",
+     "email": "ann@example.test",
+     "state": "texas",
+     "lead_source": "",
+     "age": "61",
+     "date_of_birth": "1965-03-04",
+     "custom_fields": {
+      "Ad": "FE-1",
+      "Amt Requested": "$10,000",
+      "Date/Time": "10/27/2026 3:04 PM",
+      "Gender": "F",
+      "Status": "new"
+     }
+    },
+    "display": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550103000",
+     "email": "ann@example.test"
+    }
+   },
+   {
+    "n": 3,
+    "idValue": null,
+    "empty": false,
+    "valid": false,
+    "reason": "invalid_dob",
+    "fp": "b1890dc4917efb716bb712efca90b3b64dfac173f27a9af4a7345e19aafcdf62",
+    "sig": "140e0d5f8eb9ccec4ba66f2d1418b5dd4589b1ef208bae8ae98e8347fee6944e",
+    "display": {
+     "first_name": "Bo",
+     "last_name": "Ray",
+     "phone": "5550103001",
+     "email": "bo@example.test"
+    }
+   },
+   {
+    "n": 4,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "177db398b83f85da3dbb4bd966ef015978e7ec94a110623651284762a05076e5",
+    "sig": "0107f4562d6418e4a1c9ab211ace9ccc40341d11472277b75938035d929f326e",
+    "lead": {
+     "first_name": "Cy",
+     "last_name": "Diaz",
+     "phone": "5550103002",
+     "email": "cy@example.test",
+     "state": "texas",
+     "lead_source": "",
+     "date_of_birth": "1970-01-01",
+     "custom_fields": {
+      "Ad": "FE-1",
+      "Amt Requested": "$10,000",
+      "Date/Time": "2026-10-27",
+      "Gender": "F",
+      "Status": "new"
+     }
+    },
+    "display": {
+     "first_name": "Cy",
+     "last_name": "Diaz",
+     "phone": "5550103002",
+     "email": "cy@example.test"
+    }
+   },
+   {
+    "n": 5,
+    "idValue": null,
+    "empty": false,
+    "valid": false,
+    "reason": "missing_phone",
+    "fp": "7446dc25373c375924a152a96f14a71e05e5baa4c26bf78e0d5b57a328a8b72b",
+    "sig": "318241fe24e77cbbaf4420cf82164ef65a9b6bda175c77698988065cf20c0c58",
+    "display": {
+     "first_name": "Dee",
+     "last_name": "Ng",
+     "phone": "",
+     "email": "dee@example.test"
+    }
+   },
+   {
+    "n": 6,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "be4272979e4acc0c80424db539dc73de32431d91f47d2573626969667e8866ff",
+    "sig": "be77bfd10e8cd48261726a77a0454a02fb8815172e044e7079917d8ecfaa25cc",
+    "lead": {
+     "first_name": "Eve",
+     "last_name": "Fox",
+     "phone": "5550103004",
+     "email": "eve@example.test",
+     "state": "texas",
+     "lead_source": "",
+     "age": "61",
+     "date_of_birth": "1965-03-04",
+     "custom_fields": {
+      "Amt Requested": "$10,000",
+      "Date/Time": "10/27/2026 3:04 PM"
+     }
+    },
+    "display": {
+     "first_name": "Eve",
+     "last_name": "Fox",
+     "phone": "5550103004",
+     "email": "eve@example.test"
+    }
+   }
+  ],
+  "idClasses": {
+   "2": "missing_id",
+   "3": "missing_id",
+   "4": "missing_id",
+   "5": "missing_id",
+   "6": "missing_id"
+  },
+  "identityRowPosition": [
+   {
+    "k": "pos:2",
+    "n": 2,
+    "f": "d206887da701f6a7b3b84a9af70a6864da3217f03aa29f62c3120492ef5168a7"
+   },
+   {
+    "k": "pos:3",
+    "n": 3,
+    "f": "b1890dc4917efb716bb712efca90b3b64dfac173f27a9af4a7345e19aafcdf62"
+   },
+   {
+    "k": "pos:4",
+    "n": 4,
+    "f": "177db398b83f85da3dbb4bd966ef015978e7ec94a110623651284762a05076e5"
+   },
+   {
+    "k": "pos:5",
+    "n": 5,
+    "f": "7446dc25373c375924a152a96f14a71e05e5baa4c26bf78e0d5b57a328a8b72b"
+   },
+   {
+    "k": "pos:6",
+    "n": 6,
+    "f": "be4272979e4acc0c80424db539dc73de32431d91f47d2573626969667e8866ff"
+   }
+  ],
+  "identitySourceId": [
+   {
+    "k": "blank:2",
+    "n": 2,
+    "f": "d206887da701f6a7b3b84a9af70a6864da3217f03aa29f62c3120492ef5168a7"
+   },
+   {
+    "k": "blank:3",
+    "n": 3,
+    "f": "b1890dc4917efb716bb712efca90b3b64dfac173f27a9af4a7345e19aafcdf62"
+   },
+   {
+    "k": "blank:4",
+    "n": 4,
+    "f": "177db398b83f85da3dbb4bd966ef015978e7ec94a110623651284762a05076e5"
+   },
+   {
+    "k": "blank:5",
+    "n": 5,
+    "f": "7446dc25373c375924a152a96f14a71e05e5baa4c26bf78e0d5b57a328a8b72b"
+   },
+   {
+    "k": "blank:6",
+    "n": 6,
+    "f": "be4272979e4acc0c80424db539dc73de32431d91f47d2573626969667e8866ff"
+   }
+  ],
+  "planRowPosition": {
+   "structural": null,
+   "candidates": [
+    {
+     "k": "pos:2",
+     "row": {
+      "n": 2,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "d206887da701f6a7b3b84a9af70a6864da3217f03aa29f62c3120492ef5168a7",
+      "sig": "ad331ffc6a931d752e5301aac0a278b248981368db90d511ab2a85b499b7778f",
+      "lead": {
+       "first_name": "Ann",
+       "last_name": "Lee",
+       "phone": "5550103000",
+       "email": "ann@example.test",
+       "state": "texas",
+       "lead_source": "",
+       "age": "61",
+       "date_of_birth": "1965-03-04",
+       "custom_fields": {
+        "Ad": "FE-1",
+        "Amt Requested": "$10,000",
+        "Date/Time": "10/27/2026 3:04 PM",
+        "Gender": "F",
+        "Status": "new"
+       }
+      },
+      "display": {
+       "first_name": "Ann",
+       "last_name": "Lee",
+       "phone": "5550103000",
+       "email": "ann@example.test"
+      }
+     }
+    },
+    {
+     "k": "pos:4",
+     "row": {
+      "n": 4,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "177db398b83f85da3dbb4bd966ef015978e7ec94a110623651284762a05076e5",
+      "sig": "0107f4562d6418e4a1c9ab211ace9ccc40341d11472277b75938035d929f326e",
+      "lead": {
+       "first_name": "Cy",
+       "last_name": "Diaz",
+       "phone": "5550103002",
+       "email": "cy@example.test",
+       "state": "texas",
+       "lead_source": "",
+       "date_of_birth": "1970-01-01",
+       "custom_fields": {
+        "Ad": "FE-1",
+        "Amt Requested": "$10,000",
+        "Date/Time": "2026-10-27",
+        "Gender": "F",
+        "Status": "new"
+       }
+      },
+      "display": {
+       "first_name": "Cy",
+       "last_name": "Diaz",
+       "phone": "5550103002",
+       "email": "cy@example.test"
+      }
+     }
+    },
+    {
+     "k": "pos:6",
+     "row": {
+      "n": 6,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "be4272979e4acc0c80424db539dc73de32431d91f47d2573626969667e8866ff",
+      "sig": "be77bfd10e8cd48261726a77a0454a02fb8815172e044e7079917d8ecfaa25cc",
+      "lead": {
+       "first_name": "Eve",
+       "last_name": "Fox",
+       "phone": "5550103004",
+       "email": "eve@example.test",
+       "state": "texas",
+       "lead_source": "",
+       "age": "61",
+       "date_of_birth": "1965-03-04",
+       "custom_fields": {
+        "Amt Requested": "$10,000",
+        "Date/Time": "10/27/2026 3:04 PM"
+       }
+      },
+      "display": {
+       "first_name": "Eve",
+       "last_name": "Fox",
+       "phone": "5550103004",
+       "email": "eve@example.test"
+      }
+     }
+    }
+   ],
+   "ops": [
+    {
+     "k": "pos:3",
+     "n": 3,
+     "f": "b1890dc4917efb716bb712efca90b3b64dfac173f27a9af4a7345e19aafcdf62",
+     "reason": "invalid_dob"
+    },
+    {
+     "k": "pos:5",
+     "n": 5,
+     "f": "7446dc25373c375924a152a96f14a71e05e5baa4c26bf78e0d5b57a328a8b72b",
+     "reason": "missing_phone"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 3,
+     "reason": "invalid_dob"
+    },
+    {
+     "row": 5,
+     "reason": "missing_phone"
+    }
+   ],
+   "pendingCount": 2
+  },
+  "planSourceId": {
+   "structural": null,
+   "candidates": [],
+   "ops": [
+    {
+     "k": "noid:2",
+     "n": 2,
+     "f": "d206887da701f6a7b3b84a9af70a6864da3217f03aa29f62c3120492ef5168a7",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:3",
+     "n": 3,
+     "f": "b1890dc4917efb716bb712efca90b3b64dfac173f27a9af4a7345e19aafcdf62",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:4",
+     "n": 4,
+     "f": "177db398b83f85da3dbb4bd966ef015978e7ec94a110623651284762a05076e5",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:5",
+     "n": 5,
+     "f": "7446dc25373c375924a152a96f14a71e05e5baa4c26bf78e0d5b57a328a8b72b",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:6",
+     "n": 6,
+     "f": "be4272979e4acc0c80424db539dc73de32431d91f47d2573626969667e8866ff",
+     "reason": "missing_id"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 2,
+     "reason": "missing_id"
+    },
+    {
+     "row": 3,
+     "reason": "missing_id"
+    },
+    {
+     "row": 4,
+     "reason": "missing_id"
+    },
+    {
+     "row": 5,
+     "reason": "missing_id"
+    },
+    {
+     "row": 6,
+     "reason": "missing_id"
+    }
+   ],
+   "pendingCount": 5
+  }
+ },
+ "prod-21-city-zip": {
+  "validate": {
+   "ok": true,
+   "mapping": {
+    "v": 1,
+    "columns": [
+     {
+      "header": "Ad",
+      "target": "custom:00000001-0000-4000-8000-000000000001"
+     },
+     {
+      "header": "Age",
+      "target": "age"
+     },
+     {
+      "header": "Amt Requested",
+      "target": "custom:00000002-0000-4000-8000-000000000002"
+     },
+     {
+      "header": "Beneficiary",
+      "target": "custom:00000003-0000-4000-8000-000000000003"
+     },
+     {
+      "header": "Beneficiary Name",
+      "target": "custom:00000004-0000-4000-8000-000000000004"
+     },
+     {
+      "header": "Date/Time",
+      "target": "custom:00000005-0000-4000-8000-000000000005"
+     },
+     {
+      "header": "DOB",
+      "target": "date_of_birth"
+     },
+     {
+      "header": "Email",
+      "target": "email"
+     },
+     {
+      "header": "Favorite Hobby",
+      "target": "custom:00000006-0000-4000-8000-000000000006"
+     },
+     {
+      "header": "First Name",
+      "target": "first_name"
+     },
+     {
+      "header": "Gender",
+      "target": "custom:00000007-0000-4000-8000-000000000007"
+     },
+     {
+      "header": "Have Life Insurance",
+      "target": "custom:00000008-0000-4000-8000-000000000008"
+     },
+     {
+      "header": "History of Heart Attack Stroke Cancer",
+      "target": "custom:00000009-0000-4000-8000-000000000009"
+     },
+     {
+      "header": "Interested In",
+      "target": "custom:0000000a-0000-4000-8000-00000000000a"
+     },
+     {
+      "header": "Last Name",
+      "target": "last_name"
+     },
+     {
+      "header": "Phone",
+      "target": "phone"
+     },
+     {
+      "header": "Platform",
+      "target": "custom:0000000b-0000-4000-8000-00000000000b"
+     },
+     {
+      "header": "State",
+      "target": "state"
+     },
+     {
+      "header": "Status",
+      "target": "custom:0000000c-0000-4000-8000-00000000000c"
+     },
+     {
+      "header": "City",
+      "target": "custom:0000000d-0000-4000-8000-00000000000d"
+     },
+     {
+      "header": "Zip",
+      "target": "custom:0000000e-0000-4000-8000-00000000000e"
+     }
+    ]
+   }
+  },
+  "cols": {
+   "std": {
+    "age": 1,
+    "date_of_birth": 6,
+    "email": 7,
+    "first_name": 9,
+    "last_name": 14,
+    "phone": 15,
+    "state": 17
+   },
+   "custom": [
+    {
+     "idx": 0,
+     "customFieldId": "00000001-0000-4000-8000-000000000001"
+    },
+    {
+     "idx": 2,
+     "customFieldId": "00000002-0000-4000-8000-000000000002"
+    },
+    {
+     "idx": 3,
+     "customFieldId": "00000003-0000-4000-8000-000000000003"
+    },
+    {
+     "idx": 4,
+     "customFieldId": "00000004-0000-4000-8000-000000000004"
+    },
+    {
+     "idx": 5,
+     "customFieldId": "00000005-0000-4000-8000-000000000005"
+    },
+    {
+     "idx": 8,
+     "customFieldId": "00000006-0000-4000-8000-000000000006"
+    },
+    {
+     "idx": 10,
+     "customFieldId": "00000007-0000-4000-8000-000000000007"
+    },
+    {
+     "idx": 11,
+     "customFieldId": "00000008-0000-4000-8000-000000000008"
+    },
+    {
+     "idx": 12,
+     "customFieldId": "00000009-0000-4000-8000-000000000009"
+    },
+    {
+     "idx": 13,
+     "customFieldId": "0000000a-0000-4000-8000-00000000000a"
+    },
+    {
+     "idx": 16,
+     "customFieldId": "0000000b-0000-4000-8000-00000000000b"
+    },
+    {
+     "idx": 18,
+     "customFieldId": "0000000c-0000-4000-8000-00000000000c"
+    },
+    {
+     "idx": 19,
+     "customFieldId": "0000000d-0000-4000-8000-00000000000d"
+    },
+    {
+     "idx": 20,
+     "customFieldId": "0000000e-0000-4000-8000-00000000000e"
+    }
+   ],
+   "idIdx": null,
+   "problems": []
+  },
+  "custom": {
+   "names": {
+    "00000001-0000-4000-8000-000000000001": "Ad",
+    "00000002-0000-4000-8000-000000000002": "Amt Requested",
+    "00000003-0000-4000-8000-000000000003": "Beneficiary",
+    "00000004-0000-4000-8000-000000000004": "Beneficiary Name",
+    "00000005-0000-4000-8000-000000000005": "Date/Time",
+    "00000006-0000-4000-8000-000000000006": "Favorite Hobby",
+    "00000007-0000-4000-8000-000000000007": "Gender",
+    "00000008-0000-4000-8000-000000000008": "Have Life Insurance",
+    "00000009-0000-4000-8000-000000000009": "History of Heart Attack Stroke Cancer",
+    "0000000a-0000-4000-8000-00000000000a": "Interested In",
+    "0000000b-0000-4000-8000-00000000000b": "Platform",
+    "0000000c-0000-4000-8000-00000000000c": "Status",
+    "0000000d-0000-4000-8000-00000000000d": "City",
+    "0000000e-0000-4000-8000-00000000000e": "Zip Code"
+   },
+   "unresolved": []
+  },
+  "planned": [
+   {
+    "n": 2,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "699b694a58f53a7bd6c98a29699f5b430586ff85e06c5f08cd7b5512b8d541f2",
+    "sig": "a14dd3eadb9c619629c547399017036cb13a8bcc40a1ef5b28a21b37b7bbb9c9",
+    "lead": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550104000",
+     "email": "ann@example.test",
+     "state": "texas",
+     "lead_source": "",
+     "age": "61",
+     "date_of_birth": "1965-03-04",
+     "custom_fields": {
+      "Ad": "FE-1",
+      "Amt Requested": "$10,000",
+      "Date/Time": "10/27/2026 3:04 PM",
+      "Gender": "F",
+      "Status": "new",
+      "City": "Austin",
+      "Zip Code": "02134"
+     }
+    },
+    "display": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550104000",
+     "email": "ann@example.test"
+    }
+   },
+   {
+    "n": 3,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "04ecc9da79f22d676ae87dd048d8eb1963ba02d34180ce8e40082fdb6c8899c5",
+    "sig": "41e67a7149d1bf60cbb11622d5edf77bcec1549aa626148ae0fdebf05da3f9ac",
+    "lead": {
+     "first_name": "Bo",
+     "last_name": "Ray",
+     "phone": "5550104001",
+     "email": "bo@example.test",
+     "state": "texas",
+     "lead_source": "",
+     "age": "61",
+     "date_of_birth": "1965-03-04",
+     "custom_fields": {
+      "Ad": "FE-1",
+      "Amt Requested": "$10,000",
+      "Date/Time": "10/27/2026 3:04 PM",
+      "Gender": "F",
+      "Status": "new",
+      "Zip Code": "73301-1234"
+     }
+    },
+    "display": {
+     "first_name": "Bo",
+     "last_name": "Ray",
+     "phone": "5550104001",
+     "email": "bo@example.test"
+    }
+   }
+  ],
+  "idClasses": {
+   "2": "missing_id",
+   "3": "missing_id"
+  },
+  "identityRowPosition": [
+   {
+    "k": "pos:2",
+    "n": 2,
+    "f": "699b694a58f53a7bd6c98a29699f5b430586ff85e06c5f08cd7b5512b8d541f2"
+   },
+   {
+    "k": "pos:3",
+    "n": 3,
+    "f": "04ecc9da79f22d676ae87dd048d8eb1963ba02d34180ce8e40082fdb6c8899c5"
+   }
+  ],
+  "identitySourceId": [
+   {
+    "k": "blank:2",
+    "n": 2,
+    "f": "699b694a58f53a7bd6c98a29699f5b430586ff85e06c5f08cd7b5512b8d541f2"
+   },
+   {
+    "k": "blank:3",
+    "n": 3,
+    "f": "04ecc9da79f22d676ae87dd048d8eb1963ba02d34180ce8e40082fdb6c8899c5"
+   }
+  ],
+  "planRowPosition": {
+   "structural": null,
+   "candidates": [
+    {
+     "k": "pos:2",
+     "row": {
+      "n": 2,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "699b694a58f53a7bd6c98a29699f5b430586ff85e06c5f08cd7b5512b8d541f2",
+      "sig": "a14dd3eadb9c619629c547399017036cb13a8bcc40a1ef5b28a21b37b7bbb9c9",
+      "lead": {
+       "first_name": "Ann",
+       "last_name": "Lee",
+       "phone": "5550104000",
+       "email": "ann@example.test",
+       "state": "texas",
+       "lead_source": "",
+       "age": "61",
+       "date_of_birth": "1965-03-04",
+       "custom_fields": {
+        "Ad": "FE-1",
+        "Amt Requested": "$10,000",
+        "Date/Time": "10/27/2026 3:04 PM",
+        "Gender": "F",
+        "Status": "new",
+        "City": "Austin",
+        "Zip Code": "02134"
+       }
+      },
+      "display": {
+       "first_name": "Ann",
+       "last_name": "Lee",
+       "phone": "5550104000",
+       "email": "ann@example.test"
+      }
+     }
+    },
+    {
+     "k": "pos:3",
+     "row": {
+      "n": 3,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "04ecc9da79f22d676ae87dd048d8eb1963ba02d34180ce8e40082fdb6c8899c5",
+      "sig": "41e67a7149d1bf60cbb11622d5edf77bcec1549aa626148ae0fdebf05da3f9ac",
+      "lead": {
+       "first_name": "Bo",
+       "last_name": "Ray",
+       "phone": "5550104001",
+       "email": "bo@example.test",
+       "state": "texas",
+       "lead_source": "",
+       "age": "61",
+       "date_of_birth": "1965-03-04",
+       "custom_fields": {
+        "Ad": "FE-1",
+        "Amt Requested": "$10,000",
+        "Date/Time": "10/27/2026 3:04 PM",
+        "Gender": "F",
+        "Status": "new",
+        "Zip Code": "73301-1234"
+       }
+      },
+      "display": {
+       "first_name": "Bo",
+       "last_name": "Ray",
+       "phone": "5550104001",
+       "email": "bo@example.test"
+      }
+     }
+    }
+   ],
+   "ops": [],
+   "newErrors": [],
+   "pendingCount": 0
+  },
+  "planSourceId": {
+   "structural": null,
+   "candidates": [],
+   "ops": [
+    {
+     "k": "noid:2",
+     "n": 2,
+     "f": "699b694a58f53a7bd6c98a29699f5b430586ff85e06c5f08cd7b5512b8d541f2",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:3",
+     "n": 3,
+     "f": "04ecc9da79f22d676ae87dd048d8eb1963ba02d34180ce8e40082fdb6c8899c5",
+     "reason": "missing_id"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 2,
+     "reason": "missing_id"
+    },
+    {
+     "row": 3,
+     "reason": "missing_id"
+    }
+   ],
+   "pendingCount": 2
+  }
+ },
+ "full-name-and-optionals": {
+  "validate": {
+   "ok": true,
+   "mapping": {
+    "v": 1,
+    "columns": [
+     {
+      "header": "Name",
+      "target": "full_name"
+     },
+     {
+      "header": "Cell",
+      "target": "phone"
+     },
+     {
+      "header": "Source",
+      "target": "lead_source"
+     },
+     {
+      "header": "Notes",
+      "target": "notes"
+     },
+     {
+      "header": "Best Time",
+      "target": "best_time_to_call"
+     },
+     {
+      "header": "Birthday",
+      "target": "date_of_birth"
+     },
+     {
+      "header": "Years",
+      "target": "age"
+     }
+    ]
+   }
+  },
+  "cols": {
+   "std": {
+    "full_name": 0,
+    "phone": 1,
+    "lead_source": 2,
+    "notes": 3,
+    "best_time_to_call": 4,
+    "date_of_birth": 5,
+    "age": 6
+   },
+   "custom": [],
+   "idIdx": null,
+   "problems": []
+  },
+  "custom": {
+   "names": {},
+   "unresolved": []
+  },
+  "planned": [
+   {
+    "n": 2,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "9bf51d113abf92f05e5b6e407a0166ee2b377530c74be7217ac56221d4a2e0e0",
+    "sig": "f11c1427274f2a82adf0b5ddf2191a933d1667da43799faaabb5365c3be1c99b",
+    "lead": {
+     "first_name": "Mary",
+     "last_name": "Ann Smith",
+     "phone": "555 010 5000",
+     "email": "",
+     "state": "",
+     "lead_source": "Facebook",
+     "age": "54",
+     "date_of_birth": "1970-03-04",
+     "best_time_to_call": "evenings",
+     "notes": "call after 5",
+     "custom_fields": {
+      "Full Name": "Mary Ann  Smith"
+     }
+    },
+    "display": {
+     "first_name": "Mary",
+     "last_name": "Ann Smith",
+     "phone": "555 010 5000",
+     "email": ""
+    }
+   },
+   {
+    "n": 3,
+    "idValue": null,
+    "empty": false,
+    "valid": false,
+    "reason": "missing_name",
+    "fp": "c49408689b86912a117c02b7d523d1bf2965a7e56f810e96f184caf715beefe4",
+    "sig": "a84417f706f6287e9cd8a682bdb6659299a56d38438855dc6395285a2361fc1c",
+    "display": {
+     "first_name": "Cher",
+     "last_name": "",
+     "phone": "5550105001",
+     "email": ""
+    }
+   },
+   {
+    "n": 4,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "c5eb26a3d9171aaeb35cc45bb223a90bd0cf08dbc12011946769294961fc068b",
+    "sig": "3010ae7611562cc4a3d6eeccc9e7c6f02f4127738d8f019a682ae76687ee2ff7",
+    "lead": {
+     "first_name": "Jo",
+     "last_name": "Doe",
+     "phone": "5550105002",
+     "email": "",
+     "state": "",
+     "lead_source": "",
+     "date_of_birth": "1970-03-04",
+     "notes": "x",
+     "custom_fields": {
+      "Full Name": "Jo Doe"
+     }
+    },
+    "display": {
+     "first_name": "Jo",
+     "last_name": "Doe",
+     "phone": "5550105002",
+     "email": ""
+    }
+   }
+  ],
+  "idClasses": {
+   "2": "missing_id",
+   "3": "missing_id",
+   "4": "missing_id"
+  },
+  "identityRowPosition": [
+   {
+    "k": "pos:2",
+    "n": 2,
+    "f": "9bf51d113abf92f05e5b6e407a0166ee2b377530c74be7217ac56221d4a2e0e0"
+   },
+   {
+    "k": "pos:3",
+    "n": 3,
+    "f": "c49408689b86912a117c02b7d523d1bf2965a7e56f810e96f184caf715beefe4"
+   },
+   {
+    "k": "pos:4",
+    "n": 4,
+    "f": "c5eb26a3d9171aaeb35cc45bb223a90bd0cf08dbc12011946769294961fc068b"
+   }
+  ],
+  "identitySourceId": [
+   {
+    "k": "blank:2",
+    "n": 2,
+    "f": "9bf51d113abf92f05e5b6e407a0166ee2b377530c74be7217ac56221d4a2e0e0"
+   },
+   {
+    "k": "blank:3",
+    "n": 3,
+    "f": "c49408689b86912a117c02b7d523d1bf2965a7e56f810e96f184caf715beefe4"
+   },
+   {
+    "k": "blank:4",
+    "n": 4,
+    "f": "c5eb26a3d9171aaeb35cc45bb223a90bd0cf08dbc12011946769294961fc068b"
+   }
+  ],
+  "planRowPosition": {
+   "structural": null,
+   "candidates": [
+    {
+     "k": "pos:2",
+     "row": {
+      "n": 2,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "9bf51d113abf92f05e5b6e407a0166ee2b377530c74be7217ac56221d4a2e0e0",
+      "sig": "f11c1427274f2a82adf0b5ddf2191a933d1667da43799faaabb5365c3be1c99b",
+      "lead": {
+       "first_name": "Mary",
+       "last_name": "Ann Smith",
+       "phone": "555 010 5000",
+       "email": "",
+       "state": "",
+       "lead_source": "Facebook",
+       "age": "54",
+       "date_of_birth": "1970-03-04",
+       "best_time_to_call": "evenings",
+       "notes": "call after 5",
+       "custom_fields": {
+        "Full Name": "Mary Ann  Smith"
+       }
+      },
+      "display": {
+       "first_name": "Mary",
+       "last_name": "Ann Smith",
+       "phone": "555 010 5000",
+       "email": ""
+      }
+     }
+    },
+    {
+     "k": "pos:4",
+     "row": {
+      "n": 4,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "c5eb26a3d9171aaeb35cc45bb223a90bd0cf08dbc12011946769294961fc068b",
+      "sig": "3010ae7611562cc4a3d6eeccc9e7c6f02f4127738d8f019a682ae76687ee2ff7",
+      "lead": {
+       "first_name": "Jo",
+       "last_name": "Doe",
+       "phone": "5550105002",
+       "email": "",
+       "state": "",
+       "lead_source": "",
+       "date_of_birth": "1970-03-04",
+       "notes": "x",
+       "custom_fields": {
+        "Full Name": "Jo Doe"
+       }
+      },
+      "display": {
+       "first_name": "Jo",
+       "last_name": "Doe",
+       "phone": "5550105002",
+       "email": ""
+      }
+     }
+    }
+   ],
+   "ops": [
+    {
+     "k": "pos:3",
+     "n": 3,
+     "f": "c49408689b86912a117c02b7d523d1bf2965a7e56f810e96f184caf715beefe4",
+     "reason": "missing_name"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 3,
+     "reason": "missing_name"
+    }
+   ],
+   "pendingCount": 1
+  },
+  "planSourceId": {
+   "structural": null,
+   "candidates": [],
+   "ops": [
+    {
+     "k": "noid:2",
+     "n": 2,
+     "f": "9bf51d113abf92f05e5b6e407a0166ee2b377530c74be7217ac56221d4a2e0e0",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:3",
+     "n": 3,
+     "f": "c49408689b86912a117c02b7d523d1bf2965a7e56f810e96f184caf715beefe4",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:4",
+     "n": 4,
+     "f": "c5eb26a3d9171aaeb35cc45bb223a90bd0cf08dbc12011946769294961fc068b",
+     "reason": "missing_id"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 2,
+     "reason": "missing_id"
+    },
+    {
+     "row": 3,
+     "reason": "missing_id"
+    },
+    {
+     "row": 4,
+     "reason": "missing_id"
+    }
+   ],
+   "pendingCount": 3
+  }
+ },
+ "source-id-mode": {
+  "validate": {
+   "ok": true,
+   "mapping": {
+    "v": 1,
+    "columns": [
+     {
+      "header": "First",
+      "target": "first_name"
+     },
+     {
+      "header": "Last",
+      "target": "last_name"
+     },
+     {
+      "header": "Phone",
+      "target": "phone"
+     },
+     {
+      "header": "Coverage",
+      "target": "custom:00000002-0000-4000-8000-000000000002"
+     }
+    ]
+   }
+  },
+  "cols": {
+   "std": {
+    "first_name": 1,
+    "last_name": 2,
+    "phone": 3
+   },
+   "custom": [
+    {
+     "idx": 4,
+     "customFieldId": "00000002-0000-4000-8000-000000000002"
+    }
+   ],
+   "idIdx": 0,
+   "problems": []
+  },
+  "custom": {
+   "names": {
+    "00000002-0000-4000-8000-000000000002": "Amt Requested"
+   },
+   "unresolved": []
+  },
+  "planned": [
+   {
+    "n": 2,
+    "idValue": "A1",
+    "empty": false,
+    "valid": true,
+    "fp": "c0b4f662379cc2894bb7ba3039b25416dcbab6faf1df7cfb0b7d98735cfdc34f",
+    "sig": "1e4e94c52a436de69b1785da736cc3da99df253adf8efa71122d6ec7a8b54fe9",
+    "lead": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550106000",
+     "email": "",
+     "state": "",
+     "lead_source": "",
+     "custom_fields": {
+      "Amt Requested": "100000"
+     }
+    },
+    "display": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550106000",
+     "email": ""
+    }
+   },
+   {
+    "n": 3,
+    "idValue": "A2",
+    "empty": false,
+    "valid": true,
+    "fp": "8526175284f555d67a8ef6dd7da7742ee5452613aa53c0a9e7904b1099155906",
+    "sig": "ed38fc14907a8b674da5da01f81324011f18c352ee6b0ea869925f4a14db5531",
+    "lead": {
+     "first_name": "Bo",
+     "last_name": "Ray",
+     "phone": "5550106001",
+     "email": "",
+     "state": "",
+     "lead_source": "",
+     "custom_fields": {
+      "Amt Requested": "$25,000.50"
+     }
+    },
+    "display": {
+     "first_name": "Bo",
+     "last_name": "Ray",
+     "phone": "5550106001",
+     "email": ""
+    }
+   },
+   {
+    "n": 4,
+    "idValue": "A1",
+    "empty": false,
+    "valid": true,
+    "fp": "c0b4f662379cc2894bb7ba3039b25416dcbab6faf1df7cfb0b7d98735cfdc34f",
+    "sig": "1e4e94c52a436de69b1785da736cc3da99df253adf8efa71122d6ec7a8b54fe9",
+    "lead": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550106000",
+     "email": "",
+     "state": "",
+     "lead_source": "",
+     "custom_fields": {
+      "Amt Requested": "100000"
+     }
+    },
+    "display": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550106000",
+     "email": ""
+    }
+   },
+   {
+    "n": 5,
+    "idValue": "A3",
+    "empty": false,
+    "valid": true,
+    "fp": "c2096cd79ea24c88ff4532631483b0052a3f8f08ea489e6ee05604495f4ca68c",
+    "sig": "f508768cac02da50a16e0596c36f6dcf7ac71cfec8270c5f84b61853aa750c13",
+    "lead": {
+     "first_name": "Cy",
+     "last_name": "Diaz",
+     "phone": "5550106002",
+     "email": "",
+     "state": "",
+     "lead_source": "",
+     "custom_fields": {
+      "Amt Requested": "1"
+     }
+    },
+    "display": {
+     "first_name": "Cy",
+     "last_name": "Diaz",
+     "phone": "5550106002",
+     "email": ""
+    }
+   },
+   {
+    "n": 6,
+    "idValue": "A3",
+    "empty": false,
+    "valid": true,
+    "fp": "c2096cd79ea24c88ff4532631483b0052a3f8f08ea489e6ee05604495f4ca68c",
+    "sig": "78167d2053e38d7273188bce29ca73a29ee02b310359d810f53a967dd37c464e",
+    "lead": {
+     "first_name": "Cy",
+     "last_name": "Diaz",
+     "phone": "5550106002",
+     "email": "",
+     "state": "",
+     "lead_source": "",
+     "custom_fields": {
+      "Amt Requested": "2"
+     }
+    },
+    "display": {
+     "first_name": "Cy",
+     "last_name": "Diaz",
+     "phone": "5550106002",
+     "email": ""
+    }
+   },
+   {
+    "n": 7,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "d5443e8d7d8380c0aeeaceaa64aa84db5fe09bc4b62ac8a10050e4dec92b3859",
+    "sig": "f3e60fd6ad5c189981e685e666e450ee13016d0d26c4e2d8b6ceb8c169bb3c87",
+    "lead": {
+     "first_name": "Dee",
+     "last_name": "Ng",
+     "phone": "5550106003",
+     "email": "",
+     "state": "",
+     "lead_source": ""
+    },
+    "display": {
+     "first_name": "Dee",
+     "last_name": "Ng",
+     "phone": "5550106003",
+     "email": ""
+    }
+   },
+   {
+    "n": 8,
+    "idValue": "a2",
+    "empty": false,
+    "valid": false,
+    "reason": "missing_phone",
+    "fp": "e9ddf14b21e36f51ebd873838e06b2b415953062e31687366543012091d03252",
+    "sig": "00d1e6ca7495dc4fe10b09ecfddc44d2ef1b4bc4bac47817b34ce81063435eef",
+    "display": {
+     "first_name": "Eve",
+     "last_name": "Fox",
+     "phone": "",
+     "email": ""
+    }
+   },
+   {
+    "n": 9,
+    "idValue": null,
+    "empty": true,
+    "valid": false,
+    "reason": "empty",
+    "fp": "695e6e3a76cac61b0f75de2833be51173e4a6aec9dff8d19d10612772bd16b32",
+    "sig": "843cd9a119bdd7b38e465cbe7d4bff1b12e4a1d7ed0254fff319c0fee7e53feb",
+    "display": {
+     "first_name": "",
+     "last_name": "",
+     "phone": "",
+     "email": ""
+    }
+   }
+  ],
+  "idClasses": {
+   "2": "ok",
+   "3": "ok",
+   "4": "repeat",
+   "5": "duplicate_id",
+   "6": "duplicate_id",
+   "7": "missing_id",
+   "8": "ok"
+  },
+  "identityRowPosition": [
+   {
+    "k": "pos:2",
+    "n": 2,
+    "f": "c0b4f662379cc2894bb7ba3039b25416dcbab6faf1df7cfb0b7d98735cfdc34f"
+   },
+   {
+    "k": "pos:3",
+    "n": 3,
+    "f": "8526175284f555d67a8ef6dd7da7742ee5452613aa53c0a9e7904b1099155906"
+   },
+   {
+    "k": "pos:4",
+    "n": 4,
+    "f": "c0b4f662379cc2894bb7ba3039b25416dcbab6faf1df7cfb0b7d98735cfdc34f"
+   },
+   {
+    "k": "pos:5",
+    "n": 5,
+    "f": "c2096cd79ea24c88ff4532631483b0052a3f8f08ea489e6ee05604495f4ca68c"
+   },
+   {
+    "k": "pos:6",
+    "n": 6,
+    "f": "c2096cd79ea24c88ff4532631483b0052a3f8f08ea489e6ee05604495f4ca68c"
+   },
+   {
+    "k": "pos:7",
+    "n": 7,
+    "f": "d5443e8d7d8380c0aeeaceaa64aa84db5fe09bc4b62ac8a10050e4dec92b3859"
+   },
+   {
+    "k": "pos:8",
+    "n": 8,
+    "f": "e9ddf14b21e36f51ebd873838e06b2b415953062e31687366543012091d03252"
+   },
+   {
+    "k": "pos:9",
+    "n": 9,
+    "f": "695e6e3a76cac61b0f75de2833be51173e4a6aec9dff8d19d10612772bd16b32"
+   }
+  ],
+  "identitySourceId": [
+   {
+    "k": "id:A1",
+    "n": 2,
+    "f": "c0b4f662379cc2894bb7ba3039b25416dcbab6faf1df7cfb0b7d98735cfdc34f",
+    "id": "A1"
+   },
+   {
+    "k": "id:A2",
+    "n": 3,
+    "f": "8526175284f555d67a8ef6dd7da7742ee5452613aa53c0a9e7904b1099155906",
+    "id": "A2"
+   },
+   {
+    "k": "id:A1",
+    "n": 4,
+    "f": "c0b4f662379cc2894bb7ba3039b25416dcbab6faf1df7cfb0b7d98735cfdc34f",
+    "id": "A1"
+   },
+   {
+    "k": "id:A3",
+    "n": 5,
+    "f": "c2096cd79ea24c88ff4532631483b0052a3f8f08ea489e6ee05604495f4ca68c",
+    "id": "A3"
+   },
+   {
+    "k": "id:A3",
+    "n": 6,
+    "f": "c2096cd79ea24c88ff4532631483b0052a3f8f08ea489e6ee05604495f4ca68c",
+    "id": "A3"
+   },
+   {
+    "k": "blank:7",
+    "n": 7,
+    "f": "d5443e8d7d8380c0aeeaceaa64aa84db5fe09bc4b62ac8a10050e4dec92b3859"
+   },
+   {
+    "k": "id:a2",
+    "n": 8,
+    "f": "e9ddf14b21e36f51ebd873838e06b2b415953062e31687366543012091d03252",
+    "id": "a2"
+   }
+  ],
+  "planRowPosition": {
+   "structural": "rows_changed",
+   "candidates": [],
+   "ops": [],
+   "newErrors": [],
+   "pendingCount": 0
+  },
+  "planSourceId": {
+   "structural": null,
+   "candidates": [],
+   "ops": [
+    {
+     "k": "dup:5",
+     "n": 5,
+     "f": "c2096cd79ea24c88ff4532631483b0052a3f8f08ea489e6ee05604495f4ca68c",
+     "reason": "duplicate_id"
+    },
+    {
+     "k": "dup:6",
+     "n": 6,
+     "f": "c2096cd79ea24c88ff4532631483b0052a3f8f08ea489e6ee05604495f4ca68c",
+     "reason": "duplicate_id"
+    },
+    {
+     "k": "noid:7",
+     "n": 7,
+     "f": "d5443e8d7d8380c0aeeaceaa64aa84db5fe09bc4b62ac8a10050e4dec92b3859",
+     "reason": "missing_id"
+    },
+    {
+     "k": "id:a2",
+     "n": 8,
+     "f": "e9ddf14b21e36f51ebd873838e06b2b415953062e31687366543012091d03252",
+     "reason": "missing_phone"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 5,
+     "reason": "duplicate_id"
+    },
+    {
+     "row": 6,
+     "reason": "duplicate_id"
+    },
+    {
+     "row": 7,
+     "reason": "missing_id"
+    },
+    {
+     "row": 8,
+     "reason": "missing_phone"
+    }
+   ],
+   "pendingCount": 4
+  }
+ },
+ "row-position-ledger": {
+  "validate": {
+   "ok": true,
+   "mapping": {
+    "v": 1,
+    "columns": [
+     {
+      "header": "First",
+      "target": "first_name"
+     },
+     {
+      "header": "Last",
+      "target": "last_name"
+     },
+     {
+      "header": "Phone",
+      "target": "phone"
+     }
+    ]
+   }
+  },
+  "cols": {
+   "std": {
+    "first_name": 0,
+    "last_name": 1,
+    "phone": 2
+   },
+   "custom": [],
+   "idIdx": null,
+   "problems": []
+  },
+  "custom": {
+   "names": {},
+   "unresolved": []
+  },
+  "planned": [
+   {
+    "n": 2,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "56b63868404521351c11d93f47f33ad18ddab9ef5d31a73317f49b31bdb6843b",
+    "sig": "911889201c61ef9cb6842a3f05dbf6dbac43bd35f04ce92a40877a3fccb565ba",
+    "lead": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550107000",
+     "email": "",
+     "state": "",
+     "lead_source": ""
+    },
+    "display": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550107000",
+     "email": ""
+    }
+   },
+   {
+    "n": 3,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "c3760a2d6ab5e07481a127e7ed95c22df9b7ca241bd8e796e67cdd90c0a5c110",
+    "sig": "5d8448ccad26e71040d9077ec994439c664651bcea7c817d515b3055765f1162",
+    "lead": {
+     "first_name": "Bo",
+     "last_name": "Ray",
+     "phone": "5550107001",
+     "email": "",
+     "state": "",
+     "lead_source": ""
+    },
+    "display": {
+     "first_name": "Bo",
+     "last_name": "Ray",
+     "phone": "5550107001",
+     "email": ""
+    }
+   },
+   {
+    "n": 4,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "6f267ea0c9d36069ba04df7e710370712394495ecac96491dea7775fb74f6409",
+    "sig": "9190fa9ddc0b2758e682738ba4e986ca3d45b5bb460df299cb522225f531b57a",
+    "lead": {
+     "first_name": "Cy",
+     "last_name": "Diaz",
+     "phone": "5550107002",
+     "email": "",
+     "state": "",
+     "lead_source": ""
+    },
+    "display": {
+     "first_name": "Cy",
+     "last_name": "Diaz",
+     "phone": "5550107002",
+     "email": ""
+    }
+   }
+  ],
+  "idClasses": {
+   "2": "missing_id",
+   "3": "missing_id",
+   "4": "missing_id"
+  },
+  "identityRowPosition": [
+   {
+    "k": "pos:2",
+    "n": 2,
+    "f": "56b63868404521351c11d93f47f33ad18ddab9ef5d31a73317f49b31bdb6843b"
+   },
+   {
+    "k": "pos:3",
+    "n": 3,
+    "f": "c3760a2d6ab5e07481a127e7ed95c22df9b7ca241bd8e796e67cdd90c0a5c110"
+   },
+   {
+    "k": "pos:4",
+    "n": 4,
+    "f": "6f267ea0c9d36069ba04df7e710370712394495ecac96491dea7775fb74f6409"
+   }
+  ],
+  "identitySourceId": [
+   {
+    "k": "blank:2",
+    "n": 2,
+    "f": "56b63868404521351c11d93f47f33ad18ddab9ef5d31a73317f49b31bdb6843b"
+   },
+   {
+    "k": "blank:3",
+    "n": 3,
+    "f": "c3760a2d6ab5e07481a127e7ed95c22df9b7ca241bd8e796e67cdd90c0a5c110"
+   },
+   {
+    "k": "blank:4",
+    "n": 4,
+    "f": "6f267ea0c9d36069ba04df7e710370712394495ecac96491dea7775fb74f6409"
+   }
+  ],
+  "planRowPosition": {
+   "structural": null,
+   "candidates": [
+    {
+     "k": "pos:3",
+     "row": {
+      "n": 3,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "c3760a2d6ab5e07481a127e7ed95c22df9b7ca241bd8e796e67cdd90c0a5c110",
+      "sig": "5d8448ccad26e71040d9077ec994439c664651bcea7c817d515b3055765f1162",
+      "lead": {
+       "first_name": "Bo",
+       "last_name": "Ray",
+       "phone": "5550107001",
+       "email": "",
+       "state": "",
+       "lead_source": ""
+      },
+      "display": {
+       "first_name": "Bo",
+       "last_name": "Ray",
+       "phone": "5550107001",
+       "email": ""
+      }
+     }
+    },
+    {
+     "k": "pos:4",
+     "row": {
+      "n": 4,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "6f267ea0c9d36069ba04df7e710370712394495ecac96491dea7775fb74f6409",
+      "sig": "9190fa9ddc0b2758e682738ba4e986ca3d45b5bb460df299cb522225f531b57a",
+      "lead": {
+       "first_name": "Cy",
+       "last_name": "Diaz",
+       "phone": "5550107002",
+       "email": "",
+       "state": "",
+       "lead_source": ""
+      },
+      "display": {
+       "first_name": "Cy",
+       "last_name": "Diaz",
+       "phone": "5550107002",
+       "email": ""
+      }
+     }
+    }
+   ],
+   "ops": [],
+   "newErrors": [],
+   "pendingCount": 0
+  },
+  "planSourceId": {
+   "structural": null,
+   "candidates": [],
+   "ops": [
+    {
+     "k": "noid:2",
+     "n": 2,
+     "f": "56b63868404521351c11d93f47f33ad18ddab9ef5d31a73317f49b31bdb6843b",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:3",
+     "n": 3,
+     "f": "c3760a2d6ab5e07481a127e7ed95c22df9b7ca241bd8e796e67cdd90c0a5c110",
+     "reason": "missing_id"
+    },
+    {
+     "k": "noid:4",
+     "n": 4,
+     "f": "6f267ea0c9d36069ba04df7e710370712394495ecac96491dea7775fb74f6409",
+     "reason": "missing_id"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 2,
+     "reason": "missing_id"
+    },
+    {
+     "row": 3,
+     "reason": "missing_id"
+    },
+    {
+     "row": 4,
+     "reason": "missing_id"
+    }
+   ],
+   "pendingCount": 3
+  }
+ },
+ "header-problems": {
+  "validate": {
+   "ok": true,
+   "mapping": {
+    "v": 1,
+    "columns": [
+     {
+      "header": "First Name",
+      "target": "first_name"
+     },
+     {
+      "header": "Last Name",
+      "target": "last_name"
+     },
+     {
+      "header": "Phone",
+      "target": "phone"
+     },
+     {
+      "header": "Gone",
+      "target": "notes"
+     }
+    ]
+   }
+  },
+  "cols": {
+   "std": {
+    "first_name": 0,
+    "last_name": 1
+   },
+   "custom": [],
+   "idIdx": null,
+   "problems": [
+    "duplicate:Phone",
+    "missing:Gone",
+    "missing:Lead ID"
+   ]
+  },
+  "custom": {
+   "names": {},
+   "unresolved": []
+  },
+  "planned": [
+   {
+    "n": 2,
+    "idValue": null,
+    "empty": false,
+    "valid": false,
+    "reason": "missing_phone",
+    "fp": "93da6a2453394d66872541d64832ab16d7620e28f3e6ac2a4a5eb7119e92496e",
+    "sig": "30905d9e070843e1c585c8e9cbb0cb21354f48c695f7a27828049bac573e365c",
+    "display": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "",
+     "email": ""
+    }
+   }
+  ],
+  "idClasses": {
+   "2": "missing_id"
+  },
+  "identityRowPosition": [
+   {
+    "k": "pos:2",
+    "n": 2,
+    "f": "93da6a2453394d66872541d64832ab16d7620e28f3e6ac2a4a5eb7119e92496e"
+   }
+  ],
+  "identitySourceId": [
+   {
+    "k": "blank:2",
+    "n": 2,
+    "f": "93da6a2453394d66872541d64832ab16d7620e28f3e6ac2a4a5eb7119e92496e"
+   }
+  ],
+  "planRowPosition": {
+   "structural": null,
+   "candidates": [],
+   "ops": [
+    {
+     "k": "pos:2",
+     "n": 2,
+     "f": "93da6a2453394d66872541d64832ab16d7620e28f3e6ac2a4a5eb7119e92496e",
+     "reason": "missing_phone"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 2,
+     "reason": "missing_phone"
+    }
+   ],
+   "pendingCount": 1
+  },
+  "planSourceId": {
+   "structural": null,
+   "candidates": [],
+   "ops": [
+    {
+     "k": "noid:2",
+     "n": 2,
+     "f": "93da6a2453394d66872541d64832ab16d7620e28f3e6ac2a4a5eb7119e92496e",
+     "reason": "missing_id"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 2,
+     "reason": "missing_id"
+    }
+   ],
+   "pendingCount": 1
+  }
+ },
+ "unresolved-custom": {
+  "validate": {
+   "ok": true,
+   "mapping": {
+    "v": 1,
+    "columns": [
+     {
+      "header": "First",
+      "target": "first_name"
+     },
+     {
+      "header": "Last",
+      "target": "last_name"
+     },
+     {
+      "header": "Phone",
+      "target": "phone"
+     },
+     {
+      "header": "Mail",
+      "target": "custom:0000000f-0000-4000-8000-00000000000f"
+     },
+     {
+      "header": "Ghost",
+      "target": "custom:99999999-9999-4999-8999-999999999999"
+     }
+    ]
+   }
+  },
+  "cols": {
+   "std": {
+    "first_name": 0,
+    "last_name": 1,
+    "phone": 2
+   },
+   "custom": [
+    {
+     "idx": 3,
+     "customFieldId": "0000000f-0000-4000-8000-00000000000f"
+    },
+    {
+     "idx": 4,
+     "customFieldId": "99999999-9999-4999-8999-999999999999"
+    }
+   ],
+   "idIdx": null,
+   "problems": []
+  },
+  "custom": {
+   "names": {},
+   "unresolved": [
+    "0000000f-0000-4000-8000-00000000000f",
+    "99999999-9999-4999-8999-999999999999"
+   ]
+  },
+  "planned": [
+   {
+    "n": 2,
+    "idValue": null,
+    "empty": false,
+    "valid": true,
+    "fp": "5c1f8bc25d1b650a09a45186106feaf3c0eaf5a21510c52db4727512e8f8dda5",
+    "sig": "e9cd870ce825558916569bc9777bbab5a02b81362a57763e6ce5895142ce1446",
+    "lead": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550108000",
+     "email": "",
+     "state": "",
+     "lead_source": ""
+    },
+    "display": {
+     "first_name": "Ann",
+     "last_name": "Lee",
+     "phone": "5550108000",
+     "email": ""
+    }
+   }
+  ],
+  "idClasses": {
+   "2": "missing_id"
+  },
+  "identityRowPosition": [
+   {
+    "k": "pos:2",
+    "n": 2,
+    "f": "5c1f8bc25d1b650a09a45186106feaf3c0eaf5a21510c52db4727512e8f8dda5"
+   }
+  ],
+  "identitySourceId": [
+   {
+    "k": "blank:2",
+    "n": 2,
+    "f": "5c1f8bc25d1b650a09a45186106feaf3c0eaf5a21510c52db4727512e8f8dda5"
+   }
+  ],
+  "planRowPosition": {
+   "structural": null,
+   "candidates": [
+    {
+     "k": "pos:2",
+     "row": {
+      "n": 2,
+      "idValue": null,
+      "empty": false,
+      "valid": true,
+      "fp": "5c1f8bc25d1b650a09a45186106feaf3c0eaf5a21510c52db4727512e8f8dda5",
+      "sig": "e9cd870ce825558916569bc9777bbab5a02b81362a57763e6ce5895142ce1446",
+      "lead": {
+       "first_name": "Ann",
+       "last_name": "Lee",
+       "phone": "5550108000",
+       "email": "",
+       "state": "",
+       "lead_source": ""
+      },
+      "display": {
+       "first_name": "Ann",
+       "last_name": "Lee",
+       "phone": "5550108000",
+       "email": ""
+      }
+     }
+    }
+   ],
+   "ops": [],
+   "newErrors": [],
+   "pendingCount": 0
+  },
+  "planSourceId": {
+   "structural": null,
+   "candidates": [],
+   "ops": [
+    {
+     "k": "noid:2",
+     "n": 2,
+     "f": "5c1f8bc25d1b650a09a45186106feaf3c0eaf5a21510c52db4727512e8f8dda5",
+     "reason": "missing_id"
+    }
+   ],
+   "newErrors": [
+    {
+     "row": 2,
+     "reason": "missing_id"
+    }
+   ],
+   "pendingCount": 1
+  }
+ },
+ "invalid-mappings": {
+  "validate": {
+   "ok": false,
+   "reason": "invalid_mapping"
+  }
+ },
+ "invalid-duplicate-target": {
+  "validate": {
+   "ok": false,
+   "reason": "duplicate_target"
+  }
+ }
+}
