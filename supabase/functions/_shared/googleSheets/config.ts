@@ -14,6 +14,12 @@ export const LIMITS = {
   manualBudgetMs: 25_000,   // Sync now budget (inside a user request)
   previewRows: 20,
   maxColumns: 200,
+  // Mapping checks only (headers / preview / v2 writes; never sync): columns past maxColumns are scanned for a header
+  // or any data — at most this many more columns (the same cell bound as the import read). Wider grids are reported
+  // as unchecked. The scan is time- and size-bounded; an incomplete scan fails the check, it never passes it.
+  beyondLimitScanColumns: 200,
+  beyondLimitTimeoutMs: 15_000,
+  beyondLimitMaxBytes: 32 * 1024 * 1024,
 } as const;
 
 export interface SheetsConfig {

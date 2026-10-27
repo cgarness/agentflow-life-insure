@@ -234,4 +234,270 @@ console.log("   scenario 7: structural review (no Lead ID): explicit choices for
   ok(out.imported === 1 && (await leads("Xi")) === 1 && (await leads("Cy")) === 1, `only the unmatched row imported (${JSON.stringify(out)})`);
 }
 
+// ---------------------------------------------------------------- mapping v2: several users, two agencies (M1 + M2 applied)
+console.log("   scenario 8: mapping v2 — standard address fields, typed values, stored = preview, mixed v1/v2, edits, isolation");
+{
+  const ORG_B = "a0000000-0000-0000-0000-0000000000e3", USER2 = "e2000000-0000-0000-0000-000000000002", USER_B = "e3000000-0000-0000-0000-000000000001";
+  const insert = async (table: string, rows: unknown) => {
+    const res = await fetch(`${base}/${table}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}`,
+      Prefer: "return=representation" }, body: JSON.stringify(rows) });
+    ok(res.ok, `insert ${table}: ${res.status} ${await res.clone().text()}`);
+    return await res.json();
+  };
+  await insert("organizations", [{ id: ORG_B, name: "E2E Org B", status: "active" }]);   // seeded by the M2 trigger
+  await insert("profiles", [{ id: USER2, organization_id: ORG, role: "Agent", status: "Active" },
+                            { id: USER_B, organization_id: ORG_B, role: "Agent", status: "Active" }]);
+  const [amt] = await insert("custom_fields", [{ organization_id: ORG, name: "Amt Requested", type: "Number", applies_to: ["Leads"], created_by: USER }]);
+  const [recv] = await insert("custom_fields", [{ organization_id: ORG, name: "Received", type: "Date", applies_to: ["Leads"], created_by: USER2 }]);
+
+  const V2HEADER = ["First", "Last", "Phone", "Address", "City", "Zip", "Amt Requested", "Notes"];
+  const v2tabs = new Map<number, string[][]>();
+  const v2fetch = ((input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const r = (st: number, b: unknown) => Promise.resolve(new Response(JSON.stringify(b), { status: st }));
+    if (url.includes("oauth2.googleapis.com/token")) return r(200, { access_token: "ya29.e2e", expires_in: 3599 });
+    if (url.includes("/drive/v3/files/")) return r(200, { id: "SPREADSHEET_E2E_V2", name: "E2E V2", mimeType: "application/vnd.google-apps.spreadsheet", trashed: false });
+    const values = url.match(/\/values\/([^?]+)/);
+    if (values) {
+      const id = Number(decodeURIComponent(values[1]).match(/^'V(\d+)'!/)?.[1]);
+      const t = v2tabs.get(id) ?? [V2HEADER];
+      return r(200, { values: t });
+    }
+    if (url.includes("sheets.googleapis.com/v4/spreadsheets/")) {
+      return r(200, { properties: { title: "E2E V2", locale: "en_US" }, sheets: [...v2tabs.keys()].map((id, i) => ({ properties: { sheetId: id,
+        title: `V${id}`, index: i, gridProperties: { rowCount: 1000, columnCount: 9 } } })) });
+    }
+    return r(404, {});
+  }) as typeof fetch;
+  const ctxFor = (userId: string, orgId: string): A.Ctx => ({ svc: svc as never, cfg: CFG, fetchFn: v2fetch, userId, orgId });
+  const cA = ctxFor(USER, ORG), cA2 = ctxFor(USER2, ORG), cB = ctxFor(USER_B, ORG_B);
+  const sameObj = (x: unknown, y: Record<string, string>) =>   // jsonb reorders object keys: compare as sorted entries
+    JSON.stringify(Object.entries((x ?? {}) as Record<string, string>).sort()) === JSON.stringify(Object.entries(y).sort());
+  for (const [ctx, sub] of [[cA2, "sub-v2-a2"], [cB, "sub-v2-b"]] as [A.Ctx, string][]) {   // the owner (USER) is already connected
+    const r = await svc.rpc("google_sheets_store_connection", { p_user: ctx.userId, p_org: ctx.orgId, p_expected_generation: 0,
+      p_google_sub: sub, p_google_email: `${sub}@example.test`, p_scopes: ["openid", "email", "https://www.googleapis.com/auth/drive.file"],
+      p_refresh_token: `rt-${sub}` });
+    ok(r.data?.[0]?.outcome === "connected", `connect ${sub}: ${JSON.stringify(r)}`);
+  }
+
+  // Catalog per user: agency standard fields for everyone in the agency; personal fields only for their owner.
+  const catA = await A.context(cA) as Record<string, any>, catA2 = await A.context(cA2) as Record<string, any>, catB = await A.context(cB) as Record<string, any>;
+  const names = (cat: Record<string, any>) => cat.custom_fields.map((f: { name: string }) => f.name).sort().join(",");
+  ok(JSON.stringify(catA.mapping_versions) === "[1,2]" && catA.catalog_version === 2, "typed catalog advertised");
+  ok(names(catA) === "Address,Amt Requested,City,ZIP Code", `owner A catalog: ${names(catA)}`);
+  ok(names(catA2) === "Address,City,Received,ZIP Code", `same-agency agent: own personal only: ${names(catA2)}`);
+  ok(names(catB) === "Address,City,ZIP Code", `agency B: its own standard fields only: ${names(catB)}`);
+  const idOf = (cat: Record<string, any>, n: string) => cat.custom_fields.find((f: { name: string }) => f.name === n).id as string;
+  ok(idOf(catB, "City") !== idOf(catA, "City"), "agencies have distinct standard field ids");
+
+  const v2map = { v: 2, columns: [{ header: "First", target: "first_name" }, { header: "Last", target: "last_name" }, { header: "Phone", target: "phone" },
+    { header: "Address", target: `custom:${idOf(catA, "Address")}` }, { header: "City", target: `custom:${idOf(catA, "City")}` },
+    { header: "Zip", target: `custom:${idOf(catA, "ZIP Code")}` }, { header: "Amt Requested", target: `custom:${amt.id}` }], ignored: ["Notes"] };
+  const ROWS = [["Vic", "Lee", "5550061001", "1 Main St", "Austin", "02134", "$1,234.50", "note"], ["Val", "Ray", "5550061002", "", "Waco", "73301-1234", "007", ""]];
+  v2tabs.set(1, [V2HEADER, ...ROWS]);
+
+  // Preview → activate (include existing) → sync; every stored value equals what the preview showed.
+  const pv = await A.preview(cA, { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 1, mapping: v2map, identity_mode: "row_position", lead_source_default: "Sheets V2" }) as Record<string, any>;
+  ok(pv.mapping_version === 2 && JSON.stringify(pv.unaccounted_headers) === "[]" && pv.locale === "en_US", "preview: v2, everything accounted for");
+  const saved = await A.save(cA, { payload: { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 1, spreadsheet_name: "E2E V2", sheet_title: "V1",
+    display_name: "V2 tab", mapping: v2map, identity_mode: "row_position", id_header: null, lead_source_default: "Sheets V2", include_existing: true } });
+  await A.activate(cA, { source_id: saved.source_id, expected_version: saved.config_version });
+  const v2src = saved.source_id as string;
+  await svc.patch("google_sheets_sources", `id=eq.${v2src}`, { last_checked_at: null });
+  const run1 = await A.syncNow(cA, { source_id: v2src });
+  ok(run1.status === "ok" && run1.imported === 2, `v2 import: ${JSON.stringify(run1)}`);
+  for (const prow of pv.rows as { first_name: string; fields: { target: string; value: string }[] }[]) {
+    const [lead] = await q("leads", `organization_id=eq.${ORG}&first_name=eq.${prow.first_name}`);
+    ok(lead.assigned_agent_id === USER && lead.user_id === USER, `${prow.first_name}: assigned to the connected agent`);
+    for (const f of prow.fields) {
+      const stored = f.target === "lead_source" ? lead.lead_source : f.target === "email" ? lead.email : f.target === "state" ? lead.state
+        : lead.custom_fields?.[catA.custom_fields.find((x: { id: string }) => `custom:${x.id}` === f.target)?.name ?? "Amt Requested"];
+      ok(stored === f.value, `${prow.first_name} ${f.target}: stored ${JSON.stringify(stored)} = preview ${JSON.stringify(f.value)}`);
+    }
+  }
+  const vic = (await q("leads", `organization_id=eq.${ORG}&first_name=eq.Vic`))[0];
+  ok(sameObj(vic.custom_fields, { "Address": "1 Main St", "City": "Austin", "ZIP Code": "02134", "Amt Requested": "1234.50" }),
+    `Vic stored: ${JSON.stringify(vic.custom_fields)}`);
+  const val = (await q("leads", `organization_id=eq.${ORG}&first_name=eq.Val`))[0];
+  ok(sameObj(val.custom_fields, { "City": "Waco", "ZIP Code": "73301-1234", "Amt Requested": "007" }), "leading zeros and ZIP+4 exact");
+  await svc.patch("google_sheets_sources", `id=eq.${v2src}`, { last_checked_at: null });
+  const run2 = await A.syncNow(cA, { source_id: v2src });
+  ok(run2.imported === 0 && (await leads("Vic")) === 1, "re-run imports nothing (receipts)");
+
+  // Mixed: an existing v1 source on the same connection keeps raw values; then the owner edits it to v2 with Address/City/ZIP.
+  v2tabs.set(2, [V2HEADER, ["Wes", "Kim", "5550062001", "9 Elm", "Plano", "07001", "$5,000", ""]]);
+  const v1map = { v: 1, columns: [{ header: "First", target: "first_name" }, { header: "Last", target: "last_name" }, { header: "Phone", target: "phone" },
+    { header: "Amt Requested", target: `custom:${amt.id}` }] };
+  const s1 = await A.save(cA, { payload: { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 2, spreadsheet_name: "E2E V2", sheet_title: "V2",
+    display_name: "V1 tab", mapping: v1map, identity_mode: "row_position", id_header: null, lead_source_default: "Sheets", include_existing: true } });
+  await A.activate(cA, { source_id: s1.source_id, expected_version: s1.config_version });
+  await svc.patch("google_sheets_sources", `id=eq.${s1.source_id}`, { last_checked_at: null });
+  ok((await A.syncNow(cA, { source_id: s1.source_id })).imported === 1, "v1 source imports");
+  const wes = (await q("leads", `organization_id=eq.${ORG}&first_name=eq.Wes`))[0];
+  ok(sameObj(wes.custom_fields, { "Amt Requested": "$5,000" }), `v1 stays raw: ${JSON.stringify(wes.custom_fields)}`);
+  const cur = await source(s1.source_id);
+  const edited = { ...v2map, ignored: ["Notes"] };
+  await A.save(cA, { source_id: s1.source_id, expected_version: cur.config_version, payload: { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 2,
+    spreadsheet_name: "E2E V2", sheet_title: "V2", display_name: "V1 tab", mapping: edited, identity_mode: "row_position", id_header: null,
+    lead_source_default: "Sheets" } });
+  v2tabs.set(2, [V2HEADER, ["Wes", "Kim", "5550062001", "9 Elm", "Plano", "07001", "$5,000", ""], ["Xia", "Ng", "5550062002", "4 Oak", "Allen", "75002", "$1,000", ""]]);
+  await svc.patch("google_sheets_sources", `id=eq.${s1.source_id}`, { last_checked_at: null });
+  const run3 = await A.syncNow(cA, { source_id: s1.source_id });
+  ok(run3.imported === 1 && (await leads("Wes")) === 1 && (await leads("Xia")) === 1, `edit → only the new row imports: ${JSON.stringify(run3)}`);
+  ok(sameObj((await q("leads", `organization_id=eq.${ORG}&first_name=eq.Wes`))[0].custom_fields, { "Amt Requested": "$5,000" }),
+    "an already-imported lead is never rewritten (no automatic backfill)");
+  ok(sameObj((await q("leads", `organization_id=eq.${ORG}&first_name=eq.Xia`))[0].custom_fields,
+    { "Address": "4 Oak", "City": "Allen", "ZIP Code": "75002", "Amt Requested": "1000" }), "the new row carries the address fields");
+
+  // A column added after the preview stops a v2 draft's activation; nothing is written.
+  v2tabs.set(3, [V2HEADER, ROWS[0]]);
+  const d3 = await A.save(cA, { payload: { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 3, spreadsheet_name: "E2E V2", sheet_title: "V3",
+    display_name: "V3", mapping: v2map, identity_mode: "row_position", id_header: null, lead_source_default: "Sheets", include_existing: false } });
+  v2tabs.set(3, [[...V2HEADER, "Spouse"], [...ROWS[0], "x"]]);
+  ok((await refused(A.activate(cA, { source_id: d3.source_id, expected_version: d3.config_version }))) === "unacknowledged_columns", "new column blocks activation");
+  ok((await source(d3.source_id)).state === "draft", "the draft stays a draft");
+
+  // Isolation: another agent cannot import into the owner's personal field; agency B cannot use agency A's fields.
+  v2tabs.set(4, [V2HEADER, ROWS[0]]);
+  ok((await refused(A.preview(cA2, { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 4, mapping: v2map, identity_mode: "row_position" })))
+    === "custom_field_unavailable", "same-agency agent: another user's personal field is unavailable");
+  ok((await refused(A.preview(cB, { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 4, mapping: v2map, identity_mode: "row_position" })))
+    === "custom_field_unavailable", "other agency: agency A's fields are unavailable");
+  const mapA2 = { ...v2map, columns: v2map.columns.filter((x) => x.target !== `custom:${amt.id}`), ignored: ["Notes", "Amt Requested"] };
+  const pa2 = await A.preview(cA2, { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 4, mapping: mapA2, identity_mode: "row_position" }) as Record<string, any>;
+  ok(pa2.rows[0].fields.some((f: { target: string; value: string }) => f.value === "Austin"), "same-agency agent maps the shared agency City");
+
+  // Two owners in two agencies sync at the same time: each gets exactly its own leads.
+  const mapB = { v: 2, columns: [{ header: "First", target: "first_name" }, { header: "Last", target: "last_name" }, { header: "Phone", target: "phone" },
+    { header: "City", target: `custom:${idOf(catB, "City")}` }], ignored: ["Address", "Zip", "Amt Requested", "Notes"] };
+  v2tabs.set(5, [V2HEADER, ["Yan", "Bee", "5550063001", "", "Frisco", "", "", ""]]);
+  v2tabs.set(6, [V2HEADER, ["Zed", "Ace", "5550063002", "", "Irving", "", "", ""]]);
+  const sB = await A.save(cB, { payload: { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 5, spreadsheet_name: "E2E V2", sheet_title: "V5",
+    display_name: "B", mapping: mapB, identity_mode: "row_position", id_header: null, lead_source_default: "Sheets", include_existing: true } });
+  await A.activate(cB, { source_id: sB.source_id, expected_version: sB.config_version });
+  const sA6 = await A.save(cA, { payload: { spreadsheet_id: "SPREADSHEET_E2E_V2", sheet_id: 6, spreadsheet_name: "E2E V2", sheet_title: "V6",
+    display_name: "A6", mapping: { ...mapB, columns: [...mapB.columns.slice(0, 3), { header: "City", target: `custom:${idOf(catA, "City")}` }] },
+    identity_mode: "row_position", id_header: null, lead_source_default: "Sheets", include_existing: true } });
+  await A.activate(cA, { source_id: sA6.source_id, expected_version: sA6.config_version });
+  const [rb, ra] = await Promise.all([A.syncNow(cB, { source_id: sB.source_id }), A.syncNow(cA, { source_id: sA6.source_id })]);
+  ok(rb.imported === 1 && ra.imported === 1, `concurrent owners: ${JSON.stringify([rb, ra])}`);
+  const yan = (await q("leads", `first_name=eq.Yan`)), zed = (await q("leads", `first_name=eq.Zed`));
+  ok(yan.length === 1 && yan[0].organization_id === ORG_B && yan[0].assigned_agent_id === USER_B && yan[0].custom_fields.City === "Frisco", "agency B lead");
+  ok(zed.length === 1 && zed[0].organization_id === ORG && zed[0].assigned_agent_id === USER && zed[0].custom_fields.City === "Irving", "agency A lead");
+  ok(recv.id && (await leads("Vic")) === 1, "no duplicates anywhere");
+
+  // ---------------------------------------------------------------- correction C
+  console.log("   scenario 9: v2 writes re-read the sheet; content past GR needs an exact acknowledgement; no duplicates, no receipt changes");
+  // A range-aware fake: A1:GR row reads, GS1:… column-major reads, each tab with its own grid width (Google trims empties).
+  const wtabs = new Map<number, { width: number; cells: string[][] }>();
+  const colNum = (l: string) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  const trimEnd = (xs: string[]) => { const out = [...xs]; while (out.length && !out[out.length - 1]) out.pop(); return out; };
+  const scans: string[] = [];
+  const wfetch = ((input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const r = (st: number, b: unknown) => Promise.resolve(new Response(JSON.stringify(b), { status: st }));
+    if (url.includes("oauth2.googleapis.com/token")) return r(200, { access_token: "ya29.e2e", expires_in: 3599 });
+    if (url.includes("/drive/v3/files/")) return r(200, { id: "SPREADSHEET_E2E_W", name: "E2E W", mimeType: "application/vnd.google-apps.spreadsheet", trashed: false });
+    const values = url.match(/\/values\/([^?]+)/);
+    if (values) {
+      const m = decodeURIComponent(values[1]).match(/^'W(\d+)'!([A-Z]+)1:([A-Z]+)(\d+)$/)!;
+      const t = wtabs.get(Number(m[1]))!;
+      const from = colNum(m[2]) - 1, to = Math.min(colNum(m[3]), t.width);
+      if (url.includes("majorDimension=COLUMNS")) {
+        scans.push(`${m[2]}:${m[3]}`);
+        const cols = Array.from({ length: Math.max(0, to - from) }, (_, i) => trimEnd(t.cells.map((row) => row[from + i] ?? "")));
+        while (cols.length && !cols[cols.length - 1].length) cols.pop();
+        return r(200, cols.length ? { majorDimension: "COLUMNS", values: cols } : {});
+      }
+      return r(200, { values: t.cells.map((row) => trimEnd(row.slice(from, to))) });
+    }
+    if (url.includes("sheets.googleapis.com/v4/spreadsheets/")) {
+      return r(200, { properties: { title: "E2E W", locale: "en_US" }, sheets: [...wtabs.keys()].map((id, i) => ({ properties: { sheetId: id,
+        title: `W${id}`, index: i, gridProperties: { rowCount: 1000, columnCount: wtabs.get(id)!.width } } })) });
+    }
+    return r(404, {});
+  }) as typeof fetch;
+  const cW: A.Ctx = { svc: svc as never, cfg: CFG, fetchFn: wfetch, userId: USER, orgId: ORG };
+  const W = (id: number, extra: Record<string, unknown> = {}) => ({ spreadsheet_id: "SPREADSHEET_E2E_W", sheet_id: id, identity_mode: "row_position",
+    lead_source_default: "Sheets W", ...extra });
+  const payload = (id: number, mapping: unknown, include = true) => ({ ...W(id), spreadsheet_name: "E2E W", sheet_title: `W${id}`, display_name: `W${id}`,
+    mapping, id_header: null, include_existing: include });
+  const imported = async (id: number, mapping: unknown) => ((await A.preview(cW, W(id, { mapping }))) as Record<string, any>).imported_before as number;
+
+  // 9a. An ACTIVE v2 source: a mapping edit against a sheet that changed after the preview is refused; nothing changes.
+  wtabs.set(1, { width: 8, cells: [V2HEADER, ["Ames", "Orr", "5550091001", "2 Pine", "Tyler", "01002", "$10", ""], ["Ada", "Orr", "5550091002", "", "Katy", "", "", ""]] });
+  const sw1 = await A.save(cW, { payload: payload(1, v2map) });
+  await A.activate(cW, { source_id: sw1.source_id, expected_version: sw1.config_version });
+  await svc.patch("google_sheets_sources", `id=eq.${sw1.source_id}`, { last_checked_at: null });
+  ok((await A.syncNow(cW, { source_id: sw1.source_id })).imported === 2, "9a: active v2 source imported its rows");
+  const before = await source(sw1.source_id);
+  const receiptsBefore = await imported(1, v2map);
+  ok(receiptsBefore === 2, `9a: two receipts (${receiptsBefore})`);
+  const editedMap = { ...v2map, columns: v2map.columns.filter((x) => x.header !== "Address"), ignored: ["Notes", "Address"] };
+  const pe = await A.preview(cW, W(1, { mapping: editedMap })) as Record<string, any>;
+  ok(JSON.stringify(pe.unaccounted_headers) === "[]" && pe.not_importable.signature === null, "9a: the owner previews the edit");
+  wtabs.get(1)!.cells = [[...V2HEADER, "Spouse"], ...wtabs.get(1)!.cells.slice(1).map((x) => [...x, ""]), ["Ali", "Orr", "5550091003", "", "Waco", "", "", "", "Lu"]];
+  wtabs.get(1)!.width = 9;
+  const editPayload = (mapping: unknown, ver: number) => ({ source_id: sw1.source_id, expected_version: ver, payload: payload(1, mapping) });
+  ok((await refused(A.save(cW, editPayload(editedMap, before.config_version)))) === "unacknowledged_columns", "9a: a column added after the preview is refused");
+  wtabs.get(1)!.cells[0][5] = "Postal";   // and a mapped header renamed
+  ok((await refused(A.save(cW, editPayload({ ...editedMap, ignored: [...editedMap.ignored, "Spouse"] }, before.config_version)))) === "header:missing:Zip",
+    "9a: a mapped header that disappeared is refused");
+  const after = await source(sw1.source_id);
+  ok(JSON.stringify(after.mapping) === JSON.stringify(before.mapping) && after.config_version === before.config_version, "9a: mapping and version unchanged");
+  wtabs.get(1)!.cells[0][5] = "Zip";
+  ok((await imported(1, v2map)) === receiptsBefore, "9a: receipts unchanged by the refusals");
+  await svc.patch("google_sheets_sources", `id=eq.${sw1.source_id}`, { last_checked_at: null });
+  const r9a = await A.syncNow(cW, { source_id: sw1.source_id });
+  ok(r9a.imported === 1 && (await leads("Ames")) === 1 && (await leads("Ada")) === 1 && (await leads("Ali")) === 1,
+    `9a: the running source keeps syncing with its stored mapping; only the new row imports: ${JSON.stringify(r9a)}`);
+  const fixed = { ...editedMap, ignored: [...editedMap.ignored, "Spouse"] };
+  const ok9 = await A.save(cW, editPayload(fixed, before.config_version)) as Record<string, any>;
+  ok(ok9.config_version === before.config_version + 1, "9a: the corrected edit (new column acknowledged) is saved");
+  await svc.patch("google_sheets_sources", `id=eq.${sw1.source_id}`, { last_checked_at: null });
+  ok((await A.syncNow(cW, { source_id: sw1.source_id })).imported === 0 && (await leads("Ames")) === 1, "9a: no re-import after the edit");
+  ok(sameObj((await q("leads", `organization_id=eq.${ORG}&first_name=eq.Ames`))[0].custom_fields,
+    { "Address": "2 Pine", "City": "Tyler", "ZIP Code": "01002", "Amt Requested": "10" }), "9a: an imported lead is never rewritten by an edit");
+
+  // 9b. 260 columns: a headerless column with data (GS) and a header (GT) past GR. Exact acknowledgement for save AND activate.
+  const filler = (n: number) => Array.from({ length: n }, () => "");
+  const wide = (rows: string[][]) => rows.map((x, i) => [...x, ...filler(200 - x.length), i === 0 ? "" : i === 2 ? "past-gr-secret" : "", i === 0 ? "Spouse" : "Kim"]);
+  wtabs.set(2, { width: 260, cells: wide([V2HEADER, ["Bea", "Fox", "5550092001", "", "Plano", "", "", ""], ["Ben", "Fox", "5550092002", "", "Allen", "", "", ""]]) });
+  const h2 = await A.headers(cW, { spreadsheet_id: "SPREADSHEET_E2E_W", sheet_id: 2 }) as Record<string, any>;
+  ok(JSON.stringify(h2.beyond_limit) === JSON.stringify({ width: 260, checked_through: 260, columns: [{ letter: "GS", header: "", has_data: true },
+    { letter: "GT", header: "Spouse", has_data: true }], unchecked: false }), `9b: headers report the real width and content past GR: ${JSON.stringify(h2.beyond_limit)}`);
+  const p2 = await A.preview(cW, W(2, { mapping: v2map })) as Record<string, any>;
+  ok(JSON.stringify(p2.not_importable.beyond.headers) === '["Spouse"]' && JSON.stringify(p2.not_importable.beyond.headerless) === '["GS"]'
+    && /^[0-9a-f]{64}$/.test(p2.not_importable.signature), "9b: preview lists what can't be imported, with a token");
+  ok(!JSON.stringify([h2, p2]).includes("past-gr-secret"), "9b: no cell value past GR is ever returned");
+  const sources2 = async () => (await q("google_sheets_sources", `organization_id=eq.${ORG}&spreadsheet_id=eq.SPREADSHEET_E2E_W&sheet_id=eq.2`)).length as number;
+  for (const bad of [undefined, "0".repeat(64)]) {
+    ok((await refused(A.save(cW, { payload: payload(2, v2map), not_importable_ack: bad }))) === "unacknowledged_columns" && (await sources2()) === 0,
+      `9b: save refused without the exact acknowledgement (${bad ? "wrong" : "none"}); nothing created`);
+  }
+  const sw2 = await A.save(cW, { payload: payload(2, v2map), not_importable_ack: p2.not_importable.signature }) as Record<string, any>;
+  ok((await sources2()) === 1, "9b: saved with the acknowledgement");
+  ok((await refused(A.activate(cW, { source_id: sw2.source_id, expected_version: sw2.config_version }))) === "unacknowledged_columns"
+    && (await source(sw2.source_id)).state === "draft", "9b: activate also needs it; the draft stays a draft");
+  await A.activate(cW, { source_id: sw2.source_id, expected_version: sw2.config_version, not_importable_ack: p2.not_importable.signature });
+  await svc.patch("google_sheets_sources", `id=eq.${sw2.source_id}`, { last_checked_at: null });
+  ok((await A.syncNow(cW, { source_id: sw2.source_id })).imported === 2, "9b: activated and imported A–GR");
+  const bea = (await q("leads", `organization_id=eq.${ORG}&first_name=eq.Bea`))[0];
+  ok(sameObj(bea.custom_fields, { "City": "Plano" }) && !JSON.stringify(await q("leads", `organization_id=eq.${ORG}`)).includes("past-gr-secret"),
+    "9b: nothing past GR is stored");
+  wtabs.get(2)!.cells[1][201] = "changed later";   // content past GR changes after activation: syncs never block
+  await svc.patch("google_sheets_sources", `id=eq.${sw2.source_id}`, { last_checked_at: null });
+  ok((await A.syncNow(cW, { source_id: sw2.source_id })).imported === 0 && (await leads("Bea")) === 1, "9b: no duplicates; sync unaffected");
+
+  // 9c. Exactly 200 columns: no extra read, nothing to acknowledge. 450 columns: scanned to OJ, the rest reported unchecked.
+  scans.length = 0;
+  wtabs.set(3, { width: 200, cells: [[...V2HEADER, ...filler(192)], ["Cato", "Day", "5550093001", "", "", "", "", "", ...filler(192)]] });
+  const p3 = await A.preview(cW, W(3, { mapping: v2map })) as Record<string, any>;
+  ok(p3.not_importable.signature === null && p3.beyond_limit.width === 200 && scans.length === 0, "9c: 200 columns — no scan, nothing to acknowledge");
+  wtabs.set(4, { width: 450, cells: [V2HEADER, ["Dee", "Day", "5550093002", "", "", "", "", ""]] });
+  const p4 = await A.preview(cW, W(4, { mapping: v2map })) as Record<string, any>;
+  ok(p4.beyond_limit.checked_through === 400 && p4.beyond_limit.unchecked === true && /^[0-9a-f]{64}$/.test(p4.not_importable.signature)
+    && JSON.stringify(scans) === '["GS:OJ"]', `9c: 450 columns — bounded scan (${JSON.stringify(scans)}), the rest unchecked and acknowledged`);
+}
+
 console.log(`   OK (${checks} end-to-end checks)`);

@@ -164,3 +164,25 @@ Deno.test("REGRESSION F2 (engine): a review finish that lost the lease is not re
   const out = await runSource({ db, cfg: CFG, fetchFn: google([HEADER, R("B1", ...BO), R("NEWID", ...ANN)]) as typeof fetch }, SRC, "l", "schedule", 30_000);
   assertEquals(out.status, "stale");
 });
+
+// ---------------------------------------------------------------- mapping change on an ACTIVE Lead ID source (v1 → v2)
+Deno.test("mapping change: adding Address/City/ZIP never re-imports established IDs; repeats that now differ stay pending", async () => {
+  const CITY = "66666666-6666-4666-8666-666666666666";
+  const header = ["Lead ID", "First", "Last", "Phone", "City"];
+  const rows = [["A1", "Ann", "Lee", "5550001111", "Austin"], ["A1", "Ann", "Lee", "5550001111", "Dallas"],
+    ["B2", "Bo", "Ray", "5550002222", "Waco"], ["C3", "Cy", "Diaz", "5550003333", "Plano"], ["C3", "Cy", "Diaz", "5550003333", "Plano"]];
+  const base = [{ header: "First", target: "first_name" }, { header: "Last", target: "last_name" }, { header: "Phone", target: "phone" }];
+  const plan = async (mapping: unknown) => {
+    const m = validateMapping(mapping);
+    if (!m.ok) throw new Error(m.reason);
+    const cols = resolveColumns(header, m.mapping, "Lead ID");
+    const planned = await planRows(rows, cols, new Map([[CITY, "City"]]));
+    return planSourceId(planned, [], new Set(["id:A1", "id:B2"]));   // A1 and B2 were imported under the old mapping
+  };
+  const before = await plan({ v: 1, columns: base });
+  const after = await plan({ v: 2, columns: [...base, { header: "City", target: `custom:${CITY}` }], ignored: [] });
+  assertEquals(before.candidates.map((x) => x.k), ["id:C3"]);
+  assertEquals(after.candidates.map((x) => x.k), ["id:C3"], "established A1/B2 are never candidates again");
+  assertEquals(after.ops.filter((o) => "reason" in o).map((o) => [o.k, (o as { reason: string }).reason]),
+    [["dup:2", "duplicate_id"], ["dup:3", "duplicate_id"]], "A1's two rows now differ → pending conflict, nothing imported");
+});

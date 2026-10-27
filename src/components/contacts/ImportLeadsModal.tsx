@@ -43,6 +43,8 @@ import { customFieldSchema } from "@/components/settings/contact-flow/contactFlo
 import { importCustomFieldsPayloadSchema } from "@/lib/import-campaign-schemas";
 import { cn } from "@/lib/utils";
 import { CUSTOM_FIELD_MESSAGES, isOrganizationWideCustomFieldConflict } from "@/lib/custom-field-errors";
+import { mappingV2FlagOn } from "@/lib/google-sheets/mappingGate";
+import { provisionStandardLeadFields, STANDARD_LEAD_FIELD_NAMES } from "@/lib/standard-lead-fields";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   customFieldsSupabaseApi as customFieldsApi,
@@ -242,7 +244,7 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
   onViewLeads,
 }) => {
   // "View As" is a read-only preview (AGENT_RULES #31): writes made here would run as the REAL operator.
-  const { isImpersonating } = useAuth();
+  const { isImpersonating, realProfile } = useAuth();
   const [step, setStep] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -664,7 +666,37 @@ const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({
 
     // The SAME classifier Settings > Contact Management uses, so the two ingresses can
     // never disagree with each other or with auto-detection.
-    const verdict = classifyRequestedFieldName(trimmedName, activeLeadCustomFields);
+    // Standard fields (Address, City, ZIP Code) are agency-wide; behind the mapping v2 build flag they are added for the
+    // agency by an Admin and never created as a personal copy. Flag off: exactly the previous classification.
+    const verdict = classifyRequestedFieldName(trimmedName, activeLeadCustomFields,
+      mappingV2FlagOn() ? { standardNames: STANDARD_LEAD_FIELD_NAMES } : undefined);
+
+    if (verdict.kind === "standard") {
+      const canAdd = realProfile?.role === "Admin" || realProfile?.is_super_admin === true;
+      const blocked = (notice: string) => {
+        setMappings(prev => ({ ...prev, [targetCol]: DO_NOT_IMPORT }));
+        setBlockedFieldNotices(prev => ({ ...prev, [targetCol]: notice }));
+        setCreatingFieldForCol(null);
+        setNewFieldError("");
+        toast.error(notice);
+      };
+      if (!canAdd) { blocked(`${verdict.name} is a standard field shared by your agency. Ask an Admin to add it, then map this column.`); return; }
+      try {
+        await provisionStandardLeadFields(false);
+        const refreshed = (await customFieldsApi.getAll(organizationId))
+          .filter((f) => f.active && Array.isArray(f.appliesTo) && f.appliesTo.includes("Leads"));
+        setActiveLeadCustomFields(refreshed);
+        const added = refreshed.find((f) => normalizeFieldName(f.name) === normalizeFieldName(verdict.name));
+        if (!added) { blocked(`${verdict.name} exists as someone's personal field. Make it agency-wide in Settings → Contact Management first.`); return; }
+        setMappings(prev => ({ ...prev, [targetCol]: customFieldOptionValue(added.id) }));
+        setCreatingFieldForCol(null);
+        setNewFieldError("");
+        toast.success(`${added.name} was added for your agency.`);
+      } catch (err) {
+        setNewFieldError(err instanceof Error ? err.message : "The field was not created. Try again.");
+      }
+      return;
+    }
 
     // 1. An AgentFlow built-in wins: map the column to it instead of shadowing it.
     if (verdict.kind === "builtin") {

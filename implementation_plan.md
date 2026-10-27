@@ -1,3 +1,1060 @@
+## 2026-10-27 — CORRECTION PLAN C (APPROVED and IMPLEMENTED on the PR branch; NOT merged; nothing applied or deployed): PR #498 preview validation and column overflow
+
+**Status.**
+- Reviewed head `c3c4767`. The branch equals `origin/claude/sheets-mapping-reliability-tvb445` and contains
+  `main` `f980c16` (unchanged since the PR opened), so there are no conflicts.
+- CI on `c3c4767`: all 15 GitHub Actions checks passed. Supabase Preview reports `cancelled`; that is the Supabase
+  integration, not a workflow in this repository.
+- Only this plan has been written. No code edits, no backend commands.
+- This plan needs **no schema change and no migration**. M1/M2 are untouched. The Edge changes ship in the
+  already-planned R5 deploy.
+
+### C0. Confirmed gaps (code at `c3c4767`)
+
+**A. Preview validation**
+- `AddSheetDialogV2.tsx:159-161`: Save and Enable are disabled only by `busy` and the ignored-columns
+  acknowledgement.
+  - While `PreviewStepV2` is loading, or after it failed, both buttons stay clickable. The preview state lives inside
+    `PreviewStepV2` and the dialog cannot see it.
+  - Nothing ties a successful preview to the draft that is then saved.
+- `PreviewStepV2.tsx:49,90`: header drift (`unaccounted_headers`) is shown as text, but Save still works.
+  `activate` refuses unaccounted headers (409). A Save on an active source does not.
+- `actions.ts save` (lines 230-252) never reads the sheet. A v2 mapping can be stored against headers that changed
+  after the preview. The next sync then either goes to Needs review (a mapped header is gone) or imports with
+  unacknowledged columns.
+- `review` apply has the same bypass. The v2 editor hands the edited mapping to `SheetReviewDialog` when the Lead ID
+  column changes, and `review_apply` writes it with no unaccounted-header check.
+
+**B. Column overflow**
+- `google.ts readHeaderOverflow`: reads only row 1 past column 200 and counts non-blank names.
+  - A column past GR with a blank header but data is invisible.
+  - Data in rows 2+ past GR is never seen.
+  - The grid width itself is never reported.
+- `IgnoredColumnsPanel` and the `MappingStepV2` summary say "Every column is imported" whenever `ignored` is empty.
+  That is also shown when blank-header data columns, repeated headers or columns past GR exist, none of which are
+  imported. This describes an incomplete mapping as complete.
+
+### C1. Design
+
+**Definitions (one server-side source of truth, used by the UI and by every v2 write check)**
+
+- **Supported range:** columns A–GR (the first 200) × the existing 10,000 data rows. More than 10,000 rows is
+  already blocked (`too_large`).
+- **Not-importable content** in the current sheet (new pure `notImportable()` in `mapping.ts`):
+  - `headerless`: columns inside A–GR with a blank header and data (letters);
+  - `repeated`: headers inside A–GR that appear more than once and are not mapped (names);
+  - `beyond`:
+    - `width`: the actual grid width;
+    - `checked_through`: the last column scanned;
+    - columns past GR that hold a header or any data: count, up to 50 names, and up to 50 letters of headerless
+      columns with data;
+    - `unchecked`: true when the grid is wider than the scan bound.
+- **Signature:** SHA-256 hex of a canonical JSON of the not-importable content. The full lists are hashed, not the
+  50-item display lists. Width is excluded, so adding empty grid columns does not force a new acknowledgement.
+
+**B1 — Width and content past column 200 (`google.ts`)**
+
+`readHeaderOverflow` is replaced by `readBeyondLimit`. When the grid width is ≤ 200 there is no extra request.
+Otherwise it makes one `values.get`:
+- range: `'Tab'!GS1:<last><maxDataRows + 2>`;
+- `majorDimension=COLUMNS`;
+- `<last>` = min(width, 400). New `LIMITS.beyondLimitScanColumns = 200`, so the scan is at most 200 × 10,002 cells,
+  the same bound as the main import read.
+- Google trims empty trailing cells. A sheet with nothing past GR therefore returns an empty body.
+- Grids wider than 400 columns are reported as `unchecked`: "columns past OJ weren't checked; nothing there is
+  imported". That needs the acknowledgement.
+
+It is called only by the `headers`, `preview` and v2 write actions. Sync, push and `readTab` are unchanged.
+
+**B2 — Acknowledge, block, and never claim completeness**
+
+- **Acknowledgement required** whenever any of these exist:
+  - ignored named columns (as today);
+  - not-importable content (`headerless`, `repeated`, content past GR, or `unchecked`).
+
+  One checkbox covers the whole "Not imported" list. It resets whenever the ignored set or the signature changes.
+- **Blocked (Save/Enable disabled; nothing written):**
+  - the sheet or content check could not be read (Retry);
+  - more than 10,000 rows (existing);
+  - a mapped header is missing or duplicated (existing codes);
+  - new columns that are neither mapped nor ignored (drift; see A2).
+- **Copy:**
+  - "Every column is imported" appears only when nothing is ignored and nothing is not-importable.
+  - `HeaderIssues` states the real width: "This tab is 260 columns wide. Only A–GR (the first 200) can be imported."
+    Then one of: content past GR (names and letters), "empty past GR", or "not checked past OJ".
+
+**A1 — A preview that matches the exact draft (client)**
+
+- New pure `previewKey(draft, pick)`: a stable JSON of exactly what the preview request carries:
+  - spreadsheet and tab;
+  - `mapping {v, columns, ignored}`;
+  - identity mode and Lead ID header;
+  - default lead source.
+
+  The display name, "also import existing rows" and the acknowledgement are not part of it.
+- New hook `usePreviewV2`: `idle | loading | error | ready(key, result)`.
+  - Every request carries a sequence number.
+  - A response is applied only if it is the latest request and its key equals the key of the current draft. Stale or
+    out-of-order responses are dropped.
+- New pure `saveBlockers(draft, preview)` returns the reasons Save/Enable are off:
+  - loading;
+  - failed;
+  - the preview was for another draft;
+  - columns changed;
+  - acknowledgement missing (ignored columns or not-importable content).
+- Save and Enable are disabled while there is any blocker. The reason is shown next to the button ("Checking the
+  sheet…", "Preview failed — Retry", …).
+- `saveActive` and `enable` re-check the blockers before calling the server (double-click and race guard).
+
+**A2 — Header drift (client)**
+
+- If the preview reports unaccounted headers, Save is blocked: "The sheet's columns changed since you mapped it:
+  new columns X, Y."
+- "Review columns" re-reads the headers and returns to the mapping step.
+  - New columns appear as New and default to Don't import.
+  - The acknowledgement resets.
+  - The reconcile step now also runs after a re-read of a new (not yet saved) sheet; today it runs only when editing.
+- A preview error for a missing or duplicated mapped header offers the same "Review columns" action.
+- A save refused by the server (409 `unacknowledged_columns`, 422 `header:*`, 422 `custom_field_unavailable`):
+  - invalidates the preview;
+  - shows the message;
+  - offers "Review columns".
+
+  The draft is kept.
+
+**A3 — Fresh server-side validation for every v2 mapping write (`actions.ts`)**
+
+- `readPlanned` is split. `readResolved` does the read, `too_large`, header resolution and custom-field resolution.
+  `readPlanned` = `readResolved` + `planRows`. Behaviour is identical for its current callers.
+- **`save` with a v2 mapping:** an authorized Google read through `access` + `readResolved` + `readBeyondLimit`.
+  - mapped header missing or duplicated → 422 `header:<problem>`;
+  - custom field gone → 422 `custom_field_unavailable`;
+  - any unaccounted header → 409 `unacknowledged_columns`;
+  - not-importable content present and `not_importable_ack` ≠ the fresh signature → 409 `unacknowledged_columns`.
+
+  Nothing is written on a refusal. **`save` with a v1 mapping is unchanged: no Google read** (pinned by a test).
+- **`activate` (v2):** the existing unaccounted check, plus the same signature check (`not_importable_ack` in the
+  body; the read it already does is reused).
+- **`review` apply (non-dry-run), when the submitted v2 mapping differs from the stored one** (an owner edit): the
+  same unaccounted and signature checks.
+  - `ReviewOverride` carries the ack from the editor.
+  - A structural review that keeps the stored mapping behaves exactly as today. Syncs never block on new or
+    overflow columns.
+- **Request validation:** `not_importable_ack` is either absent or `/^[0-9a-f]{64}$/` (otherwise 422
+  `invalid_request`).
+
+**Unchanged:**
+- receipts, the identity ledger, `rowSignature`, the v1 import output (the golden test still pins it), push and
+  sync;
+- OAuth scopes, `organization_id` scoping, RLS and telemetry;
+- legacy editor files;
+- `verify_jwt`.
+
+v2 `save` now makes 2–3 additional Google read requests per save. This is within the per-user quota and
+equivalent to what `activate` already does.
+
+### C2. Intended files (complete list; nothing outside it without asking)
+
+**Edge (Deno)**
+- `supabase/functions/_shared/googleSheets/config.ts`: `LIMITS.beyondLimitScanColumns`.
+- `supabase/functions/_shared/googleSheets/google.ts`: `readBeyondLimit` replaces `readHeaderOverflow`.
+- `supabase/functions/_shared/googleSheets/mapping.ts`: `notImportable()` and `notImportableSignature()`.
+- `supabase/functions/google-sheets-api/actions.ts`: `readResolved`; `headers` and `preview` return
+  `beyond_limit` / `not_importable` (+ `signature`); v2 checks in `save` / `activate` / `review` apply.
+- `supabase/functions/_shared/googleSheets/mapping.test.ts`: `notImportable` and a stable signature.
+- `supabase/functions/google-sheets-api/actions.test.ts`:
+  - widths 200 / 201 / 260 / 450 with blank and populated headers;
+  - drift, missing and duplicate mapped headers on `save`;
+  - signature required, wrong or right;
+  - v1 `save` makes no Google request;
+  - `activate`;
+  - `review` with a changed versus an unchanged mapping.
+
+**Frontend**
+- NEW `src/lib/google-sheets/previewGate.ts`: `previewKey`, `needsAcknowledgement`, `saveBlockers`.
+- NEW `src/components/settings/google-sheets/usePreviewV2.ts`: sequenced preview requests that drop stale
+  responses.
+- `src/lib/google-sheets/schema.ts`:
+  - `BeyondLimit` and `NotImportable` types;
+  - `HeadersResult.beyond_limit` replaces `over_limit` (v2-only and unreleased);
+  - `PreviewResult` additions;
+  - `sourceDraftV2Schema` gains the not-importable acknowledgement (Zod).
+- `src/lib/google-sheets/headerState.ts`: passes `beyondLimit` through.
+- `src/lib/google-sheets/api.ts`: `unacknowledged_columns` copy covers both cases.
+- `src/components/settings/google-sheets/AddSheetDialogV2.tsx`:
+  - the gate;
+  - the "Review columns" path;
+  - reconcile after a re-read;
+  - sends `not_importable_ack`.
+- NEW `src/components/settings/google-sheets/MappingDialogFooter.tsx`: only if needed to keep
+  `AddSheetDialogV2.tsx` under 200 lines.
+- `src/components/settings/google-sheets/PreviewStepV2.tsx`:
+  - presentational, driven by `usePreviewV2`;
+  - loading / failed + Retry / drift states;
+  - the not-importable section.
+- `src/components/settings/google-sheets/IgnoredColumnsPanel.tsx`: lists ignored columns plus not-importable
+  content under one acknowledgement; never says "Every column is imported" when anything is outside.
+- `src/components/settings/google-sheets/HeaderIssues.tsx`: actual width; content past GR / empty / not checked.
+- `src/components/settings/google-sheets/MappingStepV2.tsx`: an honest summary line.
+- `src/components/settings/google-sheets/SheetReviewDialog.tsx`: `ReviewOverride.notImportableAck` is sent as
+  `not_importable_ack`. v1 payloads are unchanged.
+
+**Tests and harnesses**
+- `src/lib/google-sheets/__tests__/mappingV2.test.ts`: `previewKey` stability, the `saveBlockers` matrix, and the
+  schema acknowledgement.
+- `src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx`:
+  - Save/Enable disabled while the preview loads and after it fails;
+  - Retry;
+  - a stale response arriving after a newer one is ignored;
+  - drift → "Review columns" → re-read → acknowledgement;
+  - server 409 / 422 on save → preview invalidated;
+  - an active-source edit, including the Lead ID change → review override carrying the ack;
+  - width 200 shows no warning; 201 with a blank header and data needs the acknowledgement; 450 shows "not checked".
+- `scripts/google_sheets_e2e.ts`, new scenario 9: real actions through PostgREST, with Google ranges faked
+  faithfully (incl. `COLUMNS` reads past GR).
+  - An active v2 source edit against a sheet that changed after the preview is refused: mapping,
+    `config_version`, receipts and leads are unchanged. The corrected save succeeds, and the next sync imports only
+    new rows (no duplicates).
+  - A 260-column tab with headerless data in GS and a header in GT:
+    - the preview reports it;
+    - a save without, or with a wrong, acknowledgement is refused;
+    - a save with it is accepted;
+    - activate is gated the same way;
+    - the sync imports A–GR values only, with no duplicates and no receipt changes on the refused attempts.
+- `scripts/tests/google-sheets-ui/verify.mjs` (v2 run): Enable stays disabled while a delayed preview loads, and the
+  past-GR warning is readable at 390 px.
+
+**Docs**
+- `AGENT_RULES.md`: mapping v2 invariant bullets (preview gate, fresh v2 write validation, not-importable signature,
+  scan bound).
+- `WORK_LOG.md`.
+- This file: the implementation record.
+- `docs/plans/2026-10-27-sheets-mapping-reliability/release.md`: R5/R6 checks for the save refusal and the wide-sheet
+  warning.
+- `docs/plans/2026-10-27-sheets-mapping-reliability/verification.md`.
+
+**Not changed:**
+- the migrations, SQL suites and ops files;
+- `readTab`;
+- the push/sync engine;
+- the legacy editor;
+- `.github/workflows/google-sheets.yml` (its paths already cover every file above).
+
+### C3. Verification
+- `npx tsc --noEmit`.
+- Focused Vitest (CI list), then full Vitest compared with `main`.
+- ESLint on the CI list.
+- `npm run build`.
+- `git diff --check`.
+- Deno tests (the CI set) and `deno check` of the six entry points.
+- The full SQL / PostgREST / e2e runner, including the new scenario 9, plus push e2e (which must stay unchanged).
+- The browser harness: legacy, flag-on legacy fallback, and v2 at 1440 / 390 px.
+- After push: CI on the new head. I will report its exact SHA and the final status of every check.
+
+### C5. Implementation record (after approval)
+
+**The four approval safeguards:**
+1. **Bounded inspection.**
+   - `readBeyondLimit` reads at most 200 more columns × the import row bound, in one column-major request.
+   - The request has a 15 s timeout (its timer is always cleared) and a 32 MiB byte cap, checked against the
+     declared `content-length` and again while streaming.
+   - The response must have the expected shape.
+   - Any incomplete read fails the validators (`preview` and every v2 write) with 503 `inspection_incomplete`, never a pass.
+   - The display-only `headers` action, which the legacy screen also reads, shows an incomplete read as "unchecked past
+     GR" instead of failing. The legacy mapping screen is therefore never broken by the new scan. Quota → the existing `rate_limited` (429).
+   - Tested: timeout, streamed size, declared size, shape, quota.
+2. **Consistent snapshots.**
+   - `activate` and `review` check the same read they baseline or classify from.
+   - A refused write changes nothing. Scenario 9 checks mapping, `config_version`, receipts (`imported_before`) and
+     leads around refusals, and shows no re-import or rewrite after a corrected edit.
+   - The identity review path is unchanged.
+3. **No cell values.**
+   - Past GR only the header labels and a has-data flag survive the scan.
+   - The token hashes labels and letters only.
+   - Tests assert that no cell value appears in the responses or in stored leads.
+   - The new code has no logging.
+4. **v1 and sync preserved.**
+   - v1 `save` makes no Google request (test-pinned) and v1 previews make no scan.
+   - The golden v1 output is unchanged.
+   - Push e2e is still 48/48; syncs never block on new or past-limit columns.
+
+**Deviations from C2:**
+- `MappingDialogFooter.tsx` was needed: it keeps `AddSheetDialogV2.tsx` at 190 lines.
+- `notImportableLines` lives in `previewGate.ts`, so the component file exports only a component.
+- One extra fix, found by the new browser check: `PreviewStepV2` gets `min-w-0`. A wide preview table widened the
+  dialog grid and clipped text at 390 px. The check fails without the fix.
+- No other files were touched. No migration, SQL suite, ops file, push/sync engine or legacy editor change.
+
+**Commits:** `6f58c64` (Edge), `cbc369c` (frontend), `df9837f` (e2e, browser and layout fix), then docs.
+
+### C4. Approval requested
+Approve correction plan C and the C2 file list for **local implementation, tests, docs and push to the PR branch
+only**. Unchanged and still requiring separate approval:
+- merging (R2);
+- applying migrations;
+- deploying Edge Functions;
+- any production data or field-ownership change.
+
+---
+
+## 2026-10-27 — IMPLEMENTED (draft PR; NOT merged; M1/M2 NOT applied; Edge NOT deployed; flag unset): Google Sheets mapping reliability — implementation record for Amendment A
+
+**Status.** Amendment A and the A7 file list were approved for local implementation. Everything below is on
+`claude/sheets-mapping-reliability-tvb445` (contains `main` `f980c16`). Release steps R2–R8 are unchanged and each
+needs Chris's separate approval: `docs/plans/2026-10-27-sheets-mapping-reliability/release.md`. Results:
+`docs/plans/2026-10-27-sheets-mapping-reliability/verification.md`.
+
+**Additional requirement (failed automatic provisioning) — how it is met.**
+- Detectable: the organization trigger never blocks agency creation; any error is recorded in
+  `private.standard_lead_field_provisioning` as `failed` with its SQLSTATE and attempt count. The read-only
+  `supabase/ops/standard_lead_fields_report.sql` lists every agency that is not complete (pre-M2 agencies included);
+  the Admin's Standard lead fields panel shows the failed setup.
+- Recoverable: `public.provision_standard_lead_fields(false)` (Admin/Super Admin of their own agency; JWT role and
+  profile must agree) or the approved `standard_lead_fields_apply.sql`. Both are INSERT-only and idempotent under
+  the logical-name guard's advisory lock (two concurrent retries: one waits, never a duplicate — runner 5d).
+
+**Deviations from A7 (all test or wiring scope; no behaviour outside the plan).**
+- Added: `supabase/tests/google_sheets_harness.sql` now creates production's `custom_fields` columns and `profiles`
+  `first_name`/`last_name`, so the suites run against production shapes. New shared fixture
+  `_shared/googleSheets/fixtures/state-parity.json` (Deno ↔ SQL `normalize_us_state` parity, 367 cases).
+- Consolidated: `fieldCatalog`/`headerState`/`mappingGate` tests are one `mappingV2.test.ts`; legacy
+  `googleSheetsUi.test.tsx` and `googleSheets.test.ts` are untouched (v2 cases in `googleSheetsV2Ui.test.tsx`); the
+  `standard` classifier verdict is tested in `standardLeadFields.test.ts` instead of `importFieldMatching.test.ts`.
+- Not changed although listed: `push/processor.test.ts` (push e2e scenario 6b runs a v2 source through the push
+  path), `src/hooks/useGoogleSheets.ts`, `src/lib/custom-field-errors.ts` (messages live in
+  `standard-lead-fields.ts`), `contactManagementFieldLayout.test.tsx`, and the `organizations` trigger tests (they
+  pin specific trigger names or a historical offline fixture, not the live set).
+- The unavailable custom field is named by the editor from the saved mapping, not by a new
+  `custom_field_unavailable:<uuid>` server code; the engine's review reason and legacy copy stay unchanged.
+- `src/lib/standard-lead-fields.ts` loads the Supabase client lazily, so pure importers and tests need no env.
+- `verify.mjs` gained an opt-in `GS_MAPPING_V2` run (CI runs it on its own port); the legacy run is unchanged.
+
+---
+
+## 2026-10-27 — AMENDMENT A (awaiting Chris's approval of this amendment and file list; nothing built, applied or deployed): Google Sheets mapping reliability
+
+**Status.**
+- Chris approved plan `367ad36` for **local implementation only**, with D1–D7 as recommended and six amendments.
+  This entry records the amendments and the complete intended file list.
+- Implementation files will be modified only after Chris explicitly approves this amendment.
+- Even after that approval:
+  - no merge to `main`;
+  - no Edge deploy;
+  - no migration applied;
+  - no production field-ownership change and no production data change.
+  Each needs its own explicit approval.
+- Superseded sections of the base plan (below): **§3.4** (by A2), **§6–§7** (by A4) and **D1** (by A1). Every other
+  section stands.
+- No new production access was used for this amendment; only local repository reads.
+
+### A1 — D1: Address, City and ZIP Code become agency-wide standard custom fields
+
+**Standard catalog** (one definition, mirrored in SQL and TypeScript, pinned by a parity test):
+
+| Key | Name | Type | Applies to |
+|---|---|---|---|
+| `address` | Address | Text | Leads |
+| `city` | City | Text | Leads |
+| `zip_code` | ZIP Code | Text | Leads |
+
+- Text keeps leading zeros (ZIP+4, `02134`) exactly. Never Number.
+- Matching is by the existing logical normalization, so Chris's existing `Zip Code` **is** the standard ZIP field. It
+  is never renamed.
+
+**Future agencies (migration M2).**
+- An `AFTER INSERT ON public.organizations` trigger calls `private.provision_standard_lead_fields(org)`.
+  - Same non-fatal pattern as the existing lead-source, pipeline-stage and appointment-type seeds: a failure raises a
+    WARNING and **never blocks organization creation**.
+- `provision_standard_lead_fields` only **inserts** agency-wide rows (`created_by NULL`). For each name it:
+  - takes the logical-name guard's own advisory lock;
+  - skips the name if **any** active row in the organization already has it;
+  - **never updates or deletes** a row.
+- It returns a per-name report: `created` / `exists_agency` / `exists_personal`.
+
+**Existing agencies: an explicitly approved process.** Nothing runs during this build.
+- **In-app, within existing authority.** Behind the gate (A4). No RLS change.
+  - "Add standard address fields": Admin / Super Admin of their own organization only (the same people RLS already
+    lets create agency-wide fields).
+    - Calls `public.provision_standard_lead_fields(p_dry_run)`.
+    - Dry run first, showing exactly what would be created, then confirm.
+  - "Make agency-wide" on a personal field (Settings → Contact Management):
+    - Calls `public.custom_field_make_agency_wide(p_field, p_snapshot, p_dry_run)`.
+    - Authority is **exactly** today's RLS UPDATE authority: an Admin for their **own** personal field; a Super Admin
+      for any personal field in their **own** organization.
+    - The dry run shows the field, its owner, its type, other users' same-name personal rows and how many leads carry
+      the key.
+    - The apply requires the dry-run snapshot (the row is unchanged) and a typed confirmation (Zod). It changes only
+      `created_by → NULL` on that one row.
+    - It writes an audit row to `private.custom_field_scope_changes` (organization, field, name, previous owner,
+      actor, snapshot, time).
+    - It refuses when an active agency-wide row with that name already exists (merging is out of scope).
+    - Lead `custom_fields` are never touched; values stay keyed by name.
+- **AgentFlow-operated, for everything in-app authority can't reach** (e.g. an Agent's personal `City` in an agency
+  whose Admin can't convert it):
+  - `supabase/ops/standard_lead_fields_report.sql`: read-only, per organization × name: agency / personal (owner,
+    duplicates, lead-key count) / missing.
+  - `supabase/ops/standard_lead_fields_apply.sql`: takes an **explicit list** of approved `(org, field id, snapshot)`
+    conversions and of organizations to provision. It calls the same private functions, single transaction, audited.
+    It is never run without Chris's per-run approval.
+- **Chris's organization** (`Address` = Admin's own, `City` / `Zip Code` = an Agent's): after release, Chris (Super
+  Admin, own organization) can convert all three in-app, or approve them through the ops file.
+  **Not executed in this build.**
+
+**No re-fragmentation.** Behind the gate.
+- The shared `classifyRequestedFieldName` gains a `standard` verdict for the three names. In all three creation paths
+  (Sheets inline create, Settings → Contact Management, CSV import):
+  - **Admin / Super Admin:** offered "Add as agency-wide standard field" (the provisioning RPC).
+  - **Everyone else:** "ZIP Code is a standard field shared by your agency. Ask an Admin to add it." No personal copy
+    is created.
+- With the gate off, the classifier result is ignored and today's behaviour is exact.
+
+**Not requested.** No `#APPROVE_RLS_CHANGE`: no policy changes, and both new public functions enforce the existing
+authority. Letting agency Admins convert **other users'** fields in-app would need that token. That is left as a future
+option, not in this build.
+
+### A2 — D2: lossless Number and Date normalization; preview equals stored value
+
+**Number (custom fields typed Number, v2 only).**
+- Only formatting with no value is removed:
+  - one leading `$`, also after a leading `-`;
+  - thousands commas, only when every group after the first is exactly 3 digits.
+- Every digit, the sign, the decimal point and **every decimal digit** are kept: no rounding, no trailing-zero trimming,
+  no exponent. The result is stored as a string.
+  - `$1,234.50` → `1234.50`; `-$5` → `-5`; `1234567` → unchanged.
+- **Kept exactly as typed** (flagged "kept as text" in the preview):
+  - a leading zero on the integer part (`007`, `02134`, `00.5`; `0.5` is already canonical);
+  - `+5`, `5%`, `(1,234)`, `$-5`, `1e5`, `1,23`, `1 234`;
+  - other currency symbols and anything with letters.
+
+**Date (custom fields typed Date, v2 only).**
+- The spreadsheet's `properties.locale` is read in the **same** metadata request `readTab` already makes (extra field
+  only, no new Google call).
+- Normalized to `YYYY-MM-DD` only when the interpretation is certain:
+  - ISO `YYYY-M-D` or `YYYY/M/D` (zero-padded);
+  - `M/D/YYYY` (also `-` and `.` separators), only when the locale is month-first (`en_US`, `es_US`).
+  - In both cases the date must be a real calendar date with a 4-digit year and no time part.
+- **Kept exactly** (flagged): day-first or unknown locales, 2-digit years, Excel serial numbers, month names, values
+  with a time, and impossible dates.
+
+**Never transformed.**
+- Text, Phone, Email and Dropdown custom fields: ZIP Codes and identifiers stay byte-exact (trimmed of surrounding
+  spaces only, as today).
+- The Lead ID column.
+- The standard fields' existing rules (DOB `parseDOB`, age, state), which are unchanged.
+
+**Preview equals stored.**
+- Optional values in the preview come from the **same** `buildLead` call the ingest uses.
+- Standard fields are shown as stored:
+  - state through a Deno port of `public.normalize_us_state`, parity-tested **against the SQL function** in the SQL
+    suite (all 51 codes and names, case and space variants, unknown values);
+  - lead source falls back to the source default;
+  - age is the stored integer;
+  - DOB in ISO.
+- The ingest payload is unchanged (SQL still normalizes), so v1 stays byte-identical.
+- End-to-end tests read the stored `leads` row back and assert it equals the preview for every mapped field.
+
+### A3 — D3–D7 approved as recommended
+
+v2 is written only on an owner's save, with v1 frozen. Blank and duplicate headers are not mappable, with guidance.
+Unmapped required custom fields are a non-blocking warning. Historical reconciliation is design only (§3.9). Admins see
+other users' personal fields grouped and labelled.
+
+### A4 — Corrected release sequence with a verified feature gate (replaces §6–§7)
+
+**The gate: both conditions are required.**
+- **G1, operator intent:** build-time `VITE_GOOGLE_SHEETS_MAPPING_V2 === "true"`. It is absent by default; nothing
+  sets it in Vercel until R6.
+- **G2, runtime compatibility:** the `context` action returns `mapping_versions: [1, 2]` only when the new Edge code
+  is deployed **and** M1 reports `catalog_version: 2`. The old Edge or SQL return no such key, so the frontend reads
+  `[1]`.
+- **v2 interface = G1 ∧ G2.** Otherwise the **legacy interface runs unchanged**: `AddSheetDialog.tsx`,
+  `SheetMappingStep.tsx` and `SheetPreviewStep.tsx` are not edited. The v2 interface lives in new files.
+- Legacy mode never rewrites a v2 mapping: Edit on a v2 source shows "This sheet uses the updated mapping editor,
+  which is temporarily unavailable". `SheetReviewDialog` preserves the stored `v` and `ignored` instead of
+  hard-coding `v: 1`. For v1 sources its payload is identical.
+- Contact Management's standard-field and conversion actions require G1 plus the RPC answering. A missing function is
+  hidden quietly; it is never an error.
+- **Server defence:** the new Edge accepts v2 **writes** (preview / save / activate / review) only when
+  `catalog_version ≥ 2`. Stored v2 mappings are always processable.
+- **The gate is verified by tests:**
+  - G1 off → legacy DOM and a byte-identical v1 payload, and no new action is called;
+  - G1 on with G2 absent → legacy;
+  - G1 ∧ G2 → v2;
+  - Edge refuses a v2 write when `catalog_version < 2`.
+
+**Release (each step needs Chris's explicit approval; nothing runs in this build).**
+- **R1:** PR review; CI green.
+- **R2:** merge to `main` with G1 unset (Vercel env checked read-only first). Production stays on the legacy
+  interface. Smoke test the legacy flow.
+- **R3:** apply M1 (moved from `pending/`, re-stamped after the hosted head). Verify md5, ACL, inventory 75,
+  `catalog_version`.
+- **R4:** apply M2. Verify:
+  - functions, trigger and ACL;
+  - **no rows changed** (`custom_fields` count and checksum per organization identical before and after);
+  - a disposable new-org probe is **not** run in production. The trigger is proven locally.
+- **R5:** deploy `google-sheets-api`, `google-sheets-push` and `google-sheets-sync-worker` from `main`
+  (`--no-verify-jwt`; live source re-read first). Verify:
+  - every v1 source: Sync now, mapping JSON unchanged, no new receipts for old rows;
+  - `context` advertises `[1, 2]`.
+- **R6:** set `VITE_GOOGLE_SHEETS_MAPPING_V2=true` and redeploy. Signed-in verification.
+- **R7:** existing agencies:
+  - run the report;
+  - Chris approves the specific conversions and provisioning;
+  - these are run in-app by an authorized user, or by the ops file.
+- **R8:** owners edit their sources into v2 explicitly (preview + acknowledgement).
+
+**Rollback.**
+- **G1 off and redeploy:** back to the legacy interface. Stored v2 keeps processing on the new Edge.
+- **Edge:** roll back only after the approved `google_sheets_mapping_v2_to_v1.sql` (old Edge rejects v2 →
+  `mapping_invalid`; no data loss or duplicates either way).
+- **M2:** the rollback drops the trigger and functions. It **keeps** the audit table, and converted or provisioned
+  fields stay as they are. Reversing an ownership change is a separate, approved data step that uses the audit rows.
+- **M1:** restore the body. The new Edge falls back to raw values and stops advertising v2.
+
+### A5 — Regression test matrix: multi-user, multi-agency, existing and new sources
+
+**Fixtures.**
+- **Organizations:** A and B, plus organization C, created during the test to prove the trigger.
+- **Users:** Super Admin (home org A), Admin A, Team Leader A, Agent A1 (Sheets owner), Agent A2, an inactive user, a
+  suspended organization, and Admin B and Agent B1.
+- **Fields:**
+  - agency-wide; own personal; another user's personal (hidden);
+  - same-name personal duplicates across users;
+  - system template; inactive; non-Leads; built-in shadow; reserved name;
+  - standard fields: provisioned / missing / personal-blocking.
+
+**SQL** (local Postgres 17.6; suites applied with foundation + push + M1 + M2):
+- the catalog visibility matrix per role, including Super Admin limited to its own org;
+- **cross-org isolation:** B's fields never appear in A's catalog; B's Admin can't convert or provision in A;
+- the conversion authority matrix (own vs other, Admin / Team Leader / Agent / Super Admin), the snapshot mismatch,
+  an existing agency name, inactive and system rows;
+- the audit row is written, and the leads checksum is unchanged;
+- provisioning: idempotent, never updates or deletes, skips an existing name, concurrent calls produce exactly one row
+  (two sessions);
+- organization creation succeeds when provisioning fails (fault injection);
+- after `wipe_org_operational_data`, re-provisioning works;
+- ACLs and PostgREST role access (anon refused; private helpers unexposed);
+- inventory 75 (unchanged Sheets set);
+- the `normalize_us_state` parity fixture;
+- rollback proofs for M1 and M2.
+
+**Deno** (pinned `deno@2.5.6`):
+- a **v1 golden corpus**, generated from `f980c16` code **before any edit** and committed: payloads, fingerprints,
+  signatures and outcomes stay byte-identical. It includes production-shaped (anonymized) 5-, 19- and 21-column
+  mappings.
+- v2 typed matrix (A2);
+- header analysis; locale handling; the over-200 header read;
+- `custom_field_unavailable:<id>`;
+- the server-side gate.
+
+**End to end** (real actions and engine through PostgREST, Google faked):
+- **Existing v1 sources (`row_position` and `source_id`):** Sync now and push runs are unchanged; no rewrite.
+- **New v2 sources (both modes):** activation with include-existing on and off; the stored row equals the preview for
+  every standard, agency, personal and standard-address field.
+- **A mixed v1 + v2 connection.**
+- **An active-source edit adding Address / City / ZIP:**
+  - old rows are not re-imported;
+  - receipts are idempotent (a re-run gives `already`);
+  - no duplicate lead;
+  - the owner stays the assignee;
+  - `lead_created` fires once per new lead.
+- **`source_id` repeats becoming `duplicate_id`:** they stay pending.
+- **Identity and structural review on v2.**
+- **A generation change** (reconnect) mid-run.
+- **Two owners in A plus one in B**, running concurrently.
+
+**Vitest:**
+- the gate matrix;
+- catalog groups per role;
+- standard verdicts in all three creation paths;
+- the conversion and provisioning dialogs (Zod, dry run, confirm, errors);
+- loading / error / Retry; header states;
+- acknowledgement gating; preview values;
+- legacy-component regression (existing tests unchanged and passing);
+- CSV import and Contact Management regressions with the gate off.
+
+**Browser harness** (`scripts/tests/google-sheets-ui/verify.mjs`): the picker search inside the dialog, create field,
+preview columns, acknowledgement and legacy mode.
+
+**Repo-wide:** `npx tsc --noEmit`, ESLint, `npm run build`, full Vitest, `git diff --check`.
+
+### A6 — Preservation guarantees (each pinned by a test above)
+
+- **No data migration:**
+  - M1 replaces one function body.
+  - M2 adds functions, an audit table and a trigger that fires only for new organizations.
+  - Neither touches `leads`, receipts, source rows, sources, connections or existing `custom_fields` rows.
+- **Stored mappings are never rewritten automatically.** v1 processing is byte-identical (golden corpus).
+- OAuth scopes and flows, the Picker, push, watches, maintenance, receipts, identity, duplicate rules, assignment,
+  workflows, `finish`, SQL ingest, RLS policies, telephony, DNC and A2P are unchanged.
+- **Edge `verify_jwt=false` preserved;** only the three bundling functions are redeployed.
+
+### A7 — Intended files (complete list; nothing outside it without asking)
+
+**Edge (Deno):**
+- `supabase/functions/_shared/googleSheets/mapping.ts`: the v2 contract and preview field values.
+- NEW `supabase/functions/_shared/googleSheets/values.ts`: lossless Number / Date and the state port.
+- `…/engine.ts`: passes types, version and locale to `buildLead`.
+- `…/google.ts`: `properties.locale` and `readHeaderOverflow`.
+- `…/db.ts`: catalog types.
+- `…/config.ts`: the header-overflow limit.
+- `supabase/functions/google-sheets-api/actions.ts`: `headers`, `preview`, `context` (`mapping_versions`), `save`,
+  `activate`, `review` (the v2 write gate) and the named unavailable field.
+- **Tests:**
+  - `…/mapping.test.ts`, `engine.test.ts`, `regressions.test.ts`, `push/processor.test.ts`;
+  - NEW `…/values.test.ts`;
+  - NEW `…/v1Golden.test.ts` + `…/fixtures/v1-golden.json`;
+  - `google-sheets-api/actions.test.ts`.
+
+**SQL and ops:**
+- **Migrations:**
+  - NEW `supabase/migrations/pending/<ts>_google_sheets_context_field_types.sql` (M1) + `rollback/…`;
+  - NEW `supabase/migrations/pending/<ts>_standard_lead_fields.sql` (M2) + `rollback/…`.
+- **Tests:**
+  - NEW `supabase/tests/google_sheets_mapping_v2.sql`;
+  - NEW `supabase/tests/standard_lead_fields.sql`;
+  - `scripts/run_google_sheets_tests.sh`: applies M1 / M2 everywhere, the new suites, rollback proofs and the
+    two-session provisioning race;
+  - `scripts/google_sheets_postgrest_check.mjs`;
+  - `scripts/google_sheets_e2e.ts`;
+  - `scripts/google_sheets_push_e2e.ts`.
+- **Ops:**
+  - NEW `supabase/ops/standard_lead_fields_report.sql`;
+  - NEW `supabase/ops/standard_lead_fields_apply.sql`;
+  - NEW `supabase/ops/google_sheets_mapping_v2_to_v1.sql`.
+- **Edited only if they pin the `organizations` trigger set:** `supabase/tests/platform_admin_notifications.sql`,
+  `supabase/tests/p0_profile_authorization.sql`, `scripts/tests/uv-profile/pilot-organizations.mjs` and
+  `scripts/tests/uv-profile/fixtures/pilot-organization-functions.json`.
+- `.github/workflows/google-sheets.yml`: new suites and Vitest paths.
+
+**Frontend: Sheets.**
+- `src/lib/google-sheets/schema.ts`, `autoMap.ts`, `api.ts`.
+- NEW `src/lib/google-sheets/fieldCatalog.ts`, `headerState.ts`, `mappingGate.ts`.
+- `src/hooks/useGoogleSheets.ts`.
+- `src/components/settings/google-sheets/`:
+  - `GoogleSheetsSettings.tsx`: gate routing;
+  - `SheetReviewDialog.tsx`: preserves the version;
+  - `useSheetPick.ts`: extra header fields; the legacy fields are unchanged.
+- NEW `AddSheetDialogV2.tsx`, `MappingStepV2.tsx`, `MappingColumnRow.tsx`, `MappingFieldPicker.tsx`,
+  `CreateCustomFieldForm.tsx`, `IgnoredColumnsPanel.tsx`, `HeaderIssues.tsx`, `PreviewStepV2.tsx` and
+  `useSheetHeaders.ts`.
+- **Unchanged:** `AddSheetDialog.tsx`, `SheetMappingStep.tsx`, `SheetPreviewStep.tsx`.
+
+**Frontend: standard fields and conversion.**
+- NEW `src/lib/standard-lead-fields.ts`: the catalog mirror and RPC client. It is a separate module, so existing
+  `vi.mock("@/lib/supabase-settings")` stubs stay valid.
+- `src/lib/import-field-matching.ts`: the `standard` verdict.
+- `src/lib/custom-field-errors.ts`: messages.
+- `src/components/settings/ContactManagement.tsx`: gated hooks only.
+- NEW `src/components/settings/custom-fields/MakeAgencyWideDialog.tsx` and `StandardFieldsPanel.tsx`.
+- `src/components/contacts/ImportLeadsModal.tsx`: a gated `standard` branch only.
+
+**Frontend tests.**
+- `src/lib/google-sheets/__tests__/googleSheets.test.ts`.
+- NEW `src/lib/google-sheets/__tests__/fieldCatalog.test.ts`, `headerState.test.ts` and `mappingGate.test.ts`.
+- `src/components/settings/google-sheets/__tests__/googleSheetsUi.test.tsx`: legacy assertions are kept and new cases
+  added.
+- NEW `src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx`.
+- NEW `src/lib/__tests__/standardLeadFields.test.ts`.
+- NEW `src/components/settings/__tests__/makeAgencyWide.test.tsx`.
+- `src/lib/__tests__/importFieldMatching.test.ts`.
+- `src/components/contacts/__tests__/importLeadsCustomFields.test.tsx`.
+- `src/components/settings/__tests__/contactManagementFieldLayout.test.tsx`: only if hooks change its render.
+- `scripts/tests/google-sheets-ui/verify.mjs`.
+
+**Docs:**
+- AGENT_RULES.md: the Sheets mapping v2 / typed values / gate invariant, and a standard lead fields invariant in §5.
+- WORK_LOG.md.
+- `implementation_plan.md`: the implementation record.
+- NEW `docs/plans/2026-10-27-sheets-mapping-reliability/release.md`: R1–R8, exact checks and rollback.
+- NEW `docs/plans/2026-10-27-sheets-mapping-reliability/verification.md`.
+
+**Local tooling only** (not committed): `deno@2.5.6` via npm in the scratchpad; Postgres 17.6 via Docker (CI's
+image); `npm ci`.
+
+### A8 — Approval requested
+
+1. Approve Amendment A and the file list (A7) to start **local** implementation, verification and a PR.
+2. Not covered by that approval, each separately later:
+   - merge (R2); M1 (R3); M2 (R4); Edge deploys (R5); the G1 flip (R6);
+   - any conversion or provisioning in production (R7);
+   - the v2 → v1 ops file.
+
+---
+
+## 2026-10-27 — PLAN (D1–D7 approved with amendments; implementation awaits approval of Amendment A above; nothing built, applied or deployed): Google Sheets complete mapping reliability
+
+**Status.**
+- Plan only. This file is the only file changed. Branch `claude/sheets-mapping-reliability-tvb445` (= `main` `f980c16`).
+- Production was read through the connector, read-only, metadata only: custom-field definitions, Sheets source mappings
+  (headers and targets), custom-field key names and value shapes (never values), function catalog hashes, cron jobs,
+  migration history and live Edge Function source. No write, deploy, secret read or Google call.
+
+**Read first.** AGENT_RULES §3, §5 (custom-field ownership), §7, §8, §10 and both Google Sheets invariants; VISION;
+WORK_LOG newest entries (2026-10-27 neutral containers and color refresh; Gate G rollout). No in-flight work touches
+the mapping pipeline. Push mode is now `on`.
+
+### 1. Production evidence (read-only, 2026-10-27)
+
+**Footprint.** 1 organization (Chris's), 2 connected owners, 3 sources, all mapping `v: 1`. Push mode `on`. The only
+Sheets cron job is `google-sheets-push-maintenance-every-minute`; `google-sheets-sync-worker` is not scheduled.
+
+**Custom fields in Chris's org.** All 45 active Lead fields are **personal**; there is **no agency-wide field**.
+- `Address` is the Admin/Super Admin owner's (`ecf2bb91`) personal field.
+- `City` and `Zip Code` are the Agent owner's (`7c692e64`) personal fields.
+- Two more users (an Agent and a Team Leader) created personal fields; they can see none of the three.
+
+**Sources.**
+
+| Source | Owner | Address / City / ZIP |
+|---|---|---|
+| `a2011534` | Agent | City → `City`, Zip → `Zip Code`; **no Address** |
+| `182dd851` | Agent (other spreadsheet) | **none**, although `City` / `Zip Code` existed before it was created |
+| `2a9ce6b6` | Admin | **none**; 5 standard fields only; its 9 leads carry no custom keys |
+
+**Typed values already stored** (whole org; approximate, because a name defined as both Text and Number counts twice):
+- Number-typed keys: 888 values. 17 are JSON numbers, 106 numeric strings and 765 non-numeric strings.
+- Date-typed keys: 281 values, 0 in `YYYY-MM-DD`.
+- The one Sheets lead with a custom key stores a 4-character numeric string under the Number-typed `Date/Time`.
+
+**Live code parity.**
+- `private.google_sheets_context` md5 `2aa8978c…` and `public.google_sheets_context` md5 `be8dc236…` equal the
+  repository. Inventory 44 private + 31 public = 75.
+- `google-sheets-api` v11 and `google-sheets-push` v5 are byte-identical to `f980c16` (every bundled file compared).
+- `google-sheets-sync-worker` v10 carries the #442-era `engine.ts` / `db.ts` (pre-push types and counters only; the
+  same mapping, identity and Google logic). It is unscheduled.
+- All six Sheets functions are `verify_jwt=false`. Hosted migration head: `20261025120100`
+  (the repository still keeps that file under `pending/`; not in scope).
+
+### 2. Confirmed defects
+
+1. **Address / City / ZIP cannot be mapped by most users.** `leads` has no address columns (types and baseline schema
+   confirm it); these values live only in `leads.custom_fields` through custom fields.
+   - RLS (`custom_fields_select`) hides another user's personal field, and the organization-wide logical-name guard
+     (`private.custom_fields_logical_name_guard`, 23505) refuses to create the same name again.
+   - So the Agent can neither see nor create `Address`. Every other user is blocked for all three.
+   - The Sheets mapper has no inline creation and no explanation.
+2. **Auto-detection misroutes address headers** (reproduced with the real matcher):
+   - "Mailing Address", "Mailing City" and "Mailing State" → **Email** (the CSV fuzzy prefix rule on "mail").
+   - "Zip" and "Postal Code" stay unmapped even when `Zip Code` exists.
+3. **Incomplete field list while the catalog loads or fails.**
+   - `GoogleSheetsSettings.tsx:86` passes `gs.context.data ?? null`.
+   - `SheetMappingStep.tsx:20` then renders standard fields only.
+   - `AddSheetDialog.tsx:53` auto-maps against `[]`.
+   - There is no error and no Retry. The catalog can be 60 s stale.
+4. **Editing ignores the live sheet on failure.**
+   - Initial headers are the saved mapped headers only (`AddSheetDialog.tsx:33-34`).
+   - A failed live read is swallowed (`.catch(() => undefined)`, `:46-48`).
+   - So unmapped columns such as Address are invisible, and removed headers look present.
+5. **Silent header omissions.**
+   - Blank headers are filtered out (`SheetMappingStep.tsx:27`).
+   - Duplicate headers collapse through `Set`, and their React keys collide.
+   - Columns past 200 are cut off with no signal (`google.ts:69`, `LIMITS.maxColumns`).
+6. **Options.**
+   - One flat, unsearchable Select per column.
+   - Custom fields that shadow a built-in are hidden without a reason (`autoMap.ts:12`).
+   - Choosing a field that is already used silently unmaps the other column (`SheetMappingStep.tsx:23-25`).
+7. **Ignored columns.** They are never summarised or acknowledged, and never recorded, so a later edit cannot tell a
+   new column from an intentionally ignored one.
+8. **Preview.**
+   - It shows name, phone and outcome only; mapped optional values are never shown.
+   - Active-source edits save with no preview at all (`AddSheetDialog.tsx:81-91`).
+9. **Number / Date.**
+   - Values are stored as raw display strings (`mapping.ts:183-187`).
+   - The server catalog has no `type`, so neither preview nor ingest can apply type rules.
+10. **The review dialog hard-codes `{ v: 1 }`** (`SheetReviewDialog.tsx:46`).
+
+### 3. Design
+
+**3.1 Versioned mapping contract: v2, with v1 frozen.**
+- `_shared/googleSheets/mapping.ts` stays the single definition. v2 = `{ v: 2, columns: [{ header, target }],
+  ignored: string[] }`.
+- Targets are unchanged: the 11 standard keys or `custom:<uuid>`. No native address target.
+- `validateMapping` accepts v1 exactly as today. For v2 it also requires `ignored` to be trimmed, non-empty,
+  unique by normalized name, disjoint from mapped headers, with ≤ 200 headers in total.
+- v1 behaviour is byte-for-byte unchanged (pinned by tests).
+- v2 adds only: typed custom values (3.4) and the acknowledged `ignored` list (3.8).
+- Identity is the same in both: the core fingerprint and `rowSignature` over raw cells. Ledgers, receipts and
+  baselines are untouched.
+- The frontend writes only v2 after release. Existing v1 sources keep running unchanged until their owner edits and
+  saves (with preview and acknowledgement). There is **no automatic rewrite** of stored mappings.
+- A Vitest parity suite imports the Deno module (as `googleSheets.test.ts` already does). It pins:
+  - frontend field keys == `STANDARD_TARGETS`;
+  - the Zod draft schema agrees with `validateMapping` on a case matrix.
+
+**3.2 Server field catalog: migration M1, the only schema-side change.**
+- `CREATE OR REPLACE FUNCTION private.google_sheets_context`, same signature and the **same visibility predicate**:
+  org + active + applies to Leads + (agency-wide | own personal | all for Admin / Super Admin).
+- Each field gains `type`, `required`, `dropdown_options`, `scope` (`agency` | `personal`) and `own`.
+- The public wrapper, ACL and inventory (75) are unchanged. `CREATE OR REPLACE` keeps privileges; the migration
+  restates the private REVOKE for explicitness.
+- Backward compatible: Edge v11 ignores the new keys, and the new Edge code treats a missing `type` as Text
+  (= v1 values).
+- The rollback file restores the exact current body (md5 `2aa8978c…`).
+
+**3.3 Headers: current, complete and explicit.**
+- The `headers` action keeps `header` (compatibility) and adds:
+  - `columns: [{ index, letter, header, blank, duplicate, has_data }]`;
+  - `column_count`;
+  - `over_limit: { count, headers }`. Only when the grid has more than 200 columns, one extra row-1 `values.get`
+    reads columns 201+. Sync runs are unchanged.
+- Blank header with data: listed as "Unnamed column F has data — add a header in Google Sheets to import it". It is
+  not mappable.
+- Duplicate headers: each occurrence is listed and not mappable. If a mapped header is duplicated, Save and Enable
+  are blocked with the reason (the server would otherwise go to Needs review).
+- Over 200 columns: an explicit banner with the count and the first names.
+- Edit:
+  - Headers are always re-read from Google when the dialog opens.
+  - On failure: error + Retry, the mapping read-only, Preview and Save disabled.
+  - A saved header missing from the sheet shows as "Missing from sheet — remap or remove" and blocks Save.
+  - A column that is neither mapped nor ignored gets a "New" badge and needs acknowledgement.
+
+**3.4 Number and Date custom values (v2 only).** Applied in `buildLead` on the server, the same call for preview and
+ingest.
+- **Number:** an optional sign, `$`, thousands commas and a decimal are accepted: `-$1,234.50` → `"-1234.50"`.
+  The result is stored as a **string**, for CSV/import parity; the contact view's number editor accepts it.
+- **Date:** only unambiguous full dates become `YYYY-MM-DD`: ISO, `YYYY/M/D`, `M/D/YYYY`, `M-D-YYYY`,
+  `M.D.YYYY` (4-digit year, a real calendar date). DOB keeps its existing `parseDOB` rules.
+- **Anything else** stays raw and is flagged "kept as text": `10%`, `(1,234)`, 2-digit years, Excel serials, and
+  values with a time part.
+- Text, Email, Phone and Dropdown are unchanged (trimmed raw). A value outside a Dropdown's options is flagged in
+  the preview.
+- A typed value **never** invalidates a lead and is **never** dropped. The core contract is unchanged.
+- SQL ingest is unchanged: it stores the object verbatim minus reserved keys. So assignment, duplicate rules,
+  receipts and workflows are untouched.
+
+**3.5 Field catalog and picker.**
+- `src/lib/google-sheets/fieldCatalog.ts` (pure) builds these groups:
+  - **Required:** Phone, First, Last, Full Name.
+  - **Contact:** Email, State, Best Time to Call.
+  - **Details:** Age, DOB, Lead Source, Notes.
+  - **Address:** Address, City, ZIP Code. Each resolves to the visible logical custom field (normalized name +
+    aliases). Otherwise it offers "Create…", or explains why it is blocked.
+  - **Agency fields**, **My fields**, and **Other users' personal fields** (Admin / Super Admin only, labelled).
+  - **Unavailable:** built-in shadows and reserved names, disabled with the reason.
+  - Every custom option shows a type badge.
+- The picker uses the existing shadcn `Popover` + `Command`: type to filter, grouped, keyboard-accessible.
+  A field already used elsewhere shows "Used by <header>", and moving it asks first (no silent unmapping).
+- Auto-detection is Sheets-only (`autoMap.ts`; the CSV mapper is untouched) and runs only once the catalog is ready:
+  1. Lead ID (unchanged).
+  2. Address aliases → Address / City / ZIP, mapped only to an existing visible field. "Mailing / Home / Billing"
+     qualifiers are stripped first, so "Mailing State" → State. These headers never fall through to the "mail"
+     rule.
+  3. The CSV matcher.
+  4. A unique punctuation-insensitive custom-name match ("Amt. Requested" ↔ "Amt Requested").
+- Names for creation are `Address`, `City` and `Zip Code` (they match production).
+
+**3.6 Inline custom-field creation.**
+- `CreateCustomFieldForm`:
+  - Zod with the shared `customFieldSchema`, Leads only, all six types; the "(Custom)" decoration is refused.
+  - `classifyRequestedFieldName` first: a built-in → map to it; an existing visible field → select it;
+    otherwise create.
+  - `customFieldsSupabaseApi.create` runs as the user under RLS: personal by default. The "Agency-wide" toggle is
+    shown only to Admin / Super Admin (Settings' `canManageAgencyFields`), and defaults ON for the Address group.
+- On an organization-wide conflict: refetch the catalog once. If the field is still invisible, show an explicit
+  blocked notice (the CSV wording: the field exists in the agency but isn't available to this account; an Admin
+  can make it available). The column stays unmapped. It is **never** mapped by name alone.
+- After creating: refetch the catalog and map the column to the returned id. The server re-resolves on Preview and
+  Save.
+- It refuses during View As. Settings → Google Sheets is already withheld then.
+
+**3.7 Catalog lifecycle.**
+- The catalog is refetched every time the dialog opens.
+- While it loads: a skeleton. On failure: a blocking error with Retry. The list is never rendered from a missing or
+  partial catalog.
+- `custom_field_unavailable` now names the field (`custom_field_unavailable:<uuid>`, shown as "‘Zip Code’ is no
+  longer available to you"), with Retry for the catalog and headers.
+
+**3.8 Preview and acknowledgement.**
+- `preview` returns, per sample row, `fields: { [target]: { value, kept_as_text?, not_an_option? } }` for every
+  mapped optional target. It also returns `ignored`, `unaccounted_headers` and `header_issues`.
+- The preview table scrolls horizontally: Row, Name, Phone, Result, then one column per mapped optional field.
+  Values appear **exactly as they will be stored**.
+- An ignored-columns panel lists every ignored header, with a required checkbox: "These N columns will not be
+  imported." The Zod-validated draft blocks Enable and Save until it is checked. The list is stored as v2
+  `ignored`.
+- Active sources go Map → Preview → Save. The UI states that the change applies to rows imported after saving:
+  no re-import, receipts unchanged.
+- `activate` on a v2 draft re-checks `unaccounted_headers` on its own fresh read and refuses
+  `unacknowledged_columns` (a column added between Preview and Enable). Sync runs never block on a new column.
+
+**3.9 Historical-field reconciliation: DESIGN ONLY.** Not built; it needs its own migration and approval.
+- **Trigger:** owner-initiated per source, "Fill in newly mapped fields for leads already imported".
+- **Dry run:** one fresh read, matched to receipts.
+  - `source_id` mode: `receipt_key id:<ID>`.
+  - `row_position` mode: a receipt whose `row_number` **and** core fingerprint match the current row; anything
+    else is unmatched.
+  - A value is proposed only where the lead's field is **absent or blank**. It never overwrites, and core fields
+    are never touched.
+  - It shows counts and a sample.
+- **Apply:** a new service-role wrapper under the existing source + connection locks, version and generation
+  checks and a snapshot digest. It writes only absent keys.
+- **Audit:** `private.google_sheets_backfill_runs` and `…_backfill_items` (lead, key, SHA-256 of the value, actor,
+  version). Idempotent per run × lead × key.
+- **Undo:** removes only keys still equal to what the run wrote.
+- Never automatic, never a re-import. Before building it, verify which `leads` UPDATE triggers or workflows would
+  fire.
+
+**3.10 Unchanged.**
+- OAuth scopes and flows, the Picker, push, watches and maintenance.
+- Receipts, ledgers, identity planner, duplicate rules, assignment to the connected agent, workflows, `finish`.
+- SQL ingest, RLS, the `custom_fields` schema and guard.
+- The CSV importer, DNC, telephony and A2P.
+
+### 4. Decisions for Chris
+
+- **D1 — making address fields usable by everyone** (all three are personal today).
+  - **A (recommended):** a small "Make agency-wide" action in Settings → Contact Management.
+    - Who: an Admin for their own personal fields; a Super Admin for any personal field in their own org.
+    - How: existing RLS UPDATE (`created_by → NULL`). **No policy change.** The guard grandfathers a same-name
+      update, and the agency unique index has no `Address` / `City` / `Zip Code` row.
+    - After release, Chris converts the three fields. The Agent then loses edit rights on `City` / `Zip Code`;
+      lead values are unaffected (they are keyed by name).
+  - **B:** a separately approved one-time data migration for the three ids.
+  - **C:** defer. Users then see the explicit blocked message.
+- **D2 — typed values:** normalize as 3.4 (recommended), or keep raw strings and only preview them.
+- **D3 — contract:** v2 written only when an owner saves, v1 untouched (recommended), or no versioning.
+- **D4 — headers:** blank and duplicate headers are not mappable, with explicit guidance (recommended), or positional
+  binding (not recommended: it breaks tolerance of moved columns).
+- **D5 — required custom fields left unmapped:** a non-blocking warning (recommended), or block like CSV (this would
+  stop sources).
+- **D6 — historical reconciliation:** design only now (recommended).
+- **D7 — Admin visibility of other users' personal fields:** keep them mappable (the current server rule) but group
+  and label them (recommended), or hide them.
+
+### 5. Files (intended, after approval)
+
+**Edge (Deno):**
+- `supabase/functions/_shared/googleSheets/mapping.ts`: v2, typed values, header analysis, preview field values.
+- `…/engine.ts`: passes types and the version to `buildLead`; the v1 path is unchanged.
+- `…/google.ts`: `readHeaderOverflow`, used by `headers` only.
+- `…/db.ts`: `OwnerContext` field types.
+- `supabase/functions/google-sheets-api/actions.ts`: `headers`, `preview`, `context`, `activate` and named
+  `custom_field_unavailable`.
+- Tests: `mapping.test.ts`, `engine.test.ts`, `regressions.test.ts` (v1 frozen), `google-sheets-api/actions.test.ts`.
+
+**SQL:**
+- NEW `supabase/migrations/<ts>_google_sheets_context_field_types.sql` (`<ts>` sorts after the hosted head
+  `20261025120100`; re-checked at release).
+- NEW `supabase/migrations/rollback/<ts>_google_sheets_context_field_types.rollback.sql`.
+- `supabase/tests/google_sheets_import.sql`: catalog keys, visibility matrix, ACL and count 75.
+- `scripts/run_google_sheets_tests.sh`: apply M1 in every database; rollback proof.
+- `scripts/google_sheets_e2e.ts`: v2 end to end through PostgREST — stored values equal the preview; a mapping
+  change → no duplicate receipts.
+
+**Frontend:**
+- `src/lib/google-sheets/schema.ts`, `autoMap.ts`, `api.ts`.
+- NEW `src/lib/google-sheets/fieldCatalog.ts` and `headerState.ts`.
+- `src/hooks/useGoogleSheets.ts`.
+- `src/components/settings/google-sheets/`: `GoogleSheetsSettings.tsx`, `AddSheetDialog.tsx`,
+  `SheetMappingStep.tsx` (recomposed, < 200 lines), `SheetPreviewStep.tsx`, `SheetReviewDialog.tsx`
+  (send the source's version), `useSheetPick.ts`.
+- NEW `MappingColumnRow.tsx`, `MappingFieldPicker.tsx`, `CreateCustomFieldForm.tsx`, `IgnoredColumnsPanel.tsx`,
+  `HeaderIssues.tsx`. Tailwind only.
+- Tests: `src/lib/google-sheets/__tests__/` (+ `fieldCatalog`, `headerState`), `googleSheetsUi.test.tsx`, and the
+  browser harness `scripts/tests/google-sheets-ui/verify.mjs`.
+
+**If D1 = A:** `src/components/settings/ContactManagement.tsx`, `src/lib/supabase-settings.ts`, and their tests.
+
+**Docs:** AGENT_RULES (mapping v2 / typed values / address policy invariant), WORK_LOG,
+`docs/plans/2026-10-27-sheets-mapping-reliability/{release,verification}.md`, and this record.
+
+### 6. Migrations and deployments (each needs Chris's exact approval)
+
+- **M1** replaces one function body. No table, column, RLS or data change.
+  - Apply through the approved route with exact bytes recorded.
+  - Then check: md5, ACL, inventory 75, `service_role` reaches the wrapper, `authenticated` and `anon` are refused.
+- **Edge deploys, all with `--no-verify-jwt` (`verify_jwt=false` preserved):**
+  - `google-sheets-api` v11 → v12;
+  - `google-sheets-push` v5 → v6 (it bundles the engine);
+  - `google-sheets-sync-worker` v10 → v11 (unscheduled; deployed for parity).
+  - Live source is re-read immediately before deploy; it must still equal `f980c16`, apart from the known worker
+    drift.
+  - `google-sheets-push-maintenance` and both OAuth functions don't bundle the mapping and are not redeployed.
+- **Frontend:** merge to `main` (Vercel).
+
+### 7. Rollout and rollback
+
+**Order:**
+1. PR review and merge.
+2. M1, then verify.
+3. Edge deploys. Verify a v1 source with Sync now: unchanged counts, no new receipts for old rows.
+4. Frontend.
+5. The D1 step.
+6. The owner edits `a2011534`: Preview → acknowledge → Save (v2), then one test row.
+
+**Rollback:**
+- **Frontend:** Vercel rollback. Saved v2 mappings keep working on the new Edge.
+- **Edge:** redeploy the previous versions. **Hazard:** Edge v11 rejects a v2 mapping, so that source goes to Needs
+  review (`mapping_invalid`), with no data loss or duplicates. So, before any Edge rollback, run a reviewed ops file
+  `supabase/ops/google_sheets_mapping_v2_to_v1.sql` (drop `ignored`, `v = 1`, bump `config_version`; separately
+  approved). Otherwise roll back the frontend only.
+- **M1:** the rollback file. The new Edge falls back to raw values when there is no `type`.
+- **Data:** nothing is migrated. Fields created through the UI stay; the user can delete them in Settings.
+
+### 8. Verification (local / CI)
+
+- **Deno** (pinned `deno@2.5.6` via npm, as CI does):
+  - mapping v1 frozen and v2 cases;
+  - the Number / Date matrix;
+  - header analysis;
+  - preview `fields` == ingest `custom_fields`;
+  - `custom_field_unavailable:<id>`;
+  - over-200 headers;
+  - `deno check` of the six entry points.
+- **SQL suite** (`scripts/run_google_sheets_tests.sh`, local Postgres 17.6 / Docker):
+  - catalog visibility: agency / own / other personal / Admin / Super Admin / system template / inactive / non-Leads;
+  - ACL, inventory 75, rollback proof, PostgREST roles.
+- **End to end** (Google faked):
+  - every standard field and visible agency and personal custom field round-trips to **stored lead values**;
+  - Address / City / ZIP end to end;
+  - an active-source mapping change → old rows not re-imported, receipts idempotent, no duplicate;
+  - `source_id` mode: newly mapped columns turning repeats into `duplicate_id` stay pending, never double-import.
+- **Vitest:**
+  - catalog groups, address resolution, unavailable reasons;
+  - permissions (Agent / TL personal only; Admin / Super Admin agency toggle; View As refused);
+  - conflict → blocked;
+  - loading / error / Retry; stale catalog after creation;
+  - header failure, blank, duplicate, missing, new and > 200 columns;
+  - acknowledgement gating; preview values;
+  - the parity suite.
+- **Browser harness:** picker search in the dialog; create field; preview columns.
+- **Repo-wide:** `npx tsc --noEmit`, ESLint (Sheets set + changed files), `npm run build`, `git diff --check`.
+
+### 9. Production verification (after the approved steps)
+
+- **Read-only:** M1 checks, live function versions, v1 sources unchanged.
+- **Signed-in (Chris + Agent):**
+  - the Address group appears (after D1);
+  - Preview shows the Address / City / ZIP values;
+  - Save writes v2;
+  - one reserved-fixture test row becomes one lead whose `custom_fields` keys and values are exactly as previewed,
+    with exactly one receipt;
+  - Sync now adds nothing.
+- **Not claimed:** wide (> 200) or duplicate-header sheets in production, unless such a sheet exists.
+
+### 10. Risks
+
+- The v2 rollback hazard (above).
+- Normalization surprises (a dropped `$`). Mitigated by the preview and because v2 starts only on an explicit save.
+- In `source_id` mode, adding mapped columns can make earlier repeats conflict. This is the existing
+  `rowSignature` rule: explicit and never double-imported. It will be tested.
+- A Popover inside a Dialog: standard Radix. The Google Picker rule is unaffected. It will be tested in the browser.
+- Until D1 is executed, other users still see the blocked message (explicit, not silent).
+- Admins mapping another user's personal field (D7).
+
+### 11. Approval requested
+
+1. This plan and decisions D1–D7: authorizes local implementation, tests and a PR only.
+2. Later, separately:
+   - M1 apply;
+   - each Edge deploy;
+   - frontend release;
+   - the D1 data step;
+   - the v2 → v1 ops file, if it is ever needed.
+
+---
+
 ## 2026-10-26 — APPROVED and IMPLEMENTED (draft PR #492; NOT merged; no production action): PR #492 final credential-state hardening — durable verification marker
 
 **Status.**

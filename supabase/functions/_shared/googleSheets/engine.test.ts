@@ -120,3 +120,65 @@ Deno.test("engine: tab over 10,000 rows → needs_review too_large (never trunca
   assertEquals((calls.finish[0] as Record<string, unknown>).review_reason, "too_large");
   assertEquals(calls.ingest.length, 0);
 });
+
+// ---------------------------------------------------------------- mapping v2 runs (typed catalog, sheet locale)
+const AMT = "22222222-2222-4222-8222-222222222222", WHEN = "33333333-3333-4333-8333-333333333333", ZIPF = "44444444-4444-4444-8444-444444444444";
+const TYPED = [
+  { id: AMT, name: "Amt Requested", created_by: "u1", created_at: null, type: "Number" },
+  { id: WHEN, name: "Date Received", created_by: "u1", created_at: null, type: "Date" },
+  { id: ZIPF, name: "ZIP Code", created_by: null, created_at: null, type: "Text" },
+];
+const typedDb = (ledger: LedgerRow[]) => {
+  const f = fakeDb(ledger);
+  (f.db as unknown as { context: () => Promise<unknown> }).context = async () => ({ duplicate_rule: "phone_or_email", duplicate_scope: "all_agents",
+    duplicate_action: "flag", default_status: "New", lead_sources: [], has_lead_created_workflows: false, custom_fields: TYPED, catalog_version: 2 });
+  return f;
+};
+const typedGoogle = (locale: string) => (input: string | URL | Request) => {
+  const url = String(input instanceof Request ? input.url : input);
+  if (url.includes("sheets.googleapis.com/v4/spreadsheets/") && !url.includes("/values/")) {
+    return Promise.resolve(new Response(JSON.stringify({ properties: { title: "Leads", locale },
+      sheets: [{ properties: { sheetId: 0, title: "Sheet1", index: 0, gridProperties: { rowCount: 100, columnCount: 7 } } }] }), { status: 200 }));
+  }
+  return google([["First", "Last", "Phone", "Amt", "When", "Zip"], ["Ann", "Lee", "5550001111", "$1,234.50", "10/27/2026", "02134"]])(input);
+};
+const typedColumns = [{ header: "First", target: "first_name" }, { header: "Last", target: "last_name" }, { header: "Phone", target: "phone" },
+  { header: "Amt", target: `custom:${AMT}` }, { header: "When", target: `custom:${WHEN}` }, { header: "Zip", target: `custom:${ZIPF}` }];
+const newRowsOnly: LedgerRow[] = [];
+
+Deno.test("engine v2: stored values are lossless-typed with the sheet's locale; ZIP (Text) is byte-exact", async () => {
+  const { db, calls } = typedDb(newRowsOnly);
+  const out = await runSource({ db, cfg: CFG, fetchFn: typedGoogle("en_US") as typeof fetch },
+    { ...SRC, mapping: { v: 2, columns: typedColumns, ignored: [] } }, "lease", "push", 30_000);
+  assertEquals([out.status, out.imported], ["ok", 1]);
+  const lead = ((calls.ingest.find((x) => (x as { rows: unknown[] }).rows.length) as { rows: { lead: { custom_fields: unknown } }[] }).rows[0]).lead;
+  assertEquals(lead.custom_fields, { "Amt Requested": "1234.50", "Date Received": "2026-10-27", "ZIP Code": "02134" });
+});
+
+Deno.test("engine v2: a day-first sheet keeps M/D/Y-looking dates exactly", async () => {
+  const { db, calls } = typedDb(newRowsOnly);
+  await runSource({ db, cfg: CFG, fetchFn: typedGoogle("en_GB") as typeof fetch },
+    { ...SRC, mapping: { v: 2, columns: typedColumns, ignored: [] } }, "lease", "manual", 30_000);
+  const lead = ((calls.ingest.find((x) => (x as { rows: unknown[] }).rows.length) as { rows: { lead: { custom_fields: Record<string, string> } }[] }).rows[0]).lead;
+  assertEquals(lead.custom_fields["Date Received"], "10/27/2026");
+});
+
+Deno.test("engine v1 under the typed catalog: values stay raw (existing sources never change behaviour)", async () => {
+  const { db, calls } = typedDb(newRowsOnly);
+  await runSource({ db, cfg: CFG, fetchFn: typedGoogle("en_US") as typeof fetch },
+    { ...SRC, mapping: { v: 1, columns: typedColumns } }, "lease", "schedule", 30_000);
+  const lead = ((calls.ingest.find((x) => (x as { rows: unknown[] }).rows.length) as { rows: { lead: { custom_fields: unknown } }[] }).rows[0]).lead;
+  assertEquals(lead.custom_fields, { "Amt Requested": "$1,234.50", "Date Received": "10/27/2026", "ZIP Code": "02134" });
+});
+
+Deno.test("engine v2 without the typed catalog (catalog rolled back): values fall back to raw, nothing fails", async () => {
+  const { db, calls } = fakeDb(newRowsOnly);
+  (db as unknown as { context: () => Promise<unknown> }).context = async () => ({ duplicate_rule: "phone_or_email", duplicate_scope: "all_agents",
+    duplicate_action: "flag", default_status: "New", lead_sources: [], has_lead_created_workflows: false,
+    custom_fields: TYPED.map(({ id, name, created_by, created_at }) => ({ id, name, created_by, created_at })) });
+  const out = await runSource({ db, cfg: CFG, fetchFn: typedGoogle("en_US") as typeof fetch },
+    { ...SRC, mapping: { v: 2, columns: typedColumns, ignored: ["Notes"] } }, "lease", "push", 30_000);
+  assertEquals(out.status, "ok");
+  const lead = ((calls.ingest.find((x) => (x as { rows: unknown[] }).rows.length) as { rows: { lead: { custom_fields: unknown } }[] }).rows[0]).lead;
+  assertEquals(lead.custom_fields, { "Amt Requested": "$1,234.50", "Date Received": "10/27/2026", "ZIP Code": "02134" });
+});

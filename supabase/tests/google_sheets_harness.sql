@@ -43,7 +43,8 @@ CREATE TABLE public.profiles (
   organization_id uuid REFERENCES public.organizations(id),
   role text NOT NULL DEFAULT 'Agent' CHECK (role IN ('Agent','Team Leader','Admin','Super Admin')),
   status text NOT NULL DEFAULT 'Active',
-  is_super_admin boolean DEFAULT false
+  is_super_admin boolean DEFAULT false,
+  first_name text NOT NULL DEFAULT '', last_name text NOT NULL DEFAULT ''   -- production columns (conversion impact preview)
 );
 
 -- Verbatim production get_org_id().
@@ -262,10 +263,14 @@ CREATE TABLE public.lead_sources (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization_id uuid NOT NULL, name text NOT NULL,
   active boolean NOT NULL DEFAULT true, sort_order integer NOT NULL DEFAULT 0
 );
+-- Production column set (baseline schema): the typed mapping catalog reads type / required / dropdown_options and the
+-- standard-field conversion snapshot reads updated_at.
 CREATE TABLE public.custom_fields (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization_id uuid, name text NOT NULL, type text NOT NULL DEFAULT 'Text',
-  applies_to jsonb NOT NULL DEFAULT '[]', active boolean NOT NULL DEFAULT true, created_by uuid,
-  created_at timestamptz DEFAULT now()
+  applies_to jsonb NOT NULL DEFAULT '[]', required boolean NOT NULL DEFAULT false, active boolean NOT NULL DEFAULT true,
+  default_value text, dropdown_options jsonb DEFAULT '[]', usage_count integer DEFAULT 0, created_by uuid,
+  created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
+  CONSTRAINT custom_fields_type_check CHECK (type = ANY (ARRAY['Text','Number','Date','Dropdown','Email','Phone']))
 );
 CREATE TABLE public.workflows (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), organization_id uuid NOT NULL, name text NOT NULL,

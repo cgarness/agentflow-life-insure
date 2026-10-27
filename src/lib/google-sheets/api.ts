@@ -22,6 +22,11 @@ const MESSAGES: Record<string, string> = {
   disabled: "Google Sheets is not available yet.",
   unauthorized: "Your session expired. Sign in again.",
   origin_not_allowed: "Connecting isn't available from this address.",
+  // Mapping v2 (only the updated mapping screen can receive these)
+  mapping_version_unavailable: "The updated column mapping isn't available yet. Reload the page and try again.",
+  unacknowledged_columns: "The sheet's columns changed since the preview. Review them, then save again.",
+  inspection_incomplete: "Couldn't finish checking the sheet's columns. Try again.",
+  ignored_header_mapped: "A column can't be both imported and ignored.",
 };
 
 export class SheetsApiError extends Error {

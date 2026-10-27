@@ -10,6 +10,13 @@ on:
       - 'supabase/migrations/20261025120000_google_sheets_push_sync.sql'
       - 'supabase/migrations/pending/20261025120100_google_sheets_push_maintenance_schedule.sql'
       - 'supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql'
+      - 'supabase/migrations/pending/20261028120000_google_sheets_context_field_types.sql'
+      - 'supabase/migrations/rollback/20261028120000_google_sheets_context_field_types.rollback.sql'
+      - 'supabase/migrations/pending/20261028120100_standard_lead_fields.sql'
+      - 'supabase/migrations/rollback/20261028120100_standard_lead_fields.rollback.sql'
+      - 'supabase/migrations/20260919052941_custom_field_logical_name_guard.sql'
+      - 'supabase/tests/standard_lead_fields.sql'
+      - 'supabase/ops/standard_lead_fields_*.sql'
       - 'supabase/functions/_shared/googleSheets/**'
       - 'supabase/functions/google-sheets-*/**'
       - 'supabase/tests/google_sheets_*.sql'
@@ -28,6 +35,13 @@ on:
       - '.github/workflows/google-sheets.yml'
       - 'docs/plans/2026-10-13-google-sheets-import/**'
       - 'docs/plans/2026-10-25-google-sheets-realtime-sync/**'
+      - 'docs/plans/2026-10-27-sheets-mapping-reliability/**'
+      - 'src/lib/standard-lead-fields.ts'
+      - 'src/lib/import-field-matching.ts'
+      - 'src/lib/custom-field-errors.ts'
+      - 'src/components/settings/custom-fields/**'
+      - 'src/components/settings/ContactManagement.tsx'
+      - 'src/components/contacts/ImportLeadsModal.tsx'
   workflow_dispatch:
 permissions:
   contents: read
@@ -132,11 +146,15 @@ jobs:
         run: >-
           npx vitest run src/lib/google-sheets src/components/settings/google-sheets
           src/lib/__tests__/contactsPermissions.test.ts src/lib/__tests__/reportsContracts.test.ts src/pages/__tests__/settingsPageHeading.test.tsx
+          src/lib/__tests__/standardLeadFields.test.ts src/components/settings/__tests__/makeAgencyWide.test.tsx
+          src/components/contacts/__tests__/importLeadsCustomFields.test.tsx
       - name: ESLint (Sheets files)
         run: >-
           npx eslint src/components/settings/google-sheets src/lib/google-sheets src/hooks/useGoogleSheets.ts
           src/config/settingsConfig.ts src/config/permissionDefaults.ts src/components/settings/SettingsRenderer.tsx
           scripts/tests/google-sheets-ui/verify.mjs scripts/google_sheets_postgrest_check.mjs
+          src/lib/standard-lead-fields.ts src/components/settings/custom-fields src/lib/__tests__/standardLeadFields.test.ts
+          src/components/settings/__tests__/makeAgencyWide.test.tsx
           scripts/google_sheets_e2e.ts scripts/google_sheets_push_e2e.ts
       - run: npx tsc --noEmit
       - name: App type-check against the exact PR base (zero new diagnostics)
@@ -178,6 +196,25 @@ jobs:
           VITE_PID=$!
           trap 'kill "$VITE_PID"' EXIT
           for _ in $(seq 1 60); do curl -s http://127.0.0.1:5179/ >/dev/null && break; sleep 1; done
+          node scripts/tests/google-sheets-ui/verify.mjs "$RUNNER_TEMP/gs-shots"
+      - name: verify.mjs mapping v2 at 1440 and 390 px
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/gs-browser/node_modules/playwright/index.mjs
+          GS_MAPPING_V2: '1'
+          GS_BASE_URL: http://127.0.0.1:5180
+          VITE_SUPABASE_URL: https://mock.supabase.co
+          VITE_SUPABASE_ANON_KEY: anon-test
+          VITE_GOOGLE_SHEETS_ENABLED: 'true'
+          VITE_GOOGLE_SHEETS_MAPPING_V2: 'true'
+          VITE_GOOGLE_PICKER_API_KEY: test-picker-key
+          VITE_GOOGLE_CLOUD_PROJECT_NUMBER: '87346168200'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gs-shots"
+          npx vite --port 5180 --strictPort --host 127.0.0.1 > "$RUNNER_TEMP/vite-v2.log" 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID"' EXIT
+          for _ in $(seq 1 60); do curl -s http://127.0.0.1:5180/ >/dev/null && break; sleep 1; done
           node scripts/tests/google-sheets-ui/verify.mjs "$RUNNER_TEMP/gs-shots"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

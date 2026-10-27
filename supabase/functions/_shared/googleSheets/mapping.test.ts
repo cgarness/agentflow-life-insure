@@ -93,3 +93,120 @@ Deno.test("rowSignature: every mapped value (standard, custom, Lead ID) counts; 
     assert((await sig(changed)) !== s0, `column ${header[i]} must change the signature`);
   }
 });
+
+// ---------------------------------------------------------------- mapping v2
+import { analyzeHeaders, buildLeadDetailed, previewValues, resolveCustomFieldTypes, unaccountedHeaders } from "./mapping.ts";
+
+const V2 = (cols: [string, string][], ignored: string[]) => ({ v: 2 as const, columns: cols.map(([header, target]) => ({ header, target })), ignored });
+const CF = { amt: "22222222-2222-4222-8222-222222222222", when: "33333333-3333-4333-8333-333333333333", zip: "44444444-4444-4444-8444-444444444444",
+  pick: "55555555-5555-4555-8555-555555555555" };
+
+Deno.test("validateMapping v2: v1 column rules plus acknowledged ignored headers", () => {
+  const base: [string, string][] = [["Phone", "phone"], ["Name", "full_name"]];
+  assertEquals(validateMapping(V2(base, ["Address", " Notes "])), { ok: true, mapping: { v: 2, columns: [{ header: "Phone", target: "phone" },
+    { header: "Name", target: "full_name" }], ignored: ["Address", "Notes"] } });
+  assertEquals(validateMapping(V2(base, ["phone"])), { ok: false, reason: "ignored_header_mapped" });
+  assertEquals(validateMapping(V2(base, ["X", " x "])), { ok: false, reason: "duplicate_header" });
+  assertEquals(validateMapping(V2(base, [""])), { ok: false, reason: "invalid_mapping" });
+  assertEquals(validateMapping({ v: 2, columns: base.map(([header, target]) => ({ header, target })) }), { ok: false, reason: "invalid_mapping" });
+  assertEquals(validateMapping(V2([["First", "first_name"]], [])), { ok: false, reason: "phone_required" });
+  assertEquals(validateMapping(V2(base, Array.from({ length: 199 }, (_, i) => `c${i}`))), { ok: false, reason: "invalid_mapping" });
+  assertEquals(validateMapping({ v: 3, columns: [], ignored: [] }), { ok: false, reason: "invalid_mapping" });
+});
+
+Deno.test("resolveCustomFieldTypes: the type every visible row of the logical name agrees on; disagreement → no type", () => {
+  const f = [
+    { id: CF.amt, name: "Amt", created_by: "u1", created_at: null, type: "Number" },
+    { id: "a2", name: " amt ", created_by: "u2", created_at: null, type: "Number" },
+    { id: CF.when, name: "When", created_by: "u1", created_at: null, type: "Date" },
+    { id: "w2", name: "when", created_by: null, created_at: null, type: "Text" },
+    { id: CF.pick, name: "Pick", created_by: null, created_at: null, type: "Dropdown", dropdown_options: ["A", "B", 3] },
+  ];
+  const t = resolveCustomFieldTypes([CF.amt, CF.when, CF.pick, "missing"], f);
+  assertEquals(t.get(CF.amt), { type: "Number", options: null });
+  assertEquals(t.get(CF.when), { type: null });
+  assertEquals(t.get(CF.pick), { type: "Dropdown", options: ["A", "B"] });
+  assertEquals(t.has("missing"), false);
+});
+
+Deno.test("buildLead v2: lossless typed custom values; the same row under v1 stays raw; identity is unchanged", async () => {
+  const header = ["Name", "Phone", "Amt", "When", "Zip"];
+  const cols = [["Name", "full_name"], ["Phone", "phone"], ["Amt", `custom:${CF.amt}`], ["When", `custom:${CF.when}`], ["Zip", `custom:${CF.zip}`]] as [string, string][];
+  const names = new Map([[CF.amt, "Amt"], [CF.when, "When"], [CF.zip, "ZIP Code"]]);
+  const types = new Map([[CF.amt, { type: "Number" }], [CF.when, { type: "Date" }], [CF.zip, { type: "Text" }]]);
+  const row = ["Ann Lee", "5550001111", "$1,234.50", "10/27/2026", "02134"];
+  const r1 = resolveColumns(header, M(cols), null);
+  const v1 = buildLead(row, r1, names);
+  const v2 = buildLead(row, r1, names, { version: 2, types, locale: "en_US" });
+  assertEquals(v1.lead?.custom_fields, { "Full Name": "Ann Lee", Amt: "$1,234.50", When: "10/27/2026", "ZIP Code": "02134" });
+  assertEquals(v2.lead?.custom_fields, { "Full Name": "Ann Lee", Amt: "1234.50", When: "2026-10-27", "ZIP Code": "02134" });
+  assertEquals(buildLead(row, r1, names, { version: 2, types, locale: "en_GB" }).lead?.custom_fields?.When, "10/27/2026");
+  assertEquals(await fingerprint(v1.core), await fingerprint(v2.core));
+  assertEquals(await rowSignature(row, r1), await rowSignature(row, resolveColumns(header, V2(cols, []), null)));
+});
+
+Deno.test("previewValues: exactly the values ingest stores (state normalised, source default, age integer, typed custom)", () => {
+  const header = ["First", "Last", "Phone", "Email", "State", "Source", "Age", "DOB", "Best", "Notes", "Amt", "Zip", "Name"];
+  const m = V2([["First", "first_name"], ["Last", "last_name"], ["Phone", "phone"], ["Email", "email"], ["State", "state"], ["Source", "lead_source"],
+    ["Age", "age"], ["DOB", "date_of_birth"], ["Best", "best_time_to_call"], ["Notes", "notes"], ["Amt", `custom:${CF.amt}`], ["Zip", `custom:${CF.zip}`],
+    ["Name", "full_name"]], []);
+  const cols = resolveColumns(header, m, null);
+  const names = new Map([[CF.amt, "Amt"], [CF.zip, "ZIP Code"]]);
+  const opts = { version: 2 as const, types: new Map([[CF.amt, { type: "Number" }], [CF.zip, { type: "Text" }]]), locale: "en_US" };
+  const row = ["Ann", "Lee", "5550001111", "Ann@X.test", "texas", "", "61.7", "3/4/1965", "pm", "", "007", "02134-0001", "Ann Lee"];
+  const d = buildLeadDetailed(row, cols, names, opts);
+  const pv = previewValues(d.built.lead!, cols, d.custom, "Google Sheets");
+  assertEquals(pv, [
+    { target: "full_name", value: "Ann Lee" }, { target: "email", value: "Ann@X.test" }, { target: "state", value: "TX" },
+    { target: "lead_source", value: "Google Sheets" }, { target: "age", value: "61" }, { target: "date_of_birth", value: "1965-03-04" },
+    { target: "best_time_to_call", value: "pm" },
+    { target: `custom:${CF.amt}`, value: "007" }, { target: `custom:${CF.zip}`, value: "02134-0001" },
+  ]);
+  // Parity: every custom preview value is the payload value under the same name.
+  assertEquals(d.built.lead?.custom_fields, { "Full Name": "Ann Lee", Amt: "007", "ZIP Code": "02134-0001" });
+});
+
+Deno.test("analyzeHeaders / unaccountedHeaders: blank, duplicate and data-bearing columns are explicit", () => {
+  const header = ["First", "Last", "Phone", "", "Phone ", "Notes", "Lead ID", "Address"];
+  const rows = [["a", "b", "1", "x", "", "", "L1", ""], ["", "", "", "", "", "", "", "1 Main"]];
+  const a = analyzeHeaders(header, rows);
+  assertEquals(a.map((c) => [c.index, c.blank, c.duplicate, c.has_data]),
+    [[0, false, false, true], [1, false, false, true], [2, false, true, true], [3, true, false, true], [4, false, true, false],
+     [5, false, false, false], [6, false, false, true], [7, false, false, true]]);
+  assertEquals(analyzeHeaders(["A"], [["1", "2", ""]]).map((c) => [c.index, c.blank, c.has_data]), [[0, false, true], [1, true, true], [2, true, false]]);
+  const m = V2([["First", "first_name"], ["Last", "last_name"]], ["notes"]);
+  assertEquals(unaccountedHeaders(header, { ...m, columns: [...m.columns, { header: "Phone", target: "phone" }] }, "Lead ID"), ["Address"]);
+  assertEquals(unaccountedHeaders(header, M([["First", "first_name"], ["Last", "last_name"], ["Phone", "phone"]]), null), ["Notes", "Lead ID", "Address"]);
+});
+
+import { needsAcknowledgement, notImportable, notImportableSignature } from "./mapping.ts";
+
+Deno.test("notImportable: headerless data, repeated headers and content past the limit; labels and letters only", async () => {
+  const header = ["First", "Phone", "", "Notes", "notes", ""];
+  const rows = [["Ann", "1", "secret-a", "", "", ""], ["Bo", "2", "", "n", "", ""]];
+  const beyond = { width: 260, checked_through: 260, unchecked: false, columns: [
+    { letter: "GS", header: "Spouse", has_data: true }, { letter: "GU", header: "", has_data: true }] };
+  const n = notImportable(header, rows, beyond);
+  assertEquals(n, { headerless: ["C"], repeated: ["Notes"],
+    beyond: { width: 260, checked_through: 260, unchecked: false, headers: ["Spouse"], headerless: ["GU"] } });
+  assert(!JSON.stringify(n).includes("secret-a"), "no cell value");
+  assert(needsAcknowledgement(n));
+  const clean = notImportable(["First", "Phone"], [["Ann", "1"]], { width: 2, checked_through: 2, unchecked: false, columns: [] });
+  assertEquals([needsAcknowledgement(clean), await notImportableSignature(clean)], [false, null]);
+  const unchecked = notImportable(["First"], [], { width: 450, checked_through: 400, unchecked: true, columns: [] });
+  assert(needsAcknowledgement(unchecked), "columns too far out to check still need the acknowledgement");
+});
+
+Deno.test("notImportableSignature: stable for the same content, ignores width, changes with any content change", async () => {
+  const base = { width: 260, checked_through: 260, unchecked: false, columns: [{ letter: "GS", header: "Spouse", has_data: false }] };
+  const sig = await notImportableSignature(notImportable(["A"], [], base));
+  assert(/^[0-9a-f]{64}$/.test(sig ?? ""));
+  assertEquals(await notImportableSignature(notImportable(["A"], [], base)), sig);
+  assertEquals(await notImportableSignature(notImportable(["A"], [], { ...base, width: 300, checked_through: 300 })), sig, "empty grid columns never re-ask");
+  for (const other of [
+    notImportable(["A"], [], { ...base, columns: [{ letter: "GS", header: "Spouse 2", has_data: false }] }),
+    notImportable(["A"], [], { ...base, columns: [...base.columns, { letter: "GT", header: "", has_data: true }] }),
+    notImportable(["A"], [], { ...base, unchecked: true }),
+    notImportable(["A", ""], [["1", "x"]], base),
+  ]) assert((await notImportableSignature(other)) !== sig);
+});

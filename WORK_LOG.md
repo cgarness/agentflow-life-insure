@@ -1,3 +1,50 @@
+## 2026-10-27 — PR #498 correction C: preview validation and column overflow (draft PR; NOT merged; nothing applied or deployed)
+
+Chris approved correction plan C (`6041a5e`) with four safeguards. Preview gate: Save/Enable only after a successful
+preview of exactly the current draft (request body = key; stale and out-of-order responses dropped), with unchanged
+columns and the acknowledgement; drift offers "Review columns" (re-read, new columns default to Don't import).
+Every v2 mapping write (save, activate, owner-edited review) re-reads the sheet and refuses missing/duplicated mapped
+headers, gone fields, unaccounted headers, and unacknowledged not-importable content (SHA-256 token of labels and
+letters only, width excluded); nothing written on refusal. v1 save makes no Google request; syncs never block.
+Column overflow: real width plus header and data presence past GR via one bounded column-major read (≤200 more
+columns, timeout, byte cap, shape check; wider grids "unchecked"); incomplete scans fail closed
+(`inspection_incomplete`), quota stays `rate_limited`; no cell value past GR is returned, stored or logged. The UI never
+says "Every column is imported" while anything is left out. Found and fixed a phone-width clipping of the preview
+dialog (grid `min-w-0`; new browser check fails without it).
+
+Verification: tsc (root pass; app project unchanged at main's 80), build, ESLint, Deno 145 + six checks, full
+SQL/PostgREST/e2e runner (104 e2e incl. scenario 9: active-source drift refused with mapping/version/receipts
+unchanged, 260- and 450-column tabs, no duplicates), browser legacy 68 / flag-on legacy 68 / v2 42 at 1440 and 390 px.
+No schema change. Release steps unchanged (`release.md`, R2–R8 each need Chris's approval).
+
+**Context snapshot.** Decisions: semantic server checks + content token instead of a header fingerprint; scan bound
+200 extra columns; v2-only. Migrations: none added (M1/M2 still pending, unapplied). Deploys: none. Blockers: none;
+CI on the pushed head reported in the PR.
+
+---
+
+## 2026-10-27 — Google Sheets mapping reliability implemented (draft PR; NOT merged; nothing applied or deployed)
+
+Chris approved Amendment A and its file list for local implementation. Branch `claude/sheets-mapping-reliability-tvb445`
+contains `main` `f980c16`. Built: mapping v2 `{v:2, columns, ignored}` with v1 frozen (byte-for-byte golden test);
+lossless typed Number/Date values (ZIPs, leading zeros and ambiguous dates kept as typed); preview built by the
+ingest pass so it equals stored values; current headers on edit with blank/duplicate/missing/>200-column reporting;
+catalog Retry with no partial lists; searchable grouped picker, address auto-detection (never → Email), inline
+field creation under existing rules, ignored-columns acknowledgement (also enforced by `activate`). Gate: build flag
+`VITE_GOOGLE_SHEETS_MAPPING_V2` AND server `mapping_versions` 2; legacy editor files untouched.
+
+Address, City and ZIP Code become agency-wide standard fields for new agencies (M2): INSERT-only idempotent
+provisioning, non-fatal org trigger recording `failed` + SQLSTATE, Admin/SA retry and a read-only report for
+detection and recovery, snapshot-guarded audited personal → agency-wide conversion. No backfill; no production field
+ownership or data changed.
+
+Pending migrations `20261028120000` (M1) / `20261028120100` (M2) with rollbacks and ops files. Verification: tsc,
+build, ESLint, 174 focused Vitest, full Vitest (only `main`'s 10 pre-existing failures), 135 Deno + six checks, full
+SQL/PostgREST/e2e runner, browser legacy and v2 at 1440/390 px. Release steps R2–R8 each need Chris's approval:
+`docs/plans/2026-10-27-sheets-mapping-reliability/release.md`.
+
+---
+
 ## 2026-10-27 — Neutral Sheets containers
 
 Chris requested removal of green container backgrounds and borders after reviewing the released color update. Restored neutral account and active-source containers; preserved colored badges, icon, buttons and all behavior. TypeScript and diff checks passed.

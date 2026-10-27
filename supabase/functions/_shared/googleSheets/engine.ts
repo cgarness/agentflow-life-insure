@@ -8,7 +8,10 @@ import { DbError } from "./db.ts";
 import { GoogleApiError, sanitizeError } from "./errors.ts";
 import { readTab } from "./google.ts";
 import { planRowPosition, planSourceId, type PlannedRow } from "./identity.ts";
-import { buildLead, displayFields, fingerprint, resolveColumns, resolveCustomFieldNames, rowSignature, validateMapping } from "./mapping.ts";
+import {
+  buildLead, displayFields, fingerprint, resolveColumns, resolveCustomFieldNames, resolveCustomFieldTypes, rowSignature, validateMapping,
+  type BuildOptions, type OwnerCustomField, type SheetMapping,
+} from "./mapping.ts";
 import { refreshAccessToken } from "./oauth.ts";
 
 type FetchFn = typeof fetch;
@@ -30,13 +33,21 @@ export interface RunOutcome {
 const chunk = <T>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
 /** Builds planned rows (fingerprints, content signatures, validity, IDs) for every data row of a read. */
-export async function planRows(rows: string[][], cols: ReturnType<typeof resolveColumns>, names: Map<string, string>): Promise<PlannedRow[]> {
+export async function planRows(rows: string[][], cols: ReturnType<typeof resolveColumns>, names: Map<string, string>,
+  opts?: BuildOptions): Promise<PlannedRow[]> {
   return Promise.all(rows.map(async (row, i) => {
-    const b = buildLead(row, cols, names);
+    const b = buildLead(row, cols, names, opts);
     const idValue = cols.idIdx === null ? null : ((row[cols.idIdx] ?? "").trim() || null);
     return { n: i + 2, idValue, empty: b.empty, valid: b.valid, reason: b.reason, fp: await fingerprint(b.core),
              sig: await rowSignature(row, cols), lead: b.lead, display: displayFields(row, cols) };
   }));
+}
+
+/** v2 typed-value options for a mapping (undefined for v1: the frozen raw-value path). */
+export function buildOptions(mapping: SheetMapping, cols: ReturnType<typeof resolveColumns>, fields: OwnerCustomField[],
+  locale: string | null): BuildOptions | undefined {
+  if (mapping.v !== 2) return undefined;
+  return { version: 2, types: resolveCustomFieldTypes(cols.custom.map((c) => c.customFieldId), fields), locale };
 }
 
 export async function runSource(deps: RunDeps, s: ClaimedSource, lease: string, trigger: RunTrigger, budgetMs: number): Promise<RunOutcome> {
@@ -87,7 +98,7 @@ export async function runSource(deps: RunDeps, s: ClaimedSource, lease: string, 
     const custom = resolveCustomFieldNames(cols.custom.map((c) => c.customFieldId), ctx.custom_fields ?? []);
     if (custom.unresolved.length > 0) return await review("custom_field_unavailable");
 
-    const planned = await planRows(tab.rows, cols, custom.names);
+    const planned = await planRows(tab.rows, cols, custom.names, buildOptions(mapping.mapping, cols, ctx.custom_fields ?? [], tab.locale));
     const state = await deps.db.loadState(s.source_id, lease);
     const plan = s.identity_mode === "source_id"
       ? planSourceId(planned, state.rows ?? [], new Set(state.receipt_ids ?? []))

@@ -13,16 +13,25 @@ const { state } = vi.hoisted(() => ({
     createArgs: [] as any[][],
     /** What useAuth().isImpersonating reports ("View As"). */
     impersonating: false,
+    /** useAuth().realProfile (the standard-field branch reads the REAL operator's role). */
+    realRole: "Admin",
+    rpcCalls: [] as [string, unknown][],
+    /** Fields the provisioning RPC adds (agency-wide) when it runs for real. */
+    provisionAdds: [] as any[],
   },
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({ isImpersonating: state.impersonating }),
+  useAuth: () => ({ isImpersonating: state.impersonating, realProfile: { role: state.realRole, is_super_admin: false } }),
 }));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    rpc: () => Promise.resolve({ data: null, error: null }),
+    rpc: (fn: string, args: any) => {
+      state.rpcCalls.push([fn, args]);
+      if (fn === "provision_standard_lead_fields" && args?.p_dry_run === false) state.customFields.push(...state.provisionAdds);
+      return Promise.resolve({ data: null, error: null });
+    },
     from: () => ({ select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) }),
     auth: { getSession: () => Promise.resolve({ data: { session: { access_token: "tok" } } }) },
   },
@@ -127,6 +136,10 @@ beforeEach(() => {
   state.getAllCalls = 0;
   state.createArgs.length = 0;
   state.impersonating = false;
+  state.realRole = "Admin";
+  state.rpcCalls.length = 0;
+  state.provisionAdds = [];
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
 
@@ -674,5 +687,66 @@ describe("CSV custom-field creation — roles, View As and error wording", () =>
     expect(screen.getByText(expected)).toBeTruthy();
     expect(screen.queryByText(/modify this custom field/i)).toBeNull();
     expect(mappingSelect(container, 3).value).toBe("Do Not Import");
+  });
+});
+
+describe("Standard lead fields (Address, City, ZIP Code) behind the mapping v2 flag", () => {
+  async function createFor(container: HTMLElement, header: string) {
+    await uploadAndMap(container, csvWith(header));
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("Do Not Import"));
+    fireEvent.change(mappingSelect(container, 3), { target: { value: "__create_new__" } });
+    await screen.findByDisplayValue(header);
+    fireEvent.click(screen.getByText(/Create & Map Field/i));
+  }
+
+  it("flag off: \"City\" is created as a personal field exactly as before", async () => {
+    const { container } = renderModal();
+    await createFor(container, "City");
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("custom:cf-1"));
+    expect(state.createCalls.map((c) => c.name)).toEqual(["City"]);
+    expect(state.rpcCalls.filter(([fn]) => fn === "provision_standard_lead_fields")).toHaveLength(0);
+  });
+
+  it("flag on, Agent: never creates a personal copy; the column stays unmapped with a notice", async () => {
+    vi.stubEnv("VITE_GOOGLE_SHEETS_MAPPING_V2", "true");
+    state.realRole = "Agent";
+    const { container } = renderModal({ viewerRole: "Agent" });
+    await createFor(container, "City");
+    await waitFor(() => expect(screen.getByText(/City is a standard field shared by your agency\. Ask an Admin/)).toBeTruthy());
+    expect(state.createCalls).toHaveLength(0);
+    expect(state.rpcCalls.filter(([fn]) => fn === "provision_standard_lead_fields")).toHaveLength(0);
+    expect(mappingSelect(container, 3).value).toBe("Do Not Import");
+  });
+
+  it("flag on, Admin: adds the agency-wide field through the idempotent provisioning and maps it", async () => {
+    vi.stubEnv("VITE_GOOGLE_SHEETS_MAPPING_V2", "true");
+    state.provisionAdds = [cf("cf-city", "City", { scope: "agency", createdBy: null })];
+    const { container } = renderModal();
+    await createFor(container, "City");
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("custom:cf-city"));
+    expect(state.rpcCalls).toContainEqual(["provision_standard_lead_fields", { p_dry_run: false }]);
+    expect(state.createCalls).toHaveLength(0);
+  });
+
+  it("flag on, Admin: a standard name held only as someone's personal field fails closed with guidance", async () => {
+    vi.stubEnv("VITE_GOOGLE_SHEETS_MAPPING_V2", "true");
+    const { container } = renderModal();
+    await createFor(container, "ZIP Code");
+    await waitFor(() => expect(screen.getByText(/exists as someone's personal field\. Make it agency-wide/)).toBeTruthy());
+    expect(state.createCalls).toHaveLength(0);
+    expect(mappingSelect(container, 3).value).toBe("Do Not Import");
+  });
+
+  it("flag on: a visible \"Zip Code\" field is reused, never re-provisioned", async () => {
+    vi.stubEnv("VITE_GOOGLE_SHEETS_MAPPING_V2", "true");
+    state.customFields.push(cf("cf-zip", "Zip Code"));
+    const { container } = renderModal();
+    await uploadAndMap(container, csvWith("Postal"));
+    fireEvent.change(mappingSelect(container, 3), { target: { value: "__create_new__" } });
+    fireEvent.change(await screen.findByDisplayValue("Postal"), { target: { value: "zip code" } });
+    fireEvent.click(screen.getByText(/Create & Map Field/i));
+    await waitFor(() => expect(mappingSelect(container, 3).value).toBe("custom:cf-zip"));
+    expect(state.createCalls).toHaveLength(0);
+    expect(state.rpcCalls.filter(([fn]) => fn === "provision_standard_lead_fields")).toHaveLength(0);
   });
 });
