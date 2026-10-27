@@ -131,9 +131,15 @@ Deno.test("preview outcomes use the shared ID classifier (missing_id → duplica
 
 // ---------------------------------------------------------------- mapping v2 (catalog handshake, write gate, previews)
 import { activate, context, headers, review, save } from "./actions.ts";
+import { GoogleApiError } from "../_shared/googleSheets/errors.ts";
+import { readBeyondLimit } from "../_shared/googleSheets/google.ts";
 
 const AMT = "22222222-2222-4222-8222-222222222222", ZIP = "44444444-4444-4444-8444-444444444444";
-interface V2Opts { catalog?: number; values?: string[][]; locale?: string | null; columnCount?: number; overflowRow?: string[]; source?: Record<string, unknown> }
+interface V2Opts {
+  catalog?: number; values?: string[][]; locale?: string | null; columnCount?: number; source?: Record<string, unknown>;
+  /** Column-major content past column GR (as Google returns it for majorDimension=COLUMNS), or a failure to inject. */
+  beyond?: string[][]; beyondFail?: "quota" | "shape" | "declared_size";
+}
 function v2Ctx(o: V2Opts = {}) {
   const calls: { fn: string; args: Record<string, unknown> }[] = [];
   const fields = [
@@ -164,6 +170,7 @@ function v2Ctx(o: V2Opts = {}) {
         case "google_sheets_prior_receipt_count": return { data: 0, error: null };
         case "google_sheets_save_source": return { data: [{ source_id: "s1", config_version: 1 }], error: null };
         case "google_sheets_activate": return { data: [{ outcome: "activated", config_version: 2 }], error: null };
+        case "google_sheets_review": return { data: [{ established: 0, matched: 0, unknown: 0, config_version: 5, snapshot: "s" }], error: null };
         default: return { data: null, error: { message: `unexpected rpc ${fn}` } };
       }
     },
@@ -175,8 +182,15 @@ function v2Ctx(o: V2Opts = {}) {
     if (url.includes("oauth2.googleapis.com/token")) return r(200, { access_token: "ya29.t", expires_in: 3599 });
     if (url.includes("/drive/v3/files/")) return r(200, { id: "x", name: "Leads", mimeType: "application/vnd.google-apps.spreadsheet", trashed: false });
     if (url.includes("/values/")) {
-      calls.push({ fn: "google.values", args: { range: decodeURIComponent(url.split("/values/")[1].split("?")[0]) } });
-      return r(200, { values: decodeURIComponent(url).includes("!GS1:") ? [o.overflowRow ?? []] : values });
+      const range = decodeURIComponent(url.split("/values/")[1].split("?")[0]);
+      calls.push({ fn: "google.values", args: { range, query: url.split("?")[1] ?? "" } });
+      if (!range.includes("!GS1:")) return r(200, { values });
+      if (o.beyondFail === "quota") return r(429, { error: { status: "RESOURCE_EXHAUSTED" } });
+      if (o.beyondFail === "shape") return r(200, { majorDimension: "ROWS", values: [["x"]] });
+      if (o.beyondFail === "declared_size") {
+        return Promise.resolve(new Response("{}", { status: 200, headers: { "content-length": String(64 * 1024 * 1024) } }));
+      }
+      return r(200, o.beyond ? { majorDimension: "COLUMNS", values: o.beyond } : { range });
     }
     if (url.includes("sheets.googleapis.com/v4/spreadsheets/")) {
       return r(200, { properties: { title: "Leads", ...(o.locale === null ? {} : { locale: o.locale ?? "en_US" }) },
@@ -234,16 +248,138 @@ Deno.test("v2 preview: rows carry the stored values (lossless typed), plus ignor
   assertEquals(q.header_issues.map((h: { letter: string; blank: boolean; has_data: boolean }) => [h.letter, h.blank, h.has_data]), [["G", true, true]]);
 });
 
-Deno.test("headers: every column flagged with its letter; headers past column 200 are reported, never dropped", async () => {
-  const { c, calls } = v2Ctx({ columnCount: 260, overflowRow: ["Spouse", "", "Policy #"] });
-  const h = await headers(c, { spreadsheet_id: "SPREADSHEET_123", sheet_id: 0 });
+const H = (c: Ctx) => headers(c, { spreadsheet_id: "SPREADSHEET_123", sheet_id: 0 });
+const googleValues = (calls: { fn: string; args: Record<string, unknown> }[]) => calls.filter((x) => x.fn === "google.values");
+
+Deno.test("headers: every column flagged; the real width and any header or data past column 200 are reported", async () => {
+  // GS: header + data · GT: empty · GU: no header, data far down (row 9000) · GV: header only
+  const far = Array.from({ length: 9000 }, (_, i) => (i === 8998 ? "x" : ""));
+  const { c, calls } = v2Ctx({ columnCount: 260, beyond: [["Spouse", "Jo"], [], ["", ...far], ["Policy #"]] });
+  const h = await H(c);
   assertEquals(h.header, ["First", "Last", "Phone", "Amt", "Zip", "Address"], "legacy key unchanged");
   assertEquals(h.columns.map((x: { letter: string; header: string }) => `${x.letter}:${x.header}`), ["A:First", "B:Last", "C:Phone", "D:Amt", "E:Zip", "F:Address"]);
-  assertEquals(h.over_limit, { count: 2, headers: ["Spouse", "Policy #"] });
-  assertEquals(calls.filter((x) => x.fn === "google.values").map((x) => x.args.range), ["'Tab'!A1:GR10002", "'Tab'!GS1:IZ1"]);
-  const { c: narrow, calls: narrowCalls } = v2Ctx({ columnCount: 26 });
-  assertEquals((await headers(narrow, { spreadsheet_id: "SPREADSHEET_123", sheet_id: 0 })).over_limit, { count: 0, headers: [] });
-  assertEquals(narrowCalls.filter((x) => x.fn === "google.values").length, 1, "no extra Google read for ordinary widths");
+  assertEquals(h.beyond_limit, { width: 260, checked_through: 260, unchecked: false, columns: [
+    { letter: "GS", header: "Spouse", has_data: true }, { letter: "GU", header: "", has_data: true }, { letter: "GV", header: "Policy #", has_data: false }] });
+  assertEquals(googleValues(calls).map((x) => x.args.range), ["'Tab'!A1:GR10002", "'Tab'!GS1:IZ10002"], "row 1 AND every data row, bounded");
+  assert(String(googleValues(calls)[1].args.query).includes("majorDimension=COLUMNS"));
+  assert(!JSON.stringify(h.beyond_limit).includes("Jo") && !JSON.stringify(h.beyond_limit).includes('"x"'), "no cell value past GR is returned");
+});
+
+Deno.test("headers: width 200 needs no extra read; 201 with a blank header but data is reported; 450 is bounded and marked unchecked", async () => {
+  const at200 = v2Ctx({ columnCount: 200 });
+  assertEquals((await H(at200.c)).beyond_limit, { width: 200, checked_through: 200, columns: [], unchecked: false });
+  assertEquals(googleValues(at200.calls).length, 1, "no extra Google read up to the limit");
+  const blank201 = v2Ctx({ columnCount: 201, beyond: [["", "", "data"]] });
+  assertEquals((await H(blank201.c)).beyond_limit.columns, [{ letter: "GS", header: "", has_data: true }]);
+  const empty201 = v2Ctx({ columnCount: 201 });   // Google omits `values` for an empty range
+  assertEquals((await H(empty201.c)).beyond_limit, { width: 201, checked_through: 201, columns: [], unchecked: false });
+  const wide = v2Ctx({ columnCount: 450, beyond: [["Spouse"]] });
+  assertEquals((await H(wide.c)).beyond_limit, { width: 450, checked_through: 400, unchecked: true, columns: [{ letter: "GS", header: "Spouse", has_data: false }] });
+  assertEquals(googleValues(wide.calls)[1].args.range, "'Tab'!GS1:OJ10002", "at most 200 more columns are read");
+});
+
+Deno.test("an incomplete inspection fails closed; quota keeps its own code; nothing is reported as checked", async () => {
+  for (const fail of ["shape", "declared_size"] as const) {
+    const e = await assertRejects(() => H(v2Ctx({ columnCount: 260, beyondFail: fail }).c), ActionError);
+    assertEquals([e.status, e.code], [503, "inspection_incomplete"], fail);
+  }
+  const q = await assertRejects(() => H(v2Ctx({ columnCount: 260, beyondFail: "quota" }).c), GoogleApiError);
+  assertEquals(q.failure, "quota");
+  // streamed body over the byte cap, and a stalled response past the timeout (small bounds; same code path)
+  const big = (() => Promise.resolve(new Response(new ReadableStream({ start(ctl) {
+    ctl.enqueue(new TextEncoder().encode(`{"majorDimension":"COLUMNS","values":[["${"y".repeat(5000)}"]]}`)); ctl.close(); } }), { status: 200 }))) as typeof fetch;
+  const size = await assertRejects(() => readBeyondLimit(big, "t", "S", "Tab", 300, { timeoutMs: 5000, maxBytes: 1000 }), GoogleApiError);
+  assertEquals([size.reason, size.message], ["inspection_incomplete", "inspection incomplete: size"]);
+  const stall = ((_u: string, init?: RequestInit) => new Promise<Response>((_res, rej) =>
+    init?.signal?.addEventListener("abort", () => rej(new DOMException("aborted", "AbortError"))))) as typeof fetch;
+  const slow = await assertRejects(() => readBeyondLimit(stall, "t", "S", "Tab", 300, { timeoutMs: 20, maxBytes: 1000 }), GoogleApiError);
+  assertEquals([slow.reason, slow.message], ["inspection_incomplete", "inspection incomplete: timeout"]);
+});
+
+const SAVE = (mapping: unknown, extra: Record<string, unknown> = {}) => ({ source_id: null, expected_version: null, ...extra,
+  payload: { spreadsheet_id: "SPREADSHEET_123", sheet_id: 0, display_name: "X", mapping } });
+const WIDE = { columnCount: 205, beyond: [["Spouse", "secret-cell-value"]] };
+
+Deno.test("v2 preview: not-importable content and its acknowledgement token; v1 previews are unchanged", async () => {
+  const none = await preview(v2Ctx({ catalog: 2 }).c, PREVIEW(V2MAP));
+  assertEquals([none.not_importable!.signature, none.not_importable!.headerless, none.not_importable!.repeated], [null, [], []]);
+  const wide = await preview(v2Ctx({ catalog: 2, ...WIDE }).c, PREVIEW(V2MAP));
+  assertEquals(wide.not_importable!.beyond, { width: 205, checked_through: 205, unchecked: false, headers: ["Spouse"], headerless: [] });
+  assert(/^[0-9a-f]{64}$/.test(wide.not_importable!.signature ?? ""));
+  assert(!JSON.stringify(wide).includes("secret-cell-value"), "no cell value past GR in the response");
+  const { c: v1c, calls } = v2Ctx({ catalog: 2, ...WIDE });
+  const v1 = await preview(v1c, PREVIEW({ v: 1, columns: V2MAP.columns }));
+  assertEquals([v1.not_importable, v1.beyond_limit], [undefined, undefined]);
+  assertEquals(googleValues(calls).length, 1, "a v1 preview never scans past GR");
+});
+
+Deno.test("save v2 re-reads the sheet: drift, a missing mapped header or a gone field is refused with nothing written", async () => {
+  const cases: [V2Opts, unknown, number, string][] = [
+    [{ values: [["First", "Last", "Phone", "Amt", "Zip", "Address", "Added Later"], ["Ann", "Lee", "1", "", "", "", ""]] }, V2MAP, 409, "unacknowledged_columns"],
+    [{ values: [["First", "Last", "Phone", "Amt", "Address"], ["Ann", "Lee", "1", "", ""]] }, V2MAP, 422, "header:missing:Zip"],
+    [{}, { ...V2MAP, columns: [...V2MAP.columns.slice(0, 4), { header: "Zip", target: "custom:99999999-9999-4999-8999-999999999999" }] }, 422, "custom_field_unavailable"],
+  ];
+  for (const [o, mapping, status, code] of cases) {
+    const { c, calls } = v2Ctx({ catalog: 2, ...o });
+    const e = await assertRejects(() => save(c, SAVE(mapping)), ActionError);
+    assertEquals([e.status, e.code], [status, code]);
+    assert(!calls.some((x) => x.fn === "google_sheets_save_source"), `${code}: nothing written`);
+  }
+});
+
+Deno.test("save v2: content no mapping can import must be acknowledged exactly as it is now", async () => {
+  const token = (await preview(v2Ctx({ catalog: 2, ...WIDE }).c, PREVIEW(V2MAP))).not_importable!.signature!;
+  for (const [ack, status, code] of [[undefined, 409, "unacknowledged_columns"], ["f".repeat(64), 409, "unacknowledged_columns"],
+    ["not-a-token", 422, "invalid_request"]] as const) {
+    const { c, calls } = v2Ctx({ catalog: 2, ...WIDE });
+    const e = await assertRejects(() => save(c, SAVE(V2MAP, { not_importable_ack: ack })), ActionError);
+    assertEquals([e.status, e.code], [status, code]);
+    assert(!calls.some((x) => x.fn === "google_sheets_save_source"));
+  }
+  const ok = v2Ctx({ catalog: 2, ...WIDE });
+  assertEquals((await save(ok.c, SAVE(V2MAP, { not_importable_ack: token })))?.source_id, "s1");
+  // the content changed after the preview (another header past GR): the old acknowledgement no longer applies
+  const changed = v2Ctx({ catalog: 2, columnCount: 206, beyond: [["Spouse"], ["Beneficiary"]] });
+  assertEquals((await assertRejects(() => save(changed.c, SAVE(V2MAP, { not_importable_ack: token })), ActionError)).code, "unacknowledged_columns");
+  // empty grid columns added later never ask again (width is not part of the token)
+  const wider = v2Ctx({ catalog: 2, columnCount: 300, beyond: [["Spouse"]] });
+  assertEquals((await save(wider.c, SAVE(V2MAP, { not_importable_ack: token })))?.source_id, "s1");
+});
+
+Deno.test("save v1 is unchanged: no Google request at all", async () => {
+  const { c, calls } = v2Ctx({ catalog: 2, ...WIDE, values: [["Totally", "Different"]] });
+  await save(c, SAVE({ v: 1, columns: V2MAP.columns }));
+  assert(calls.some((x) => x.fn === "google_sheets_save_source"));
+  assertEquals(googleValues(calls).length, 0);
+});
+
+Deno.test("activate v2 checks the acknowledgement on the read it baselines from", async () => {
+  const src = { id: "s1", state: "draft", config_version: 3, mapping: V2MAP, spreadsheet_id: "SPREADSHEET_123", sheet_id: 0, identity_mode: "row_position",
+    id_header: null };
+  const token = (await preview(v2Ctx({ catalog: 2, ...WIDE }).c, PREVIEW(V2MAP))).not_importable!.signature!;
+  const no = v2Ctx({ catalog: 2, source: src, ...WIDE });
+  assertEquals((await assertRejects(() => activate(no.c, { source_id: "s1", expected_version: 3 }), ActionError)).code, "unacknowledged_columns");
+  assert(!no.calls.some((x) => x.fn === "google_sheets_activate"));
+  const yes = v2Ctx({ catalog: 2, source: src, ...WIDE });
+  assertEquals((await activate(yes.c, { source_id: "s1", expected_version: 3, not_importable_ack: token }))?.outcome, "activated");
+});
+
+Deno.test("review: an owner-edited v2 mapping is checked like a save; keeping the stored mapping behaves as before", async () => {
+  const drift = [["First", "Last", "Phone", "Amt", "Zip", "Address", "Added Later"], ["Ann", "Lee", "1", "", "", "", ""]];
+  const stored = { v: 2, ignored: ["Address"], columns: V2MAP.columns.map((x) => ({ target: x.target, header: x.header })) };   // jsonb key order
+  const src = { id: "s1", state: "enabled", config_version: 4, mapping: stored, spreadsheet_id: "SPREADSHEET_123", sheet_id: 0,
+    identity_mode: "row_position", id_header: null };
+  const edited = { ...V2MAP, columns: V2MAP.columns.filter((x) => x.header !== "Zip"), ignored: ["Address", "Zip"] };
+  for (const dry of [true, false]) {
+    const { c, calls } = v2Ctx({ catalog: 2, source: src, values: drift });
+    const e = await assertRejects(() => review(c, { source_id: "s1", expected_version: 4, mapping: edited, identity_mode: "row_position", snapshot: "s" }, dry), ActionError);
+    assertEquals([e.status, e.code], [409, "unacknowledged_columns"]);
+    assert(!calls.some((x) => x.fn === "google_sheets_review"), "nothing reviewed or written");
+  }
+  const { c, calls } = v2Ctx({ catalog: 2, source: src, values: drift });
+  await review(c, { source_id: "s1", expected_version: 4, mapping: V2MAP, identity_mode: "row_position" }, true);
+  assert(calls.some((x) => x.fn === "google_sheets_review"), "the stored mapping (structural review) never blocks on new columns");
+  assertEquals(googleValues(calls).length, 1, "and is not scanned past GR");
 });
 
 Deno.test("activate v2: a column added after the preview stops activation with nothing written; accounted columns activate", async () => {

@@ -350,6 +350,61 @@ export function unaccountedHeaders(header: string[], mapping: SheetMapping, idHe
   return analyzeHeaders(header, []).filter((c) => !c.blank && !c.duplicate && !known.has(normalizeFieldName(c.header))).map((c) => c.header);
 }
 
+/** Columns past the import limit as reported by readBeyondLimit (structural: header labels and presence only). */
+export interface BeyondLimitScan {
+  width: number; checked_through: number; unchecked: boolean;
+  columns: { letter: string; header: string; has_data: boolean }[];
+}
+
+/**
+ * Sheet content no mapping can import, which the owner must acknowledge before a v2 mapping is written or enabled:
+ * headerless columns with data (A–GR), repeated headers (A–GR), and anything past the column limit — including
+ * headerless data there, and columns too far out to be checked. Header labels and column letters only: no cell value.
+ */
+export interface NotImportable {
+  headerless: string[];
+  repeated: string[];
+  beyond: { width: number; checked_through: number; headers: string[]; headerless: string[]; unchecked: boolean };
+}
+
+const letterOf = (n: number) => {
+  let s = "";
+  for (let x = n; x > 0; x = Math.floor((x - 1) / 26)) s = String.fromCharCode(65 + ((x - 1) % 26)) + s;
+  return s;
+};
+
+export function notImportable(header: string[], rows: string[][], beyond: BeyondLimitScan): NotImportable {
+  const cols = analyzeHeaders(header, rows);
+  const seen = new Set<string>(), repeated: string[] = [];
+  for (const c of cols) {
+    const k = normalizeFieldName(c.header);
+    if (c.duplicate && !seen.has(k)) { seen.add(k); repeated.push(c.header.trim()); }
+  }
+  return {
+    headerless: cols.filter((c) => c.blank && c.has_data).map((c) => letterOf(c.index + 1)),
+    repeated,
+    beyond: {
+      width: beyond.width, checked_through: beyond.checked_through, unchecked: beyond.unchecked,
+      headers: beyond.columns.filter((c) => c.header).map((c) => c.header),
+      headerless: beyond.columns.filter((c) => !c.header && c.has_data).map((c) => c.letter),
+    },
+  };
+}
+
+export const needsAcknowledgement = (n: NotImportable) =>
+  n.headerless.length > 0 || n.repeated.length > 0 || n.beyond.headers.length > 0 || n.beyond.headerless.length > 0 || n.beyond.unchecked;
+
+/**
+ * The acknowledgement token for exactly this content (SHA-256 hex of a canonical list), or null when nothing needs
+ * acknowledging. Width is excluded: adding empty grid columns never asks again. Built from labels and letters only.
+ */
+export async function notImportableSignature(n: NotImportable): Promise<string | null> {
+  if (!needsAcknowledgement(n)) return null;
+  const canonical = JSON.stringify([1, n.headerless, n.repeated, n.beyond.headers, n.beyond.headerless, n.beyond.unchecked]);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /** Display values for review lists (raw, trimmed; never used for identity). */
 export function displayFields(row: string[], cols: ResolvedColumns): { first_name: string; last_name: string; phone: string; email: string } {
   const get = (t: StandardTarget) => { const i = cols.std[t]; return i === undefined ? "" : (row[i] ?? "").trim(); };

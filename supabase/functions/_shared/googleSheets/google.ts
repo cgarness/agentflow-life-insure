@@ -63,7 +63,7 @@ export interface TabRead {
   overflow: boolean;
   /** The spreadsheet locale (typed v2 dates); null when Google did not report one. */
   locale: string | null;
-  /** The tab's grid width; columns past LIMITS.maxColumns are not read (see readHeaderOverflow). */
+  /** The tab's grid width; columns past LIMITS.maxColumns are not read here (see readBeyondLimit). */
   columnCount: number;
 }
 
@@ -88,20 +88,92 @@ export async function readTab(fetchFn: FetchFn, token: string, spreadsheetId: st
            locale: info.locale, columnCount: tab.columnCount };
 }
 
+/** Columns past LIMITS.maxColumns, as far as they were scanned. Header labels and presence flags only — never cell values. */
+export interface BeyondLimit {
+  /** The tab's actual grid width in columns. */
+  width: number;
+  /** The last column scanned (= width when the whole grid was scanned). */
+  checked_through: number;
+  /** Scanned columns past the limit that hold a header or any data, in sheet order. */
+  columns: { letter: string; header: string; has_data: boolean }[];
+  /** The grid is wider than the scan bound: whatever is past checked_through is unknown (and never imported). */
+  unchecked: boolean;
+}
+
+/** Google could not be read completely within the bounds (timeout, size, unexpected shape). Never a passed check. */
+export const INSPECTION_INCOMPLETE = "inspection_incomplete";
+
+/** One bounded GET: a timeout covering headers and body (its timer is always cleared), and a byte cap enforced while streaming. */
+async function getJsonBounded(fetchFn: FetchFn, url: string, token: string, timeoutMs: number, maxBytes: number): Promise<any> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const incomplete = (why: string) => new GoogleApiError(0, INSPECTION_INCOMPLETE, "transient", `inspection incomplete: ${why}`);
+  try {
+    let res: Response;
+    try {
+      res = await fetchFn(url, { headers: { Authorization: `Bearer ${token}` }, signal: ctl.signal });
+    } catch (e) {
+      if (ctl.signal.aborted) throw incomplete("timeout");
+      throw new GoogleApiError(0, "network", "transient", `network: ${e instanceof Error ? e.message : e}`);
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const c = classifyGoogleError(res.status, body);
+      throw new GoogleApiError(res.status, c.reason, c.failure, `google ${res.status} ${c.reason}`);
+    }
+    if (Number(res.headers.get("content-length") ?? 0) > maxBytes) { await res.body?.cancel(); throw incomplete("size"); }
+    const reader = res.body?.getReader();
+    if (!reader) throw incomplete("no body");
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) { await reader.cancel(); throw incomplete("size"); }
+        chunks.push(value);
+      }
+    } catch (e) {
+      if (e instanceof GoogleApiError) throw e;
+      throw incomplete(ctl.signal.aborted ? "timeout" : "body");
+    }
+    const bytes = new Uint8Array(total);
+    let at = 0;
+    for (const c of chunks) { bytes.set(c, at); at += c.byteLength; }
+    try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw incomplete("json"); }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
- * Non-blank header names AFTER the first LIMITS.maxColumns columns (which are never imported). Only the mapping
- * screen asks, and only when the grid is wider than the limit: one row-1 read, so wide sheets are never a silent
- * omission. Returns the count and up to LIMITS.overflowHeaderNames names.
+ * Columns past the import limit (A–GR). Mapping checks only: one row-and-data read of at most
+ * LIMITS.beyondLimitScanColumns columns × the import row bound, column-major, so a column with a blank header but data
+ * further down is found too. Nothing is read when the grid is within the limit. Only header labels and whether a
+ * column has data are kept; cell values are discarded immediately and never returned or logged.
  */
-export async function readHeaderOverflow(fetchFn: FetchFn, token: string, spreadsheetId: string, title: string,
-  columnCount: number): Promise<{ count: number; headers: string[] }> {
-  if (columnCount <= LIMITS.maxColumns) return { count: 0, headers: [] };
-  const last = Math.min(columnCount, 18_278); // ZZZ, the Sheets column maximum
-  const range = `'${title.replace(/'/g, "''")}'!${columnLetter(LIMITS.maxColumns + 1)}1:${columnLetter(last)}1`;
-  const body = await getJson(fetchFn,
+export async function readBeyondLimit(fetchFn: FetchFn, token: string, spreadsheetId: string, title: string,
+  width: number, bounds: { timeoutMs: number; maxBytes: number } = { timeoutMs: LIMITS.beyondLimitTimeoutMs, maxBytes: LIMITS.beyondLimitMaxBytes },
+): Promise<BeyondLimit> {
+  if (width <= LIMITS.maxColumns) return { width, checked_through: width, columns: [], unchecked: false };
+  const last = Math.min(width, LIMITS.maxColumns + LIMITS.beyondLimitScanColumns);
+  const range = `'${title.replace(/'/g, "''")}'!${columnLetter(LIMITS.maxColumns + 1)}1:${columnLetter(last)}${LIMITS.maxDataRows + 2}`;
+  const body = await getJsonBounded(fetchFn,
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}` +
-      `?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE`, token);
-  const names = (Array.isArray(body?.values?.[0]) ? body.values[0] : []).map((c: unknown) => (c === null || c === undefined ? "" : String(c).trim()))
-    .filter((c: string) => c !== "");
-  return { count: names.length, headers: names.slice(0, LIMITS.overflowHeaderNames) };
+      `?majorDimension=COLUMNS&valueRenderOption=FORMATTED_VALUE`, token, bounds.timeoutMs, bounds.maxBytes);
+  // Google omits `values` for an empty range; anything else that is not a column array is an incomplete read.
+  if (body === null || typeof body !== "object" || (body.values !== undefined && !Array.isArray(body.values))
+      || (body.values !== undefined && body.majorDimension !== "COLUMNS") || (Array.isArray(body.values) && body.values.length > last - LIMITS.maxColumns)) {
+    throw new GoogleApiError(0, INSPECTION_INCOMPLETE, "transient", "inspection incomplete: shape");
+  }
+  const cell = (c: unknown) => (c === null || c === undefined ? "" : String(c).trim());
+  const columns: BeyondLimit["columns"] = [];
+  (Array.isArray(body.values) ? body.values : []).forEach((col: unknown, i: number) => {
+    const cells = Array.isArray(col) ? col : [];
+    const header = cell(cells[0]);
+    const hasData = cells.slice(1).some((c: unknown) => cell(c) !== "");
+    if (header || hasData) columns.push({ letter: columnLetter(LIMITS.maxColumns + 1 + i), header, has_data: hasData });
+  });
+  return { width, checked_through: last, columns, unchecked: width > last };
 }

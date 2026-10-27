@@ -5,11 +5,11 @@ import { LIMITS, type SheetsConfig } from "../_shared/googleSheets/config.ts";
 import { DbError, sheetsDb, type ClaimedSource } from "../_shared/googleSheets/db.ts";
 import { buildOptions, planRows, runSource } from "../_shared/googleSheets/engine.ts";
 import { GoogleApiError } from "../_shared/googleSheets/errors.ts";
-import { columnLetter, inspectSpreadsheet, readHeaderOverflow, readTab } from "../_shared/googleSheets/google.ts";
+import { columnLetter, INSPECTION_INCOMPLETE, inspectSpreadsheet, readBeyondLimit, readTab, type TabRead } from "../_shared/googleSheets/google.ts";
 import { classifySourceIdRows, identityReview, identityRows } from "../_shared/googleSheets/identity.ts";
 import {
-  analyzeHeaders, buildLeadDetailed, previewValues, resolveColumns, resolveCustomFieldNames, unaccountedHeaders, validateMapping,
-  type SheetMapping,
+  analyzeHeaders, buildLeadDetailed, notImportable, notImportableSignature, previewValues, resolveColumns, resolveCustomFieldNames,
+  unaccountedHeaders, validateMapping, type SheetMapping,
 } from "../_shared/googleSheets/mapping.ts";
 import { checkScopes, inspectAccessToken, refreshAccessToken } from "../_shared/googleSheets/oauth.ts";
 import type { PushConfig } from "../_shared/googleSheets/push/config.ts";
@@ -84,8 +84,8 @@ async function submittedMapping(c: Ctx, m: unknown, ctx?: { catalog_version?: nu
   return mapping;
 }
 
-/** One consistent read + column/custom-field resolution + planned rows (no writes). */
-async function readPlanned(c: Ctx, token: string, spreadsheetId: string, sheetId: number, mapping: SheetMapping, idHeader: string | null) {
+/** One consistent read + column/custom-field resolution (no writes): the mapping still fits the sheet as it is now. */
+async function readResolved(c: Ctx, token: string, spreadsheetId: string, sheetId: number, mapping: SheetMapping, idHeader: string | null) {
   const tab = await readTab(c.fetchFn, token, spreadsheetId, sheetId);
   if (tab.overflow) throw new ActionError(422, "too_large");
   const cols = resolveColumns(tab.header, mapping, idHeader);
@@ -93,8 +93,57 @@ async function readPlanned(c: Ctx, token: string, spreadsheetId: string, sheetId
   const ctx = await db(c).context(c.userId, c.orgId);
   const custom = resolveCustomFieldNames(cols.custom.map((x) => x.customFieldId), ctx.custom_fields ?? []);
   if (custom.unresolved.length) throw new ActionError(422, "custom_field_unavailable");
+  return { tab, ctx, cols, names: custom.names };
+}
+
+/** readResolved + planned rows from the same snapshot (no writes). */
+async function readPlanned(c: Ctx, token: string, spreadsheetId: string, sheetId: number, mapping: SheetMapping, idHeader: string | null) {
+  const { tab, ctx, cols, names } = await readResolved(c, token, spreadsheetId, sheetId, mapping, idHeader);
   const opts = buildOptions(mapping, cols, ctx.custom_fields ?? [], tab.locale);
-  return { tab, planned: await planRows(tab.rows, cols, custom.names, opts), ctx, cols, names: custom.names, opts };
+  return { tab, planned: await planRows(tab.rows, cols, names, opts), ctx, cols, names, opts };
+}
+
+/** Columns past the import limit. A scan that could not finish (timeout, size, shape) fails the request — never a pass. */
+async function beyondLimit(c: Ctx, token: string, spreadsheetId: string, tab: Pick<TabRead, "title" | "columnCount">) {
+  try {
+    return await readBeyondLimit(c.fetchFn, token, spreadsheetId, tab.title, tab.columnCount);
+  } catch (e) {
+    if (e instanceof GoogleApiError && e.reason === INSPECTION_INCOMPLETE) throw new ActionError(503, INSPECTION_INCOMPLETE);
+    throw e;
+  }
+}
+
+/** Content no mapping can import, and the acknowledgement token for exactly that content (null: nothing to acknowledge). */
+async function notImportableNow(c: Ctx, token: string, spreadsheetId: string, tab: TabRead) {
+  const beyond = await beyondLimit(c, token, spreadsheetId, tab);
+  const content = notImportable(tab.header, tab.rows, beyond);
+  return { beyond, content, signature: await notImportableSignature(content) };
+}
+
+/** `not_importable_ack`: absent, or the 64-hex token a preview returned. */
+function ackOf(v: unknown): string | null {
+  if (v === undefined || v === null || v === "") return null;
+  if (typeof v !== "string" || !/^[0-9a-f]{64}$/.test(v)) throw new ActionError(422, "invalid_request");
+  return v;
+}
+
+/**
+ * v2 writes only (save / activate / an owner-edited review): the mapping must account for every current header, and
+ * any content it cannot import must have been acknowledged as it is NOW. Nothing is written on a refusal.
+ */
+async function assertV2Current(c: Ctx, token: string, spreadsheetId: string, tab: TabRead, mapping: SheetMapping,
+  idHeader: string | null, ack: string | null) {
+  if (unaccountedHeaders(tab.header, mapping, idHeader).length > 0) throw new ActionError(409, "unacknowledged_columns");
+  const { signature } = await notImportableNow(c, token, spreadsheetId, tab);
+  if (signature !== null && ack !== signature) throw new ActionError(409, "unacknowledged_columns");
+}
+
+/** Same columns, ignored list and version (stored jsonb key order is irrelevant). */
+function sameMapping(a: SheetMapping, stored: unknown): boolean {
+  const b = validateMapping(stored);
+  if (!b.ok) return false;
+  const norm = (m: SheetMapping) => JSON.stringify([m.v, m.columns.map((x) => [x.header, x.target]), m.v === 2 ? m.ignored : []]);
+  return norm(a) === norm(b.mapping);
 }
 
 export async function status(c: Ctx) {
@@ -162,13 +211,13 @@ export async function headers(c: Ctx, body: Record<string, unknown>) {
   const a = await access(c);
   const spreadsheetId = str(body.spreadsheet_id, 200);
   const tab = await readTab(c.fetchFn, a.token, spreadsheetId, Number(body.sheet_id));
-  // Every column, flagged (blank / duplicate / has data), and any headers past the column limit: nothing is
-  // dropped silently. `header` is kept unchanged for the legacy mapping screen.
-  const over = await readHeaderOverflow(c.fetchFn, a.token, spreadsheetId, tab.title, tab.columnCount);
+  // Every column, flagged (blank / duplicate / has data), and the real width with any header or data past the
+  // column limit: nothing is dropped silently. `header` is kept unchanged for the legacy mapping screen.
+  const beyond = await beyondLimit(c, a.token, spreadsheetId, tab);
   return { title: tab.title, spreadsheet_name: tab.spreadsheetName, header: tab.header, row_count: tab.rows.length,
            overflow: tab.overflow, sample: tab.rows.slice(0, 3), locale: tab.locale, column_count: tab.columnCount,
            columns: analyzeHeaders(tab.header, tab.rows).map((x) => ({ ...x, letter: columnLetter(x.index + 1) })),
-           over_limit: over };
+           beyond_limit: beyond };
 }
 
 /** Read-only preview: sample outcomes, counts, duplicate classification with the SAME SQL predicate. */
@@ -182,6 +231,7 @@ export async function preview(c: Ctx, body: Record<string, unknown>) {
   const leadSourceDefault = str(body.lead_source_default, 120);
   const a = await access(c);
   const { tab, planned, ctx, cols, names, opts } = await readPlanned(c, a.token, spreadsheetId, sheetId, mapping, idHeader);
+  const outside = mapping.v === 2 ? await notImportableNow(c, a.token, spreadsheetId, tab) : null;
   // ID mode: the SAME classifier as processing (missing_id → duplicate_id → repeat → invalid → policy → ready).
   const cls = mode === "source_id" ? classifySourceIdRows(planned) : null;
   const idOutcome = (n: number) => { const k = cls?.get(n); return k && k !== "ok" ? k : null; };
@@ -224,6 +274,7 @@ export async function preview(c: Ctx, body: Record<string, unknown>) {
     unaccounted_headers: unaccountedHeaders(tab.header, mapping, idHeader),
     header_issues: analyzeHeaders(tab.header, tab.rows).filter((x) => x.duplicate || (x.blank && x.has_data))
       .map((x) => ({ ...x, letter: columnLetter(x.index + 1) })),
+    ...(outside ? { beyond_limit: outside.beyond, not_importable: { ...outside.content, signature: outside.signature } } : {}),
   };
 }
 
@@ -234,6 +285,15 @@ export async function save(c: Ctx, body: Record<string, unknown>) {
   const idHeader = mode === "source_id" ? str(payload.id_header, 200) : "";
   if (mode === "source_id" && !idHeader) throw new ActionError(422, "id_header_required");
   if (!str(payload.display_name, 120)) throw new ActionError(422, "display_name_required");
+  // v2: re-read the sheet now. The mapping must still fit it and account for every column, and what it cannot import
+  // must be acknowledged as it is now. v1 saves are unchanged (no Google read).
+  if (mapping.v === 2) {
+    const ack = ackOf(body.not_importable_ack);
+    const a = await access(c);
+    const spreadsheetId = str(payload.spreadsheet_id, 200), sheetId = Number(payload.sheet_id);
+    const { tab } = await readResolved(c, a.token, spreadsheetId, sheetId, mapping, idHeader || null);
+    await assertV2Current(c, a.token, spreadsheetId, tab, mapping, idHeader || null, ack);
+  }
   const { data, error } = await c.svc.rpc("google_sheets_save_source", {
     p_user: c.userId, p_org: c.orgId, p_source: body.source_id ?? null, p_expected_version: body.expected_version ?? null,
     p_payload: {
@@ -256,12 +316,14 @@ export async function activate(c: Ctx, body: Record<string, unknown>) {
   if (src.state !== "draft") return { outcome: "already_active", config_version: src.config_version };
   if (Number(body.expected_version) !== src.config_version) throw new ActionError(409, "version_conflict");
   const mapping = mappingOrThrow(src.mapping);
+  const ack = ackOf(body.not_importable_ack);
   const a = await access(c);
   const idHeader = src.identity_mode === "source_id" ? src.id_header : null;
   const { planned, tab } = await readPlanned(c, a.token, src.spreadsheet_id, Number(src.sheet_id), mapping, idHeader);
-  // v2: every column must have been mapped or explicitly ignored. A column added after the preview stops the
-  // activation (nothing is written) so the owner can acknowledge it. Running syncs never block on new columns.
-  if (mapping.v === 2 && unaccountedHeaders(tab.header, mapping, idHeader).length > 0) throw new ActionError(409, "unacknowledged_columns");
+  // v2: every column must have been mapped or explicitly ignored, and content no mapping can import acknowledged as
+  // it is now (checked on the same read the baseline uses). A change after the preview stops the activation (nothing
+  // is written) so the owner can review it. Running syncs never block on new columns.
+  if (mapping.v === 2) await assertV2Current(c, a.token, src.spreadsheet_id, tab, mapping, idHeader, ack);
   const rows = identityRows(planned, src.identity_mode);
   const { data, error } = await c.svc.rpc("google_sheets_activate", {
     p_user: c.userId, p_org: c.orgId, p_source: src.id, p_expected_version: src.config_version,
@@ -302,13 +364,18 @@ const version = (v: unknown): number | null => (Number.isInteger(v) ? Number(v) 
 export async function review(c: Ctx, body: Record<string, unknown>, dryRun: boolean) {
   const src = await ownSource(c, str(body.source_id, 64));
   const mapping = body.mapping === undefined || body.mapping === null ? mappingOrThrow(src.mapping) : await submittedMapping(c, body.mapping);
+  // An owner-edited v2 mapping is a mapping write: the same checks as save. Keeping the stored mapping (a structural
+  // review) behaves exactly as before.
+  const edited = mapping.v === 2 && !sameMapping(mapping, src.mapping);
+  const ack = edited ? ackOf(body.not_importable_ack) : null;
   const mode = body.identity_mode === "source_id" ? "source_id" : "row_position";
   const idHeader = mode === "source_id" ? str(body.id_header, 200) || null : null;
   if (mode === "source_id" && !idHeader) throw new ActionError(422, "id_header_required");
   const a = await access(c);
   // When leaving ID mode, keep the old IDs so already-imported IDs are recognised.
   const carryId = mode === "row_position" && src.identity_mode === "source_id" ? src.id_header : null;
-  const { planned } = await readPlanned(c, a.token, src.spreadsheet_id, Number(src.sheet_id), mapping, idHeader ?? carryId);
+  const { planned, tab } = await readPlanned(c, a.token, src.spreadsheet_id, Number(src.sheet_id), mapping, idHeader ?? carryId);
+  if (edited) await assertV2Current(c, a.token, src.spreadsheet_id, tab, mapping, idHeader, ack);
   const rows = identityRows(planned, mode, true);
   const { data, error } = await c.svc.rpc("google_sheets_review", {
     p_user: c.userId, p_org: c.orgId, p_source: src.id, p_expected_version: version(body.expected_version),

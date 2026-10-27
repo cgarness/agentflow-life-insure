@@ -178,3 +178,35 @@ Deno.test("analyzeHeaders / unaccountedHeaders: blank, duplicate and data-bearin
   assertEquals(unaccountedHeaders(header, { ...m, columns: [...m.columns, { header: "Phone", target: "phone" }] }, "Lead ID"), ["Address"]);
   assertEquals(unaccountedHeaders(header, M([["First", "first_name"], ["Last", "last_name"], ["Phone", "phone"]]), null), ["Notes", "Lead ID", "Address"]);
 });
+
+import { needsAcknowledgement, notImportable, notImportableSignature } from "./mapping.ts";
+
+Deno.test("notImportable: headerless data, repeated headers and content past the limit; labels and letters only", async () => {
+  const header = ["First", "Phone", "", "Notes", "notes", ""];
+  const rows = [["Ann", "1", "secret-a", "", "", ""], ["Bo", "2", "", "n", "", ""]];
+  const beyond = { width: 260, checked_through: 260, unchecked: false, columns: [
+    { letter: "GS", header: "Spouse", has_data: true }, { letter: "GU", header: "", has_data: true }] };
+  const n = notImportable(header, rows, beyond);
+  assertEquals(n, { headerless: ["C"], repeated: ["Notes"],
+    beyond: { width: 260, checked_through: 260, unchecked: false, headers: ["Spouse"], headerless: ["GU"] } });
+  assert(!JSON.stringify(n).includes("secret-a"), "no cell value");
+  assert(needsAcknowledgement(n));
+  const clean = notImportable(["First", "Phone"], [["Ann", "1"]], { width: 2, checked_through: 2, unchecked: false, columns: [] });
+  assertEquals([needsAcknowledgement(clean), await notImportableSignature(clean)], [false, null]);
+  const unchecked = notImportable(["First"], [], { width: 450, checked_through: 400, unchecked: true, columns: [] });
+  assert(needsAcknowledgement(unchecked), "columns too far out to check still need the acknowledgement");
+});
+
+Deno.test("notImportableSignature: stable for the same content, ignores width, changes with any content change", async () => {
+  const base = { width: 260, checked_through: 260, unchecked: false, columns: [{ letter: "GS", header: "Spouse", has_data: false }] };
+  const sig = await notImportableSignature(notImportable(["A"], [], base));
+  assert(/^[0-9a-f]{64}$/.test(sig ?? ""));
+  assertEquals(await notImportableSignature(notImportable(["A"], [], base)), sig);
+  assertEquals(await notImportableSignature(notImportable(["A"], [], { ...base, width: 300, checked_through: 300 })), sig, "empty grid columns never re-ask");
+  for (const other of [
+    notImportable(["A"], [], { ...base, columns: [{ letter: "GS", header: "Spouse 2", has_data: false }] }),
+    notImportable(["A"], [], { ...base, columns: [...base.columns, { letter: "GT", header: "", has_data: true }] }),
+    notImportable(["A"], [], { ...base, unchecked: true }),
+    notImportable(["A", ""], [["1", "x"]], base),
+  ]) assert((await notImportableSignature(other)) !== sig);
+});
