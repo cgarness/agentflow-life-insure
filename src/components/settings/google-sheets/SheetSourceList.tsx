@@ -24,7 +24,7 @@ const SheetSourceList: React.FC<Props> = ({ sources, loading, loadError, connect
     <div className="flex items-center justify-between">
       <p className="text-sm font-medium text-foreground">Sheets</p>
       {canAdd && (
-        <Button size="sm" variant="outline" onClick={onAdd}>
+        <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700" onClick={onAdd}>
           <Plus className="w-4 h-4 mr-1" /> Add sheet
         </Button>
       )}
