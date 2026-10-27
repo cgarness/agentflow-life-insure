@@ -1,7 +1,7 @@
 # Gate F evidence and proposed Google Sheets disclosure release
 
 Prepared October 26, 2026 Pacific. Base main: d6902a95fa5f195f09bb08323637f13e05f111f2.
-This document records verified evidence and exact proposed copy. It changes no live policy, code, settings, credentials or rollout scope.
+This document records verified evidence and the disclosure changes prepared in PR #494. Production publication and Gate G execution are tracked separately below.
 
 ## Verified production evidence
 
@@ -76,6 +76,14 @@ Keep selected-file access, read-only spreadsheet behavior, existing import choic
 1. Apply only the above text replacements to src/content/legal.ts; update publication date on approval and WORK_LOG.md.
 2. Typecheck and run existing relevant legal checks; verify rendered Privacy and Terms in a preview.
 3. Obtain approval of exact PR head for separate legal publication. Merge/deploy only then and verify production copy.
-4. Gate F renewal evidence is complete; the manual-test evidence limitation remains. Owner must explicitly accept evidence/thresholds or authorize additional controlled manual samples.
+4. Gate F renewal evidence is complete; the manual-test evidence limitation remains. Chris accepted this limitation on October 26, 2026; no further controlled manual samples are required for this rollout.
 5. Prepare a separately reviewed protected Gate G expansion operation with exact eligible-source inventory, before/after fingerprints and rollback. Re-inventory immediately before expansion.
 6. Do not enable all users from this preparation or the legal release. No current Gate E runner stage implements broad rollout.
+
+## Owner decision and final implementation plan — October 26, 2026 Pacific
+
+Chris accepted the recommendation to accept current testing limits, finish disclosures, and proceed to full rollout: “Agreed. Let’s continue and finish this for full rollout.” Gate F is accepted with the two independent API notification samples and user-reported manual success; no additional timing samples or statistical p95 claim are implied.
+
+Files in this disclosure release: `src/content/legal.ts`, this evidence file, and `WORK_LOG.md`. Apply the exact copy above, date October 26, 2026, and preserve all unrelated sections. Validate TypeScript, existing relevant tests, build and rendered Privacy/Terms.
+
+Separate Gate G package: new dispatch-only protected workflow and runner, fixed source/config fingerprint and original record baseline, mode-only pilot→on operation, read-only check/verify stages and emergency stop using the established rollback. Current inventory has only Pilot B; mode on also admits future user-enabled sources subject to unchanged owner, connection, health and receipt checks. No automatic account connection, sheet selection, source-state change, synthetic write or polling. Recheck inventory in the write transaction; refuse drift. Publish and verify disclosures before Gate G activation. Keep required GitHub environment approval.

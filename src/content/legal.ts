@@ -1,11 +1,11 @@
 export type LegalSection = { id: string; title: string; paragraphs: string[] };
 
-// Chris approved the October 9 baseline. The later Google Sheets addendum requires a separate release approval.
+// Google Sheets notification-driven disclosure release: October 26, 2026.
 // A public policy is not evidence of Google verification or completed security work.
 export const legalPublication = {
   approved: true,
-  effectiveDate: "October 22, 2026" as string | null,
-  reviewedOn: "October 22, 2026",
+  effectiveDate: "October 26, 2026" as string | null,
+  reviewedOn: "October 26, 2026",
   operator: "Christopher Garness",
   supportEmail: "cgarness.ffl@gmail.com",
 };
@@ -51,7 +51,8 @@ export const privacySections: LegalSection[] = [
     title: "Google Sheets information",
     paragraphs: [
       "If you connect Google Sheets, AgentFlow requests your Google account identity and email address and access only to the specific spreadsheet files you choose in Google's file picker. AgentFlow reads the spreadsheets you select; it does not change them.",
-      "For each spreadsheet tab you enable, AgentFlow checks for new rows in the background about every five minutes, including while you are signed out, until you pause or remove that sheet or disconnect Google Sheets. By default, only rows added after you enable a sheet become leads; the rows already in the sheet at that time are recorded so they are not imported. When you enable a sheet, you can instead choose to also import the rows already in it.",
+      "For spreadsheet tabs you enable, AgentFlow can use Google's change notifications to check for new rows in the background, including while you are signed out. Automatic monitoring is available only where enabled; check the monitoring status and last successful sync in Google Sheets settings. Notifications can be delayed or may not arrive, including for changes made by other apps or APIs. AgentFlow does not check spreadsheet contents on a fixed interval or guarantee immediate imports. You can use Sync Now to request a check. By default, only rows added after you enable a sheet become leads; the rows already in the sheet at that time are recorded so they are not imported. When you enable a sheet, you can instead choose to also import the rows already in it.",
+      "AgentFlow registers and renews monitoring subscriptions for selected spreadsheets and stores subscription identifiers, expiration times and synchronization event records to operate and troubleshoot automatic imports. Google change notifications identify a change; AgentFlow then reads the selected spreadsheet using your authorization. Pausing or removing a sheet stops automatic imports for that source. Disconnecting Google Sheets stops automatic imports for that connection. A spreadsheet's monitoring subscription may remain active if another enabled tab uses it, and notifications or work already in progress may take time to settle.",
       "Each imported row becomes a lead in your agency workspace, assigned to you, using the columns you map, such as names, phone numbers, email addresses and other lead details. AgentFlow also keeps the selected file and tab details and a record of which rows it has handled, so that sorting, editing or re-adding a sheet does not import the same row twice. Imported leads are agency records: other authorized users, including agency leadership, may see them under your agency's access rules; your agency's duplicate rules apply; and agency automations such as Lead Created workflows may run for them.",
       "Imported leads remain after you pause or remove a sheet or disconnect Google Sheets, and they are retained and deleted under this policy like other agency records. Removing a sheet from AgentFlow does not delete the spreadsheet.",
     ],
@@ -87,7 +88,7 @@ export const privacySections: LegalSection[] = [
     title: "Disconnecting and revoking Google access",
     paragraphs: [
       "You can disconnect Gmail in AgentFlow's Email Setup settings. The disconnect operation marks the connection disconnected and clears its saved access and refresh tokens. Previously imported emails and related CRM history remain unless deleted separately. Disconnecting is not a request to delete your Google mailbox or a guarantee that work already in progress has been cancelled.",
-      "You can disconnect Google Sheets in AgentFlow's Google Sheets settings. Disconnecting deletes AgentFlow's saved Google Sheets authorization and stops checking all of your sheets; it does not revoke Google's authorization and does not disconnect Gmail or Calendar. Imported leads remain.",
+      "You can disconnect Google Sheets in AgentFlow's Google Sheets settings. Disconnecting deletes AgentFlow's saved Google Sheets authorization and stops automatic imports from all of your sheets; it does not revoke Google's authorization and does not disconnect Gmail or Calendar. Imported leads remain.",
       "To revoke Google's authorization, remove AgentFlow through your Google Account's third-party connections page. Revocation can affect Gmail, Calendar and Google Sheets together, because they may share AgentFlow's Google authorization. Google account controls and AgentFlow's local disconnect control perform different actions.",
     ],
   },
@@ -144,6 +145,7 @@ export const termsSections: LegalSection[] = [
     paragraphs: [
       "Connect only third-party accounts you are authorized to use. Gmail access supports user-initiated email and imported conversation history; optional Calendar access supports appointment synchronization. Optional Google Sheets access supports creating leads from new rows in spreadsheets you select. The Google consent screen and Privacy Policy explain the relevant permissions and data use.",
       "Imported messages may include unmatched or personal email and may be visible within your agency under its access rules. Disconnecting does not automatically delete imported history. You may revoke Google access through your Google Account and request local data deletion through AgentFlow support.",
+      "Where enabled, automatic Google Sheets imports depend on Google's change notifications and service availability. Notifications may be delayed or absent, including for changes made through other apps or APIs. Automatic import timing and delivery are not guaranteed. Review the last successful sync and import results, and use Sync Now when needed.",
       "Third-party providers may impose their own terms, account restrictions, limits and outages. Check actual communication and synchronization results rather than assuming a request was delivered or completed.",
     ],
   },

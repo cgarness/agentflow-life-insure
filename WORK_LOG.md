@@ -1,3 +1,13 @@
+## 2026-10-26 Pacific — Sheets Gate F accepted; notification-driven disclosures prepared
+
+Chris accepted the current testing limits and requested completion of full rollout. Pilot imports, recovery and renewal passed; two API notification samples and user-reported manual success are not a statistical p95 or controlled manual latency result. Renewal run 40444405736 and restore run 40444673754 succeeded. Old channel stopped 03:47:00.991301Z; replacement active; defaults restored; original leads/receipts/ledger unchanged.
+
+PR #494 replaces the obsolete five-minute polling description with notification-driven monitoring, delivery limitations, Sync Now and lifecycle/storage disclosures. Unrelated policy sections and A2P are unchanged. Separate Gate G execution will change only push mode after live disclosure verification and protected environment review. No rollout, schema, credentials, test leads or jobs changed by this commit. Validation recorded in the PR after checks complete.
+
+---
+
+
+
 ## 2026-10-27 — Gate D complete; Gate E Pilot B preparation (not activated)
 
 Gate E preparation approved by Chris. Base main `3bc4a4b`; no production writes in this preparation.
