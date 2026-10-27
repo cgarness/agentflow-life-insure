@@ -4,11 +4,12 @@
 // from a v1 mapping: validation, column resolution, custom-field resolution, planned rows (payloads, fingerprints,
 // content signatures, display values), Lead ID classification, identity rows and both planners. Any byte of drift
 // in v1 processing fails this test. Regenerate ONLY from the pre-v2 code: GS_WRITE_GOLDEN=1 deno test --allow-env
-// --allow-write <this file>.
+// --allow-write <this file>. (The fixture is imported as a JSON module, so the check itself needs no read permission.)
 import { assertEquals } from "https://deno.land/std@0.190.0/testing/asserts.ts";
 import { planRows } from "./engine.ts";
 import { classifySourceIdRows, identityRows, planRowPosition, planSourceId, type LedgerRow, type PlannedRow } from "./identity.ts";
 import { resolveColumns, resolveCustomFieldNames, validateMapping } from "./mapping.ts";
+import golden from "./fixtures/v1-golden.json" with { type: "json" };
 
 const FIXTURE = new URL("./fixtures/v1-golden.json", import.meta.url);
 
@@ -119,7 +120,7 @@ Deno.test("mapping v1 is frozen: the pre-v2 golden corpus is reproduced byte for
     await Deno.writeTextFile(FIXTURE, JSON.stringify(actual, null, 1) + "\n");
     return;
   }
-  const expected = JSON.parse(await Deno.readTextFile(FIXTURE));
+  const expected = golden as Record<string, unknown>;
   assertEquals(Object.keys(actual).sort(), Object.keys(expected).sort());
   for (const name of Object.keys(expected)) assertEquals(actual[name], expected[name], `golden case ${name}`);
 });

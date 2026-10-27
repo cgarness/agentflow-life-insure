@@ -3,6 +3,7 @@
 // survive and the meaning is certain; anything else is kept EXACTLY and flagged.
 import { assertEquals } from "https://deno.land/std@0.190.0/testing/asserts.ts";
 import { normalizeDate, normalizeNumber, normalizeUsState, typedValue } from "./values.ts";
+import stateParity from "./fixtures/state-parity.json" with { type: "json" };
 
 Deno.test("Number: only a leading $ and valid thousands commas are removed; digits, sign and decimals are kept", () => {
   const ok: [string, string][] = [
@@ -48,11 +49,10 @@ Deno.test("typedValue: Text / Phone / Email / ZIP-like values are never transfor
   assertEquals(typedValue("10/27/2026", { type: "Date" }, "en_US"), { value: "2026-10-27" });
 });
 
-Deno.test("normalizeUsState mirrors public.normalize_us_state", () => {
-  const cases: [string, string][] = [
-    ["", ""], ["  ", "  "], ["tx", "TX"], [" Tx ", "TX"], ["dc", "DC"], ["Texas", "TX"], ["  new york ", "NY"], ["NEW JERSEY", "NJ"],
-    ["district of columbia", "DC"], ["new  york", "new  york"], ["Puerto Rico", "Puerto Rico"], ["PR", "PR"], ["Tex.", "Tex."],
-    ["\tTX", "\tTX"],
-  ];
+Deno.test("normalizeUsState mirrors public.normalize_us_state (shared fixture; the SQL suite checks the SQL side)", () => {
+  // fixtures/state-parity.json: every USPS code and state name (case/space variants) plus unrecognised inputs. The SAME
+  // file is asserted against the production SQL function in supabase/tests/google_sheets_mapping_v2.sql.
+  const cases = stateParity as [string, string][];
+  assertEquals(cases.length > 200, true);
   for (const [raw, out] of cases) assertEquals(normalizeUsState(raw), out, JSON.stringify(raw));
 });

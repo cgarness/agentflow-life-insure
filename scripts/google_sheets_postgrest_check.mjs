@@ -135,4 +135,26 @@ for (const t of ["google_sheets_watch_targets", "google_sheets_watch_channels", 
 r = await call("/rpc/google_sheets_push_maintenance_due", { token: SERVICE, body: {} });
 ok(r.status === 404, `cron guard is not an HTTP endpoint → ${r.status}`);
 
+// Mapping v2 typed catalog (M1) and standard lead fields (M2): the HTTP path the app and Edge use.
+r = await call("/rpc/google_sheets_context", { token: SERVICE, body: { p_user: A1, p_org: ORG } });
+ok(r.status === 200 && r.json?.catalog_version === 2 && r.json.custom_fields.length === 3
+  && r.json.custom_fields.every((f) => f.scope === "agency" && f.type === "Text" && f.own === false),
+  `typed catalog with the seeded standard fields → ${r.status} ${JSON.stringify(r.json).slice(0, 200)}`);
+const ADMIN = "11111111-0000-0000-0000-000000000009";
+const asUser = (sub, role, sa = false) => jwt({ role: "authenticated", sub, is_super_admin: sa, app_metadata: { organization_id: ORG, role } });
+for (const [label, token] of [["anon", undefined], ["service_role", SERVICE], ["agent", asUser(A1, "Agent")], ["agent with a forged role", asUser(A1, "Admin")]]) {
+  r = await call("/rpc/provision_standard_lead_fields", { token, body: { p_dry_run: false } });
+  ok(r.status === 401 || r.status === 403, `${label} provision_standard_lead_fields refused → ${r.status} ${JSON.stringify(r.json)}`);
+  r = await call("/rpc/custom_field_make_agency_wide", { token, body: { p_field: "f0000000-0000-0000-0000-000000000001", p_dry_run: true } });
+  ok(r.status === 401 || r.status === 403, `${label} custom_field_make_agency_wide refused → ${r.status}`);
+}
+r = await call("/rpc/provision_standard_lead_fields", { token: asUser(ADMIN, "Admin"), body: { p_dry_run: true } });
+ok(r.status === 200 && r.json?.status === "complete" && r.json.fields.map((f) => f.state).join() === "exists_agency,exists_agency,exists_agency"
+  && r.json.last_attempt?.status === "complete", `admin standard-field status → ${r.status} ${JSON.stringify(r.json)}`);
+for (const t of ["standard_lead_field_provisioning", "custom_field_scope_changes", "rpc/standard_lead_fields_authority",
+                 "rpc/custom_field_convert_to_agency"]) {
+  r = await call(`/${t}`, { token: SERVICE, method: t.startsWith("rpc/") ? "POST" : "GET", body: t.startsWith("rpc/") ? {} : undefined });
+  ok(r.status === 404, `private ${t} not exposed → ${r.status}`);
+}
+
 console.log(`   OK (${checks} PostgREST checks)`);

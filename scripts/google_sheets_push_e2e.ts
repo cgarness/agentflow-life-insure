@@ -29,6 +29,7 @@ const PCFG = { enabled: true, key: "e2e-push-key-".padEnd(40, "p"), maintenanceT
 
 // ---------------------------------------------------------------- fake Google
 const tabs = new Map<number, string[][]>();
+const tabHeaders = new Map<number, string[]>();   // a tab with its own header (mapping v2 scenario)
 const watches: { id: string; token: string; address: string; resourceId: string }[] = [];
 const stops: string[] = [];
 let watchTtlMs = 86_000_000; // the lifetime the fake grants a new channel (shortened once to exercise renewal)
@@ -47,10 +48,10 @@ const fetchFn = ((input: string | URL | Request, init?: RequestInit) => {
   const values = url.match(/\/values\/([^?]+)/);
   if (values) {
     const id = Number(decodeURIComponent(values[1]).match(/^'Tab(\d+)'!/)?.[1]);
-    return r(200, { values: [HEADER, ...(tabs.get(id) ?? [])] });
+    return r(200, { values: [tabHeaders.get(id) ?? HEADER, ...(tabs.get(id) ?? [])] });
   }
   if (url.includes("sheets.googleapis.com/v4/spreadsheets/")) {
-    return r(200, { properties: { title: "E2E" }, sheets: [...tabs.keys()].map((id, i) => ({ properties: { sheetId: id, title: `Tab${id}`, index: i, gridProperties: { rowCount: 1000, columnCount: 3 } } })) });
+    return r(200, { properties: { title: "E2E", locale: "en_US" }, sheets: [...tabs.keys()].map((id, i) => ({ properties: { sheetId: id, title: `Tab${id}`, index: i, gridProperties: { rowCount: 1000, columnCount: (tabHeaders.get(id) ?? HEADER).length } } })) });
   }
   return r(404, {});
 }) as typeof fetch;
@@ -144,6 +145,32 @@ tabs.set(2, [BASE, ["Dee", "PushD", "5551110006"]]);
 tabs.set(1, [...tabs.get(1)!, ["Eve", "PushE", "5551110007"]]);
 ok(await notify() === 200 && (await leads("PushD")).length === 1 && (await leads("PushE")).length === 1, "both tabs imported from one notification");
 
+console.log("   push 6b: a mapping v2 tab on the same watch stores lossless typed values from a notification");
+{
+  const res = await fetch(`${base}/custom_fields`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}`,
+    Prefer: "return=representation" }, body: JSON.stringify([{ organization_id: ORG, name: "Amt Requested", type: "Number", applies_to: ["Leads"], created_by: USER },
+      { organization_id: ORG, name: "ZIP Code", type: "Text", applies_to: ["Leads"], created_by: null }]) });
+  const [amt, zip] = await res.json();
+  tabHeaders.set(3, ["First", "Last", "Phone", "Amt", "Zip", "Notes"]);
+  tabs.set(3, [["Base", "Row", "5551110000", "", "", ""]]);
+  const saved = await A.save(c, { payload: { spreadsheet_id: SPREADSHEET, sheet_id: 3, spreadsheet_name: "E2E", sheet_title: "Tab3", display_name: "Push v2",
+    mapping: { v: 2, columns: [...MAPPING.columns, { header: "Amt", target: `custom:${amt.id}` }, { header: "Zip", target: `custom:${zip.id}` }], ignored: ["Notes"] },
+    identity_mode: "row_position", lead_source_default: "Google Sheets", include_existing: false } });
+  await A.activate(c, { source_id: saved.source_id, expected_version: saved.config_version });
+  await settle();
+  ok(watches.length === 1, "still one watch for the spreadsheet");
+  tabs.set(3, [["Base", "Row", "5551110000", "", "", ""], ["Fay", "PushV2", "5551110008", "$1,234.50", "02134", "x"]]);
+  ok(await notify() === 200, "notification acknowledged");
+  const v2 = await q("leads", `organization_id=eq.${ORG}&last_name=eq.PushV2&select=assigned_agent_id,custom_fields`) as
+    { assigned_agent_id: string; custom_fields: Record<string, string> }[];
+  ok(v2.length === 1 && v2[0].assigned_agent_id === USER && v2[0].custom_fields?.["Amt Requested"] === "1234.50"
+    && v2[0].custom_fields?.["ZIP Code"] === "02134" && Object.keys(v2[0].custom_fields).length === 2,
+    `typed values via push: ${JSON.stringify(v2)}`);
+  await A.setState(c, { source_id: saved.source_id }, "remove");   // later scenarios own the watch lifecycle; the lead stays
+  await settle();
+  ok((await q("leads", `organization_id=eq.${ORG}&last_name=eq.PushV2&select=id`)).length === 1, "removing the tab keeps its lead");
+}
+
 console.log("   push 7: forged requests are refused and change nothing");
 ok(await notify({ token: "f".repeat(43) }) === 401, "wrong token → 401");
 ok(await notify({ id: "gs1" + "Z".repeat(40) }) === 404, "unknown / untagged channel id → 404");
@@ -195,7 +222,7 @@ ok(await notify({ ch: watches[3] }) === 200 && await notify({ ch: watches[2] }) 
   "notifications after Disconnect: acknowledged, nothing imported");
 
 console.log("   push 12: zero duplicates overall");
-for (const last of ["PushA", "PushB", "PushD", "PushE", "PushF", "PushG", "PushI"]) ok((await leads(last)).length === 1, `exactly one ${last}`);
+for (const last of ["PushA", "PushB", "PushD", "PushE", "PushF", "PushG", "PushI", "PushV2"]) ok((await leads(last)).length === 1, `exactly one ${last}`);
 ok((await leads("PushC")).length === 3 && (await leads("Row")).length === 0, "batch and baseline counts");
 
 console.log(`   OK (${checks} push end-to-end checks)`);

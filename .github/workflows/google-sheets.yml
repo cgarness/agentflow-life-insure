@@ -10,6 +10,13 @@ on:
       - 'supabase/migrations/20261025120000_google_sheets_push_sync.sql'
       - 'supabase/migrations/pending/20261025120100_google_sheets_push_maintenance_schedule.sql'
       - 'supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql'
+      - 'supabase/migrations/pending/20261028120000_google_sheets_context_field_types.sql'
+      - 'supabase/migrations/rollback/20261028120000_google_sheets_context_field_types.rollback.sql'
+      - 'supabase/migrations/pending/20261028120100_standard_lead_fields.sql'
+      - 'supabase/migrations/rollback/20261028120100_standard_lead_fields.rollback.sql'
+      - 'supabase/migrations/20260919052941_custom_field_logical_name_guard.sql'
+      - 'supabase/tests/standard_lead_fields.sql'
+      - 'supabase/ops/standard_lead_fields_*.sql'
       - 'supabase/functions/_shared/googleSheets/**'
       - 'supabase/functions/google-sheets-*/**'
       - 'supabase/tests/google_sheets_*.sql'
@@ -28,6 +35,13 @@ on:
       - '.github/workflows/google-sheets.yml'
       - 'docs/plans/2026-10-13-google-sheets-import/**'
       - 'docs/plans/2026-10-25-google-sheets-realtime-sync/**'
+      - 'docs/plans/2026-10-27-sheets-mapping-reliability/**'
+      - 'src/lib/standard-lead-fields.ts'
+      - 'src/lib/import-field-matching.ts'
+      - 'src/lib/custom-field-errors.ts'
+      - 'src/components/settings/custom-fields/**'
+      - 'src/components/settings/ContactManagement.tsx'
+      - 'src/components/contacts/ImportLeadsModal.tsx'
   workflow_dispatch:
 permissions:
   contents: read

@@ -39,6 +39,16 @@
 #       CONTROL (authentication under FOR UPDATE, as before → lock timeouts)
 #   8. END-TO-END push harness (scripts/google_sheets_push_e2e.ts): the real receiver, processor and
 #      google-sheets-api hooks through PostgREST (Google faked)
+# MAPPING V2 (pending/20261028120000, M1: typed catalog) is applied on top of push in EVERY database, as production
+# will run it; STANDARD LEAD FIELDS (pending/20261028120100, M2) needs the custom-field logical-name guard and the
+# production get_user_role / is_super_admin / normalize_us_state (loaded verbatim from the baseline schema):
+#   5b. M1 suite (supabase/tests/google_sheets_mapping_v2.sql): catalog keys, visibility matrix across roles and two
+#       agencies, ACL / inventory 75, normalize_us_state parity with the Deno preview port; M1 replay guard + rollback
+#       proof (exact foundation body) + re-apply; mapping v2 → v1 ops aid
+#   5c. M2 suite (supabase/tests/standard_lead_fields.sql): seeding, failure detection, authorized idempotent retry,
+#       conversion authority / snapshot / audit, cross-agency isolation, privileges; ops report + approved apply
+#       (fail-closed); M2 replay guard + rollback proof (tables kept) + re-apply
+#   5d. two sessions provision one agency at once → one row per name + NEGATIVE CONTROL (provisioning lock removed)
 # Every database is dropped on exit. Nothing here touches a hosted project.
 set -euo pipefail
 
@@ -59,10 +69,20 @@ ROLLBACK="$ROOT/supabase/migrations/rollback/20261022062539_google_sheets_import
 PUSH="$ROOT/supabase/migrations/20261025120000_google_sheets_push_sync.sql"
 PUSH_ROLLBACK="$ROOT/supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql"
 PUSH_SUITE="$ROOT/supabase/tests/google_sheets_push.sql"
+CTX="$ROOT/supabase/migrations/pending/20261028120000_google_sheets_context_field_types.sql"
+CTX_ROLLBACK="$ROOT/supabase/migrations/rollback/20261028120000_google_sheets_context_field_types.rollback.sql"
+STD="$ROOT/supabase/migrations/pending/20261028120100_standard_lead_fields.sql"
+STD_ROLLBACK="$ROOT/supabase/migrations/rollback/20261028120100_standard_lead_fields.rollback.sql"
+GUARD="$ROOT/supabase/migrations/20260919052941_custom_field_logical_name_guard.sql"
+GUARD_GRANT="$ROOT/supabase/migrations/20260922222659_custom_field_norm_execute_grant.sql"
+V2_SUITE="$ROOT/supabase/tests/google_sheets_mapping_v2.sql"
+STD_SUITE="$ROOT/supabase/tests/standard_lead_fields.sql"
+STATE_PARITY="$ROOT/supabase/functions/_shared/googleSheets/fixtures/state-parity.json"
 TMP="$(mktemp -d)"
 DB="gs_test_$$"; DB_CC="gs_cc_$$"; DB_NEG="gs_neg_$$"; DB_RB="gs_rb_$$"; DB_RS="gs_rs_$$"; DB_RG="gs_rg_$$"
 DB_FR="gs_fr_$$"; DB_FRN="gs_frn_$$"; DB_LX="gs_lx_$$"; DB_LXN="gs_lxn_$$"; DB_E2E="gs_e2e_$$"; DB_SD="gs_sd_$$"
 DB_PS="gs_ps_$$"; DB_PC="gs_pc_$$"; DB_PCN="gs_pcn_$$"; DB_PE2E="gs_pe2e_$$"
+DB_V2="gs_v2_$$"; DB_SLF="gs_slf_$$"; DB_SLR="gs_slr_$$"; DB_SLRN="gs_slrn_$$"
 OPS="$ROOT/supabase/ops"
 PGRST_E2E="gs_pgrst_e2e_$$"; PGRST_PE2E="gs_pgrst_pe2e_$$"
 DENO_BIN="${DENO_BIN:-deno}"
@@ -71,25 +91,44 @@ PGRST_NAME="gs_pgrst_$$"
 cleanup() {
   docker rm -f "$PGRST_NAME" "$PGRST_E2E" "$PGRST_PE2E" >/dev/null 2>&1 || true
   for d in "$DB" "$DB_CC" "$DB_NEG" "$DB_RB" "$DB_RS" "$DB_RG" "$DB_FR" "$DB_FRN" "$DB_LX" "$DB_LXN" "$DB_E2E" "$DB_SD" \
-           "$DB_PS" "$DB_PC" "$DB_PCN" "$DB_PE2E"; do
+           "$DB_PS" "$DB_PC" "$DB_PCN" "$DB_PE2E" "$DB_V2" "$DB_SLF" "$DB_SLR" "$DB_SLRN"; do
     psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS $d WITH (FORCE);" >/dev/null 2>&1 || true
   done
   rm -rf "$TMP"
 }
 trap cleanup EXIT
 
-build() { # $1 db, $2 foundation file, $3 push file (default: $PUSH; "none" = foundation only)
+build() { # $1 db, $2 foundation file, $3 push file (default: $PUSH; "none" = foundation only); M1 follows push
   psql "$PGURL/postgres" -qc "CREATE DATABASE $1;"
   psql "$PGURL/$1" -v ON_ERROR_STOP=1 -q -f "$HARNESS" >/dev/null 2>&1
   psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "$2" >/dev/null 2>&1
-  if [ "${3:-$PUSH}" != none ]; then psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "${3:-$PUSH}" >/dev/null; fi
+  if [ "${3:-$PUSH}" != none ]; then
+    psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "${3:-$PUSH}" >/dev/null && psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "$CTX" >/dev/null
+  fi
+}
+# Production helpers the standard-field functions call, verbatim from the baseline schema (the harness has none or a subset).
+PROD_HELPERS="$TMP/prod_helpers.sql"
+python3 - "$ROOT/supabase/migrations/20260806000000_baseline_production_schema.sql" > "$PROD_HELPERS" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+for name in ("get_user_role", "is_super_admin", "normalize_us_state"):
+    i = s.index('CREATE OR REPLACE FUNCTION "public"."%s"' % name)
+    print(s[i:s.index("$$;", i) + 3] + "\n")
+PY
+build_std() { # $1 db, $2 M2 file (default $STD): build + production helpers + the logical-name guard + M2
+  build "$1" "$MIG"
+  psql "$PGURL/$1" -v ON_ERROR_STOP=1 -q -f "$PROD_HELPERS" >/dev/null
+  psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "$GUARD" >/dev/null 2>&1
+  psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "$GUARD_GRANT" >/dev/null 2>&1
+  psql "$PGURL/$1" -1 -v ON_ERROR_STOP=1 -q -f "${2:-$STD}" >/dev/null 2>&1
 }
 
 echo "== 1. harness + foundation + push sync migrations =="
 build "$DB" "$MIG"; echo "   OK"
 if psql "$PGURL/$DB" -1 -v ON_ERROR_STOP=1 -q -f "$MIG" >/dev/null 2>&1; then echo "   FAIL: re-applied"; exit 1; fi
 if psql "$PGURL/$DB" -1 -v ON_ERROR_STOP=1 -q -f "$PUSH" >/dev/null 2>&1; then echo "   FAIL: push re-applied"; exit 1; fi
-echo "   replay guards OK (second applies refused)"
+if psql "$PGURL/$DB" -1 -v ON_ERROR_STOP=1 -q -f "$CTX" >/dev/null 2>&1; then echo "   FAIL: M1 re-applied"; exit 1; fi
+echo "   replay guards OK (second applies refused, M1 included)"
 sed '/FUNCTION private.google_sheets_finish(/,/^END \$\$;/ s/^  v_now := clock_timestamp();$/  v_now := now(); -- tampered/' "$MIG" > "$TMP/mig_tampered.sql"
 grep -q "v_now := now(); -- tampered" "$TMP/mig_tampered.sql" || { echo "   FAIL: tamper patch did not apply"; exit 1; }
 if build "${DB}_tp" "$TMP/mig_tampered.sql" 2>/dev/null; then echo "   FAIL: push applied over a changed finish preimage"; exit 1; fi
@@ -493,13 +532,113 @@ psql "$PGURL/$DB_RB" -1 -v ON_ERROR_STOP=1 -q -f "$MIG" >/dev/null 2>&1
 psql "$PGURL/$DB_RB" -1 -v ON_ERROR_STOP=1 -q -f "$PUSH" >/dev/null || { echo "   FAIL: push re-apply"; exit 1; }
 echo "   OK (objects removed, preimage restored, both migrations re-apply cleanly)"
 
+echo; echo "== 5b. mapping v2: typed catalog (M1) =="
+build "$DB_V2" "$MIG"
+psql "$PGURL/$DB_V2" -v ON_ERROR_STOP=1 -q -f "$PROD_HELPERS" >/dev/null
+psql "$PGURL/$DB_V2" -v ON_ERROR_STOP=1 -v state_parity="$(cat "$STATE_PARITY")" -f "$V2_SUITE" > "$TMP/v2.out" 2>&1 \
+  || { grep -E "PASS|FAIL|ERROR" "$TMP/v2.out" | sed 's/^.*NOTICE:  /   /'; echo "   FAIL: M1 suite"; exit 1; }
+grep -E "PASS" "$TMP/v2.out" | sed 's/^.*NOTICE:  /   /'
+grep -q "ALL GOOGLE SHEETS MAPPING V2 SQL TESTS PASSED" "$TMP/v2.out" || { echo "   FAIL: M1 suite incomplete"; exit 1; }
+psql "$PGURL/$DB_V2" -1 -v ON_ERROR_STOP=1 -q -f "$CTX_ROLLBACK" >/dev/null 2>&1 || { echo "   FAIL: M1 rollback"; exit 1; }
+OUT="$(psql "$PGURL/$DB_V2" -tAc "SELECT md5(prosrc) || '|' || (public.google_sheets_context('11111111-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-00000000000a') ? 'catalog_version')::text || '|' || array_to_string(proacl, ' ') FROM pg_proc WHERE oid = 'private.google_sheets_context(uuid, uuid)'::regprocedure")"
+[ "$OUT" = "2aa8978ceafb8f5079317474f98d4dad|false|postgres=X/postgres" ] || { echo "   FAIL: M1 rollback state: $OUT"; exit 1; }
+psql "$PGURL/$DB_V2" -1 -v ON_ERROR_STOP=1 -q -f "$CTX" >/dev/null || { echo "   FAIL: M1 re-apply"; exit 1; }
+echo "   OK (M1 rollback restores the exact foundation body and ACL; M1 re-applies cleanly)"
+sed '0,/LANGUAGE plpgsql STABLE SECURITY DEFINER/s//LANGUAGE plpgsql STABLE SECURITY DEFINER -- tampered/' "$MIG" > "$TMP/mig_ctx_tampered.sql"
+psql "$PGURL/postgres" -qc "CREATE DATABASE ${DB_V2}_tp;"
+psql "$PGURL/${DB_V2}_tp" -v ON_ERROR_STOP=1 -q -f "$HARNESS" >/dev/null 2>&1
+psql "$PGURL/${DB_V2}_tp" -1 -v ON_ERROR_STOP=1 -q -f "$MIG" >/dev/null 2>&1
+psql "$PGURL/${DB_V2}_tp" -1 -v ON_ERROR_STOP=1 -q -f "$PUSH" >/dev/null 2>&1
+psql "$PGURL/${DB_V2}_tp" -qc "CREATE OR REPLACE FUNCTION private.google_sheets_context(p_user uuid, p_org uuid) RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'pg_catalog', 'pg_temp' AS \$x\$ SELECT '{}'::jsonb \$x\$;" >/dev/null
+if psql "$PGURL/${DB_V2}_tp" -1 -v ON_ERROR_STOP=1 -q -f "$CTX" >/dev/null 2>&1; then echo "   FAIL: M1 applied over a changed context body"; exit 1; fi
+psql "$PGURL/postgres" -qc "DROP DATABASE IF EXISTS ${DB_V2}_tp WITH (FORCE);" >/dev/null 2>&1
+echo "   OK (M1 refuses to replace a context body that is not the foundation's)"
+psql "$PGURL/$DB_V2" -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null || { echo "   FAIL: v2 → v1 ops fixture"; exit 1; }
+DO $$
+DECLARE g bigint; s record;
+BEGIN
+  SELECT auth_generation INTO g FROM public.google_sheets_store_connection('11111111-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-00000000000a',
+    0, 'sub-v2', 'v2@example.test', ARRAY['openid','email','https://www.googleapis.com/auth/drive.file'], 'rt-v2');
+  SELECT * INTO s FROM public.google_sheets_save_source('11111111-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-00000000000a', NULL, NULL,
+    jsonb_build_object('spreadsheet_id', 'SPREADSHEET_V2V1', 'sheet_id', 0, 'display_name', 'v2', 'mapping',
+      '{"v":2,"columns":[{"header":"Phone","target":"phone"},{"header":"Name","target":"full_name"}],"ignored":["Address"]}'::jsonb));
+  SELECT * INTO s FROM public.google_sheets_save_source('11111111-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-00000000000a', NULL, NULL,
+    jsonb_build_object('spreadsheet_id', 'SPREADSHEET_V2V1', 'sheet_id', 1, 'display_name', 'v1', 'mapping',
+      '{"v":1,"columns":[{"header":"Phone","target":"phone"},{"header":"Name","target":"full_name"}]}'::jsonb));
+END $$;
+SQL
+if psql "$PGURL/$DB_V2" -1 -v ON_ERROR_STOP=1 -q -v confirm='' -f "$OPS/google_sheets_mapping_v2_to_v1.sql" >/dev/null 2>&1; then echo "   FAIL: v2 → v1 ran without confirmation"; exit 1; fi
+psql "$PGURL/$DB_V2" -1 -v ON_ERROR_STOP=1 -q -v confirm='DOWNGRADE-V2-MAPPINGS' -f "$OPS/google_sheets_mapping_v2_to_v1.sql" >/dev/null 2>&1 || { echo "   FAIL: v2 → v1 ops"; exit 1; }
+OUT="$(psql "$PGURL/$DB_V2" -tAc "SELECT string_agg(sheet_id || ':' || (mapping->>'v') || ':' || (mapping->'columns')::text || ':' || (mapping ? 'ignored')::text || ':' || config_version, ' ' ORDER BY sheet_id) FROM public.google_sheets_sources WHERE spreadsheet_id = 'SPREADSHEET_V2V1'")"
+[ "$OUT" = '0:1:[{"header": "Phone", "target": "phone"}, {"header": "Name", "target": "full_name"}]:false:2 1:1:[{"header": "Phone", "target": "phone"}, {"header": "Name", "target": "full_name"}]:false:1' ] \
+  || { echo "   FAIL: v2 → v1 result: $OUT"; exit 1; }
+echo "   OK (v2 → v1 ops aid: refused without confirmation; same columns, ignored dropped, version bumped; v1 sources untouched)"
+
+echo; echo "== 5c. standard lead fields (M2) =="
+build_std "$DB_SLF"
+if psql "$PGURL/$DB_SLF" -1 -v ON_ERROR_STOP=1 -q -f "$STD" >/dev/null 2>&1; then echo "   FAIL: M2 re-applied"; exit 1; fi
+psql "$PGURL/$DB_SLF" -v ON_ERROR_STOP=1 -f "$STD_SUITE" > "$TMP/slf.out" 2>&1 \
+  || { grep -E "PASS|FAIL|ERROR" "$TMP/slf.out" | sed 's/^.*NOTICE:  /   /'; echo "   FAIL: M2 suite"; exit 1; }
+grep -E "PASS" "$TMP/slf.out" | sed 's/^.*NOTICE:  /   /'
+grep -q "ALL STANDARD LEAD FIELDS SQL TESTS PASSED" "$TMP/slf.out" || { echo "   FAIL: M2 suite incomplete"; exit 1; }
+# ops: the read-only report lists exactly the agencies that are not complete (B: no status row, Address/City missing; the
+# suspended agency: all three missing); complete agencies (A after its conversion, D, E) are not listed
+REPORT="$(psql "$PGURL/$DB_SLF" -qtA -F'|' -f "$OPS/standard_lead_fields_report.sql" 2>/dev/null | cut -d'|' -f2,4,6 | sort | tr '\n' ' ')"
+[ "$REPORT" = "Org B|address|missing Org B|city|missing Org B|zip_code|agency Org Suspended|address|missing Org Suspended|city|missing Org Suspended|zip_code|missing " ] \
+  || { echo "   FAIL: report: $REPORT"; exit 1; }
+BEFORE="$(psql "$PGURL/$DB_SLF" -tAc "SELECT md5(string_agg(id::text || name || COALESCE(created_by::text, '-'), ',' ORDER BY id)) FROM public.custom_fields")"
+if psql "$PGURL/$DB_SLF" -1 -v ON_ERROR_STOP=1 -q -v approval_ref='TEST-APPROVAL-1' \
+     -v provision='["b0000000-0000-0000-0000-00000000000b"]' \
+     -v convert='[{"organization_id":"a0000000-0000-0000-0000-00000000000a","field_id":"f0000000-0000-0000-0000-000000000002","snapshot":"0000000000000000000000000000000000000000000000000000000000000000"}]' \
+     -f "$OPS/standard_lead_fields_apply.sql" >/dev/null 2>&1; then echo "   FAIL: apply with a refused conversion committed"; exit 1; fi
+[ "$(psql "$PGURL/$DB_SLF" -tAc "SELECT md5(string_agg(id::text || name || COALESCE(created_by::text, '-'), ',' ORDER BY id)) FROM public.custom_fields")" = "$BEFORE" ] \
+  || { echo "   FAIL: a failed apply changed fields"; exit 1; }
+if psql "$PGURL/$DB_SLF" -1 -v ON_ERROR_STOP=1 -q -v approval_ref='' -v provision='["b0000000-0000-0000-0000-00000000000b"]' -v convert='[]' \
+     -f "$OPS/standard_lead_fields_apply.sql" >/dev/null 2>&1; then echo "   FAIL: apply without an approval reference"; exit 1; fi
+psql "$PGURL/$DB_SLF" -1 -v ON_ERROR_STOP=1 -q -v approval_ref='TEST-APPROVAL-2' -v provision='["b0000000-0000-0000-0000-00000000000b"]' -v convert='[]' \
+  -f "$OPS/standard_lead_fields_apply.sql" >/dev/null 2>&1 || { echo "   FAIL: approved apply"; exit 1; }
+OUT="$(psql "$PGURL/$DB_SLF" -tAc "SELECT string_agg(name || ':' || (created_by IS NULL)::text, ',' ORDER BY lower(name)) || '|' || (SELECT status FROM private.standard_lead_field_provisioning WHERE organization_id = 'b0000000-0000-0000-0000-00000000000b') FROM public.custom_fields WHERE organization_id = 'b0000000-0000-0000-0000-00000000000b' AND private.custom_field_norm(name) IN ('address','city','zip code')")"
+[ "$OUT" = "Address:true,City:true,Zip Code:true|complete" ] || { echo "   FAIL: approved apply result: $OUT"; exit 1; }
+echo "   OK (ops: report lists exactly the incomplete agencies; a refused entry rolls back the whole run; approval reference required; approved provisioning completes agency B and keeps its \"Zip Code\")"
+psql "$PGURL/$DB_SLF" -1 -v ON_ERROR_STOP=1 -q -f "$STD_ROLLBACK" >/dev/null 2>&1 || { echo "   FAIL: M2 rollback"; exit 1; }
+OUT="$(psql "$PGURL/$DB_SLF" -tAc "SELECT (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.proname IN ('provision_standard_lead_fields','custom_field_make_agency_wide','standard_lead_field_catalog','standard_lead_field_state','standard_lead_fields_on_org_created','standard_lead_fields_authority','custom_field_scope_snapshot','custom_field_convert_to_agency')) || '|' || (SELECT count(*) FROM pg_trigger WHERE tgname = 'on_organization_created_seed_standard_lead_fields') || '|' || (SELECT count(*) FROM private.custom_field_scope_changes) || '|' || (SELECT count(*) FROM private.standard_lead_field_provisioning)")"
+case "$OUT" in 0\|0\|[1-9]*\|[1-9]*) ;; *) echo "   FAIL: M2 rollback state: $OUT"; exit 1 ;; esac
+psql "$PGURL/$DB_SLF" -qc "INSERT INTO public.organizations (id, name) VALUES ('f0000000-0000-0000-0000-0000000000f1', 'After rollback');" >/dev/null
+[ "$(psql "$PGURL/$DB_SLF" -tAc "SELECT count(*) FROM public.custom_fields WHERE organization_id = 'f0000000-0000-0000-0000-0000000000f1'")" = 0 ] || { echo "   FAIL: seed still active after rollback"; exit 1; }
+psql "$PGURL/$DB_SLF" -1 -v ON_ERROR_STOP=1 -q -f "$STD" >/dev/null 2>&1 || { echo "   FAIL: M2 re-apply over the kept tables"; exit 1; }
+psql "$PGURL/$DB_SLF" -qc "INSERT INTO public.organizations (id, name) VALUES ('f0000000-0000-0000-0000-0000000000f2', 'After re-apply');" >/dev/null
+[ "$(psql "$PGURL/$DB_SLF" -tAc "SELECT count(*) FROM public.custom_fields WHERE organization_id = 'f0000000-0000-0000-0000-0000000000f2' AND created_by IS NULL")" = 3 ] || { echo "   FAIL: seed after re-apply"; exit 1; }
+echo "   OK (M2 rollback: trigger and functions removed, audit and status kept, fields kept; re-apply reuses the tables and seeds again)"
+
+echo; echo "== 5d. two sessions provision one agency at once =="
+slf_race() { # $1 db → "<rows> <second session's states or error>"
+  psql "$PGURL/$1" -qc "ALTER TABLE public.organizations DISABLE TRIGGER on_organization_created_seed_standard_lead_fields;
+    INSERT INTO public.organizations (id, name) VALUES ('f0000000-0000-0000-0000-0000000000aa', 'Race'); 
+    ALTER TABLE public.organizations ENABLE TRIGGER on_organization_created_seed_standard_lead_fields;" >/dev/null
+  psql "$PGURL/$1" -tAqc "BEGIN; SELECT private.provision_standard_lead_fields('f0000000-0000-0000-0000-0000000000aa', 'ops', NULL, false)->>'status'; SELECT pg_sleep(2); COMMIT;" > "$TMP/sa.out" 2>&1 &
+  local pa=$!
+  psql "$PGURL/$1" -tAqc "SELECT pg_sleep(0.5); SELECT (SELECT string_agg(e->>'state', ',') FROM jsonb_array_elements(private.provision_standard_lead_fields('f0000000-0000-0000-0000-0000000000aa', 'ops', NULL, false)->'fields') e);" > "$TMP/sb.out" 2>&1 || true
+  wait $pa
+  echo "$(psql "$PGURL/$1" -tAc "SELECT count(*) FROM public.custom_fields WHERE organization_id = 'f0000000-0000-0000-0000-0000000000aa'") $(grep -Eo 'exists_agency,exists_agency,exists_agency|already exists in this organization' "$TMP/sb.out" | head -1 | tr ' ' '_')"
+}
+build_std "$DB_SLR"
+OUT="$(slf_race "$DB_SLR")"; echo "   rows, second session: $OUT"
+[ "$OUT" = "3 exists_agency,exists_agency,exists_agency" ] || { echo "   FAIL: expected '3 exists_agency,exists_agency,exists_agency'"; exit 1; }
+sed '/FUNCTION private.provision_standard_lead_fields(/,/^END \$\$;/ s/PERFORM pg_catalog.pg_advisory_xact_lock(/PERFORM ( -- negative control: no provisioning lock/' "$STD" > "$TMP/std_nolock.sql"
+[ "$(grep -c 'negative control: no provisioning lock' "$TMP/std_nolock.sql")" = 1 ] || { echo "   FAIL: negative-control patch did not apply"; exit 1; }
+build_std "$DB_SLRN" "$TMP/std_nolock.sql"
+OUT="$(slf_race "$DB_SLRN")"; echo "   negative control (provisioning lock removed): $OUT"
+[ "$OUT" = "3 already_exists_in_this_organization" ] || { echo "   FAIL: negative control did not reproduce the concurrent retry error"; exit 1; }
+echo "   OK (a concurrent retry waits and reports the rows; without the lock it fails on the guard — never a duplicate)"
+
 echo; echo "== 6. PostgREST role access =="
 if ! docker info >/dev/null 2>&1 || ! docker image inspect postgrest/postgrest:v12.2.3 >/dev/null 2>&1; then
   echo "   SKIPPED: Docker or postgrest/postgrest:v12.2.3 unavailable (not a pass)"
   echo; echo "ALL AVAILABLE GOOGLE SHEETS CHECKS PASSED (PostgREST check skipped)"; exit 0
 fi
-build "$DB_RS" "$MIG"
+build_std "$DB_RS"
 psql "$PGURL/$DB_RS" -v ON_ERROR_STOP=1 -q -f "$CC_FIXTURE" >/dev/null
+psql "$PGURL/$DB_RS" -v ON_ERROR_STOP=1 -q -c "INSERT INTO public.profiles (id, organization_id, role) VALUES ('11111111-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-00000000000a', 'Admin');"
 SECRET="local-only-test-secret-0123456789abcdefghij"
 PORT=$((3600 + $$ % 300))
 HOSTPART="$(printf '%s' "$PGURL" | sed -E 's#^postgres(ql)?://[^@]*@##')"
@@ -516,7 +655,7 @@ node "$ROOT/scripts/google_sheets_postgrest_check.mjs" "http://127.0.0.1:$PORT" 
 
 echo; echo "== 7. end-to-end Review harness (real actions + engine via PostgREST; Google faked) =="
 if ! command -v "$DENO_BIN" >/dev/null 2>&1; then echo "   FAIL: Deno not found (set DENO_BIN)"; exit 1; fi
-build "$DB_E2E" "$MIG"
+build_std "$DB_E2E"
 psql "$PGURL/$DB_E2E" -v ON_ERROR_STOP=1 -q -c "INSERT INTO public.organizations (id, name, status) VALUES ('a0000000-0000-0000-0000-0000000000e2', 'E2E Org', 'active');
   INSERT INTO public.profiles (id, organization_id, role, status) VALUES ('e2000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-0000000000e2', 'Agent', 'Active');"
 PORT2=$((PORT + 1))
