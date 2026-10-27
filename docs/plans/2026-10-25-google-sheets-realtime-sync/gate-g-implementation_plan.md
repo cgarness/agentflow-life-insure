@@ -27,3 +27,6 @@ Offline runner tests for stage/SHA guards, checksum tampering, no import-time ef
 The original plan also called for a natural 24-hour renewal observation and a Google quota increase before Gate G. Neither is completed. Proposed owner decision: proceed on successful accelerated renewal/recovery evidence, defer natural-cycle observation and quota expansion, retain cap 4. This is NOT recorded as approved or passed. Activation requires the exact release-decision input after owner acceptance.
 
 Validation so far: 16 existing pilot runner tests and 4 rollout guard tests pass; Python compiles; TypeScript passes. Full SQL execution tests and preview verification remain pending. This package is a draft, not execution-ready.
+
+## Transaction validation update
+PGlite PostgreSQL execution passed valid activation with rollback and refused four negative cases: already-on mode, changed source config, missing receipts and changed lead data. This found and fixed a SQL three-valued-logic bug: the transactional guard now uses IS DISTINCT FROM TRUE so NULL refuses execution. This isolated fixture is not managed-production concurrency proof. Production runner retains 5-second lock/30-second statement timeouts. Gate G guard tests are now included in tooling CI.
