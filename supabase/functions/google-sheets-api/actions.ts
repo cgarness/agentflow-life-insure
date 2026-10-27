@@ -3,11 +3,14 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { LIMITS, type SheetsConfig } from "../_shared/googleSheets/config.ts";
 import { DbError, sheetsDb, type ClaimedSource } from "../_shared/googleSheets/db.ts";
-import { planRows, runSource } from "../_shared/googleSheets/engine.ts";
+import { buildOptions, planRows, runSource } from "../_shared/googleSheets/engine.ts";
 import { GoogleApiError } from "../_shared/googleSheets/errors.ts";
-import { inspectSpreadsheet, readTab } from "../_shared/googleSheets/google.ts";
+import { columnLetter, inspectSpreadsheet, readHeaderOverflow, readTab } from "../_shared/googleSheets/google.ts";
 import { classifySourceIdRows, identityReview, identityRows } from "../_shared/googleSheets/identity.ts";
-import { resolveColumns, resolveCustomFieldNames, validateMapping, type SheetMapping } from "../_shared/googleSheets/mapping.ts";
+import {
+  analyzeHeaders, buildLeadDetailed, previewValues, resolveColumns, resolveCustomFieldNames, unaccountedHeaders, validateMapping,
+  type SheetMapping,
+} from "../_shared/googleSheets/mapping.ts";
 import { checkScopes, inspectAccessToken, refreshAccessToken } from "../_shared/googleSheets/oauth.ts";
 import type { PushConfig } from "../_shared/googleSheets/push/config.ts";
 import type { Background } from "../_shared/googleSheets/push/runtime.ts";
@@ -65,6 +68,22 @@ function mappingOrThrow(m: unknown): SheetMapping {
   return v.mapping;
 }
 
+/** The typed catalog (catalog_version 2) exists only once migration google_sheets_context_field_types is applied. */
+const catalogVersion = (ctx: { catalog_version?: number }) => (Number.isInteger(ctx.catalog_version) ? Number(ctx.catalog_version) : 1);
+
+/**
+ * A mapping SUBMITTED by the owner (preview / save / review). New v2 mappings are accepted only when the typed catalog
+ * exists, so a v2 mapping is never written that this deployment could not import exactly as previewed. Stored v2
+ * mappings are always processable (mappingOrThrow).
+ */
+async function submittedMapping(c: Ctx, m: unknown, ctx?: { catalog_version?: number }): Promise<SheetMapping> {
+  const mapping = mappingOrThrow(m);
+  if (mapping.v === 2 && catalogVersion(ctx ?? await db(c).context(c.userId, c.orgId)) < 2) {
+    throw new ActionError(422, "mapping_version_unavailable");
+  }
+  return mapping;
+}
+
 /** One consistent read + column/custom-field resolution + planned rows (no writes). */
 async function readPlanned(c: Ctx, token: string, spreadsheetId: string, sheetId: number, mapping: SheetMapping, idHeader: string | null) {
   const tab = await readTab(c.fetchFn, token, spreadsheetId, sheetId);
@@ -74,7 +93,8 @@ async function readPlanned(c: Ctx, token: string, spreadsheetId: string, sheetId
   const ctx = await db(c).context(c.userId, c.orgId);
   const custom = resolveCustomFieldNames(cols.custom.map((x) => x.customFieldId), ctx.custom_fields ?? []);
   if (custom.unresolved.length) throw new ActionError(422, "custom_field_unavailable");
-  return { tab, planned: await planRows(tab.rows, cols, custom.names), ctx };
+  const opts = buildOptions(mapping, cols, ctx.custom_fields ?? [], tab.locale);
+  return { tab, planned: await planRows(tab.rows, cols, custom.names, opts), ctx, cols, names: custom.names, opts };
 }
 
 export async function status(c: Ctx) {
@@ -87,9 +107,21 @@ export async function status(c: Ctx) {
   };
 }
 
+/**
+ * Mapping catalog for the owner. `mapping_versions` is the compatibility half of the frontend feature gate: it
+ * includes 2 only when this code AND the typed catalog are both deployed.
+ */
 export async function context(c: Ctx) {
   const ctx = await db(c).context(c.userId, c.orgId);
-  return { ...ctx, custom_fields: (ctx.custom_fields ?? []).map((f) => ({ id: f.id, name: f.name, created_by: f.created_by, created_at: f.created_at })) };
+  const version = catalogVersion(ctx);
+  return {
+    ...ctx, catalog_version: version, mapping_versions: version >= 2 ? [1, 2] : [1],
+    custom_fields: (ctx.custom_fields ?? []).map((f) => ({
+      id: f.id, name: f.name, created_by: f.created_by, created_at: f.created_at,
+      ...(version >= 2 ? { type: f.type ?? null, required: f.required === true, dropdown_options: Array.isArray(f.dropdown_options) ? f.dropdown_options : null,
+                          scope: f.scope ?? (f.created_by === null ? "agency" : "personal"), own: f.own === true } : {}),
+    })),
+  };
 }
 
 /**
@@ -128,21 +160,28 @@ export async function inspect(c: Ctx, body: Record<string, unknown>) {
 export async function headers(c: Ctx, body: Record<string, unknown>) {
   if (!(await eligible(c))) throw new ActionError(403, "not_permitted");
   const a = await access(c);
-  const tab = await readTab(c.fetchFn, a.token, str(body.spreadsheet_id, 200), Number(body.sheet_id));
+  const spreadsheetId = str(body.spreadsheet_id, 200);
+  const tab = await readTab(c.fetchFn, a.token, spreadsheetId, Number(body.sheet_id));
+  // Every column, flagged (blank / duplicate / has data), and any headers past the column limit: nothing is
+  // dropped silently. `header` is kept unchanged for the legacy mapping screen.
+  const over = await readHeaderOverflow(c.fetchFn, a.token, spreadsheetId, tab.title, tab.columnCount);
   return { title: tab.title, spreadsheet_name: tab.spreadsheetName, header: tab.header, row_count: tab.rows.length,
-           overflow: tab.overflow, sample: tab.rows.slice(0, 3) };
+           overflow: tab.overflow, sample: tab.rows.slice(0, 3), locale: tab.locale, column_count: tab.columnCount,
+           columns: analyzeHeaders(tab.header, tab.rows).map((x) => ({ ...x, letter: columnLetter(x.index + 1) })),
+           over_limit: over };
 }
 
 /** Read-only preview: sample outcomes, counts, duplicate classification with the SAME SQL predicate. */
 export async function preview(c: Ctx, body: Record<string, unknown>) {
   if (!(await eligible(c))) throw new ActionError(403, "not_permitted");
-  const mapping = mappingOrThrow(body.mapping);
+  const mapping = await submittedMapping(c, body.mapping);
   const mode = body.identity_mode === "source_id" ? "source_id" : "row_position";
   const idHeader = mode === "source_id" ? str(body.id_header, 200) || null : null;
   if (mode === "source_id" && !idHeader) throw new ActionError(422, "id_header_required");
   const spreadsheetId = str(body.spreadsheet_id, 200), sheetId = Number(body.sheet_id);
+  const leadSourceDefault = str(body.lead_source_default, 120);
   const a = await access(c);
-  const { tab, planned, ctx } = await readPlanned(c, a.token, spreadsheetId, sheetId, mapping, idHeader);
+  const { tab, planned, ctx, cols, names, opts } = await readPlanned(c, a.token, spreadsheetId, sheetId, mapping, idHeader);
   // ID mode: the SAME classifier as processing (missing_id → duplicate_id → repeat → invalid → policy → ready).
   const cls = mode === "source_id" ? classifySourceIdRows(planned) : null;
   const idOutcome = (n: number) => { const k = cls?.get(n); return k && k !== "ok" ? k : null; };
@@ -160,11 +199,14 @@ export async function preview(c: Ctx, body: Record<string, unknown>) {
   const rows = sample.map((r) => {
     const dup = importable(r) ? dupFlags[vi++] === true : false;
     const idk = idOutcome(r.n);
+    // Stored values of every mapped optional field, from the same build pass ingest uses (valid rows only).
+    const detailed = r.valid ? buildLeadDetailed(tab.rows[r.n - 2] ?? [], cols, names, opts) : null;
     return {
       row: r.n, first_name: r.display?.first_name ?? "", last_name: r.display?.last_name ?? "", phone: r.display?.phone ?? "",
       email: r.display?.email ?? "",
       outcome: idk ?? (!r.valid ? "invalid" : dup ? `duplicate_${ctx.duplicate_action}` : "import"),
       reason: idk ? null : r.valid ? null : r.reason,
+      fields: detailed?.built.lead ? previewValues(detailed.built.lead, cols, detailed.custom, leadSourceDefault) : [],
     };
   });
   const nonEmpty = planned.filter((r) => !r.empty);
@@ -178,12 +220,16 @@ export async function preview(c: Ctx, body: Record<string, unknown>) {
     invalid_rows: nonEmpty.length - nonEmpty.filter(importable).length - repeats, repeat_rows: repeats,
     imported_before: Number(prior ?? 0), rows,
     duplicate_action: ctx.duplicate_action, has_lead_created_workflows: ctx.has_lead_created_workflows,
+    mapping_version: mapping.v, locale: tab.locale, ignored: mapping.v === 2 ? mapping.ignored : [],
+    unaccounted_headers: unaccountedHeaders(tab.header, mapping, idHeader),
+    header_issues: analyzeHeaders(tab.header, tab.rows).filter((x) => x.duplicate || (x.blank && x.has_data))
+      .map((x) => ({ ...x, letter: columnLetter(x.index + 1) })),
   };
 }
 
 export async function save(c: Ctx, body: Record<string, unknown>) {
   const payload = (body.payload ?? {}) as Record<string, unknown>;
-  const mapping = mappingOrThrow(payload.mapping);
+  const mapping = await submittedMapping(c, payload.mapping);
   const mode = payload.identity_mode === "source_id" ? "source_id" : "row_position";
   const idHeader = mode === "source_id" ? str(payload.id_header, 200) : "";
   if (mode === "source_id" && !idHeader) throw new ActionError(422, "id_header_required");
@@ -211,8 +257,11 @@ export async function activate(c: Ctx, body: Record<string, unknown>) {
   if (Number(body.expected_version) !== src.config_version) throw new ActionError(409, "version_conflict");
   const mapping = mappingOrThrow(src.mapping);
   const a = await access(c);
-  const { planned } = await readPlanned(c, a.token, src.spreadsheet_id, Number(src.sheet_id), mapping,
-    src.identity_mode === "source_id" ? src.id_header : null);
+  const idHeader = src.identity_mode === "source_id" ? src.id_header : null;
+  const { planned, tab } = await readPlanned(c, a.token, src.spreadsheet_id, Number(src.sheet_id), mapping, idHeader);
+  // v2: every column must have been mapped or explicitly ignored. A column added after the preview stops the
+  // activation (nothing is written) so the owner can acknowledge it. Running syncs never block on new columns.
+  if (mapping.v === 2 && unaccountedHeaders(tab.header, mapping, idHeader).length > 0) throw new ActionError(409, "unacknowledged_columns");
   const rows = identityRows(planned, src.identity_mode);
   const { data, error } = await c.svc.rpc("google_sheets_activate", {
     p_user: c.userId, p_org: c.orgId, p_source: src.id, p_expected_version: src.config_version,
@@ -252,7 +301,7 @@ const version = (v: unknown): number | null => (Number.isInteger(v) ? Number(v) 
  */
 export async function review(c: Ctx, body: Record<string, unknown>, dryRun: boolean) {
   const src = await ownSource(c, str(body.source_id, 64));
-  const mapping = mappingOrThrow(body.mapping ?? src.mapping);
+  const mapping = body.mapping === undefined || body.mapping === null ? mappingOrThrow(src.mapping) : await submittedMapping(c, body.mapping);
   const mode = body.identity_mode === "source_id" ? "source_id" : "row_position";
   const idHeader = mode === "source_id" ? str(body.id_header, 200) || null : null;
   if (mode === "source_id" && !idHeader) throw new ActionError(422, "id_header_required");

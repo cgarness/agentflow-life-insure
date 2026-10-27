@@ -14,6 +14,7 @@ export const LIMITS = {
   manualBudgetMs: 25_000,   // Sync now budget (inside a user request)
   previewRows: 20,
   maxColumns: 200,
+  overflowHeaderNames: 50, // names reported for headers past maxColumns (mapping screen only)
 } as const;
 
 export interface SheetsConfig {

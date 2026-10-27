@@ -33,6 +33,8 @@ export interface LedgerState { rows: LedgerRow[]; receipt_ids: string[]; config_
 export interface OwnerContext {
   duplicate_rule: string; duplicate_scope: string; duplicate_action: string; default_status: string;
   lead_sources: string[]; has_lead_created_workflows: boolean; custom_fields: OwnerCustomField[];
+  /** 2 once migration google_sheets_context_field_types is applied (typed catalog); absent before. */
+  catalog_version?: number;
 }
 
 export const sheetsDb = (db: RpcClient) => ({

@@ -2,6 +2,11 @@
 // parity with the CSV importer: splitFullName (ImportLeadsModal), parseDOB (src/utils/dobUtils),
 // normalizeFieldName / buildLogicalCustomFields (src/lib/import-field-matching), and the import-contacts
 // core contract (first name, last name, phone digits). Ported because Deno cannot import from src/.
+//
+// Mapping contract versions. v1 is FROZEN (fixtures/v1-golden.json): raw trimmed values, everything as before.
+// v2 adds two things only: lossless typed custom values (values.ts) and the owner's acknowledged `ignored` headers.
+// Targets, identity (core fingerprint, rowSignature over raw cells), receipts and ingest are identical in both.
+import { normalizeUsState, typedValue, type TypedFieldInfo, type TypedValue } from "./values.ts";
 
 export const STANDARD_TARGETS = [
   "first_name", "last_name", "full_name", "phone", "email", "state", "lead_source",
@@ -17,7 +22,12 @@ export const BUILT_IN_FIELD_NAMES = [
 const RESERVED_CUSTOM_KEYS = new Set(["additional_policies", "__agentflow", "tags", "full name"]);
 
 export interface MappingColumn { header: string; target: string } // StandardTarget | `custom:<uuid>`
-export interface SheetMapping { v: 1; columns: MappingColumn[] }
+export interface SheetMappingV1 { v: 1; columns: MappingColumn[] }
+export interface SheetMappingV2 { v: 2; columns: MappingColumn[]; ignored: string[] }
+export type SheetMapping = SheetMappingV1 | SheetMappingV2;
+/** Every version this engine can process. Writes of v2 are additionally gated on the catalog (actions.ts). */
+export const MAPPING_VERSIONS = [1, 2] as const;
+export const MAX_MAPPED_COLUMNS = 200;
 
 export function normalizeFieldName(raw: string): string {
   return raw.trim().replace(/\s+/g, " ").toLowerCase();
@@ -27,9 +37,10 @@ export function isCustomTarget(t: string): boolean {
   return /^custom:[0-9a-f-]{36}$/i.test(t);
 }
 
-/** Structural validation of a stored/submitted mapping (no sheet access). */
+/** Structural validation of a stored/submitted mapping (no sheet access). v1 is validated exactly as before. */
 export function validateMapping(m: unknown): { ok: true; mapping: SheetMapping } | { ok: false; reason: string } {
-  const mm = m as SheetMapping;
+  if ((m as SheetMapping | null)?.v === 2) return validateMappingV2(m as SheetMappingV2);
+  const mm = m as SheetMappingV1;
   if (!mm || mm.v !== 1 || !Array.isArray(mm.columns) || mm.columns.length > 200) return { ok: false, reason: "invalid_mapping" };
   const seenHeaders = new Set<string>();
   const seenTargets = new Set<string>();
@@ -45,6 +56,27 @@ export function validateMapping(m: unknown): { ok: true; mapping: SheetMapping }
   if (!t.has("phone")) return { ok: false, reason: "phone_required" };
   if (!(t.has("full_name") || (t.has("first_name") && t.has("last_name")))) return { ok: false, reason: "name_required" };
   return { ok: true, mapping: { v: 1, columns: mm.columns.map((c) => ({ header: c.header.trim(), target: c.target })) } };
+}
+
+/**
+ * v2 = the v1 rules for `columns`, plus `ignored`: the headers the owner explicitly chose not to import. Ignored
+ * headers are trimmed, non-empty, unique by normalised name and never also mapped; mapped + ignored ≤ 200.
+ */
+function validateMappingV2(mm: SheetMappingV2): { ok: true; mapping: SheetMapping } | { ok: false; reason: string } {
+  if (!Array.isArray(mm.ignored)) return { ok: false, reason: "invalid_mapping" };
+  const base = validateMapping({ v: 1, columns: mm.columns });
+  if (!base.ok) return base;
+  const mapped = new Set(base.mapping.columns.map((c) => normalizeFieldName(c.header)));
+  const seen = new Set<string>();
+  for (const h of mm.ignored) {
+    if (typeof h !== "string" || !h.trim()) return { ok: false, reason: "invalid_mapping" };
+    const k = normalizeFieldName(h);
+    if (seen.has(k)) return { ok: false, reason: "duplicate_header" };
+    if (mapped.has(k)) return { ok: false, reason: "ignored_header_mapped" };
+    seen.add(k);
+  }
+  if (mapped.size + seen.size > MAX_MAPPED_COLUMNS) return { ok: false, reason: "invalid_mapping" };
+  return { ok: true, mapping: { v: 2, columns: base.mapping.columns, ignored: mm.ignored.map((h) => h.trim()) } };
 }
 
 export interface ResolvedColumns {
@@ -79,7 +111,11 @@ export function resolveColumns(header: string[], mapping: SheetMapping, idHeader
   return out;
 }
 
-export interface OwnerCustomField { id: string; name: string; created_by: string | null; created_at: string | null }
+export interface OwnerCustomField {
+  id: string; name: string; created_by: string | null; created_at: string | null;
+  /** Catalog v2 (migration google_sheets_context_field_types); absent from an older catalog. */
+  type?: string | null; required?: boolean | null; dropdown_options?: unknown; scope?: "agency" | "personal"; own?: boolean;
+}
 
 /** Logical custom-field resolution (agency-wide first, then oldest, then lowest id); built-in shadow → null. */
 export function resolveCustomFieldNames(ids: string[], fields: OwnerCustomField[]): { names: Map<string, string>; unresolved: string[] } {
@@ -105,6 +141,25 @@ export function resolveCustomFieldNames(ids: string[], fields: OwnerCustomField[
     names.set(id, [...(groups.get(key) ?? [f])].sort(rank)[0].name);
   }
   return { names, unresolved };
+}
+
+/**
+ * Type of each mapped custom field for v2 values: the type shared by EVERY visible row of its logical (normalised)
+ * name. Rows that disagree on type or Dropdown options give no type (Text: the value is kept exactly), the same
+ * rule the contact view uses before offering a typed editor.
+ */
+export function resolveCustomFieldTypes(ids: string[], fields: OwnerCustomField[]): Map<string, TypedFieldInfo> {
+  const out = new Map<string, TypedFieldInfo>();
+  const options = (f: OwnerCustomField) => (Array.isArray(f.dropdown_options) ? f.dropdown_options.filter((o): o is string => typeof o === "string") : []);
+  const sig = (f: OwnerCustomField) => JSON.stringify([f.type ?? null, f.type === "Dropdown" ? options(f) : []]);
+  for (const id of ids) {
+    const f = fields.find((x) => x.id === id);
+    if (!f) continue;
+    const group = fields.filter((x) => normalizeFieldName(x.name) === normalizeFieldName(f.name));
+    if (group.some((x) => sig(x) !== sig(f))) { out.set(id, { type: null }); continue; }
+    out.set(id, { type: f.type ?? null, options: f.type === "Dropdown" ? options(f) : null });
+  }
+  return out;
 }
 
 /** CSV importer's Full Name split: first token / rest. A single word leaves last name blank. */
@@ -163,8 +218,27 @@ export interface LeadPayload {
 }
 export interface BuiltLead { empty: boolean; valid: boolean; reason?: string; core: string[]; lead?: LeadPayload }
 
+/** v2 build options. Absent → v1 (raw trimmed values, byte-identical to the frozen engine). */
+export interface BuildOptions { version: 2; types: Map<string, TypedFieldInfo>; locale: string | null }
+
 /** Builds one lead from a sheet row with the CSV import contract. */
-export function buildLead(row: string[], cols: ResolvedColumns, customNames: Map<string, string>): BuiltLead {
+export function buildLead(row: string[], cols: ResolvedColumns, customNames: Map<string, string>, opts?: BuildOptions): BuiltLead {
+  return buildLeadDetailed(row, cols, customNames, opts).built;
+}
+
+/**
+ * The lead AND the typed value of every mapped custom column, from ONE pass. Previews read `custom` from this same
+ * call, so what a preview shows is exactly what ingest stores.
+ */
+export function buildLeadDetailed(row: string[], cols: ResolvedColumns, customNames: Map<string, string>, opts?: BuildOptions):
+  { built: BuiltLead; custom: Map<string, TypedValue> } {
+  const typed = new Map<string, TypedValue>();
+  const built = buildLeadCore(row, cols, customNames, opts, typed);
+  return { built, custom: typed };
+}
+
+function buildLeadCore(row: string[], cols: ResolvedColumns, customNames: Map<string, string>, opts: BuildOptions | undefined,
+  typed: Map<string, TypedValue>): BuiltLead {
   const get = (t: StandardTarget) => { const i = cols.std[t]; return i === undefined ? "" : (row[i] ?? "").trim(); };
   const empty = row.every((c) => !c || !c.trim());
   let first = get("first_name"), last = get("last_name");
@@ -183,7 +257,10 @@ export function buildLead(row: string[], cols: ResolvedColumns, customNames: Map
   for (const c of cols.custom) {
     const name = customNames.get(c.customFieldId);
     const v = (row[c.idx] ?? "").trim();
-    if (name && v && name !== "Full Name") custom[name] = v;
+    if (!(name && v && name !== "Full Name")) continue;
+    const t = opts ? typedValue(v, opts.types.get(c.customFieldId), opts.locale) : { value: v };
+    typed.set(c.customFieldId, t);
+    custom[name] = t.value;
   }
   const ageNum = parseInt(get("age"), 10);
   const lead: LeadPayload = {
@@ -220,6 +297,57 @@ export function rowSignature(row: string[], cols: ResolvedColumns): Promise<stri
       .map((c) => [c.customFieldId, cell(c.idx)]),
     id: cell(cols.idIdx),
   });
+}
+
+/** One mapped optional value as ingest will store it (preview). */
+export interface PreviewValue extends TypedValue { target: string }
+
+/**
+ * Stored form of every mapped optional target for a VALID row, mirroring google_sheets_ingest: state through
+ * normalize_us_state, lead source falling back to the source default, age as the stored integer, Full Name kept in
+ * custom fields, custom values typed by the same pass that built the payload. Blank values are not stored (absent).
+ */
+export function previewValues(lead: LeadPayload, cols: ResolvedColumns, typed: Map<string, TypedValue>, leadSourceDefault: string): PreviewValue[] {
+  const out: PreviewValue[] = [];
+  const add = (target: string, value: string | undefined | null) => { if (value) out.push({ target, value }); };
+  const std = cols.std;
+  if (std.full_name !== undefined) add("full_name", lead.custom_fields?.["Full Name"]);
+  if (std.email !== undefined) add("email", lead.email);
+  if (std.state !== undefined) add("state", normalizeUsState(lead.state));
+  if (std.lead_source !== undefined || leadSourceDefault) add("lead_source", lead.lead_source.trim() || leadSourceDefault);
+  if (std.age !== undefined && /^-?[0-9]{1,9}$/.test(lead.age ?? "")) add("age", lead.age);
+  if (std.date_of_birth !== undefined) add("date_of_birth", lead.date_of_birth);
+  if (std.best_time_to_call !== undefined) add("best_time_to_call", lead.best_time_to_call);
+  if (std.notes !== undefined) add("notes", lead.notes);
+  for (const c of cols.custom) {
+    const t = typed.get(c.customFieldId);
+    if (t) out.push({ target: `custom:${c.customFieldId}`, ...t });
+  }
+  return out;
+}
+
+export interface HeaderColumn { index: number; header: string; blank: boolean; duplicate: boolean; has_data: boolean }
+
+/** Every column of a header row, flagged: blank headers, duplicate (normalised) headers, and whether any data row has a value. */
+export function analyzeHeaders(header: string[], rows: string[][]): HeaderColumn[] {
+  const counts = new Map<string, number>();
+  for (const h of header) if (h.trim()) counts.set(normalizeFieldName(h), (counts.get(normalizeFieldName(h)) ?? 0) + 1);
+  const width = Math.max(header.length, ...rows.map((r) => r.length), 0);
+  return Array.from({ length: width }, (_, i) => {
+    const h = header[i] ?? "";
+    return { index: i, header: h, blank: !h.trim(), duplicate: !!h.trim() && (counts.get(normalizeFieldName(h)) ?? 0) > 1,
+             has_data: rows.some((r) => !!(r[i] ?? "").trim()) };
+  });
+}
+
+/**
+ * Non-blank, non-duplicate headers the mapping does not account for: neither mapped, nor the Lead ID column, nor
+ * (v2) an acknowledged ignored header. A v1 mapping never acknowledged anything, so every unmapped header counts.
+ */
+export function unaccountedHeaders(header: string[], mapping: SheetMapping, idHeader: string | null): string[] {
+  const known = new Set([...mapping.columns.map((c) => c.header), ...(mapping.v === 2 ? mapping.ignored : []), ...(idHeader ? [idHeader] : [])]
+    .map(normalizeFieldName));
+  return analyzeHeaders(header, []).filter((c) => !c.blank && !c.duplicate && !known.has(normalizeFieldName(c.header))).map((c) => c.header);
 }
 
 /** Display values for review lists (raw, trimmed; never used for identity). */
