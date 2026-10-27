@@ -7,10 +7,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGoogleSheets } from "@/hooks/useGoogleSheets";
 import { OAUTH_RETURN_MESSAGES } from "@/lib/google-sheets/api";
+import { mappingV2FlagOn } from "@/lib/google-sheets/mappingGate";
 import type { SheetSourceRow } from "@/lib/google-sheets/schema";
 import GoogleConnectionCard from "./GoogleConnectionCard";
 import SheetSourceList from "./SheetSourceList";
 import AddSheetDialog from "./AddSheetDialog";
+import AddSheetDialogV2, { UnavailableNotice } from "./AddSheetDialogV2";
 import SheetReviewDialog, { type ReviewOverride } from "./SheetReviewDialog";
 import SheetIdentityReviewDialog from "./SheetIdentityReviewDialog";
 
@@ -22,7 +24,7 @@ const Notice: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 /** Settings → Google Sheets. New rows in a connected tab become leads for the signed-in agent. */
 const GoogleSheetsSettings: React.FC = () => {
-  const { isImpersonating } = useAuth();
+  const { isImpersonating, realProfile } = useAuth();
   const gs = useGoogleSheets();
   const [params, setParams] = useSearchParams();
   const [editing, setEditing] = useState<SheetSourceRow | "new" | null>(null);
@@ -79,7 +81,21 @@ const GoogleSheetsSettings: React.FC = () => {
           onChanged={refresh}
         />
       )}
-      {editing && gs.identityKey && (
+      {editing && gs.identityKey && (mappingV2FlagOn() ? (
+        // Mapping v2 build: the dialog itself falls back to the legacy editor unless the server supports v2.
+        <AddSheetDialogV2
+          key={`${gs.identityKey}:v2:${editing === "new" ? "new" : editing.id}`}
+          source={editing === "new" ? null : editing}
+          context={gs.context}
+          viewer={{ id: realProfile?.id ?? null, canManageAgency: realProfile?.role === "Admin" || realProfile?.is_super_admin === true,
+                    isImpersonating, organizationId: realProfile?.organization_id ?? null }}
+          onClose={() => setEditing(null)}
+          onSaved={refresh}
+          onNeedsReview={(source, override) => { setEditing(null); setReview({ source, override }); }}
+        />
+      ) : editing !== "new" && editing.mapping?.v === 2 ? (
+        <UnavailableNotice key={`${gs.identityKey}:v2-off:${editing.id}`} onClose={() => setEditing(null)} />
+      ) : (
         <AddSheetDialog
           key={`${gs.identityKey}:${editing === "new" ? "new" : editing.id}`}
           source={editing === "new" ? null : editing}
@@ -88,7 +104,7 @@ const GoogleSheetsSettings: React.FC = () => {
           onSaved={refresh}
           onNeedsReview={(source, override) => { setEditing(null); setReview({ source, override }); }}
         />
-      )}
+      ))}
       {review && gs.identityKey && (
         <SheetReviewDialog
           key={`${gs.identityKey}:review:${review.source.id}`}

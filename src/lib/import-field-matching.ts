@@ -296,6 +296,12 @@ export type RequestedFieldNameVerdict =
   | { kind: "builtin"; builtInName: AgentFlowField }
   /** A custom field with this normalized name already exists and must be reused. */
   | { kind: "existing"; field: MappableCustomField }
+  /**
+   * An AgentFlow standard field (Address, City, ZIP Code) none of the caller's visible fields holds. Only returned when
+   * the caller passes `standardNames`: standard fields are agency-wide, so they are added for the agency (Admin) and
+   * never created as a personal copy that would block the name for everyone else.
+   */
+  | { kind: "standard"; name: string }
   /** No collision among the rows this caller can see. */
   | { kind: "available" };
 
@@ -307,6 +313,8 @@ export function classifyRequestedFieldName(
     excludeId?: string;
     /** Rows this predicate rejects are ignored (e.g. inactive fields). */
     isEligible?: (f: MappableCustomField) => boolean;
+    /** Standard field names (src/lib/standard-lead-fields.ts). Absent → behaviour is exactly as before. */
+    standardNames?: readonly string[];
   },
 ): RequestedFieldNameVerdict {
   const key = normalizeFieldName(requestedName);
@@ -326,6 +334,9 @@ export function classifyRequestedFieldName(
     const field = candidates.find((f) => f.id === representative.representativeId) ?? candidates[0];
     return { kind: "existing", field };
   }
+
+  const standard = options?.standardNames?.find((n) => normalizeFieldName(n) === key);
+  if (standard) return { kind: "standard", name: standard };
 
   return { kind: "available" };
 }

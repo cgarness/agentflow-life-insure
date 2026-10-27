@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { sheetsApi, SheetsApiError } from "@/lib/google-sheets/api";
 import { pickSpreadsheet, preparePicker, PickerError } from "@/lib/google-sheets/picker";
+import type { HeadersResult } from "@/lib/google-sheets/schema";
 import type { PickResult } from "./SheetPickStep";
+
+/** The mapping v2 dialog also receives the full `headers` response (columns, data flags, over-limit names). */
+export type PickResultWithHeaders = PickResult & { headerInfo?: HeadersResult };
 
 export interface PickTab { sheetId: number; title: string; configured: boolean }
 export interface PickedFile { id: string; name: string; tabs: PickTab[] }
@@ -43,7 +47,7 @@ export function waitForModalRelease(content: RefObject<HTMLElement | null>, time
  * for the Picker. The Picker token exists only inside `choose`; unmounting (identity change, navigation) disposes an
  * open Picker and drops every late result.
  */
-export function useSheetPick(onPicked: (p: PickResult) => void, content: RefObject<HTMLElement | null>) {
+export function useSheetPick(onPicked: (p: PickResultWithHeaders) => void, content: RefObject<HTMLElement | null>) {
   const [busy, setBusy] = useState(false);
   const [opening, setOpening] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -88,10 +92,11 @@ export function useSheetPick(onPicked: (p: PickResult) => void, content: RefObje
     if (!file) return;
     setBusy(true); setError(null);
     try {
-      const h = await sheetsApi<{ header: string[]; title: string }>("headers", { spreadsheet_id: file.id, sheet_id: t.sheetId });
+      const h = await sheetsApi<HeadersResult>("headers", { spreadsheet_id: file.id, sheet_id: t.sheetId });
       if (!alive.current) return;
       if (!h.header.some((x) => x.trim())) { setError("This tab has no header row."); return; }
-      onPicked({ spreadsheetId: file.id, spreadsheetName: file.name, sheetId: t.sheetId, sheetTitle: h.title || t.title, headers: h.header });
+      onPicked({ spreadsheetId: file.id, spreadsheetName: file.name, sheetId: t.sheetId, sheetTitle: h.title || t.title, headers: h.header,
+                 headerInfo: h });
     } catch (e) { fail(e); } finally { if (alive.current) setBusy(false); }
   };
 

@@ -9,7 +9,11 @@ import { sheetsApi, SheetsApiError } from "@/lib/google-sheets/api";
 import type { SheetSourceRow, StructuralReview } from "@/lib/google-sheets/schema";
 import { REVIEW_REASONS } from "@/lib/google-sheets/status";
 
-export interface ReviewOverride { identityMode: "source_id" | "row_position"; idHeader: string | null; columns: { header: string; target: string }[] }
+export interface ReviewOverride {
+  identityMode: "source_id" | "row_position"; idHeader: string | null; columns: { header: string; target: string }[];
+  /** Mapping v2 only: the acknowledged ignored headers of the edited mapping. */
+  ignored?: string[];
+}
 interface Props { source: SheetSourceRow; override?: ReviewOverride; onClose: () => void; onDone: () => void }
 
 const REFRESH = new Set(["review_changed", "connection_changed"]);
@@ -43,7 +47,10 @@ const SheetReviewDialog: React.FC<Props> = ({ source, override, onClose, onDone 
     source_id: source.id, expected_version: source.config_version,
     identity_mode: override?.identityMode ?? source.identity_mode,
     id_header: override ? override.idHeader : source.id_header,
-    mapping: { v: 1, columns: override?.columns ?? source.mapping.columns },
+    // Keeps the stored mapping version: a v2 mapping is never downgraded by a review (v1 payloads are unchanged).
+    mapping: override?.ignored !== undefined ? { v: 2, columns: override.columns, ignored: override.ignored }
+      : source.mapping?.v === 2 ? { ...source.mapping, columns: override?.columns ?? source.mapping.columns }
+      : { v: 1, columns: override?.columns ?? source.mapping.columns },
   }), [source, override]);
 
   const load = useCallback(async () => {

@@ -16,6 +16,10 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { PipelineStage, CustomField, LeadSource, ContactManagementSettings } from "@/lib/types";
 import { buildContactDetailFields } from "@/lib/contact-detail-fields";
 import { classifyRequestedFieldName, normalizeFieldName } from "@/lib/import-field-matching";
+import { mappingV2FlagOn } from "@/lib/google-sheets/mappingGate";
+import { provisionStandardLeadFields, STANDARD_LEAD_FIELD_NAMES } from "@/lib/standard-lead-fields";
+import StandardFieldsPanel from "@/components/settings/custom-fields/StandardFieldsPanel";
+import MakeAgencyWideDialog from "@/components/settings/custom-fields/MakeAgencyWideDialog";
 import { toast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "sonner";
 import {
@@ -28,7 +32,7 @@ import {
 import {
   GripVertical, Plus, Pencil, Trash2, X, Check, Info,
   CheckCircle2, MinusCircle, Lock, AlertTriangle,
-  Eye, EyeOff, ChevronDown, ChevronUp,
+  Eye, EyeOff, ChevronDown, ChevronUp, Users,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -445,7 +449,7 @@ const TYPE_BADGE_COLORS: Record<string, string> = {
 
 const CustomFieldsTab: React.FC = () => {
   const { organizationId } = useOrganization();
-  const { profile } = useAuth();
+  const { profile, isImpersonating } = useAuth();
   const [fields, setFields] = useState<CustomField[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -454,6 +458,10 @@ const CustomFieldsTab: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<CustomField | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deactivateTarget, setDeactivateTarget] = useState<CustomField | null>(null);
+  const [agencyWideTarget, setAgencyWideTarget] = useState<CustomField | null>(null);
+  // Standard lead fields + "Make agency-wide" ship behind the mapping v2 build flag (off: this tab is unchanged).
+  const standardOn = mappingV2FlagOn();
+  const gridCols = standardOn ? "grid-cols-[1fr_80px_120px_110px_70px_60px_90px]" : "grid-cols-[1fr_80px_120px_110px_70px_60px_70px]";
 
   // Locked ownership model — see AGENT_RULES.md §5.
   const isAdmin = profile?.role === "Admin";
@@ -471,6 +479,9 @@ const CustomFieldsTab: React.FC = () => {
     },
     [canManageAgencyFields, currentUserId]
   );
+  // Exactly today's RLS UPDATE authority: an Admin for their own personal field, a Super Admin for any in the agency.
+  const canMakeAgencyWide = (f: CustomField): boolean => standardOn && !isImpersonating && f.scope === "personal" && f.active
+    && ((isAdmin && !!currentUserId && f.createdBy === currentUserId) || isSuperAdmin);
 
   const load = useCallback(async () => {
     if (!organizationId) {
@@ -523,10 +534,33 @@ const CustomFieldsTab: React.FC = () => {
     // never disagree. `private.custom_fields_logical_name_guard()` is the authority —
     // this check only turns the common case into a precise message instead of a raw
     // database error, and it cannot see rows RLS withholds from this account.
+    const original = editingId ? fields.find((f) => f.id === editingId) : undefined;
+    const nameChanged = !original || normalizeFieldName(original.name) !== normalizeFieldName(parsed.data.name);
     const verdict = classifyRequestedFieldName(parsed.data.name, fields, {
       excludeId: editingId ?? undefined,
       isEligible: (f) => f.active !== false,
+      // Standard fields are agency-wide: never minted as a personal copy (only when the name is new here).
+      ...(standardOn && nameChanged ? { standardNames: STANDARD_LEAD_FIELD_NAMES } : {}),
     });
+
+    if (verdict.kind === "standard") {
+      if (!canManageAgencyFields || editingId) {
+        toast({
+          title: `'${verdict.name}' is a standard field`,
+          description: canManageAgencyFields ? "Add it from Standard lead fields above instead of renaming a field."
+            : "Standard fields are shared by your agency. Ask an Admin to add it.",
+          variant: "destructive",
+        });
+        return;
+      }
+      try {
+        await provisionStandardLeadFields(false);
+        toast({ title: `${verdict.name} added for your agency` });
+        setShowModal(false);
+        load();
+      } catch (e: any) { toast({ title: e.message, variant: "destructive" }); } // eslint-disable-line @typescript-eslint/no-explicit-any
+      return;
+    }
 
     if (verdict.kind === "builtin") {
       toast({
@@ -629,6 +663,8 @@ const CustomFieldsTab: React.FC = () => {
         )}
       </div>
 
+      {standardOn && canManageAgencyFields && !isImpersonating && <StandardFieldsPanel onChanged={load} />}
+
       {fields.length === 0 ? (
         <div className="bg-accent/50 rounded-xl p-8 text-center">
           <Info className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
@@ -639,7 +675,7 @@ const CustomFieldsTab: React.FC = () => {
         </div>
       ) : (
         <div className="bg-card rounded-xl border overflow-hidden">
-          <div className="grid grid-cols-[1fr_80px_120px_110px_70px_60px_70px] gap-2 px-4 py-2 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+          <div className={`grid ${gridCols} gap-2 px-4 py-2 border-b text-[11px] font-medium text-muted-foreground uppercase tracking-wide`}>
             <span>Field Name</span><span>Type</span><span>Applies To</span><span>Scope</span><span>Required</span><span>Active</span><span></span>
           </div>
           {fields.map(f => {
@@ -651,7 +687,7 @@ const CustomFieldsTab: React.FC = () => {
                 ? "Only an Admin or Super Admin can manage agency-wide fields."
                 : "Only the field's owner can manage a personal field.";
             return (
-              <div key={f.id} className={`grid grid-cols-[1fr_80px_120px_110px_70px_60px_70px] gap-2 px-4 py-3 border-b last:border-b-0 items-center ${!f.active ? "opacity-50" : ""}`}>
+              <div key={f.id} className={`grid ${gridCols} gap-2 px-4 py-3 border-b last:border-b-0 items-center ${!f.active ? "opacity-50" : ""}`}>
                 <span className="text-sm font-medium text-foreground truncate">{f.name}</span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium w-fit ${TYPE_BADGE_COLORS[f.type]}`}>{f.type}</span>
                 <span className="text-xs text-muted-foreground">{f.appliesTo.join(", ")}</span>
@@ -661,6 +697,9 @@ const CustomFieldsTab: React.FC = () => {
                 <span>{f.required ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <MinusCircle className="w-4 h-4 text-muted-foreground/30" />}</span>
                 <Switch checked={f.active} disabled={!editable} onCheckedChange={() => handleToggleActive(f)} />
                 <div className="flex gap-1">
+                  {canMakeAgencyWide(f) && (
+                    <button onClick={() => setAgencyWideTarget(f)} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground" aria-label={`Make ${f.name} agency-wide`} title="Make agency-wide"><Users className="w-3.5 h-3.5" /></button>
+                  )}
                   {editable ? (
                     <>
                       <button onClick={() => openEdit(f)} className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground" aria-label={`Edit ${f.name}`}><Pencil className="w-3.5 h-3.5" /></button>
@@ -679,6 +718,10 @@ const CustomFieldsTab: React.FC = () => {
             );
           })}
         </div>
+      )}
+
+      {agencyWideTarget && (
+        <MakeAgencyWideDialog field={agencyWideTarget} currentUserId={currentUserId} onClose={() => setAgencyWideTarget(null)} onDone={load} />
       )}
 
       {/* Add/Edit Modal */}
