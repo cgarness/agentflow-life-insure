@@ -1,3 +1,266 @@
+## 2026-10-27 — CORRECTION PLAN C (awaiting Chris's approval; nothing edited, applied or deployed): PR #498 preview validation and column overflow
+
+**Status.**
+- Reviewed head `c3c4767`. The branch equals `origin/claude/sheets-mapping-reliability-tvb445` and contains
+  `main` `f980c16` (unchanged since the PR opened), so there are no conflicts.
+- CI on `c3c4767`: all 15 GitHub Actions checks passed. Supabase Preview reports `cancelled`; that is the Supabase
+  integration, not a workflow in this repository.
+- Only this plan has been written. No code edits, no backend commands.
+- This plan needs **no schema change and no migration**. M1/M2 are untouched. The Edge changes ship in the
+  already-planned R5 deploy.
+
+### C0. Confirmed gaps (code at `c3c4767`)
+
+**A. Preview validation**
+- `AddSheetDialogV2.tsx:159-161`: Save and Enable are disabled only by `busy` and the ignored-columns
+  acknowledgement.
+  - While `PreviewStepV2` is loading, or after it failed, both buttons stay clickable. The preview state lives inside
+    `PreviewStepV2` and the dialog cannot see it.
+  - Nothing ties a successful preview to the draft that is then saved.
+- `PreviewStepV2.tsx:49,90`: header drift (`unaccounted_headers`) is shown as text, but Save still works.
+  `activate` refuses unaccounted headers (409). A Save on an active source does not.
+- `actions.ts save` (lines 230-252) never reads the sheet. A v2 mapping can be stored against headers that changed
+  after the preview. The next sync then either goes to Needs review (a mapped header is gone) or imports with
+  unacknowledged columns.
+- `review` apply has the same bypass. The v2 editor hands the edited mapping to `SheetReviewDialog` when the Lead ID
+  column changes, and `review_apply` writes it with no unaccounted-header check.
+
+**B. Column overflow**
+- `google.ts readHeaderOverflow`: reads only row 1 past column 200 and counts non-blank names.
+  - A column past GR with a blank header but data is invisible.
+  - Data in rows 2+ past GR is never seen.
+  - The grid width itself is never reported.
+- `IgnoredColumnsPanel` and the `MappingStepV2` summary say "Every column is imported" whenever `ignored` is empty.
+  That is also shown when blank-header data columns, repeated headers or columns past GR exist, none of which are
+  imported. This describes an incomplete mapping as complete.
+
+### C1. Design
+
+**Definitions (one server-side source of truth, used by the UI and by every v2 write check)**
+
+- **Supported range:** columns A–GR (the first 200) × the existing 10,000 data rows. More than 10,000 rows is
+  already blocked (`too_large`).
+- **Not-importable content** in the current sheet (new pure `notImportable()` in `mapping.ts`):
+  - `headerless`: columns inside A–GR with a blank header and data (letters);
+  - `repeated`: headers inside A–GR that appear more than once and are not mapped (names);
+  - `beyond`:
+    - `width`: the actual grid width;
+    - `checked_through`: the last column scanned;
+    - columns past GR that hold a header or any data: count, up to 50 names, and up to 50 letters of headerless
+      columns with data;
+    - `unchecked`: true when the grid is wider than the scan bound.
+- **Signature:** SHA-256 hex of a canonical JSON of the not-importable content. The full lists are hashed, not the
+  50-item display lists. Width is excluded, so adding empty grid columns does not force a new acknowledgement.
+
+**B1 — Width and content past column 200 (`google.ts`)**
+
+`readHeaderOverflow` is replaced by `readBeyondLimit`. When the grid width is ≤ 200 there is no extra request.
+Otherwise it makes one `values.get`:
+- range: `'Tab'!GS1:<last><maxDataRows + 2>`;
+- `majorDimension=COLUMNS`;
+- `<last>` = min(width, 400). New `LIMITS.beyondLimitScanColumns = 200`, so the scan is at most 200 × 10,002 cells,
+  the same bound as the main import read.
+- Google trims empty trailing cells. A sheet with nothing past GR therefore returns an empty body.
+- Grids wider than 400 columns are reported as `unchecked`: "columns past OJ weren't checked; nothing there is
+  imported". That needs the acknowledgement.
+
+It is called only by the `headers`, `preview` and v2 write actions. Sync, push and `readTab` are unchanged.
+
+**B2 — Acknowledge, block, and never claim completeness**
+
+- **Acknowledgement required** whenever any of these exist:
+  - ignored named columns (as today);
+  - not-importable content (`headerless`, `repeated`, content past GR, or `unchecked`).
+
+  One checkbox covers the whole "Not imported" list. It resets whenever the ignored set or the signature changes.
+- **Blocked (Save/Enable disabled; nothing written):**
+  - the sheet or content check could not be read (Retry);
+  - more than 10,000 rows (existing);
+  - a mapped header is missing or duplicated (existing codes);
+  - new columns that are neither mapped nor ignored (drift; see A2).
+- **Copy:**
+  - "Every column is imported" appears only when nothing is ignored and nothing is not-importable.
+  - `HeaderIssues` states the real width: "This tab is 260 columns wide. Only A–GR (the first 200) can be imported."
+    Then one of: content past GR (names and letters), "empty past GR", or "not checked past OJ".
+
+**A1 — A preview that matches the exact draft (client)**
+
+- New pure `previewKey(draft, pick)`: a stable JSON of exactly what the preview request carries:
+  - spreadsheet and tab;
+  - `mapping {v, columns, ignored}`;
+  - identity mode and Lead ID header;
+  - default lead source.
+
+  The display name, "also import existing rows" and the acknowledgement are not part of it.
+- New hook `usePreviewV2`: `idle | loading | error | ready(key, result)`.
+  - Every request carries a sequence number.
+  - A response is applied only if it is the latest request and its key equals the key of the current draft. Stale or
+    out-of-order responses are dropped.
+- New pure `saveBlockers(draft, preview)` returns the reasons Save/Enable are off:
+  - loading;
+  - failed;
+  - the preview was for another draft;
+  - columns changed;
+  - acknowledgement missing (ignored columns or not-importable content).
+- Save and Enable are disabled while there is any blocker. The reason is shown next to the button ("Checking the
+  sheet…", "Preview failed — Retry", …).
+- `saveActive` and `enable` re-check the blockers before calling the server (double-click and race guard).
+
+**A2 — Header drift (client)**
+
+- If the preview reports unaccounted headers, Save is blocked: "The sheet's columns changed since you mapped it:
+  new columns X, Y."
+- "Review columns" re-reads the headers and returns to the mapping step.
+  - New columns appear as New and default to Don't import.
+  - The acknowledgement resets.
+  - The reconcile step now also runs after a re-read of a new (not yet saved) sheet; today it runs only when editing.
+- A preview error for a missing or duplicated mapped header offers the same "Review columns" action.
+- A save refused by the server (409 `unacknowledged_columns`, 422 `header:*`, 422 `custom_field_unavailable`):
+  - invalidates the preview;
+  - shows the message;
+  - offers "Review columns".
+
+  The draft is kept.
+
+**A3 — Fresh server-side validation for every v2 mapping write (`actions.ts`)**
+
+- `readPlanned` is split. `readResolved` does the read, `too_large`, header resolution and custom-field resolution.
+  `readPlanned` = `readResolved` + `planRows`. Behaviour is identical for its current callers.
+- **`save` with a v2 mapping:** an authorized Google read through `access` + `readResolved` + `readBeyondLimit`.
+  - mapped header missing or duplicated → 422 `header:<problem>`;
+  - custom field gone → 422 `custom_field_unavailable`;
+  - any unaccounted header → 409 `unacknowledged_columns`;
+  - not-importable content present and `not_importable_ack` ≠ the fresh signature → 409 `unacknowledged_columns`.
+
+  Nothing is written on a refusal. **`save` with a v1 mapping is unchanged: no Google read** (pinned by a test).
+- **`activate` (v2):** the existing unaccounted check, plus the same signature check (`not_importable_ack` in the
+  body; the read it already does is reused).
+- **`review` apply (non-dry-run), when the submitted v2 mapping differs from the stored one** (an owner edit): the
+  same unaccounted and signature checks.
+  - `ReviewOverride` carries the ack from the editor.
+  - A structural review that keeps the stored mapping behaves exactly as today. Syncs never block on new or
+    overflow columns.
+- **Request validation:** `not_importable_ack` is either absent or `/^[0-9a-f]{64}$/` (otherwise 422
+  `invalid_request`).
+
+**Unchanged:**
+- receipts, the identity ledger, `rowSignature`, the v1 import output (the golden test still pins it), push and
+  sync;
+- OAuth scopes, `organization_id` scoping, RLS and telemetry;
+- legacy editor files;
+- `verify_jwt`.
+
+v2 `save` now makes 2–3 additional Google read requests per save. This is within the per-user quota and
+equivalent to what `activate` already does.
+
+### C2. Intended files (complete list; nothing outside it without asking)
+
+**Edge (Deno)**
+- `supabase/functions/_shared/googleSheets/config.ts`: `LIMITS.beyondLimitScanColumns`.
+- `supabase/functions/_shared/googleSheets/google.ts`: `readBeyondLimit` replaces `readHeaderOverflow`.
+- `supabase/functions/_shared/googleSheets/mapping.ts`: `notImportable()` and `notImportableSignature()`.
+- `supabase/functions/google-sheets-api/actions.ts`: `readResolved`; `headers` and `preview` return
+  `beyond_limit` / `not_importable` (+ `signature`); v2 checks in `save` / `activate` / `review` apply.
+- `supabase/functions/_shared/googleSheets/mapping.test.ts`: `notImportable` and a stable signature.
+- `supabase/functions/google-sheets-api/actions.test.ts`:
+  - widths 200 / 201 / 260 / 450 with blank and populated headers;
+  - drift, missing and duplicate mapped headers on `save`;
+  - signature required, wrong or right;
+  - v1 `save` makes no Google request;
+  - `activate`;
+  - `review` with a changed versus an unchanged mapping.
+
+**Frontend**
+- NEW `src/lib/google-sheets/previewGate.ts`: `previewKey`, `needsAcknowledgement`, `saveBlockers`.
+- NEW `src/components/settings/google-sheets/usePreviewV2.ts`: sequenced preview requests that drop stale
+  responses.
+- `src/lib/google-sheets/schema.ts`:
+  - `BeyondLimit` and `NotImportable` types;
+  - `HeadersResult.beyond_limit` replaces `over_limit` (v2-only and unreleased);
+  - `PreviewResult` additions;
+  - `sourceDraftV2Schema` gains the not-importable acknowledgement (Zod).
+- `src/lib/google-sheets/headerState.ts`: passes `beyondLimit` through.
+- `src/lib/google-sheets/api.ts`: `unacknowledged_columns` copy covers both cases.
+- `src/components/settings/google-sheets/AddSheetDialogV2.tsx`:
+  - the gate;
+  - the "Review columns" path;
+  - reconcile after a re-read;
+  - sends `not_importable_ack`.
+- NEW `src/components/settings/google-sheets/MappingDialogFooter.tsx`: only if needed to keep
+  `AddSheetDialogV2.tsx` under 200 lines.
+- `src/components/settings/google-sheets/PreviewStepV2.tsx`:
+  - presentational, driven by `usePreviewV2`;
+  - loading / failed + Retry / drift states;
+  - the not-importable section.
+- `src/components/settings/google-sheets/IgnoredColumnsPanel.tsx`: lists ignored columns plus not-importable
+  content under one acknowledgement; never says "Every column is imported" when anything is outside.
+- `src/components/settings/google-sheets/HeaderIssues.tsx`: actual width; content past GR / empty / not checked.
+- `src/components/settings/google-sheets/MappingStepV2.tsx`: an honest summary line.
+- `src/components/settings/google-sheets/SheetReviewDialog.tsx`: `ReviewOverride.notImportableAck` is sent as
+  `not_importable_ack`. v1 payloads are unchanged.
+
+**Tests and harnesses**
+- `src/lib/google-sheets/__tests__/mappingV2.test.ts`: `previewKey` stability, the `saveBlockers` matrix, and the
+  schema acknowledgement.
+- `src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx`:
+  - Save/Enable disabled while the preview loads and after it fails;
+  - Retry;
+  - a stale response arriving after a newer one is ignored;
+  - drift → "Review columns" → re-read → acknowledgement;
+  - server 409 / 422 on save → preview invalidated;
+  - an active-source edit, including the Lead ID change → review override carrying the ack;
+  - width 200 shows no warning; 201 with a blank header and data needs the acknowledgement; 450 shows "not checked".
+- `scripts/google_sheets_e2e.ts`, new scenario 9: real actions through PostgREST, with Google ranges faked
+  faithfully (incl. `COLUMNS` reads past GR).
+  - An active v2 source edit against a sheet that changed after the preview is refused: mapping,
+    `config_version`, receipts and leads are unchanged. The corrected save succeeds, and the next sync imports only
+    new rows (no duplicates).
+  - A 260-column tab with headerless data in GS and a header in GT:
+    - the preview reports it;
+    - a save without, or with a wrong, acknowledgement is refused;
+    - a save with it is accepted;
+    - activate is gated the same way;
+    - the sync imports A–GR values only, with no duplicates and no receipt changes on the refused attempts.
+- `scripts/tests/google-sheets-ui/verify.mjs` (v2 run): Enable stays disabled while a delayed preview loads, and the
+  past-GR warning is readable at 390 px.
+
+**Docs**
+- `AGENT_RULES.md`: mapping v2 invariant bullets (preview gate, fresh v2 write validation, not-importable signature,
+  scan bound).
+- `WORK_LOG.md`.
+- This file: the implementation record.
+- `docs/plans/2026-10-27-sheets-mapping-reliability/release.md`: R5/R6 checks for the save refusal and the wide-sheet
+  warning.
+- `docs/plans/2026-10-27-sheets-mapping-reliability/verification.md`.
+
+**Not changed:**
+- the migrations, SQL suites and ops files;
+- `readTab`;
+- the push/sync engine;
+- the legacy editor;
+- `.github/workflows/google-sheets.yml` (its paths already cover every file above).
+
+### C3. Verification
+- `npx tsc --noEmit`.
+- Focused Vitest (CI list), then full Vitest compared with `main`.
+- ESLint on the CI list.
+- `npm run build`.
+- `git diff --check`.
+- Deno tests (the CI set) and `deno check` of the six entry points.
+- The full SQL / PostgREST / e2e runner, including the new scenario 9, plus push e2e (which must stay unchanged).
+- The browser harness: legacy, flag-on legacy fallback, and v2 at 1440 / 390 px.
+- After push: CI on the new head. I will report its exact SHA and the final status of every check.
+
+### C4. Approval requested
+Approve correction plan C and the C2 file list for **local implementation, tests, docs and push to the PR branch
+only**. Unchanged and still requiring separate approval:
+- merging (R2);
+- applying migrations;
+- deploying Edge Functions;
+- any production data or field-ownership change.
+
+---
+
 ## 2026-10-27 — IMPLEMENTED (draft PR; NOT merged; M1/M2 NOT applied; Edge NOT deployed; flag unset): Google Sheets mapping reliability — implementation record for Amendment A
 
 **Status.** Amendment A and the A7 file list were approved for local implementation. Everything below is on
