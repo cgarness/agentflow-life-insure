@@ -5,7 +5,8 @@ import { mappingV2Active, mappingV2FlagOn, serverSupportsMappingV2 } from "../ma
 import { buildFieldCatalog, searchCatalog, unmappedRequiredFields } from "../fieldCatalog";
 import { autoMap, autoMapV2 } from "../autoMap";
 import { applyColumnChoice, buildHeaderState, dropMissing, headerColumns, IGNORE_TARGET, reconcileIgnored } from "../headerState";
-import { sourceDraftV2Schema, STANDARD_FIELDS, toPayloadV2, type CatalogField, type SourceDraftV2 } from "../schema";
+import { sourceDraftV2Schema, STANDARD_FIELDS, toPayloadV2, type CatalogField, type NotImportable, type PreviewResult, type SourceDraftV2 } from "../schema";
+import { acknowledgementToken, isColumnsError, notImportableLines, previewKey, previewRequest, saveBlockers, type PreviewState } from "../previewGate";
 import { STANDARD_LEAD_FIELDS } from "@/lib/standard-lead-fields";
 import { STANDARD_TARGETS, validateMapping } from "../../../../supabase/functions/_shared/googleSheets/mapping";
 
@@ -96,18 +97,19 @@ describe("auto-detection v2 (the CSV mapper is unchanged)", () => {
 
 describe("header state and draft helpers", () => {
   const headers = { header: ["First", "Last", "Phone", "", "Phone ", "Address", "City"], columns: undefined as never,
-    over_limit: { count: 2, headers: ["Spouse", "Policy"] } };
+    beyond_limit: { width: 260, checked_through: 260, unchecked: false, columns: [{ letter: "GS", header: "Spouse", has_data: true }, { letter: "GU", header: "", has_data: true }] } };
   it("lists blank-with-data, duplicate, new and missing columns; derives flags for an older server", () => {
     const cols = headerColumns({ header: headers.header });
     expect(cols.map((c) => [c.letter, c.blank, c.duplicate])).toEqual([["A", false, false], ["B", false, false], ["C", false, true], ["D", true, false],
       ["E", false, true], ["F", false, false], ["G", false, false]]);
-    const v2 = { header: headers.header, over_limit: headers.over_limit, columns: cols.map((c) => ({ ...c, has_data: c.index === 3 })) };
+    const v2 = { header: headers.header, beyond_limit: headers.beyond_limit, columns: cols.map((c) => ({ ...c, has_data: c.index === 3 })) };
     const s = buildHeaderState(v2, { columns: [{ header: "First", target: "first_name" }, { header: "Gone", target: "notes" }], ignored: ["Address"] },
       [{ header: "Phone", target: "phone" }]);
     expect(s.columns.map((c) => `${c.letter}:${c.status}`)).toEqual(["A:ready", "B:new", "C:duplicate", "D:blank_data", "E:duplicate", "F:ready", "G:new"]);
     expect(s.missing).toEqual([{ header: "Gone", target: "notes" }]);
     expect(s.duplicatedMapped).toEqual(["Phone"]);
-    expect(s.overLimit.count).toBe(2);
+    expect(s.beyondLimit?.columns.map((c) => c.letter)).toEqual(["GS", "GU"]);
+    expect(buildHeaderState({ header: ["A"] }, null, []).beyondLimit).toBeNull();
     expect(s.mappableHeaders).toEqual(["First", "Last", "Address", "City"]);
   });
 
@@ -140,6 +142,11 @@ describe("header state and draft helpers", () => {
     expect(msg({ columns: [...ok.columns, { header: "Gone", target: "notes" }] })[0]).toMatch(/"Gone" is no longer in the sheet/);
     expect(msg({ columns: [{ header: "Name", target: "full_name" }] })).toContain("Map a Phone column");
     expect(msg({ ignored: ["Address", "Phone"] })).toContain("A column can't be both imported and ignored");
+    // content no mapping can import (from the preview) needs the acknowledgement even when nothing is ignored
+    const allMapped = { ...ok, columns: [...ok.columns, { header: "Address", target: "notes" }], ignored: [], acknowledged: false };
+    expect(sourceDraftV2Schema(sheet).safeParse(allMapped).success).toBe(true);
+    expect(sourceDraftV2Schema(sheet, { notImportable: true }).safeParse(allMapped).success).toBe(false);
+    expect(sourceDraftV2Schema(sheet, { notImportable: true }).safeParse({ ...allMapped, acknowledged: true }).success).toBe(true);
   });
 });
 
@@ -154,5 +161,55 @@ describe("frontend ↔ backend contract parity", () => {
     const sql = readFileSync(resolve(__dirname, "../../../../supabase/migrations/pending/20261028120100_standard_lead_fields.sql"), "utf8");
     const rows = [...sql.matchAll(/\('(\w+)', '([^']+)', '(\w+)', '\["Leads"\]'::jsonb\)/g)].map((m) => ({ key: m[1], name: m[2], type: m[3] }));
     expect(rows).toEqual(STANDARD_LEAD_FIELDS.map((s) => ({ key: s.key, name: s.name, type: s.type })));
+  });
+});
+
+describe("preview gate (Save / Enable only on a successful preview of exactly this draft)", () => {
+  const pick = { spreadsheetId: "S1", sheetId: 0, spreadsheetName: "FB", sheetTitle: "Leads" };
+  const draft: SourceDraftV2 = { displayName: "FB", leadSourceDefault: "Google Sheets", idHeader: null, includeExisting: false,
+    columns: [{ header: "Name", target: "full_name" }, { header: "Phone", target: "phone" }], ignored: ["Notes"], acknowledged: true };
+  const NI = (o: Partial<NotImportable> = {}): NotImportable => ({ headerless: [], repeated: [], signature: null,
+    beyond: { width: 10, checked_through: 10, headers: [], headerless: [], unchecked: false }, ...o });
+  const data = (o: Partial<PreviewResult> = {}) => ({ title: "Leads", total_rows: 1, valid_rows: 1, invalid_rows: 0, imported_before: 0,
+    duplicate_action: "flag", has_lead_created_workflows: false, rows: [], unaccounted_headers: [], not_importable: NI(), ...o }) as PreviewResult;
+  const key = previewKey(draft, pick);
+  const ready = (o: Partial<PreviewResult> = {}, k = key): PreviewState => ({ status: "ready", key: k, data: data(o) });
+
+  it("the key is the exact request: mapping, identity and lead source change it; name, existing rows and the acknowledgement do not", () => {
+    expect(JSON.parse(key)).toEqual(previewRequest(draft, pick));
+    expect(previewRequest(draft, pick)).toEqual({ spreadsheet_id: "S1", sheet_id: 0, identity_mode: "row_position", id_header: null,
+      lead_source_default: "Google Sheets", mapping: { v: 2, columns: draft.columns, ignored: ["Notes"] } });
+    for (const same of [{ displayName: "Other" }, { includeExisting: true }, { acknowledged: false }]) expect(previewKey({ ...draft, ...same }, pick)).toBe(key);
+    for (const other of [{ ignored: [] }, { idHeader: "Notes" }, { leadSourceDefault: "Facebook" }, { columns: draft.columns.slice(1) }]) {
+      expect(previewKey({ ...draft, ...other }, pick)).not.toBe(key);
+    }
+    expect(previewKey(draft, { ...pick, sheetId: 7 })).not.toBe(key);
+  });
+
+  it("blocks while loading, after a failure, on a stale preview, on changed columns and without the acknowledgement", () => {
+    expect(saveBlockers(draft, key, { status: "idle" })).toEqual(["loading"]);
+    expect(saveBlockers(draft, key, { status: "loading", key })).toEqual(["loading"]);
+    expect(saveBlockers(draft, key, { status: "error", key, message: "x", code: "google_error" })).toEqual(["failed"]);
+    expect(saveBlockers(draft, key, ready({}, "other-draft"))).toEqual(["stale"]);
+    expect(saveBlockers(draft, key, ready({ unaccounted_headers: ["Added"] }))).toEqual(["columns_changed"]);
+    expect(saveBlockers({ ...draft, acknowledged: false }, key, ready())).toEqual(["acknowledge"]);
+    expect(saveBlockers(draft, key, ready())).toEqual([]);
+    const outside = ready({ not_importable: NI({ headerless: ["G"], signature: "a".repeat(64) }) });
+    const noIgnored = { ...draft, columns: [...draft.columns, { header: "Notes", target: "notes" }], ignored: [], acknowledged: false };
+    expect(saveBlockers(noIgnored, previewKey(noIgnored, pick), { ...outside, key: previewKey(noIgnored, pick) } as PreviewState)).toEqual(["acknowledge"]);
+    expect(acknowledgementToken(outside)).toBe("a".repeat(64));
+    expect([acknowledgementToken(ready()), acknowledgementToken({ status: "loading", key })]).toEqual([undefined, undefined]);
+  });
+
+  it("column errors lead to Review columns; not-importable content is described with labels and letters only", () => {
+    expect(["unacknowledged_columns", "header:missing:Zip", "custom_field_unavailable"].map(isColumnsError)).toEqual([true, true, true]);
+    expect(["google_error", "inspection_incomplete", null].map(isColumnsError)).toEqual([false, false, false]);
+    expect(notImportableLines(NI({ headerless: ["G"], repeated: ["Notes"], signature: "x",
+      beyond: { width: 450, checked_through: 400, headers: ["Spouse"], headerless: ["GU"], unchecked: true } }))).toEqual([
+      "Data in columns without a header: G.",
+      "Repeated headers (only unique headers can be imported): Notes.",
+      "Past column GR, the 200-column limit: Spouse, column GU (no header).",
+      "This tab is 450 columns wide. Columns past OJ weren't checked; nothing there is imported.",
+    ]);
   });
 });

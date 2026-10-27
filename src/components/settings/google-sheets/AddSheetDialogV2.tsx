@@ -8,13 +8,16 @@ import { autoMapV2 } from "@/lib/google-sheets/autoMap";
 import { buildFieldCatalog } from "@/lib/google-sheets/fieldCatalog";
 import { buildHeaderState, reconcileIgnored } from "@/lib/google-sheets/headerState";
 import { serverSupportsMappingV2 } from "@/lib/google-sheets/mappingGate";
+import { acknowledgementToken, isColumnsError, needsAcknowledgement, saveBlockers } from "@/lib/google-sheets/previewGate";
 import { sourceDraftV2Schema, toPayloadV2, type SheetSourceRow, type SheetsContext, type SourceDraftV2 } from "@/lib/google-sheets/schema";
 import AddSheetDialog from "./AddSheetDialog";
 import type { CreateFieldViewer } from "./CreateCustomFieldForm";
 import MappingStepV2, { type CatalogState } from "./MappingStepV2";
 import PreviewStepV2 from "./PreviewStepV2";
+import MappingDialogFooter from "./MappingDialogFooter";
 import type { ReviewOverride } from "./SheetReviewDialog";
 import SheetPickStep from "./SheetPickStep";
+import { usePreviewV2 } from "./usePreviewV2";
 import { useSheetHeaders } from "./useSheetHeaders";
 import { useSheetPick, type PickResultWithHeaders } from "./useSheetPick";
 
@@ -66,7 +69,9 @@ const MappingDialogV2: React.FC<Props> = ({ source, context, viewer, onClose, on
   const [saved, setSaved] = useState<{ id: string; version: number } | null>(source ? { id: source.id, version: source.config_version } : null);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [driftSeen, setDriftSeen] = useState<string[]>([]);
   const autoMapPending = useRef(false);
+  const lastSignature = useRef<string | null | undefined>(undefined);
   const contentRef = useRef<HTMLDivElement>(null);
   const headersApi = useSheetHeaders(pick ? { spreadsheetId: pick.spreadsheetId, sheetId: pick.sheetId } : null, pick?.headerInfo);
   const headers = headersApi.state;
@@ -78,6 +83,18 @@ const MappingDialogV2: React.FC<Props> = ({ source, context, viewer, onClose, on
   const savedMapping = source ? { columns: source.mapping?.columns ?? [], ignored: source.mapping?.v === 2 ? source.mapping.ignored : undefined } : null;
   const hs = headers.status === "ready" ? buildHeaderState(headers.data, savedMapping, draft.columns) : null;
   const mappable = hs?.mappableHeaders ?? [];
+  // Save / Enable need a successful preview of exactly this draft, unchanged columns and the acknowledgement.
+  const preview = usePreviewV2(pick, draft, step === "preview");
+  const blockers = saveBlockers(draft, preview.key, preview.state);
+  const ackToken = acknowledgementToken(preview.state);
+  const outsideNeedsAck = preview.state.status === "ready" && needsAcknowledgement(preview.state.data.not_importable);
+  // What can't be imported changed since the owner confirmed it: confirm again.
+  useEffect(() => {
+    if (preview.state.status !== "ready") return;
+    const sig = preview.state.data.not_importable?.signature ?? null;
+    if (lastSignature.current !== undefined && lastSignature.current !== sig) setDraft((d) => ({ ...d, acknowledged: false }));
+    lastSignature.current = sig;
+  }, [preview.state]);
 
   // Auto-detect only on a fresh pick, once the catalog is ready; then every other column is listed as not imported.
   useEffect(() => {
@@ -86,8 +103,14 @@ const MappingDialogV2: React.FC<Props> = ({ source, context, viewer, onClose, on
     const auto = autoMapV2(headers.data.header, fc, catalog.context.custom_fields);
     setDraft((d) => reconcileIgnored({ ...d, ...auto }, buildHeaderState(headers.data, null, auto.columns).mappableHeaders));
   }, [fc, headers, catalog]);
-  // Editing: once the current columns are known, unmapped columns become explicit "not imported" entries.
-  useEffect(() => { if (source && hs) setDraft((d) => reconcileIgnored(d, hs.mappableHeaders)); }, [headers]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Whenever the current columns are (re)read — editing, or "Review columns" after the sheet changed — unmapped columns
+  // become explicit "not imported" entries (a fresh pick waits for auto-detection above).
+  useEffect(() => { if (hs && !autoMapPending.current) setDraft((d) => reconcileIgnored(d, hs.mappableHeaders)); }, [headers]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reviewColumns = () => {
+    const changed = preview.state.status === "ready" ? preview.state.data.unaccounted_headers ?? [] : [];
+    setDriftSeen((d) => Array.from(new Set([...d, ...changed])));
+    setErrors([]); setStep("map"); void headersApi.retry();
+  };
 
   const onPicked = (p: PickResultWithHeaders) => {
     autoMapPending.current = true;
@@ -98,7 +121,7 @@ const MappingDialogV2: React.FC<Props> = ({ source, context, viewer, onClose, on
   const sheetPick = useSheetPick(onPicked, contentRef);
 
   const validate = (needAck: boolean): boolean => {
-    const r = sourceDraftV2Schema(mappable).safeParse(draft);
+    const r = sourceDraftV2Schema(mappable, { notImportable: outsideNeedsAck }).safeParse(draft);
     const issues = r.success ? [] : r.error.issues.filter((i) => needAck || i.path[0] !== "acknowledged").map((i) => i.message);
     if (hs?.duplicatedMapped.length) issues.unshift(`Rename the repeated column in Google Sheets: ${hs.duplicatedMapped.join(", ")}`);
     setErrors(issues);
@@ -109,19 +132,22 @@ const MappingDialogV2: React.FC<Props> = ({ source, context, viewer, onClose, on
     try { await fn(); } catch (e) {
       setErrors([e instanceof SheetsApiError ? (e.code.startsWith("header:duplicate") ? "A mapped column appears more than once in the sheet." : e.message)
         : "Couldn't save. Your changes are kept."]);
+      // The sheet no longer matches what was previewed: show it as it is now (nothing was written).
+      if (e instanceof SheetsApiError && (isColumnsError(e.code) || e.code === "inspection_incomplete")) void preview.retry();
     } finally { setBusy(false); }
   };
   const save = async () => {
     const res = await sheetsApi<{ source_id: string; config_version: number }>("save", {
-      source_id: saved?.id ?? null, expected_version: saved?.version ?? null, payload: toPayloadV2(draft, pick!) });
+      source_id: saved?.id ?? null, expected_version: saved?.version ?? null, payload: toPayloadV2(draft, pick!), not_importable_ack: ackToken });
     const next = { id: res.source_id, version: res.config_version };
     setSaved(next);
     return next;
   };
   const saveActive = () => run(async () => {
-    if (!validate(true) || !source) return;
+    if (blockers.length || !validate(true) || !source) return;
     if ((draft.idHeader ?? null) !== (source.identity_mode === "source_id" ? source.id_header : null)) {
-      onNeedsReview(source, { identityMode: draft.idHeader ? "source_id" : "row_position", idHeader: draft.idHeader, columns: draft.columns, ignored: draft.ignored });
+      onNeedsReview(source, { identityMode: draft.idHeader ? "source_id" : "row_position", idHeader: draft.idHeader, columns: draft.columns,
+        ignored: draft.ignored, notImportableAck: ackToken });
       return;
     }
     await save();
@@ -129,9 +155,9 @@ const MappingDialogV2: React.FC<Props> = ({ source, context, viewer, onClose, on
     onSaved(); onClose();
   });
   const enable = () => run(async () => {
-    if (!validate(true)) return;
+    if (blockers.length || !validate(true)) return;
     const s = await save();
-    const r = await sheetsApi<{ outcome: string }>("activate", { source_id: s.id, expected_version: s.version });
+    const r = await sheetsApi<{ outcome: string }>("activate", { source_id: s.id, expected_version: s.version, not_importable_ack: ackToken });
     toast.success(r.outcome === "already_active" ? "Already enabled" : draft.includeExisting ? "Enabled · importing existing rows" : "Enabled · watching for new rows");
     onSaved(); onClose();
   });
@@ -148,18 +174,15 @@ const MappingDialogV2: React.FC<Props> = ({ source, context, viewer, onClose, on
         )}
         {step === "preview" && pick && fc && (
           <>
-            <PreviewStepV2 pick={pick} draft={draft} onChange={setDraft} showExisting={!active} catalog={fc}
-              newColumns={hs?.columns.filter((c) => c.status === "new").map((c) => c.header) ?? []} />
+            <PreviewStepV2 preview={preview.state} draft={draft} onChange={setDraft} showExisting={!active} catalog={fc}
+              newColumns={[...(hs?.columns.filter((c) => c.status === "new").map((c) => c.header) ?? []), ...driftSeen]}
+              onRetry={() => void preview.retry()} onReviewColumns={reviewColumns} />
             {errors.length > 0 && <p className="text-xs text-destructive" role="alert">{errors[0]}</p>}
           </>
         )}
-        <DialogFooter className="gap-2">
-          {step === "preview" && <Button variant="outline" size="sm" onClick={() => { setErrors([]); setStep("map"); }} disabled={busy}>Back</Button>}
-          {step === "map" && <Button size="sm" onClick={() => { if (validate(false)) setStep("preview"); }} disabled={busy || !hs || !fc}>Preview</Button>}
-          {step === "preview" && (active
-            ? <Button size="sm" onClick={saveActive} disabled={busy || (draft.ignored.length > 0 && !draft.acknowledged)}>Save</Button>
-            : <Button size="sm" onClick={enable} disabled={busy || (draft.ignored.length > 0 && !draft.acknowledged)}>Enable</Button>)}
-        </DialogFooter>
+        <MappingDialogFooter step={step} active={active} busy={busy} canPreview={!!hs && !!fc} blockers={blockers}
+          onBack={() => { setErrors([]); setStep("map"); }} onPreview={() => { if (validate(false)) setStep("preview"); }}
+          onSave={active ? saveActive : enable} />
       </DialogContent>
     </Dialog>
   );

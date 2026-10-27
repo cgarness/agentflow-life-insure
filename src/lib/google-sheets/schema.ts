@@ -99,11 +99,25 @@ export interface PreviewResult {
   rows: { row: number; first_name: string; last_name: string; phone: string; email: string; outcome: string; reason: string | null;
           fields?: PreviewField[] }[];
   mapping_version?: number; locale?: string | null; ignored?: string[]; unaccounted_headers?: string[]; header_issues?: HeaderColumn[];
+  /** Mapping v2 previews: the columns past A–GR as read now, and what no mapping can import (with its acknowledgement token). */
+  beyond_limit?: BeyondLimit; not_importable?: NotImportable;
+}
+/** Columns past the import limit (A–GR): the real width and which scanned columns hold a header or data. Labels only. */
+export interface BeyondLimit { width: number; checked_through: number; columns: { letter: string; header: string; has_data: boolean }[]; unchecked: boolean }
+/**
+ * Sheet content no mapping can import, as the server read it for a preview: headerless data columns and repeated
+ * headers (A–GR), headers / headerless data past GR, and columns too far out to check. `signature` acknowledges
+ * exactly this content (null: nothing to acknowledge).
+ */
+export interface NotImportable {
+  headerless: string[]; repeated: string[];
+  beyond: { width: number; checked_through: number; headers: string[]; headerless: string[]; unchecked: boolean };
+  signature: string | null;
 }
 /** `headers` action. The keys after `sample` come from servers with mapping v2 support. */
 export interface HeadersResult {
   title: string; spreadsheet_name: string; header: string[]; row_count: number; overflow: boolean; sample: string[][];
-  locale?: string | null; column_count?: number; columns?: HeaderColumn[]; over_limit?: { count: number; headers: string[] };
+  locale?: string | null; column_count?: number; columns?: HeaderColumn[]; beyond_limit?: BeyondLimit;
 }
 
 /** Structural / identity-change review preview: established by Lead ID, matched by content only, unmatched. */
@@ -134,15 +148,16 @@ export type SheetMappingJson = { v: 1; columns: MappingColumn[] } | { v: 2; colu
 export interface SourceDraftV2 extends SourceDraft {
   /** Headers the owner chose not to import. Stored with the mapping so a later edit can tell new columns apart. */
   ignored: string[];
-  /** The owner confirmed the ignored columns will not be imported. */
+  /** The owner confirmed that the ignored columns, and any content no mapping can import, will not be imported. */
   acknowledged: boolean;
 }
 
 /**
  * Mapping v2 form (Zod). On top of the v1 rules: every importable column of the CURRENT sheet is mapped, ignored or
- * the Lead ID column; mapped headers must exist in the sheet; ignoring anything needs the acknowledgement.
+ * the Lead ID column; mapped headers must exist in the sheet; ignoring anything, or content no mapping can import
+ * (`notImportable`, from the preview), needs the acknowledgement.
  */
-export function sourceDraftV2Schema(sheetHeaders: readonly string[]) {
+export function sourceDraftV2Schema(sheetHeaders: readonly string[], opts: { notImportable?: boolean } = {}) {
   const norm = (h: string) => h.trim().replace(/\s+/g, " ").toLowerCase();
   const present = new Set(sheetHeaders.map(norm));
   return z.object({
@@ -171,7 +186,7 @@ export function sourceDraftV2Schema(sheetHeaders: readonly string[]) {
     }
     const open = sheetHeaders.filter((h) => h.trim() && !accounted.has(norm(h)));
     if (open.length) ctx.addIssue({ code: "custom", message: `Choose a field or "Don't import" for: ${open.slice(0, 3).join(", ")}${open.length > 3 ? "…" : ""}`, path: ["columns"] });
-    if (d.ignored.length > 0 && !d.acknowledged) {
+    if ((d.ignored.length > 0 || opts.notImportable) && !d.acknowledged) {
       ctx.addIssue({ code: "custom", message: "Confirm the columns that won't be imported", path: ["acknowledged"] });
     }
   });

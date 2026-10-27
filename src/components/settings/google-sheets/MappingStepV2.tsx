@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buildFieldCatalog, unmappedRequiredFields } from "@/lib/google-sheets/fieldCatalog";
-import { applyColumnChoice, buildHeaderState, dropMissing, IGNORE_TARGET, reconcileIgnored } from "@/lib/google-sheets/headerState";
+import { applyColumnChoice, buildHeaderState, dropMissing, IGNORE_TARGET, reconcileIgnored, type HeaderState } from "@/lib/google-sheets/headerState";
 import type { CatalogField, SheetsContext, SourceDraftV2 } from "@/lib/google-sheets/schema";
 import CreateCustomFieldForm, { type CreateFieldViewer } from "./CreateCustomFieldForm";
 import HeaderIssues from "./HeaderIssues";
@@ -14,6 +14,16 @@ import MappingColumnRow from "./MappingColumnRow";
 import type { HeadersState } from "./useSheetHeaders";
 
 const NONE = "__none__";
+
+/** Never "Every column is imported" while anything — ignored, headerless, repeated or past GR — is left out. */
+function summary(ignored: number, hs: HeaderState): string {
+  const b = hs.beyondLimit;
+  const outside = hs.columns.filter((c) => c.status === "blank_data" || c.status === "duplicate").length + (b ? b.columns.length : 0);
+  const unchecked = !!b?.unchecked;
+  if (!ignored && !outside && !unchecked) return "Every column is imported.";
+  const n = ignored + outside;
+  return `${n ? `${n} column${n === 1 ? "" : "s"} won't be imported` : "Some columns may not be imported"}${unchecked ? " (columns past the checked range included)" : ""} — you'll confirm on the next step.`;
+}
 export type CatalogState = { status: "loading" } | { status: "error" } | { status: "ready"; context: SheetsContext };
 
 interface Props {
@@ -108,7 +118,7 @@ const MappingStepV2: React.FC<Props> = ({ draft, onChange, headers, onRetryHeade
         ))}
       </div>
       <p className="text-xs text-muted-foreground">
-        {draft.ignored.length ? `${draft.ignored.length} column${draft.ignored.length === 1 ? "" : "s"} won't be imported — you'll confirm on the next step.` : "Every column is imported."}
+        {summary(draft.ignored.length, hs)}
       </p>
       {required.length > 0 && <p className="text-xs text-amber-600 dark:text-amber-400">Required fields not in this sheet: {required.join(", ")}. Leads will import without them.</p>}
       {errors.length > 0 && <p className="text-xs text-destructive" role="alert">{errors[0]}</p>}

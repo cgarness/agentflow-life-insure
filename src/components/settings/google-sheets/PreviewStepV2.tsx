@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { sheetsApi, SheetsApiError } from "@/lib/google-sheets/api";
 import type { FieldCatalog } from "@/lib/google-sheets/fieldCatalog";
-import { STANDARD_FIELDS, toPayloadV2, type PreviewResult, type SourceDraftV2 } from "@/lib/google-sheets/schema";
+import { isColumnsError, type PreviewState } from "@/lib/google-sheets/previewGate";
+import { STANDARD_FIELDS, type SourceDraftV2 } from "@/lib/google-sheets/schema";
 import IgnoredColumnsPanel from "./IgnoredColumnsPanel";
-import type { PickResult } from "./SheetPickStep";
 
 const OUTCOME: Record<string, string> = {
   import: "Ready", invalid: "Needs fixes", duplicate_flag: "Duplicate · flagged", duplicate_skip: "Duplicate · skipped", duplicate_import: "Duplicate",
@@ -16,37 +16,36 @@ const LABELS = new Map<string, string>(STANDARD_FIELDS.map((f) => [f.key, f.labe
 const CORE = new Set(["first_name", "last_name", "phone"]);
 
 interface Props {
-  pick: PickResult; draft: SourceDraftV2; onChange: (d: SourceDraftV2) => void; showExisting: boolean;
-  catalog: FieldCatalog; newColumns: string[];
+  preview: PreviewState; draft: SourceDraftV2; onChange: (d: SourceDraftV2) => void; showExisting: boolean;
+  catalog: FieldCatalog; newColumns: string[]; onRetry: () => void; onReviewColumns: () => void;
 }
 
 /**
- * Read-only v2 preview (creates nothing). Every mapped optional field is shown exactly as it will be STORED — the
- * values come from the server's own import pass — then the ignored columns need the owner's confirmation.
+ * Read-only v2 preview (creates nothing; the dialog owns the request). Every mapped optional field is shown exactly
+ * as it will be STORED — the values come from the server's own import pass — then everything that won't be imported
+ * needs the owner's confirmation. A sheet whose columns changed must be reviewed before anything can be saved.
  */
-const PreviewStepV2: React.FC<Props> = ({ pick, draft, onChange, showExisting, catalog, newColumns }) => {
-  const [data, setData] = useState<PreviewResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let current = true;
-    setData(null); setError(null);
-    const p = toPayloadV2(draft, pick);
-    sheetsApi<PreviewResult>("preview", { spreadsheet_id: p.spreadsheet_id, sheet_id: p.sheet_id, mapping: p.mapping,
-      identity_mode: p.identity_mode, id_header: p.id_header, lead_source_default: p.lead_source_default })
-      .then((r) => { if (current) setData(r); })
-      .catch((e) => { if (current) setError(e instanceof SheetsApiError ? e.message : "Couldn't load a preview."); });
-    return () => { current = false; };
-    // includeExisting and the acknowledgement do not change the preview read.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pick.spreadsheetId, pick.sheetId, JSON.stringify(draft.columns), JSON.stringify(draft.ignored), draft.idHeader, draft.leadSourceDefault]);
-
-  if (error) return <p className="text-xs text-destructive" role="alert">{error}</p>;
-  if (!data) return <Skeleton className="h-32 w-full" />;
+const PreviewStepV2: React.FC<Props> = ({ preview, draft, onChange, showExisting, catalog, newColumns, onRetry, onReviewColumns }) => {
+  if (preview.status === "error") {
+    return (
+      <div className="space-y-2" role="alert">
+        <p className="text-xs text-destructive">{preview.message}</p>
+        <div className="flex gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={onRetry}>Retry</Button>
+          {isColumnsError(preview.code) && <Button type="button" size="sm" variant="outline" onClick={onReviewColumns}>Review columns</Button>}
+        </div>
+      </div>
+    );
+  }
+  if (preview.status !== "ready") {
+    return <div className="space-y-2" aria-busy="true"><p className="text-xs text-muted-foreground">Checking the sheet…</p><Skeleton className="h-32 w-full" /></div>;
+  }
+  const data = preview.data;
   const optional = [...draft.columns.filter((c) => !CORE.has(c.target)).map((c) => ({ target: c.target, header: c.header })),
     ...(draft.columns.some((c) => c.target === "lead_source") ? [] : [{ target: "lead_source", header: "(default)" }])];
   const label = (t: string) => LABELS.get(t) ?? catalog.byValue.get(t)?.label ?? "Removed field";
   const existing = Math.max(0, data.valid_rows - data.imported_before);
-  const drift = (data.unaccounted_headers ?? []).filter((h) => !draft.ignored.includes(h));
+  const drift = data.unaccounted_headers ?? [];
 
   return (
     <div className="space-y-3">
@@ -87,8 +86,13 @@ const PreviewStepV2: React.FC<Props> = ({ pick, draft, onChange, showExisting, c
           </tbody>
         </table>
       </div>
-      {drift.length > 0 && <p className="text-xs text-destructive" role="alert">The sheet changed: new columns {drift.join(", ")}. Go back to map them.</p>}
-      <IgnoredColumnsPanel ignored={draft.ignored} newColumns={newColumns} acknowledged={draft.acknowledged}
+      {drift.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" role="alert">
+          <p className="text-xs text-destructive">The sheet's columns changed since you mapped it: new columns {drift.join(", ")}. Review them before saving.</p>
+          <Button type="button" size="sm" variant="outline" onClick={onReviewColumns}>Review columns</Button>
+        </div>
+      )}
+      <IgnoredColumnsPanel ignored={draft.ignored} newColumns={newColumns} notImportable={data.not_importable} acknowledged={draft.acknowledged}
         onAcknowledge={(v) => onChange({ ...draft, acknowledged: v })} />
       {showExisting && (
         <div className="space-y-1">

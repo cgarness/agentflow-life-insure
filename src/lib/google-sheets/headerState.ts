@@ -1,5 +1,5 @@
 import { normalizeFieldName } from "@/lib/import-field-matching";
-import type { HeaderColumn, HeadersResult, MappingColumn } from "./schema";
+import type { BeyondLimit, HeaderColumn, HeadersResult, MappingColumn } from "./schema";
 
 /**
  * Mapping v2: the CURRENT sheet's columns reconciled with a draft and the saved mapping. Every column is listed with
@@ -13,12 +13,13 @@ export interface HeaderState {
   missing: MappingColumn[];
   /** Mapped headers that now appear more than once (refused by the server, never guessed). */
   duplicatedMapped: string[];
-  overLimit: { count: number; headers: string[] };
+  /** The real width and what holds a header or data past A–GR (null: an older server that did not scan). */
+  beyondLimit: BeyondLimit | null;
   /** Headers that are mapped, ignored or the Lead ID column. */
   mappableHeaders: string[];
 }
 
-const letterOf = (i: number) => {
+export const letterOf = (i: number) => {
   let s = "", x = i + 1;
   while (x > 0) { const m = (x - 1) % 26; s = String.fromCharCode(65 + m) + s; x = Math.floor((x - 1) / 26); }
   return s;
@@ -33,7 +34,7 @@ export function headerColumns(h: Pick<HeadersResult, "header" | "columns">): Hea
     duplicate: !!x.trim() && (counts.get(normalizeFieldName(x)) ?? 0) > 1, has_data: false }));
 }
 
-export function buildHeaderState(h: Pick<HeadersResult, "header" | "columns" | "over_limit">, saved: { columns: MappingColumn[]; ignored?: string[] } | null,
+export function buildHeaderState(h: Pick<HeadersResult, "header" | "columns" | "beyond_limit">, saved: { columns: MappingColumn[]; ignored?: string[] } | null,
   draftColumns: MappingColumn[]): HeaderState {
   const cols = headerColumns(h);
   const known = new Set(saved ? [...saved.columns.map((c) => c.header), ...(saved.ignored ?? [])].map(normalizeFieldName) : []);
@@ -48,7 +49,7 @@ export function buildHeaderState(h: Pick<HeadersResult, "header" | "columns" | "
     columns,
     missing: (saved?.columns ?? []).filter((m) => !present.has(normalizeFieldName(m.header))),
     duplicatedMapped: draftColumns.filter((m) => dup.has(normalizeFieldName(m.header))).map((m) => m.header),
-    overLimit: h.over_limit ?? { count: 0, headers: [] },
+    beyondLimit: h.beyond_limit ?? null,
     mappableHeaders: columns.filter((c) => c.mappable).map((c) => c.header),
   };
 }

@@ -13,6 +13,8 @@ export interface ReviewOverride {
   identityMode: "source_id" | "row_position"; idHeader: string | null; columns: { header: string; target: string }[];
   /** Mapping v2 only: the acknowledged ignored headers of the edited mapping. */
   ignored?: string[];
+  /** Mapping v2 only: the preview's token for the content no mapping can import, as the owner acknowledged it. */
+  notImportableAck?: string;
 }
 interface Props { source: SheetSourceRow; override?: ReviewOverride; onClose: () => void; onDone: () => void }
 
@@ -51,6 +53,7 @@ const SheetReviewDialog: React.FC<Props> = ({ source, override, onClose, onDone 
     mapping: override?.ignored !== undefined ? { v: 2, columns: override.columns, ignored: override.ignored }
       : source.mapping?.v === 2 ? { ...source.mapping, columns: override?.columns ?? source.mapping.columns }
       : { v: 1, columns: override?.columns ?? source.mapping.columns },
+    ...(override?.notImportableAck ? { not_importable_ack: override.notImportableAck } : {}),
   }), [source, override]);
 
   const load = useCallback(async () => {
