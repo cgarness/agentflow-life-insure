@@ -34,18 +34,21 @@ Exactly one lead/receipt, correct owner/assignment, one completed push run, outc
 Sequence advanced 6→7; requested_seq=processed_seq=7; queued Sheets HTTP requests=0.
 All three fixed original leads, receipts and ledger rows still match every-column baseline hashes.
 
-## Renewal still outstanding
+## Renewal drill completed
 
-At 02:04:23Z, one active activation channel expires 2026-10-28T01:35:03Z.
-Default renewal lead time 10800s; overlap 900s.
-Natural renewal eligibility: October 27 around 3:35 PM Pacific; old-channel stop expected after overlap, subject to maintenance completion.
-Accelerated drill eligibility: October 26 at 7:35:03 PM Pacific (<=23h remaining), not yet eligible at observation.
-Separately approve BOTH protected stages:
-1. renewal-window: only renew_before_s 10800→82800.
-2. Immediately after a Google-confirmed replacement: restore-renewal-window, 82800→10800.
-Then observe the full 900-second overlap and successful stop of superseded channel, with no gap, unexpected catch-up, errors or original-row changes.
-No expiry forgery, credential rotation, extra synthetic leads, polling or rollout.
-Do not leave accelerated renewal enabled after replacement. Both stages require GitHub environment approval.
+Both protected stages were explicitly approved and passed GitHub environment review:
+- renewal-window: run 40444405736, job 121992116732, success.
+- restore-renewal-window: run 40444673754, job 121992996922, success.
+
+Replacement reason=renew channel activated 2026-10-27T03:31:04.658695Z (October 26, 8:31 PM Pacific), generation 1, expiration 2026-10-28T03:31:04Z.
+Old channel entered stopping at replacement activation; next_stop_at=03:46:04.658695Z, preserving the full 900-second overlap.
+Old channel reached stopped at 03:47:00.991301Z (8:47 PM Pacific), with zero failed stop attempts. The deployed stop path records this after Google returns 2xx or 404 (already gone); the database does not retain which successful response occurred. It had not expired, and last_error_code remains the prior superseded marker.
+Replacement remained active at 03:47:13.510312Z; observed channel timestamps show no coverage gap.
+
+Normal renew_before_s=10800 was restored at 03:43:50.263740Z, before old-channel stop. Mode remains pilot, cap 4, overlap 900, grace 3600.
+Protected restore checks passed: SQL/migration checksums, all 75 function postimages and ACLs, RLS, deployed Edge bundles, fresh credential digests against Vault marker, exactly Pilot B allowlisted, guarded maintenance/no polling, migration history and original records.
+Read-only verification at 03:45:41Z found no pending targets, running attempts, queued Sheets HTTP requests or attempts since the renewal drill began. Original leads, receipts and ledger rows matched all fixed baseline hashes.
+No expiry forgery, credential rotation, extra synthetic leads, polling or rollout occurred.
 
 ## Exact proposed disclosure copy
 
@@ -73,6 +76,6 @@ Keep selected-file access, read-only spreadsheet behavior, existing import choic
 1. Apply only the above text replacements to src/content/legal.ts; update publication date on approval and WORK_LOG.md.
 2. Typecheck and run existing relevant legal checks; verify rendered Privacy and Terms in a preview.
 3. Obtain approval of exact PR head for separate legal publication. Merge/deploy only then and verify production copy.
-4. Gate F remains pending renewal and the manual-test evidence limitation. Owner must explicitly accept evidence/thresholds or authorize additional controlled manual samples.
+4. Gate F renewal evidence is complete; the manual-test evidence limitation remains. Owner must explicitly accept evidence/thresholds or authorize additional controlled manual samples.
 5. Prepare a separately reviewed protected Gate G expansion operation with exact eligible-source inventory, before/after fingerprints and rollback. Re-inventory immediately before expansion.
 6. Do not enable all users from this preparation or the legal release. No current Gate E runner stage implements broad rollout.
