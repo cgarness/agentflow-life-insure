@@ -48,7 +48,8 @@ const PreviewStepV2: React.FC<Props> = ({ preview, draft, onChange, showExisting
   const drift = data.unaccounted_headers ?? [];
 
   return (
-    <div className="space-y-3">
+    // min-w-0: a grid item (the dialog) must not grow with a wide preview table; the table scrolls in its own box.
+    <div className="min-w-0 space-y-3">
       <p className="text-xs text-muted-foreground">
         {data.total_rows} row{data.total_rows === 1 ? "" : "s"} now · {data.valid_rows} ready · {data.invalid_rows} need fixes{data.repeat_rows ? ` · ${data.repeat_rows} ${data.repeat_rows === 1 ? "repeat" : "repeats"}` : ""}
         {" · values shown exactly as they will be saved"}

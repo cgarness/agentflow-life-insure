@@ -49,6 +49,7 @@ function apiResponse(body) {
         { row: 7, first_name: "Eli", last_name: "Fox", phone: "555-010-6000", email: "", outcome: "duplicate_id", reason: null },
         { row: 8, first_name: "Gia", last_name: "Hu", phone: "555-010-8000", email: "", outcome: "repeat", reason: null }] };
     case "save": {
+      state.acks = [...(state.acks ?? []), body.not_importable_ack ?? null];
       const p = body.payload;
       let s = state.sources.find((x) => x.id === body.source_id);
       if (!s) { s = { id: "src-" + (state.sources.length + 1), organization_id: ORG, user_id: USER, state: "draft", health: "ok", phase: "steady",
@@ -60,7 +61,7 @@ function apiResponse(body) {
         lead_source_default: p.lead_source_default, include_existing: p.include_existing });
       return { source_id: s.id, config_version: s.config_version };
     }
-    case "activate": { const s = state.sources.find((x) => x.id === body.source_id); s.state = "enabled"; s.config_version++;
+    case "activate": { state.acks = [...(state.acks ?? []), body.not_importable_ack ?? null]; const s = state.sources.find((x) => x.id === body.source_id); s.state = "enabled"; s.config_version++;
       s.phase = s.include_existing ? "initial" : "steady"; return { outcome: "activated", config_version: s.config_version, baselined: 3 }; }
     case "sync_now": { const s = state.sources.find((x) => x.id === body.source_id);
       state.syncs = (state.syncs ?? 0) + 1;
@@ -92,6 +93,7 @@ function apiResponse(body) {
 
 // ---- mapping v2 fake server: typed catalog, the current sheet's columns (one blank-header column with data), typed preview ----
 const F = { city: "44444444-4444-4444-4444-444444444441", zip: "44444444-4444-4444-4444-444444444442", cov: "33333333-3333-3333-3333-333333333333" };
+const V2_SIG = "5".repeat(64);
 const V2_HEADER = ["Lead ID", "First Name", "Last Name", "Phone", "Email", "Mailing Address", "City", "Zip", "Coverage Amount", ""];
 const V2_API = {
   context: () => ({ duplicate_action: "flag", default_status: "New", lead_sources: ["Facebook"], has_lead_created_workflows: true,
@@ -100,13 +102,15 @@ const V2_API = {
       { id: F.zip, name: "ZIP Code", created_by: null, created_at: null, type: "Text", required: false, dropdown_options: [], scope: "agency", own: false },
       { id: F.cov, name: "Coverage Amount", created_by: null, created_at: null, type: "Number", required: false, dropdown_options: [], scope: "agency", own: false }] }),
   headers: () => ({ title: "Leads", spreadsheet_name: "Facebook Leads", header: V2_HEADER, row_count: 3, overflow: false, sample: [], locale: "en_US",
-    column_count: V2_HEADER.length, over_limit: { count: 0, headers: [] },
+    column_count: 205, beyond_limit: { width: 205, checked_through: 205, columns: [{ letter: "GS", header: "", has_data: true }], unchecked: false },
     columns: V2_HEADER.map((h, i) => ({ index: i, letter: String.fromCharCode(65 + i), header: h, blank: !h, duplicate: false, has_data: true })) }),
-  preview: (body) => ({ title: "Leads", total_rows: 1, valid_rows: 1, invalid_rows: 0, imported_before: 0, duplicate_action: "flag",
-    has_lead_created_workflows: true, mapping_version: 2, locale: "en_US", ignored: body.mapping.ignored, unaccounted_headers: [], rows: [
+  // Answers after a delay, so the dialog is observed while the preview is still loading.
+  preview: async (body) => { await new Promise((r) => setTimeout(r, 700)); return { title: "Leads", total_rows: 1, valid_rows: 1, invalid_rows: 0, imported_before: 0, duplicate_action: "flag",
+    has_lead_created_workflows: true, mapping_version: 2, locale: "en_US", ignored: body.mapping.ignored, unaccounted_headers: [],
+    not_importable: { headerless: ["J"], repeated: [], signature: V2_SIG, beyond: { width: 205, checked_through: 205, headers: [], headerless: ["GS"], unchecked: false } }, rows: [
       { row: 2, first_name: "Ann", last_name: "Lee", phone: "(555) 010-2000", email: "ann@example.test", outcome: "import", reason: null, fields: [
         { target: "email", value: "ann@example.test" }, { target: "lead_source", value: "Facebook" }, { target: `custom:${F.city}`, value: "Austin" }, { target: `custom:${F.zip}`, value: "02134" },
-        { target: `custom:${F.cov}`, value: "250000.00" }] }] }),
+        { target: `custom:${F.cov}`, value: "250000.00" }] }] }; },
 };
 
 // ---- fake Google Picker, shaped like the real one: a backdrop and a dialog holding an iframe, appended straight to
@@ -177,6 +181,9 @@ async function v2Flow(page, vp) {
         `${vp.name} v2: City, Zip and Coverage Amount auto-mapped to their fields`);
   check((await field("Mailing Address")).includes("Don't import"), `${vp.name} v2: Mailing Address is never auto-mapped to Email`);
   check(await page.getByText(/Columns without a header have data: J\./).isVisible(), `${vp.name} v2: blank-header column with data is reported`);
+  check(await page.getByText(/This tab is 205 columns wide\. Only A–GR \(the first 200\) can be imported\. Past GR: data in GS\./).isVisible(),
+        `${vp.name} v2: the real width and data past GR (blank header) are reported`);
+  check(!(await page.getByText("Every column is imported.").isVisible()), `${vp.name} v2: an incomplete mapping is never called complete`);
   check(state.calls.includes("context") && state.calls.includes("headers"), `${vp.name} v2: catalog re-read and current headers read`);
   await page.screenshot({ path: `${OUT}/gs-${vp.name}-v2-1-mapping.png`, fullPage: true });
 
@@ -191,15 +198,22 @@ async function v2Flow(page, vp) {
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Preview" }).click();
+  const enable = page.getByRole("button", { name: "Enable" });
+  check(await page.getByText("Checking the sheet…").first().isVisible() && await enable.isDisabled(),
+        `${vp.name} v2: Enable is disabled while the preview loads`);
   await page.getByText("02134").waitFor();
   check(await page.getByText("250000.00").isVisible() && await page.getByText("Austin").isVisible() && await page.getByText("ann@example.test").isVisible(),
         `${vp.name} v2: preview shows optional values as stored`);
-  const enable = page.getByRole("button", { name: "Enable" });
-  check(await enable.isDisabled(), `${vp.name} v2: Enable waits for the ignored-columns acknowledgement`);
+  check(await enable.isDisabled(), `${vp.name} v2: Enable waits for the acknowledgement`);
+  check(await page.evaluate(() => { const d = document.querySelector('[role="dialog"]'); return !!d && d.scrollWidth <= d.clientWidth + 1; }),
+        `${vp.name} v2: nothing in the preview dialog is cut off sideways (the table scrolls in its own box)`);
+  check(await page.getByText("Past column GR, the 200-column limit: column GS (no header).").isVisible()
+        && await page.getByText("Data in columns without a header: J.").isVisible(), `${vp.name} v2: preview lists what can't be imported`);
   await page.screenshot({ path: `${OUT}/gs-${vp.name}-v2-3-preview.png`, fullPage: true });
   await page.getByLabel(/won't be imported into AgentFlow/).click();
   await enable.click();
   await page.getByText("Facebook Leads → Leads").waitFor();
+  check(JSON.stringify(state.acks) === JSON.stringify([V2_SIG, V2_SIG]), `${vp.name} v2: save and activate carry the exact acknowledgement token`);
   const m = state.sources[0]?.mapping;
   check(m?.v === 2 && m.ignored.includes("Mailing Address") && m.columns.some((c) => c.header === "Zip" && c.target === `custom:${F.zip}`),
         `${vp.name} v2: saved as mapping v2 with the acknowledged ignored columns`);
@@ -220,7 +234,7 @@ const results = [];
 const check = (ok, name) => { results.push(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) console.error("FAIL", name); };
 
 for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
-  Object.assign(state, { connected: true, sources: [], calls: [], syncs: 0, previews: 0, applies: 0, lastDecisions: null, lastSnapshot: null });
+  Object.assign(state, { connected: true, sources: [], calls: [], syncs: 0, previews: 0, applies: 0, lastDecisions: null, lastSnapshot: null, acks: [] });
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height } });
   await ctx.addInitScript(([key, session]) => { localStorage.setItem(key, session); },
     ["sb-mock-auth-token", JSON.stringify({ access_token: JWT, refresh_token: "r", token_type: "bearer", expires_in: 3600, expires_at: exp, user })]);
@@ -237,7 +251,7 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
     if (p.startsWith("/auth/v1/")) return json({});
     if (p === "/functions/v1/google-sheets-api") {
       const body = req.postDataJSON();
-      const res = apiResponse(body);
+      const res = await apiResponse(body);
       return res?.error ? json(res, 400) : json(res);
     }
     if (p === "/functions/v1/google-sheets-oauth-start") return json({ url: "about:blank" });

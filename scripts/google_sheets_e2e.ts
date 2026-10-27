@@ -385,6 +385,119 @@ console.log("   scenario 8: mapping v2 — standard address fields, typed values
   ok(yan.length === 1 && yan[0].organization_id === ORG_B && yan[0].assigned_agent_id === USER_B && yan[0].custom_fields.City === "Frisco", "agency B lead");
   ok(zed.length === 1 && zed[0].organization_id === ORG && zed[0].assigned_agent_id === USER && zed[0].custom_fields.City === "Irving", "agency A lead");
   ok(recv.id && (await leads("Vic")) === 1, "no duplicates anywhere");
+
+  // ---------------------------------------------------------------- correction C
+  console.log("   scenario 9: v2 writes re-read the sheet; content past GR needs an exact acknowledgement; no duplicates, no receipt changes");
+  // A range-aware fake: A1:GR row reads, GS1:… column-major reads, each tab with its own grid width (Google trims empties).
+  const wtabs = new Map<number, { width: number; cells: string[][] }>();
+  const colNum = (l: string) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  const trimEnd = (xs: string[]) => { const out = [...xs]; while (out.length && !out[out.length - 1]) out.pop(); return out; };
+  const scans: string[] = [];
+  const wfetch = ((input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const r = (st: number, b: unknown) => Promise.resolve(new Response(JSON.stringify(b), { status: st }));
+    if (url.includes("oauth2.googleapis.com/token")) return r(200, { access_token: "ya29.e2e", expires_in: 3599 });
+    if (url.includes("/drive/v3/files/")) return r(200, { id: "SPREADSHEET_E2E_W", name: "E2E W", mimeType: "application/vnd.google-apps.spreadsheet", trashed: false });
+    const values = url.match(/\/values\/([^?]+)/);
+    if (values) {
+      const m = decodeURIComponent(values[1]).match(/^'W(\d+)'!([A-Z]+)1:([A-Z]+)(\d+)$/)!;
+      const t = wtabs.get(Number(m[1]))!;
+      const from = colNum(m[2]) - 1, to = Math.min(colNum(m[3]), t.width);
+      if (url.includes("majorDimension=COLUMNS")) {
+        scans.push(`${m[2]}:${m[3]}`);
+        const cols = Array.from({ length: Math.max(0, to - from) }, (_, i) => trimEnd(t.cells.map((row) => row[from + i] ?? "")));
+        while (cols.length && !cols[cols.length - 1].length) cols.pop();
+        return r(200, cols.length ? { majorDimension: "COLUMNS", values: cols } : {});
+      }
+      return r(200, { values: t.cells.map((row) => trimEnd(row.slice(from, to))) });
+    }
+    if (url.includes("sheets.googleapis.com/v4/spreadsheets/")) {
+      return r(200, { properties: { title: "E2E W", locale: "en_US" }, sheets: [...wtabs.keys()].map((id, i) => ({ properties: { sheetId: id,
+        title: `W${id}`, index: i, gridProperties: { rowCount: 1000, columnCount: wtabs.get(id)!.width } } })) });
+    }
+    return r(404, {});
+  }) as typeof fetch;
+  const cW: A.Ctx = { svc: svc as never, cfg: CFG, fetchFn: wfetch, userId: USER, orgId: ORG };
+  const W = (id: number, extra: Record<string, unknown> = {}) => ({ spreadsheet_id: "SPREADSHEET_E2E_W", sheet_id: id, identity_mode: "row_position",
+    lead_source_default: "Sheets W", ...extra });
+  const payload = (id: number, mapping: unknown, include = true) => ({ ...W(id), spreadsheet_name: "E2E W", sheet_title: `W${id}`, display_name: `W${id}`,
+    mapping, id_header: null, include_existing: include });
+  const imported = async (id: number, mapping: unknown) => ((await A.preview(cW, W(id, { mapping }))) as Record<string, any>).imported_before as number;
+
+  // 9a. An ACTIVE v2 source: a mapping edit against a sheet that changed after the preview is refused; nothing changes.
+  wtabs.set(1, { width: 8, cells: [V2HEADER, ["Ames", "Orr", "5550091001", "2 Pine", "Tyler", "01002", "$10", ""], ["Ada", "Orr", "5550091002", "", "Katy", "", "", ""]] });
+  const sw1 = await A.save(cW, { payload: payload(1, v2map) });
+  await A.activate(cW, { source_id: sw1.source_id, expected_version: sw1.config_version });
+  await svc.patch("google_sheets_sources", `id=eq.${sw1.source_id}`, { last_checked_at: null });
+  ok((await A.syncNow(cW, { source_id: sw1.source_id })).imported === 2, "9a: active v2 source imported its rows");
+  const before = await source(sw1.source_id);
+  const receiptsBefore = await imported(1, v2map);
+  ok(receiptsBefore === 2, `9a: two receipts (${receiptsBefore})`);
+  const editedMap = { ...v2map, columns: v2map.columns.filter((x) => x.header !== "Address"), ignored: ["Notes", "Address"] };
+  const pe = await A.preview(cW, W(1, { mapping: editedMap })) as Record<string, any>;
+  ok(JSON.stringify(pe.unaccounted_headers) === "[]" && pe.not_importable.signature === null, "9a: the owner previews the edit");
+  wtabs.get(1)!.cells = [[...V2HEADER, "Spouse"], ...wtabs.get(1)!.cells.slice(1).map((x) => [...x, ""]), ["Ali", "Orr", "5550091003", "", "Waco", "", "", "", "Lu"]];
+  wtabs.get(1)!.width = 9;
+  const editPayload = (mapping: unknown, ver: number) => ({ source_id: sw1.source_id, expected_version: ver, payload: payload(1, mapping) });
+  ok((await refused(A.save(cW, editPayload(editedMap, before.config_version)))) === "unacknowledged_columns", "9a: a column added after the preview is refused");
+  wtabs.get(1)!.cells[0][5] = "Postal";   // and a mapped header renamed
+  ok((await refused(A.save(cW, editPayload({ ...editedMap, ignored: [...editedMap.ignored, "Spouse"] }, before.config_version)))) === "header:missing:Zip",
+    "9a: a mapped header that disappeared is refused");
+  const after = await source(sw1.source_id);
+  ok(JSON.stringify(after.mapping) === JSON.stringify(before.mapping) && after.config_version === before.config_version, "9a: mapping and version unchanged");
+  wtabs.get(1)!.cells[0][5] = "Zip";
+  ok((await imported(1, v2map)) === receiptsBefore, "9a: receipts unchanged by the refusals");
+  await svc.patch("google_sheets_sources", `id=eq.${sw1.source_id}`, { last_checked_at: null });
+  const r9a = await A.syncNow(cW, { source_id: sw1.source_id });
+  ok(r9a.imported === 1 && (await leads("Ames")) === 1 && (await leads("Ada")) === 1 && (await leads("Ali")) === 1,
+    `9a: the running source keeps syncing with its stored mapping; only the new row imports: ${JSON.stringify(r9a)}`);
+  const fixed = { ...editedMap, ignored: [...editedMap.ignored, "Spouse"] };
+  const ok9 = await A.save(cW, editPayload(fixed, before.config_version)) as Record<string, any>;
+  ok(ok9.config_version === before.config_version + 1, "9a: the corrected edit (new column acknowledged) is saved");
+  await svc.patch("google_sheets_sources", `id=eq.${sw1.source_id}`, { last_checked_at: null });
+  ok((await A.syncNow(cW, { source_id: sw1.source_id })).imported === 0 && (await leads("Ames")) === 1, "9a: no re-import after the edit");
+  ok(sameObj((await q("leads", `organization_id=eq.${ORG}&first_name=eq.Ames`))[0].custom_fields,
+    { "Address": "2 Pine", "City": "Tyler", "ZIP Code": "01002", "Amt Requested": "10" }), "9a: an imported lead is never rewritten by an edit");
+
+  // 9b. 260 columns: a headerless column with data (GS) and a header (GT) past GR. Exact acknowledgement for save AND activate.
+  const filler = (n: number) => Array.from({ length: n }, () => "");
+  const wide = (rows: string[][]) => rows.map((x, i) => [...x, ...filler(200 - x.length), i === 0 ? "" : i === 2 ? "past-gr-secret" : "", i === 0 ? "Spouse" : "Kim"]);
+  wtabs.set(2, { width: 260, cells: wide([V2HEADER, ["Bea", "Fox", "5550092001", "", "Plano", "", "", ""], ["Ben", "Fox", "5550092002", "", "Allen", "", "", ""]]) });
+  const h2 = await A.headers(cW, { spreadsheet_id: "SPREADSHEET_E2E_W", sheet_id: 2 }) as Record<string, any>;
+  ok(JSON.stringify(h2.beyond_limit) === JSON.stringify({ width: 260, checked_through: 260, columns: [{ letter: "GS", header: "", has_data: true },
+    { letter: "GT", header: "Spouse", has_data: true }], unchecked: false }), `9b: headers report the real width and content past GR: ${JSON.stringify(h2.beyond_limit)}`);
+  const p2 = await A.preview(cW, W(2, { mapping: v2map })) as Record<string, any>;
+  ok(JSON.stringify(p2.not_importable.beyond.headers) === '["Spouse"]' && JSON.stringify(p2.not_importable.beyond.headerless) === '["GS"]'
+    && /^[0-9a-f]{64}$/.test(p2.not_importable.signature), "9b: preview lists what can't be imported, with a token");
+  ok(!JSON.stringify([h2, p2]).includes("past-gr-secret"), "9b: no cell value past GR is ever returned");
+  const sources2 = async () => (await q("google_sheets_sources", `organization_id=eq.${ORG}&spreadsheet_id=eq.SPREADSHEET_E2E_W&sheet_id=eq.2`)).length as number;
+  for (const bad of [undefined, "0".repeat(64)]) {
+    ok((await refused(A.save(cW, { payload: payload(2, v2map), not_importable_ack: bad }))) === "unacknowledged_columns" && (await sources2()) === 0,
+      `9b: save refused without the exact acknowledgement (${bad ? "wrong" : "none"}); nothing created`);
+  }
+  const sw2 = await A.save(cW, { payload: payload(2, v2map), not_importable_ack: p2.not_importable.signature }) as Record<string, any>;
+  ok((await sources2()) === 1, "9b: saved with the acknowledgement");
+  ok((await refused(A.activate(cW, { source_id: sw2.source_id, expected_version: sw2.config_version }))) === "unacknowledged_columns"
+    && (await source(sw2.source_id)).state === "draft", "9b: activate also needs it; the draft stays a draft");
+  await A.activate(cW, { source_id: sw2.source_id, expected_version: sw2.config_version, not_importable_ack: p2.not_importable.signature });
+  await svc.patch("google_sheets_sources", `id=eq.${sw2.source_id}`, { last_checked_at: null });
+  ok((await A.syncNow(cW, { source_id: sw2.source_id })).imported === 2, "9b: activated and imported A–GR");
+  const bea = (await q("leads", `organization_id=eq.${ORG}&first_name=eq.Bea`))[0];
+  ok(sameObj(bea.custom_fields, { "City": "Plano" }) && !JSON.stringify(await q("leads", `organization_id=eq.${ORG}`)).includes("past-gr-secret"),
+    "9b: nothing past GR is stored");
+  wtabs.get(2)!.cells[1][201] = "changed later";   // content past GR changes after activation: syncs never block
+  await svc.patch("google_sheets_sources", `id=eq.${sw2.source_id}`, { last_checked_at: null });
+  ok((await A.syncNow(cW, { source_id: sw2.source_id })).imported === 0 && (await leads("Bea")) === 1, "9b: no duplicates; sync unaffected");
+
+  // 9c. Exactly 200 columns: no extra read, nothing to acknowledge. 450 columns: scanned to OJ, the rest reported unchecked.
+  scans.length = 0;
+  wtabs.set(3, { width: 200, cells: [[...V2HEADER, ...filler(192)], ["Cato", "Day", "5550093001", "", "", "", "", "", ...filler(192)]] });
+  const p3 = await A.preview(cW, W(3, { mapping: v2map })) as Record<string, any>;
+  ok(p3.not_importable.signature === null && p3.beyond_limit.width === 200 && scans.length === 0, "9c: 200 columns — no scan, nothing to acknowledge");
+  wtabs.set(4, { width: 450, cells: [V2HEADER, ["Dee", "Day", "5550093002", "", "", "", "", ""]] });
+  const p4 = await A.preview(cW, W(4, { mapping: v2map })) as Record<string, any>;
+  ok(p4.beyond_limit.checked_through === 400 && p4.beyond_limit.unchecked === true && /^[0-9a-f]{64}$/.test(p4.not_importable.signature)
+    && JSON.stringify(scans) === '["GS:OJ"]', `9c: 450 columns — bounded scan (${JSON.stringify(scans)}), the rest unchecked and acknowledged`);
 }
 
 console.log(`   OK (${checks} end-to-end checks)`);
