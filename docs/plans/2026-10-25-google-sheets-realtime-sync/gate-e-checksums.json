@@ -1,0 +1,19 @@
+{
+  "supabase/ops/google_sheets_drain_check.sql": "33f4daa59c2e702e5f625cf97d490dc46e9e914609d454f02adf7a56d75eb51e",
+  "supabase/ops/google_sheets_push_metrics.sql": "d577cee0d7ca383ae0a24a87e593e86263bc57abee9e5acccebc76948ed5a938",
+  "supabase/ops/google_sheets_push_pilot_enable.sql": "4ae2f6f7bd4cbbaed09d24c572e78f306cad6a74e37e3053fba45994b94194fe",
+  "supabase/ops/google_sheets_pilot_latency.sql": "437511b2558e7dddab73bb796b8f838ad475e75a9f6b11338808a8bd42dfee9f",
+  "supabase/ops/google_sheets_push_pilot_evidence.sql": "f865fbaeac3b78f5ec0a24393f3f28ed501ed0624517005899cdc9fe8c5e8e5a",
+  "supabase/ops/google_sheets_push_stop_all.sql": "f049e5df94b38e40f5a01a45e62708625c25ddb5a67444880317d6606aa64aba",
+  "supabase/ops/google_sheets_pilot_originals.sql": "0aea863b04db1b455c990e357136f51ed0f57193a65ada6c9a41e47e7fc5888d",
+  "supabase/ops/google_sheets_pilot_renewal_window.sql": "c1b1b6e2a302b5165fd00b561e883f2cadebc32f3c25f3c2d552f38bed2297cc",
+  "supabase/ops/google_sheets_push_unschedule.sql": "7672b3c2fb80e603d9bec58a457e8f99a4948b813dbfe74fa13c168a244454f7",
+  "supabase/ops/google_sheets_push_release_verify.sql": "f05a931949e908c19de3645a10462ad19b8789b9a03011e85434a58962488456",
+  "supabase/ops/google_sheets_pilot_restore_renewal_window.sql": "3fe78d1d416b7222bc9159f54fe80cc4ea27b06863f2954a1424a91712cf9d6b",
+  "supabase/migrations/20261025120000_google_sheets_push_sync.sql": "2774557acaf98db80fc169f6ed502003d8533ea13a08ebeefdf18657aefa609d",
+  "supabase/migrations/pending/20261025120100_google_sheets_push_maintenance_schedule.sql": "2db0a82a52bc591f4f2530ce659ea6b5b406c5322ecb5951bbb6bb628e6283f3",
+  "supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql": "1bc9845031075a47f650d4780b57771946cb2495d347e33cb1874678fc3cce94",
+  ".github/workflows/google-sheets-push-release.yml": "8cbe3e68f896f7f1c7d4c1f7124bd500bea222389db2742f53920385650dd310",
+  "docs/plans/2026-10-25-google-sheets-realtime-sync/gate-e-baseline.json": "95a565862795494bc8aa5b87ce33616f75a7480463514c253ec0cad84bf7c4c9",
+  "docs/plans/2026-10-25-google-sheets-realtime-sync/gate-e-edge-baseline.json": "5dac413deab8875336d801bc1da45a7fc2ff3603715b92208c4a42aacab08da2"
+}

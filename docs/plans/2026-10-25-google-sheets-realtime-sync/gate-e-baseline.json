@@ -1,0 +1,55 @@
+{
+  "leads": [
+    {
+      "id": "6a902768-876f-4783-b92c-37f5916d925c",
+      "md5": "6b58c19b59089356454feb6901834bad"
+    },
+    {
+      "id": "7ef6143c-58d2-4513-8501-001b431cab89",
+      "md5": "67b46c9bafd4e03da7269ad2c2bab5fd"
+    },
+    {
+      "id": "e394c818-2a94-4337-bb7a-7eaaa449e07f",
+      "md5": "d5bf7f9fe3d9f93798f7d327bc17c0a9"
+    }
+  ],
+  "ledger": [
+    {
+      "key": "pos:2",
+      "md5": "1d7fce780e3a108a8e55fb0b15969efe",
+      "kind": "done"
+    },
+    {
+      "key": "pos:3",
+      "md5": "e1a4998bbc885b187169f49c24bdc47d",
+      "kind": "done"
+    },
+    {
+      "key": "pos:4",
+      "md5": "e9b973a4941d612ddd0ebc027c00069f",
+      "kind": "done"
+    }
+  ],
+  "source": "2a9ce6b6-0500-454d-8c46-48dfab8042b5",
+  "receipts": [
+    {
+      "key": "pos:2a9ce6b6-0500-454d-8c46-48dfab8042b5:1:2",
+      "md5": "ddeb871cae503ed7660c30c7c394ec82",
+      "lead_id": "7ef6143c-58d2-4513-8501-001b431cab89"
+    },
+    {
+      "key": "pos:2a9ce6b6-0500-454d-8c46-48dfab8042b5:1:3",
+      "md5": "1c70affe8c9ca2be319a4756dd0fc6f7",
+      "lead_id": "6a902768-876f-4783-b92c-37f5916d925c"
+    },
+    {
+      "key": "pos:2a9ce6b6-0500-454d-8c46-48dfab8042b5:1:4",
+      "md5": "e77d27d4d420c4f2b56b7e2a6cb0ed03",
+      "lead_id": "e394c818-2a94-4337-bb7a-7eaaa449e07f"
+    }
+  ],
+  "captured_at": "2026-10-27T00:56:24.826272+00:00",
+  "aggregate_md5": "5263f79719315b72c7b162b5e4411d9e",
+  "fixture_collisions": 0,
+  "vault_marker_format": true
+}
