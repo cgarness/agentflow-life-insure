@@ -22,7 +22,7 @@ const BADGE_COLOR: Record<Tone, string> = {
 };
 const CARD_COLOR: Record<Tone, string> = {
   default: "border-blue-500/25 bg-blue-500/5",
-  success: "border-emerald-500/25 bg-emerald-500/5",
+  success: "border-border",
   warning: "border-amber-500/25 bg-amber-500/5",
   destructive: "border-red-500/25 bg-red-500/5",
   muted: "border-border",

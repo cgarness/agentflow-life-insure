@@ -1,3 +1,9 @@
+## 2026-10-27 — Neutral Sheets containers
+
+Chris requested removal of green container backgrounds and borders after reviewing the released color update. Restored neutral account and active-source containers; preserved colored badges, icon, buttons and all behavior. TypeScript and diff checks passed.
+
+---
+
 ## 2026-10-27 — Google Sheets settings color refresh
 
 Chris approved emerald connection/active styling, blue Add sheet and Sync now actions, amber warnings, red errors and neutral paused states. Three presentation components changed; existing labels, status derivation and handlers preserved. Decorative icon is aria-hidden; color is accompanied by status text. No backend, import, permission, A2P or dialer changes. Validation recorded in PR.

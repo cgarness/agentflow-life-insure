@@ -32,7 +32,7 @@ const GoogleConnectionCard: React.FC<Props> = ({ status, canConnect, onChanged }
   };
 
   return (
-    <div className={`rounded-lg border p-3 flex items-center justify-between gap-3 ${connected ? "border-emerald-500/25 bg-emerald-500/5" : ""}`}>
+    <div className="rounded-lg border p-3 flex items-center justify-between gap-3">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <Sheet className={`h-5 w-5 shrink-0 ${connected ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`} aria-hidden="true" />
