@@ -1,3 +1,10 @@
+## 2026-10-27 — Google Sheets settings color refresh
+
+Chris approved emerald connection/active styling, blue Add sheet and Sync now actions, amber warnings, red errors and neutral paused states. Three presentation components changed; existing labels, status derivation and handlers preserved. Decorative icon is aria-hidden; color is accompanied by status text. No backend, import, permission, A2P or dialer changes. Validation recorded in PR.
+
+---
+
+
 ## 2026-10-26 Pacific — Gate G protected rollout preparation and guard correction
 
 PR #495 prepares mode-only general availability; no production execution. Transaction guard uses IS DISTINCT FROM TRUE to reject null fingerprints. Isolated PostgreSQL/PGlite valid activation and four drift cases passed; 16 pilot and 4 rollout guard tests and TypeScript pass. CI includes rollout tests. Disclosure preview bundle contains new Privacy/Terms wording and excludes obsolete polling copy. Natural-cycle observation and quota-expansion deferrals remain explicit pending owner decisions; cap remains 4. No schema, credential, importer, A2P or dialer changes.

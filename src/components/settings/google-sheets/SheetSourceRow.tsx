@@ -13,8 +13,19 @@ import { sheetsApi, SheetsApiError } from "@/lib/google-sheets/api";
 import type { ConnectionStatus, RealtimeStatus, SheetSourceRow as Row } from "@/lib/google-sheets/schema";
 import { monitoringStatus, resultSummary, REVIEW_REASONS, reviewKind, sourceStatus, syncToast, type Tone } from "@/lib/google-sheets/status";
 
-const TONE: Record<Tone, "default" | "secondary" | "destructive" | "outline"> = {
-  default: "default", success: "secondary", warning: "outline", destructive: "destructive", muted: "outline",
+const BADGE_COLOR: Record<Tone, string> = {
+  default: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  warning: "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300",
+  destructive: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
+  muted: "border-slate-500/25 bg-slate-500/10 text-slate-600 dark:text-slate-300",
+};
+const CARD_COLOR: Record<Tone, string> = {
+  default: "border-blue-500/25 bg-blue-500/5",
+  success: "border-emerald-500/25 bg-emerald-500/5",
+  warning: "border-amber-500/25 bg-amber-500/5",
+  destructive: "border-red-500/25 bg-red-500/5",
+  muted: "border-border",
 };
 const DOT: Record<Tone, string> = {
   default: "bg-primary", success: "bg-emerald-500", warning: "bg-amber-500", destructive: "bg-destructive", muted: "bg-muted-foreground/60",
@@ -57,11 +68,11 @@ const SheetSourceRowItem: React.FC<Props> = ({ source: s, connection, realtime, 
   };
 
   return (
-    <div className="rounded-lg border p-3 flex items-start justify-between gap-3">
+    <div className={`rounded-lg border p-3 flex items-start justify-between gap-3 ${CARD_COLOR[st.tone]}`}>
       <div className="min-w-0 space-y-0.5">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-foreground truncate">{s.display_name}</p>
-          <Badge variant={TONE[st.tone]}>{st.label}</Badge>
+          <Badge variant="outline" className={BADGE_COLOR[st.tone]}>{st.label}</Badge>
         </div>
         <p className="text-xs text-muted-foreground truncate">{s.spreadsheet_name || "Spreadsheet"} → {s.sheet_title || "Tab"}</p>
         {live && (
@@ -86,7 +97,7 @@ const SheetSourceRowItem: React.FC<Props> = ({ source: s, connection, realtime, 
           <Button size="sm" variant="outline" onClick={openReview} disabled={busy}>Review</Button>
         )}
         {s.state === "enabled" && s.health !== "needs_review" && connected && (
-          <Button size="sm" variant="outline" onClick={() => act("sync_now", "Checked")} disabled={busy}>Sync now</Button>
+          <Button size="sm" variant="outline" className="border-blue-500/30 bg-blue-500/10 text-blue-700 hover:bg-blue-500/20 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200" onClick={() => act("sync_now", "Checked")} disabled={busy}>Sync now</Button>
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

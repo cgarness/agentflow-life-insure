@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Sheet } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,11 +32,12 @@ const GoogleConnectionCard: React.FC<Props> = ({ status, canConnect, onChanged }
   };
 
   return (
-    <div className="rounded-lg border p-3 flex items-center justify-between gap-3">
+    <div className={`rounded-lg border p-3 flex items-center justify-between gap-3 ${connected ? "border-emerald-500/25 bg-emerald-500/5" : ""}`}>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
+          <Sheet className={`h-5 w-5 shrink-0 ${connected ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`} aria-hidden="true" />
           <p className="text-sm font-medium text-foreground">Google account</p>
-          {connected && <Badge variant="secondary">Connected</Badge>}
+          {connected && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">Connected</Badge>}
           {needsReconnect && <Badge variant="destructive">Reconnect</Badge>}
         </div>
         <p className="text-xs text-muted-foreground truncate">
