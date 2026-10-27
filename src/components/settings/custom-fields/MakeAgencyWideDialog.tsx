@@ -1,18 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { z } from "zod";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { makeCustomFieldAgencyWide, type AgencyWideImpact } from "@/lib/standard-lead-fields";
+import { agencyWideConfirmSchema, makeCustomFieldAgencyWide, type AgencyWideImpact } from "@/lib/standard-lead-fields";
 
 interface Props { field: { id: string; name: string }; currentUserId: string | null; onClose: () => void; onDone: () => void }
-
-/** Typed confirmation (Zod): the exact field name. */
-export const agencyWideConfirmSchema = (name: string) =>
-  z.object({ confirm: z.string().refine((v) => v.trim() === name.trim(), { message: `Type ${name} to confirm` }) });
 
 /**
  * Makes one personal custom field agency-wide. Reviews the impact first (server dry run), then applies only if the

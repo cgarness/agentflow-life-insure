@@ -71,8 +71,9 @@ const MappingDialogV2: React.FC<Props> = ({ source, context, viewer, onClose, on
   const headersApi = useSheetHeaders(pick ? { spreadsheetId: pick.spreadsheetId, sheetId: pick.sheetId } : null, pick?.headerInfo);
   const headers = headersApi.state;
 
-  const catalog: CatalogState = !context.isFetchedAfterMount ? { status: "loading" }
-    : context.isError || !context.data ? { status: "error" } : { status: "ready", context: context.data };
+  const catalog = useMemo<CatalogState>(() => (!context.isFetchedAfterMount ? { status: "loading" }
+    : context.isError || !context.data ? { status: "error" } : { status: "ready", context: context.data }),
+  [context.isFetchedAfterMount, context.isError, context.data]);
   const fc = useMemo(() => (catalog.status === "ready" ? buildFieldCatalog(catalog.context, viewer.id) : null), [catalog, viewer.id]);
   const savedMapping = source ? { columns: source.mapping?.columns ?? [], ignored: source.mapping?.v === 2 ? source.mapping.ignored : undefined } : null;
   const hs = headers.status === "ready" ? buildHeaderState(headers.data, savedMapping, draft.columns) : null;

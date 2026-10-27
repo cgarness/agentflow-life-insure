@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { z } from "zod";
 import { normalizeFieldName } from "@/lib/import-field-matching";
 
 /**
@@ -63,8 +63,11 @@ function codeOf(error: { message?: string; code?: string } | null): string {
 }
 
 async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc(fn, args);
+  // Loaded on use: the catalog above is imported by pure modules (field catalog, name classifier) and their tests.
+  const { supabase } = await import("@/integrations/supabase/client");
+  // The generated database types predate these functions (migration 20261028120100).
+  const { data, error } = await (supabase as unknown as { rpc: (f: string, a: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string; code?: string } | null }> })
+    .rpc(fn, args);
   if (error) throw new StandardFieldsError(codeOf(error));
   return data as T;
 }
@@ -72,6 +75,10 @@ async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
 /** Live state (dry run, default) or the idempotent retry that creates the missing agency-wide standard fields. */
 export const provisionStandardLeadFields = (dryRun: boolean) =>
   rpc<StandardFieldsStatus>("provision_standard_lead_fields", { p_dry_run: dryRun });
+
+/** Typed confirmation for making a field agency-wide (Zod): the exact field name. */
+export const agencyWideConfirmSchema = (name: string) =>
+  z.object({ confirm: z.string().refine((v) => v.trim() === name.trim(), { message: `Type ${name} to confirm` }) });
 
 /** Personal → agency-wide. Dry run returns the impact and the snapshot the apply must present. */
 export const makeCustomFieldAgencyWide = (fieldId: string, snapshot: string | null, dryRun: boolean) =>
