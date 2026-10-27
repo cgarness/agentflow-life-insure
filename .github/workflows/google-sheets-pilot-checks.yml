@@ -5,6 +5,9 @@ on:
       - '.github/workflows/google-sheets-pilot-*.yml'
       - '.github/workflows/google-sheets-push-release.yml'
       - 'scripts/google_sheets_pilot_*'
+      - 'scripts/google_sheets_rollout_*'
+      - '.github/workflows/google-sheets-rollout-release.yml'
+      - 'supabase/ops/google_sheets_rollout_*.sql'
       - 'docs/plans/2026-10-25-google-sheets-realtime-sync/**'
       - 'supabase/ops/google_sheets_push_*.sql'
       - 'supabase/migrations/pending/20261025120100_google_sheets_push_maintenance_schedule.sql'
@@ -20,3 +23,4 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - run: python3 scripts/google_sheets_pilot_release_test.py
+      - run: python3 scripts/google_sheets_rollout_release_test.py

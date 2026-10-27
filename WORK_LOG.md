@@ -1,3 +1,9 @@
+## 2026-10-26 Pacific — Gate G protected rollout preparation and guard correction
+
+PR #495 prepares mode-only general availability; no production execution. Transaction guard uses IS DISTINCT FROM TRUE to reject null fingerprints. Isolated PostgreSQL/PGlite valid activation and four drift cases passed; 16 pilot and 4 rollout guard tests and TypeScript pass. CI includes rollout tests. Disclosure preview bundle contains new Privacy/Terms wording and excludes obsolete polling copy. Natural-cycle observation and quota-expansion deferrals remain explicit pending owner decisions; cap remains 4. No schema, credential, importer, A2P or dialer changes.
+
+---
+
 ## 2026-10-26 Pacific — Sheets Gate F accepted; notification-driven disclosures prepared
 
 Chris accepted the current testing limits and requested completion of full rollout. Pilot imports, recovery and renewal passed; two API notification samples and user-reported manual success are not a statistical p95 or controlled manual latency result. Renewal run 40444405736 and restore run 40444673754 succeeded. Old channel stopped 03:47:00.991301Z; replacement active; defaults restored; original leads/receipts/ledger unchanged.
