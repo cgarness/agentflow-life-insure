@@ -1,3 +1,28 @@
+## 2026-10-27 — Gate D complete; Gate E Pilot B preparation (not activated)
+
+Gate E preparation approved by Chris. Base main `3bc4a4b`; no production writes in this preparation.
+Gate D check `40427552977` attempt 2 and configure-secrets `40428546001` passed.
+Fresh production readback: 347 history rows/head 20261025120000, all 75 functions and ACLs match,
+mode off, no watches/Sheets jobs, unchanged 1|1|3|3|3|2|98aae47446d6778fb467f78b78023b3f.
+Vault verified marker exists; full Edge/Vault binding will be rechecked through the protected runner.
+
+Prepared dispatch-only/main-only Gate E workflow and runner, protected by the existing required-reviewer
+environment, exact commit/stage confirmation, SQL hashes, fixed original-row baselines, and no retries.
+Separate schedule / record-history / activation, read-only verification, pause/resume and renewal drill,
+and two-step rollback. Never rotates verified credentials, polls sheets, deploys functions or writes test leads.
+Fixed-ID all-column hashes cover three original leads, receipts and ledger rows. Original aggregate MD5
+5263f79719315b72c7b162b5e4411d9e; read-only original checker returns true.
+Google Drive confirms Pilot B/Leads headers and exactly three populated rows; seven reserved fixture phones absent.
+
+New latency SQL avoids attributing catch-up or ambiguous notifications and uses per-row receipt timestamps,
+not the first commit for an entire burst. Receipt time remains a proxy, with uncertainty documented.
+Validation: 16 offline runner tests; YAML parsing; read-only production SQL checks. Mutation stages not run.
+Exact activation, test/measurement sequence, checksum manifest, rollback and approval request:
+`docs/plans/2026-10-25-google-sheets-realtime-sync/gate-e-activation.md`.
+Stop before merge/activation/job/test writes pending exact production approval; Gate F/G remain separate.
+
+---
+
 ## 2026-10-26 — PR #492 credential-state hardening: durable Vault verification marker (approved plan `4a3f9b2`; draft PR; NOT merged; nothing executed)
 
 **Finding (Chris).**

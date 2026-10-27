@@ -1,0 +1,22 @@
+name: Google Sheets Gate E tooling checks
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/google-sheets-pilot-*.yml'
+      - '.github/workflows/google-sheets-push-release.yml'
+      - 'scripts/google_sheets_pilot_*'
+      - 'docs/plans/2026-10-25-google-sheets-realtime-sync/**'
+      - 'supabase/ops/google_sheets_push_*.sql'
+      - 'supabase/migrations/pending/20261025120100_google_sheets_push_maintenance_schedule.sql'
+permissions:
+  contents: read
+jobs:
+  tooling:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - run: python3 scripts/google_sheets_pilot_release_test.py
