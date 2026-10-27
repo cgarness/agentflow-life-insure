@@ -1,0 +1,7 @@
+{
+  "scripts/google_sheets_pilot_release.py": "59d9acad78e9e99e5480db5a3285b80589debb167c80ce1187621cf779f69303",
+  "scripts/google_sheets_rollout_release.py": "d5bee353e75690937fc055af1715f04558955f1462d991a00e092cbe17f7f36d",
+  "supabase/ops/google_sheets_rollout_preflight.sql": "981fecc75e94e2ae08dfdfbbeef333700dc2b6512e959edb33d5510d1097b4eb",
+  "supabase/ops/google_sheets_rollout_enable.sql": "3b6eeed67f48226635f1bcc8cacc301b78344749479ce8967dcd7e506be6964f",
+  "src/content/legal.ts": "eae81f8043b56953dbb92e4af7d8d905660dbc05b99bd75d6a129035a09639f7"
+}
