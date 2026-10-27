@@ -437,6 +437,14 @@ describe("columns past GR (the 200-column limit)", () => {
     expect([calls("save")[0].not_importable_ack, calls("activate")[0].not_importable_ack]).toEqual([SIG, SIG]);
   });
 
+  it("a scan past GR that could not finish is shown as not checked (never as complete)", async () => {
+    api({ headers: () => ({ ...headersResult(), column_count: 260, beyond_limit: { width: 260, checked_through: 200, columns: [], unchecked: true } }) });
+    renderDialog(null);
+    await pickTab();
+    expect(screen.getByText("This tab is 260 columns wide. Only A–GR (the first 200) can be imported. Columns past GR weren't checked.")).toBeInTheDocument();
+    expect(screen.getByText(/won't be imported \(columns past the checked range included\)/)).toBeInTheDocument();
+  });
+
   it("450 columns: columns past the checked range are named as unchecked and need the confirmation", async () => {
     api({ headers: () => wide(450, [{ letter: "GS", header: "Spouse", has_data: false }], true),
       preview: () => ({ ...previewResult, not_importable: NI({ signature: SIG, beyond: { width: 450, checked_through: 400, headers: ["Spouse"], headerless: [], unchecked: true } }) }) });

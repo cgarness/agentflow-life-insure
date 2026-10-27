@@ -213,7 +213,14 @@ export async function headers(c: Ctx, body: Record<string, unknown>) {
   const tab = await readTab(c.fetchFn, a.token, spreadsheetId, Number(body.sheet_id));
   // Every column, flagged (blank / duplicate / has data), and the real width with any header or data past the
   // column limit: nothing is dropped silently. `header` is kept unchanged for the legacy mapping screen.
-  const beyond = await beyondLimit(c, a.token, spreadsheetId, tab);
+  // Display only (the legacy screen reads this action too): a scan that could not finish is shown as unchecked past GR
+  // instead of failing the screen. It is never a pass — the preview and every v2 write fail closed on the same scan.
+  const beyond = await beyondLimit(c, a.token, spreadsheetId, tab).catch((e) => {
+    if (e instanceof ActionError && e.code === INSPECTION_INCOMPLETE) {
+      return { width: tab.columnCount, checked_through: LIMITS.maxColumns, columns: [], unchecked: true };
+    }
+    throw e;
+  });
   return { title: tab.title, spreadsheet_name: tab.spreadsheetName, header: tab.header, row_count: tab.rows.length,
            overflow: tab.overflow, sample: tab.rows.slice(0, 3), locale: tab.locale, column_count: tab.columnCount,
            columns: analyzeHeaders(tab.header, tab.rows).map((x) => ({ ...x, letter: columnLetter(x.index + 1) })),

@@ -91,6 +91,8 @@ tables and any field rows (reversing an ownership change is a separate approved 
    - `context` returns `mapping_versions: [1, 2]`;
    - every v1 source: Sync now → same imported/flagged counts; mapping JSON byte-identical; no new receipts for
      rows already imported; the identity ledger unchanged; push notifications still processed.
+   - v1 saves still make no Google request; a v2 save (only possible after R6) re-reads the sheet once (correction C),
+     plus one bounded read past column GR when the tab is wider than 200 columns.
 
 Rollback: only after the approved `supabase/ops/google_sheets_mapping_v2_to_v1.sql` (no v2 mapping exists before
 R8, so before R8 a plain redeploy of v11/v5/v10 is safe). The old Edge rejects a v2 mapping (`mapping_invalid` →
@@ -104,6 +106,9 @@ Needs review): no data loss and no duplicates either way.
      to Email by an address header, ignored columns listed, preview shows stored values, Enable needs the
      acknowledgement;
    - Edit on an existing v1 source opens the v2 editor with the sheet's current headers;
+   - Save / Enable stay disabled ("Checking the sheet…") until the preview has loaded, and while anything not imported
+     is unconfirmed; a tab wider than 200 columns states its real width (nothing is enabled or saved for this check
+     unless the owner intends it);
    - Contact Management (Admin): the Standard lead fields panel shows the live state.
 
 Rollback: unset the variable and redeploy → legacy interface. Stored v2 mappings keep processing on the new Edge.
@@ -136,3 +141,6 @@ existing lead values are never rewritten (historical reconciliation is a separat
 
 - `public.google_sheets_sources`: no `needs_review` with `mapping_invalid` / `custom_field_unavailable`.
 - `private.standard_lead_field_provisioning`: any `failed` row → the Admin's retry or the approved ops apply.
+- `google-sheets-api` responses `503 inspection_incomplete` (a scan past GR that timed out or exceeded the byte cap)
+  and `409 unacknowledged_columns`: both are safe refusals (nothing written); a sustained rate means a sheet that is
+  too wide to check or is changing while owners save.

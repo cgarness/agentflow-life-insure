@@ -248,6 +248,8 @@ Deno.test("v2 preview: rows carry the stored values (lossless typed), plus ignor
   assertEquals(q.header_issues.map((h: { letter: string; blank: boolean; has_data: boolean }) => [h.letter, h.blank, h.has_data]), [["G", true, true]]);
 });
 
+const SAVE = (mapping: unknown, extra: Record<string, unknown> = {}) => ({ source_id: null, expected_version: null, ...extra,
+  payload: { spreadsheet_id: "SPREADSHEET_123", sheet_id: 0, display_name: "X", mapping } });
 const H = (c: Ctx) => headers(c, { spreadsheet_id: "SPREADSHEET_123", sheet_id: 0 });
 const googleValues = (calls: { fn: string; args: Record<string, unknown> }[]) => calls.filter((x) => x.fn === "google.values");
 
@@ -280,11 +282,19 @@ Deno.test("headers: width 200 needs no extra read; 201 with a blank header but d
 
 Deno.test("an incomplete inspection fails closed; quota keeps its own code; nothing is reported as checked", async () => {
   for (const fail of ["shape", "declared_size"] as const) {
-    const e = await assertRejects(() => H(v2Ctx({ columnCount: 260, beyondFail: fail }).c), ActionError);
+    // the validators fail closed: preview, and (below) every v2 write
+    const e = await assertRejects(() => preview(v2Ctx({ catalog: 2, columnCount: 260, beyondFail: fail }).c, PREVIEW(V2MAP)), ActionError);
     assertEquals([e.status, e.code], [503, "inspection_incomplete"], fail);
+    const s = await assertRejects(() => save(v2Ctx({ catalog: 2, columnCount: 260, beyondFail: fail }).c, SAVE(V2MAP)), ActionError);
+    assertEquals(s.code, "inspection_incomplete");
+    // the display-only headers action (also used by the legacy screen) reports it as unchecked past GR, never as checked
+    const h = await H(v2Ctx({ columnCount: 260, beyondFail: fail }).c);
+    assertEquals([h.header.length, h.beyond_limit], [6, { width: 260, checked_through: 200, columns: [], unchecked: true }]);
   }
-  const q = await assertRejects(() => H(v2Ctx({ columnCount: 260, beyondFail: "quota" }).c), GoogleApiError);
-  assertEquals(q.failure, "quota");
+  for (const run of [(c: Ctx) => H(c), (c: Ctx) => preview(c, PREVIEW(V2MAP))]) {
+    const q = await assertRejects(() => run(v2Ctx({ catalog: 2, columnCount: 260, beyondFail: "quota" }).c), GoogleApiError);
+    assertEquals(q.failure, "quota");
+  }
   // streamed body over the byte cap, and a stalled response past the timeout (small bounds; same code path)
   const big = (() => Promise.resolve(new Response(new ReadableStream({ start(ctl) {
     ctl.enqueue(new TextEncoder().encode(`{"majorDimension":"COLUMNS","values":[["${"y".repeat(5000)}"]]}`)); ctl.close(); } }), { status: 200 }))) as typeof fetch;
@@ -296,8 +306,6 @@ Deno.test("an incomplete inspection fails closed; quota keeps its own code; noth
   assertEquals([slow.reason, slow.message], ["inspection_incomplete", "inspection incomplete: timeout"]);
 });
 
-const SAVE = (mapping: unknown, extra: Record<string, unknown> = {}) => ({ source_id: null, expected_version: null, ...extra,
-  payload: { spreadsheet_id: "SPREADSHEET_123", sheet_id: 0, display_name: "X", mapping } });
 const WIDE = { columnCount: 205, beyond: [["Spouse", "secret-cell-value"]] };
 
 Deno.test("v2 preview: not-importable content and its acknowledgement token; v1 previews are unchanged", async () => {

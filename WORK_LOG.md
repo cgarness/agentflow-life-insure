@@ -1,3 +1,28 @@
+## 2026-10-27 — PR #498 correction C: preview validation and column overflow (draft PR; NOT merged; nothing applied or deployed)
+
+Chris approved correction plan C (`6041a5e`) with four safeguards. Preview gate: Save/Enable only after a successful
+preview of exactly the current draft (request body = key; stale and out-of-order responses dropped), with unchanged
+columns and the acknowledgement; drift offers "Review columns" (re-read, new columns default to Don't import).
+Every v2 mapping write (save, activate, owner-edited review) re-reads the sheet and refuses missing/duplicated mapped
+headers, gone fields, unaccounted headers, and unacknowledged not-importable content (SHA-256 token of labels and
+letters only, width excluded); nothing written on refusal. v1 save makes no Google request; syncs never block.
+Column overflow: real width plus header and data presence past GR via one bounded column-major read (≤200 more
+columns, timeout, byte cap, shape check; wider grids "unchecked"); incomplete scans fail closed
+(`inspection_incomplete`), quota stays `rate_limited`; no cell value past GR is returned, stored or logged. The UI never
+says "Every column is imported" while anything is left out. Found and fixed a phone-width clipping of the preview
+dialog (grid `min-w-0`; new browser check fails without it).
+
+Verification: tsc (root pass; app project unchanged at main's 80), build, ESLint, Deno 145 + six checks, full
+SQL/PostgREST/e2e runner (104 e2e incl. scenario 9: active-source drift refused with mapping/version/receipts
+unchanged, 260- and 450-column tabs, no duplicates), browser legacy 68 / flag-on legacy 68 / v2 42 at 1440 and 390 px.
+No schema change. Release steps unchanged (`release.md`, R2–R8 each need Chris's approval).
+
+**Context snapshot.** Decisions: semantic server checks + content token instead of a header fingerprint; scan bound
+200 extra columns; v2-only. Migrations: none added (M1/M2 still pending, unapplied). Deploys: none. Blockers: none;
+CI on the pushed head reported in the PR.
+
+---
+
 ## 2026-10-27 — Google Sheets mapping reliability implemented (draft PR; NOT merged; nothing applied or deployed)
 
 Chris approved Amendment A and its file list for local implementation. Branch `claude/sheets-mapping-reliability-tvb445`

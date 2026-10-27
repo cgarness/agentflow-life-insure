@@ -1,4 +1,4 @@
-## 2026-10-27 — CORRECTION PLAN C (awaiting Chris's approval; nothing edited, applied or deployed): PR #498 preview validation and column overflow
+## 2026-10-27 — CORRECTION PLAN C (APPROVED and IMPLEMENTED on the PR branch; NOT merged; nothing applied or deployed): PR #498 preview validation and column overflow
 
 **Status.**
 - Reviewed head `c3c4767`. The branch equals `origin/claude/sheets-mapping-reliability-tvb445` and contains
@@ -250,6 +250,42 @@ equivalent to what `activate` already does.
 - The full SQL / PostgREST / e2e runner, including the new scenario 9, plus push e2e (which must stay unchanged).
 - The browser harness: legacy, flag-on legacy fallback, and v2 at 1440 / 390 px.
 - After push: CI on the new head. I will report its exact SHA and the final status of every check.
+
+### C5. Implementation record (after approval)
+
+**The four approval safeguards:**
+1. **Bounded inspection.**
+   - `readBeyondLimit` reads at most 200 more columns × the import row bound, in one column-major request.
+   - The request has a 15 s timeout (its timer is always cleared) and a 32 MiB byte cap, checked against the
+     declared `content-length` and again while streaming.
+   - The response must have the expected shape.
+   - Any incomplete read fails the validators (`preview` and every v2 write) with 503 `inspection_incomplete`, never a pass.
+   - The display-only `headers` action, which the legacy screen also reads, shows an incomplete read as "unchecked past
+     GR" instead of failing. The legacy mapping screen is therefore never broken by the new scan. Quota → the existing `rate_limited` (429).
+   - Tested: timeout, streamed size, declared size, shape, quota.
+2. **Consistent snapshots.**
+   - `activate` and `review` check the same read they baseline or classify from.
+   - A refused write changes nothing. Scenario 9 checks mapping, `config_version`, receipts (`imported_before`) and
+     leads around refusals, and shows no re-import or rewrite after a corrected edit.
+   - The identity review path is unchanged.
+3. **No cell values.**
+   - Past GR only the header labels and a has-data flag survive the scan.
+   - The token hashes labels and letters only.
+   - Tests assert that no cell value appears in the responses or in stored leads.
+   - The new code has no logging.
+4. **v1 and sync preserved.**
+   - v1 `save` makes no Google request (test-pinned) and v1 previews make no scan.
+   - The golden v1 output is unchanged.
+   - Push e2e is still 48/48; syncs never block on new or past-limit columns.
+
+**Deviations from C2:**
+- `MappingDialogFooter.tsx` was needed: it keeps `AddSheetDialogV2.tsx` at 190 lines.
+- `notImportableLines` lives in `previewGate.ts`, so the component file exports only a component.
+- One extra fix, found by the new browser check: `PreviewStepV2` gets `min-w-0`. A wide preview table widened the
+  dialog grid and clipped text at 390 px. The check fails without the fix.
+- No other files were touched. No migration, SQL suite, ops file, push/sync engine or legacy editor change.
+
+**Commits:** `6f58c64` (Edge), `cbc369c` (frontend), `df9837f` (e2e, browser and layout fix), then docs.
 
 ### C4. Approval requested
 Approve correction plan C and the C2 file list for **local implementation, tests, docs and push to the PR branch
