@@ -75,4 +75,5 @@
 
 **Approved:** October 28, 2026 — repository branch edits, CI, and PR preparation only. No approval to merge to `main` or mutate production.  
 **Branch created:** `chore/sheets-v2-closeout-picker-20261028` from `f870755586a94f16caf1af631391de0237d82f31`.  
-**Tests/results:** Pending implementation and CI. Update after observing results, not before.  
+**Branch preparation as of October 28:** Applied-forward SQL files moved byte-for-byte into recorded production versions; never-applied rollback files renamed; shell runner, workflow, and mapping unit-test file paths reconciled. Flat alphabetical dropdown and compact labels implemented with focused UI test additions. Release docs and work log reconciled. **No production mutation and no merge to `main`.**
+**Tests/results:** GitHub CI pending until PR is open; update only after observed results. Root `npx tsc --noEmit` alone is vacuous in this repository; meaningful app check is `npx tsc -p tsconfig.app.json --noEmit`.  

@@ -1,7 +1,38 @@
-# Google Sheets mapping reliability — release package (NOT executed)
+# Google Sheets mapping reliability — production outcome & historical runbook
 
-Nothing in this file has been run against production. **Each step R2–R8 needs Chris's separate, explicit approval**,
-in order. A step that fails its checks stops the release; nothing later runs.
+## Production readback — October 28, 2026
+
+**Release status:** Production feature deployed and operational; **3 of 4 saved sources opted into mapping v2**. The fourth source remains supported v1 by owner choice; it was not forcibly converted.
+
+| Stage | Verified result |
+| --- | --- |
+| R2 | PR #498 merged into `main` as `f870755586a94f16caf1af631391de0237d82f31`. |
+| R3 / M1 | `20261028034425_google_sheets_context_field_types` applied; `private.google_sheets_context` advertises typed catalog v2. |
+| R4 / M2 | `20261028040215_standard_lead_fields` applied; provisioning and audited conversion RPCs installed. |
+| R5 | `google-sheets-api` v12, `google-sheets-push` v6 and `google-sheets-sync-worker` v11 ACTIVE, `verify_jwt=false` retained. |
+| R6 | Production Vercel v2 build `dpl_ApDSmKFJtJTnfNy4mwdzqLsQk58X` READY after enabling `VITE_GOOGLE_SHEETS_MAPPING_V2=true`. |
+| R7 | Chris's Address, City and Zip Code converted agency-wide, IDs and lead values preserved; 3 audited scope changes with `CHRIS-APPROVAL-2026-10-28-R7`; standard fields status `complete`. |
+| R8 | Chris Pilot B, Alexa FEX Real Time, Teo Goat Leads saved as v2. Alexa FEX Aged intentionally remains v1; 4/4 sources connected/healthy with no current needs-review status. |
+
+**End-to-end:** Chris's "big test" imported through Pilot B v2 automatically, with one lead, one receipt, and the source row marked done. Other saved mappings remain owned by the original sheet owners.
+
+**Migration reconciliation:** The two forward SQL files are renamed (never rewritten) into the active migrations directory:
+- `supabase/migrations/20261028034425_google_sheets_context_field_types.sql` — MD5 `e93a8f1e3904fa5c6da6cf3843fe2ad4`.
+- `supabase/migrations/20261028040215_standard_lead_fields.sql` — MD5 `d8a405763974cdccd616b800e4314883`.
+They were verified byte-identical to production `supabase_migrations.schema_migrations.statements[1]` before reconciliation. The old "NOT APPLIED" comments inside those *applied* forward files remain unchanged to preserve historical bytes. Only repository filenames and related references were reconciled; **no migration was re-applied**.
+
+**Deferred owner / audit items (not silent blockers to v2 availability):**
+- Alexa FEX Aged is valid v1; upgrade only when its owner chooses.
+- Teo Goat Leads: `Beneficiary Name` is mapped to built-in `Full Name`; Address, City and Zip are ignored along with 14 other headers. Teo will review and correct later. Existing imported data is not automatically backfilled.
+- Alexa FEX Real Time intentionally ignores Trusted Form URL, OTP Code and IP Address; assess compliance-evidence retention separately where applicable.
+- Nine older Pilot B imported receipts point to lead IDs not currently present. Their provenance is unproven; leave receipts/ledger unchanged pending separate read-only investigation.
+- UI dropdown alphabetical/short-copy polish lives in a *separate pending-review frontend branch/PR*; not yet shipped to production.
+
+## Historical pre-release runbook (retained for audit; **do not rerun**)
+
+The instructions below were written **before** this release. All R2–R7 were separately approved and executed; R8 was completed by owner opt-in for three sources. Historical dates, staged code versions, and early paths are preparation evidence, not current production instructions. No later release gate is automatically authorized.
+
+
 
 Source of truth for the design: `implementation_plan.md` (base plan + Amendment A). Local and CI evidence:
 `verification.md` in this folder.
