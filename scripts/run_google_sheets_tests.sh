@@ -39,8 +39,8 @@
 #       CONTROL (authentication under FOR UPDATE, as before → lock timeouts)
 #   8. END-TO-END push harness (scripts/google_sheets_push_e2e.ts): the real receiver, processor and
 #      google-sheets-api hooks through PostgREST (Google faked)
-# MAPPING V2 (pending/20261028120000, M1: typed catalog) is applied on top of push in EVERY database, as production
-# will run it; STANDARD LEAD FIELDS (pending/20261028120100, M2) needs the custom-field logical-name guard and the
+# MAPPING V2 (20261028034425, M1: typed catalog) is applied on top of push in EVERY database, as production
+# will run it; STANDARD LEAD FIELDS (20261028040215, M2) needs the custom-field logical-name guard and the
 # production get_user_role / is_super_admin / normalize_us_state (loaded verbatim from the baseline schema):
 #   5b. M1 suite (supabase/tests/google_sheets_mapping_v2.sql): catalog keys, visibility matrix across roles and two
 #       agencies, ACL / inventory 75, normalize_us_state parity with the Deno preview port; M1 replay guard + rollback
@@ -69,10 +69,10 @@ ROLLBACK="$ROOT/supabase/migrations/rollback/20261022062539_google_sheets_import
 PUSH="$ROOT/supabase/migrations/20261025120000_google_sheets_push_sync.sql"
 PUSH_ROLLBACK="$ROOT/supabase/migrations/rollback/20261025120000_google_sheets_push_sync.rollback.sql"
 PUSH_SUITE="$ROOT/supabase/tests/google_sheets_push.sql"
-CTX="$ROOT/supabase/migrations/pending/20261028120000_google_sheets_context_field_types.sql"
-CTX_ROLLBACK="$ROOT/supabase/migrations/rollback/20261028120000_google_sheets_context_field_types.rollback.sql"
-STD="$ROOT/supabase/migrations/pending/20261028120100_standard_lead_fields.sql"
-STD_ROLLBACK="$ROOT/supabase/migrations/rollback/20261028120100_standard_lead_fields.rollback.sql"
+CTX="$ROOT/supabase/migrations/20261028034425_google_sheets_context_field_types.sql"
+CTX_ROLLBACK="$ROOT/supabase/migrations/rollback/20261028034425_google_sheets_context_field_types.rollback.sql"
+STD="$ROOT/supabase/migrations/20261028040215_standard_lead_fields.sql"
+STD_ROLLBACK="$ROOT/supabase/migrations/rollback/20261028040215_standard_lead_fields.rollback.sql"
 GUARD="$ROOT/supabase/migrations/20260919052941_custom_field_logical_name_guard.sql"
 GUARD_GRANT="$ROOT/supabase/migrations/20260922222659_custom_field_norm_execute_grant.sql"
 V2_SUITE="$ROOT/supabase/tests/google_sheets_mapping_v2.sql"
