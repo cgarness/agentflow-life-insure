@@ -1,5 +1,5 @@
 -- =====================================================================================================
--- ROLLBACK for 20261028120000_google_sheets_context_field_types.sql. NOT RUN. Needs approval; apply as a migration
+-- ROLLBACK for 20261028034425_google_sheets_context_field_types.sql. NOT RUN. Needs approval; apply as a migration
 -- at the time. Restores the EXACT foundation body of private.google_sheets_context (md5 of prosrc
 -- 2aa8978ceafb8f5079317474f98d4dad, verified below) and removes the M1 comment. Signature, owner and ACL are
 -- unchanged throughout. Edge code that already understands catalog_version falls back to v1 values and stops

@@ -158,7 +158,7 @@ describe("frontend ↔ backend contract parity", () => {
       ignored: ["Address"], acknowledged: true };
     const payload = toPayloadV2(draft, { spreadsheetId: "S", sheetId: 0, spreadsheetName: "S", sheetTitle: "T" });
     expect(validateMapping(payload.mapping)).toEqual({ ok: true, mapping: payload.mapping });
-    const sql = readFileSync(resolve(__dirname, "../../../../supabase/migrations/pending/20261028120100_standard_lead_fields.sql"), "utf8");
+    const sql = readFileSync(resolve(__dirname, "../../../../supabase/migrations/20261028040215_standard_lead_fields.sql"), "utf8");
     const rows = [...sql.matchAll(/\('(\w+)', '([^']+)', '(\w+)', '\["Leads"\]'::jsonb\)/g)].map((m) => ({ key: m[1], name: m[2], type: m[3] }));
     expect(rows).toEqual(STANDARD_LEAD_FIELDS.map((s) => ({ key: s.key, name: s.name, type: s.type })));
   });

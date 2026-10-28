@@ -1,14 +1,18 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { GROUP_LABELS, type CatalogGroup, type CatalogOption, type MissingStandardField } from "@/lib/google-sheets/fieldCatalog";
+import { type CatalogOption, type MissingStandardField } from "@/lib/google-sheets/fieldCatalog";
 import { IGNORE_TARGET } from "@/lib/google-sheets/headerState";
 
 export const IGNORE = IGNORE_TARGET;
-const ORDER: CatalogGroup[] = ["required", "contact", "details", "address", "agency", "mine", "others", "unavailable"];
+/** Sorting affects picker display only, never a stored mapping or server field order. */
+const FIELD_ORDER = new Intl.Collator("en", { sensitivity: "base" });
+type PickerEntry =
+  | { kind: "field"; value: string; label: string; option: CatalogOption }
+  | { kind: "standard"; value: string; label: string; standard: MissingStandardField };
 const matchKeywords = (_value: string, search: string, keywords?: string[]) => {
   const q = search.toLowerCase().replace(/[^a-z0-9]/g, "");
   return !q || (keywords ?? []).some((k) => k.toLowerCase().replace(/[^a-z0-9]/g, "").includes(q)) ? 1 : 0;
@@ -25,12 +29,20 @@ interface Props {
   disabled?: boolean;
 }
 
-/** Searchable, grouped field picker for one sheet column. Unavailable fields are listed (disabled) with the reason. */
+/** Compact A–Z field picker. Disabled options retain accessible reasons and cannot be selected. */
 const MappingFieldPicker: React.FC<Props> = ({ header, value, options, missingStandard, usedBy, onSelect, onCreate, disabled }) => {
   const [open, setOpen] = useState(false);
   const current = value === IGNORE ? null : options.find((o) => o.value === value);
   const pick = (v: string) => { setOpen(false); onSelect(v); };
   const label = current?.label ?? (value === IGNORE ? "Don't import" : "Choose a field");
+  const entries = useMemo((): PickerEntry[] => {
+    const all: PickerEntry[] = [
+      ...options.map((option) => ({ kind: "field" as const, value: option.value, label: option.label, option })),
+      ...missingStandard.map((standard) => ({ kind: "standard" as const, value: `std-${standard.key}`, label: standard.name, standard })),
+    ];
+    return all.sort((a, b) => FIELD_ORDER.compare(a.label, b.label) || a.value.localeCompare(b.value));
+  }, [options, missingStandard]);
+
 
   return (
     <Popover open={open && !disabled} onOpenChange={(o) => setOpen(o && !disabled)} modal>
@@ -46,49 +58,49 @@ const MappingFieldPicker: React.FC<Props> = ({ header, value, options, missingSt
           <CommandInput placeholder="Search fields…" className="h-9" />
           <CommandList className="max-h-72">
             <CommandEmpty>No matching field.</CommandEmpty>
-            <CommandGroup>
-              <CommandItem value={IGNORE} keywords={["don't import", "ignore", "skip"]} onSelect={() => pick(IGNORE)}>
-                <Check className={cn("mr-2 h-4 w-4", value === IGNORE ? "opacity-100" : "opacity-0")} aria-hidden />
-                Don't import
-              </CommandItem>
-            </CommandGroup>
-            {ORDER.map((g) => {
-              const items = options.filter((o) => o.group === g);
-              const missing = g === "address" ? missingStandard : [];
-              if (!items.length && !missing.length) return null;
+            <CommandItem value={IGNORE} keywords={["don't import", "ignore", "skip"]} onSelect={() => pick(IGNORE)}>
+              <Check className={cn("mr-2 h-4 w-4 shrink-0", value === IGNORE ? "opacity-100" : "opacity-0")} aria-hidden />
+              Don't import
+            </CommandItem>
+            <CommandSeparator />
+            {entries.map((entry) => {
+              if (entry.kind === "standard") {
+                const standard = entry.standard;
+                return (
+                  <CommandItem key={entry.value} value={entry.value} keywords={[standard.name, "add standard field"]}
+                    aria-label={`Add ${standard.name} standard field`}
+                    title={`Add ${standard.name} as an agency-wide field`}
+                    onSelect={() => { setOpen(false); onCreate(standard.name); }}>
+                    <Plus className="mr-2 h-4 w-4 shrink-0" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate text-sm">{standard.name}</span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground" aria-hidden>Add</span>
+                  </CommandItem>
+                );
+              }
+              const o = entry.option;
+              const used = usedBy.get(o.value);
+              const elsewhere = used !== undefined && used !== header;
               return (
-                <CommandGroup key={g} heading={GROUP_LABELS[g]}>
-                  {items.map((o) => {
-                    const used = usedBy.get(o.value);
-                    const elsewhere = used !== undefined && used !== header;
-                    return (
-                      <CommandItem key={o.value} value={o.value} keywords={[o.label, ...o.keywords]} disabled={o.disabled} onSelect={() => pick(o.value)}>
-                        <Check className={cn("mr-2 h-4 w-4 shrink-0", value === o.value ? "opacity-100" : "opacity-0")} aria-hidden />
-                        <span className="flex min-w-0 flex-col">
-                          <span className="truncate">{o.label}{o.type && o.type !== "Text" && <span className="ml-2 text-xs text-muted-foreground">{o.type}</span>}</span>
-                          {(o.reason || elsewhere) && (
-                            <span className="truncate text-xs text-muted-foreground">{elsewhere ? `Used by “${used}”` : o.reason}</span>
-                          )}
-                        </span>
-                      </CommandItem>
-                    );
-                  })}
-                  {missing.map((m) => (
-                    <CommandItem key={`std-${m.key}`} value={`std-${m.key}`} keywords={[m.name]} onSelect={() => { setOpen(false); onCreate(m.name); }}>
-                      <Plus className="mr-2 h-4 w-4 shrink-0" aria-hidden />
-                      <span className="truncate">{m.name}<span className="ml-2 text-xs text-muted-foreground">add standard field</span></span>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
+                <CommandItem key={o.value} value={o.value} keywords={[o.label, ...o.keywords]}
+                  disabled={o.disabled} title={o.reason ?? (elsewhere ? `Mapped to “${used}”` : undefined)}
+                  onSelect={() => pick(o.value)}>
+                  <Check className={cn("mr-2 h-4 w-4 shrink-0", value === o.value ? "opacity-100" : "opacity-0")} aria-hidden />
+                  <span className="min-w-0 flex-1 truncate text-sm">{o.label}</span>
+                  {o.type && o.type !== "Text" && <span className="shrink-0 text-[11px] text-muted-foreground">{o.type}</span>}
+                  {o.disabled
+                    ? <span className="shrink-0 text-[11px] text-muted-foreground">Unavailable</span>
+                    : elsewhere && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground" aria-hidden>In use</span>}
+                  {o.reason && <span className="sr-only"> {o.reason}</span>}
+                  {elsewhere && <span className="sr-only"> Used by “{used}”</span>}
+                </CommandItem>
               );
             })}
             <CommandSeparator />
-            <CommandGroup>
-              <CommandItem value="__create__" keywords={["create", "new", "custom", header]} onSelect={() => { setOpen(false); onCreate(header); }}>
-                <Plus className="mr-2 h-4 w-4" aria-hidden />
-                Create custom field…
-              </CommandItem>
-            </CommandGroup>
+            <CommandItem value="__create__" keywords={["create", "new", "custom", header]}
+              onSelect={() => { setOpen(false); onCreate(header); }}>
+              <Plus className="mr-2 h-4 w-4 shrink-0" aria-hidden />
+              Create custom field…
+            </CommandItem>
           </CommandList>
         </Command>
       </PopoverContent>

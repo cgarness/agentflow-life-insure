@@ -1,5 +1,5 @@
 -- =====================================================================================================
--- ROLLBACK for 20261028120100_standard_lead_fields.sql. NOT RUN. Needs approval; apply as a migration at the time.
+-- ROLLBACK for 20261028040215_standard_lead_fields.sql. NOT RUN. Needs approval; apply as a migration at the time.
 -- Removes the organization trigger and every function M2 added. KEEPS private.standard_lead_field_provisioning and
 -- private.custom_field_scope_changes (status history and the audit trail are never destroyed), and keeps every
 -- custom field the feature provisioned or converted: undoing an ownership change is a separate, approved data step
