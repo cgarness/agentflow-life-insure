@@ -58,10 +58,6 @@ const MappingStepV2: React.FC<Props> = ({ draft, onChange, headers, onRetryHeade
   const mappable = hs.mappableHeaders;
   const targetOf = (h: string) => draft.columns.find((c) => c.header === h)?.target ?? IGNORE_TARGET;
   const usedBy = new Map(draft.columns.map((c) => [c.target, c.header]));
-  const sample = (letter: string) => {
-    const col = headers.data.columns?.find((c) => c.letter === letter)?.index ?? hs.columns.findIndex((c) => c.letter === letter);
-    return headers.data.sample.map((r) => (r[col] ?? "").trim()).find(Boolean) ?? "";
-  };
   const choose = (header: string, target: string) => {
     const from = usedBy.get(target);
     if (target !== IGNORE_TARGET && from && from !== header) { setPendingMove({ header, target, from }); return; }
@@ -104,7 +100,7 @@ const MappingStepV2: React.FC<Props> = ({ draft, onChange, headers, onRetryHeade
       )}
       <div className="space-y-3">
         {hs.columns.filter((c) => c.mappable && c.header !== draft.idHeader).map((c) => (
-          <MappingColumnRow key={c.key} column={c} sample={sample(c.letter)} value={targetOf(c.header)} catalog={fc} usedBy={usedBy}
+          <MappingColumnRow key={c.key} column={c} value={targetOf(c.header)} catalog={fc} usedBy={usedBy}
             pendingMove={pendingMove?.header === c.header ? { target: pendingMove.target, from: pendingMove.from } : null}
             onSelect={(t) => choose(c.header, t)}
             onConfirmMove={() => { onChange(applyColumnChoice(draft, c.header, pendingMove!.target, mappable)); setPendingMove(null); }}
