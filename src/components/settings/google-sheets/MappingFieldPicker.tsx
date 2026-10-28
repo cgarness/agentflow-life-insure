@@ -90,8 +90,8 @@ const MappingFieldPicker: React.FC<Props> = ({ header, value, options, missingSt
                   {o.disabled
                     ? <span className="shrink-0 text-[11px] text-muted-foreground">Unavailable</span>
                     : elsewhere && <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground" aria-hidden>In use</span>}
-                  {o.reason && <span className="sr-only"> ${o.reason}</span>}
-                  {elsewhere && <span className="sr-only"> Already mapped to ${used}</span>}
+                  {o.reason && <span className="sr-only"> {o.reason}</span>}
+                  {elsewhere && <span className="sr-only"> Used by “{used}”</span>}
                 </CommandItem>
               );
             })}
