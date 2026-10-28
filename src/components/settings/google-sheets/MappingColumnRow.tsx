@@ -6,7 +6,6 @@ import MappingFieldPicker from "./MappingFieldPicker";
 
 interface Props {
   column: ColumnState;
-  sample: string;
   value: string;
   catalog: FieldCatalog;
   usedBy: Map<string, string>;
@@ -19,16 +18,13 @@ interface Props {
   createForm: React.ReactNode;
 }
 
-/** One sheet column: its letter, header, a sample value, and the field it imports into. */
-const MappingColumnRow: React.FC<Props> = ({ column, sample, value, catalog, usedBy, pendingMove, onSelect, onConfirmMove, onCancelMove, onCreate, createForm }) => (
+/** One compact source header aligned with its target field; sample values remain available in Preview. */
+const MappingColumnRow: React.FC<Props> = ({ column, value, catalog, usedBy, pendingMove, onSelect, onConfirmMove, onCancelMove, onCreate, createForm }) => (
   <div className="space-y-2">
     <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-2">
-      <div className="min-w-0">
-        <p className="truncate text-sm" title={column.header}>
-          <span className="mr-2 text-xs text-muted-foreground">{column.letter}</span>{column.header}
-          {column.status === "new" && <span className="ml-2 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">New</span>}
-        </p>
-        {sample && <p className="truncate text-xs text-muted-foreground" title={sample}>e.g. {sample}</p>}
+      <div className="flex min-h-9 min-w-0 items-center gap-2">
+        <span className="min-w-0 truncate text-sm font-medium" title={column.header}>{column.header}</span>
+        {column.status === "new" && <span className="shrink-0 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">New</span>}
       </div>
       <MappingFieldPicker header={column.header} value={value} options={catalog.options} missingStandard={catalog.missingStandard}
         usedBy={usedBy} onSelect={onSelect} onCreate={onCreate} />

@@ -156,6 +156,34 @@ describe("mapping v2 editor", () => {
     expect(screen.getAllByText("New").length).toBeGreaterThan(0);
   });
 
+  it("shows compact source headers without column letters or sample captions, preserving tooltip and picker targets", async () => {
+    api(); renderDialog(null); await pickTab();
+    const first = screen.getByTitle("First Name");
+    expect(first).toHaveTextContent(/^First Name$/);
+    expect(first).toHaveClass("truncate");
+    expect(first.parentElement).toHaveClass("min-h-9");
+    expect(screen.getByTitle("Amt Requested")).toHaveTextContent(/^Amt Requested$/);
+    expect(screen.queryByText(/^e\.g\./i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Ann", { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Field for First Name")).toHaveTextContent("First Name");
+    expect(screen.getByLabelText("Field for Amt Requested")).toHaveTextContent("Amt Requested");
+    expect(screen.getByText(/1 column won't be imported/)).toBeInTheDocument();
+  });
+
+  it("keeps the full long header tooltip, single-line truncation and New indicator for newly discovered columns", async () => {
+    api({ headers: () => headersResult(["First Name", "Last Name", "Phone", "History of Heart Attack Stroke Cancer"]) });
+    renderDialog(v2Source("enabled", { v: 1, columns: [
+      { header: "First Name", target: "first_name" }, { header: "Last Name", target: "last_name" },
+      { header: "Phone", target: "phone" },
+    ] }));
+    const longHeader = await screen.findByTitle("History of Heart Attack Stroke Cancer");
+    expect(longHeader).toHaveClass("truncate");
+    expect(longHeader).toHaveTextContent(/^History of Heart Attack Stroke Cancer$/);
+    expect(longHeader.parentElement).toHaveTextContent("New");
+    expect(screen.getByLabelText("Field for History of Heart Attack Stroke Cancer")).toHaveTextContent("Don't import");
+    expect(screen.queryByText(/^e\.g\./i)).not.toBeInTheDocument();
+  });
+
   it("new sheet: auto-maps address columns, previews stored values, needs the acknowledgement, then saves v2", async () => {
     api();
     const onSaved = vi.fn();

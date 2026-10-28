@@ -101,7 +101,9 @@ const V2_API = {
       { id: F.city, name: "City", created_by: null, created_at: null, type: "Text", required: false, dropdown_options: [], scope: "agency", own: false },
       { id: F.zip, name: "ZIP Code", created_by: null, created_at: null, type: "Text", required: false, dropdown_options: [], scope: "agency", own: false },
       { id: F.cov, name: "Coverage Amount", created_by: null, created_at: null, type: "Number", required: false, dropdown_options: [], scope: "agency", own: false }] }),
-  headers: () => ({ title: "Leads", spreadsheet_name: "Facebook Leads", header: V2_HEADER, row_count: 3, overflow: false, sample: [], locale: "en_US",
+  headers: () => ({ title: "Leads", spreadsheet_name: "Facebook Leads", header: V2_HEADER, row_count: 3, overflow: false,
+    sample: [["ROW-1", "Ann", "Lee", "5550001234", "ann@example.test", "1 Main St", "Austin", "02134", "$250000", ""]],
+    locale: "en_US",
     column_count: 205, beyond_limit: { width: 205, checked_through: 205, columns: [{ letter: "GS", header: "", has_data: true }], unchecked: false },
     columns: V2_HEADER.map((h, i) => ({ index: i, letter: String.fromCharCode(65 + i), header: h, blank: !h, duplicate: false, has_data: true })) }),
   // Answers after a delay, so the dialog is observed while the preview is still loading.
@@ -180,6 +182,12 @@ async function v2Flow(page, vp) {
   check((await field("City")).includes("City") && (await field("Zip")).includes("ZIP Code") && (await field("Coverage Amount")).includes("Coverage Amount"),
         `${vp.name} v2: City, Zip and Coverage Amount auto-mapped to their fields`);
   check((await field("Mailing Address")).includes("Don't import"), `${vp.name} v2: Mailing Address is never auto-mapped to Email`);
+  const sourceHeader = page.locator('[title="First Name"]');
+  check(await sourceHeader.count() === 1 && (await sourceHeader.textContent())?.trim() === "First Name",
+        `${vp.name} v2: source column label is one line without the spreadsheet letter`);
+  check(await page.getByText(/^e\.g\./i).count() === 0 && await page.locator('[title="Ann"]').count() === 0,
+        `${vp.name} v2: nonempty sheet samples are hidden in mapping rows (remain in Preview)`);
+
   check(await page.getByText(/Columns without a header have data: J\./).isVisible(), `${vp.name} v2: blank-header column with data is reported`);
   check(await page.getByText(/This tab is 205 columns wide\. Only A–GR \(the first 200\) can be imported\. Past GR: data in GS\./).isVisible(),
         `${vp.name} v2: the real width and data past GR (blank header) are reported`);
