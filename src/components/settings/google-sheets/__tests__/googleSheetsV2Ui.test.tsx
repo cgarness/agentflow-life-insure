@@ -189,7 +189,8 @@ describe("mapping v2 editor", () => {
     fireEvent.click(screen.getByLabelText("Field for Mailing Address"));
     fireEvent.change(await screen.findByPlaceholderText("Search fields…"), { target: { value: "zip" } });
     const zipOption = await screen.findByRole("option", { name: /ZIP Code/ });
-    expect(zipOption).toHaveTextContent(/Used by “Zip”/);
+    expect(zipOption).toHaveTextContent("In use");
+    expect(zipOption).toHaveAttribute("title", "Mapped to “Zip”");
     fireEvent.click(zipOption);
     expect(await screen.findByText(/is mapped to “Zip”\. Move it to this column\?/)).toBeInTheDocument();
     expect(screen.getByLabelText("Field for Zip")).toHaveTextContent("ZIP Code");
@@ -198,12 +199,60 @@ describe("mapping v2 editor", () => {
     expect(screen.getByLabelText("Field for Zip")).toHaveTextContent("Don't import");
   });
 
+  it("shows a flat A–Z list with missing standard fields mixed in, without category headings", async () => {
+    api();
+    renderDialog(null);
+    await pickTab();
+    fireEvent.click(screen.getByLabelText("Field for Mailing Address"));
+    const items = screen.getAllByRole("option");
+    expect(items[0]).toHaveTextContent("Don't import");
+    expect(items[items.length - 1]).toHaveTextContent("Create custom field");
+    const names = items.slice(1, -1).map((item) => item.querySelector("span.truncate")?.textContent?.trim() ?? "");
+    expect(names).not.toContain("");
+    const collator = new Intl.Collator("en", { sensitivity: "base" });
+    expect(names).toEqual([...names].sort((a, b) => collator.compare(a, b)));
+    expect(names).toContain("Address"); // Missing standard field, interleaved alphabetically
+    expect(names).toContain("Amt Requested");
+    expect(screen.getByRole("option", { name: /Add Address standard field/ })).toBeInTheDocument();
+    for (const heading of ["Required", "Contact", "Details", "Agency fields", "My fields", "Unavailable"]) {
+      expect(screen.queryByText(heading, { exact: true })).not.toBeInTheDocument();
+    }
+  });
+
+  it("keeps disabled fields visible, with a compact status and accessible full reason", async () => {
+    ctxQuery.data = catalog(true, [{ id: "00000000-0000-4000-8000-000000000099", name: "Tags",
+      created_by: "u1", created_at: null, type: "Text", scope: "personal", own: true }]);
+    api();
+    renderDialog(null);
+    await pickTab();
+    fireEvent.click(screen.getByLabelText("Field for Mailing Address"));
+    const reserved = screen.getByRole("option", { name: /Tags/ });
+    expect(reserved).toHaveAttribute("aria-disabled", "true");
+    expect(reserved).toHaveAttribute("title", "Reserved by AgentFlow");
+    expect(reserved).toHaveTextContent("Unavailable");
+    fireEvent.click(reserved);
+    expect(screen.getByLabelText("Field for Mailing Address")).toHaveTextContent("Don't import");
+  });
+
+  it("supports searching and selecting an available field with the keyboard", async () => {
+    api();
+    renderDialog(null);
+    await pickTab();
+    fireEvent.click(screen.getByLabelText("Field for Mailing Address"));
+    const search = await screen.findByPlaceholderText("Search fields…");
+    fireEvent.change(search, { target: { value: "Age" } });
+    fireEvent.focus(search);
+    fireEvent.keyDown(search, { key: "ArrowDown", code: "ArrowDown" });
+    fireEvent.keyDown(search, { key: "Enter", code: "Enter" });
+    await waitFor(() => expect(screen.getByLabelText("Field for Mailing Address")).toHaveTextContent("Age"));
+  });
+
   it("inline creation: an Agent asking for a standard field is told to ask an Admin (nothing created)", async () => {
     api();
     renderDialog(null);
     await pickTab();
     fireEvent.click(screen.getByLabelText("Field for Mailing Address"));
-    fireEvent.click(await screen.findByRole("option", { name: /Address add standard field/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /Add Address standard field/ }));
     const form = screen.getByRole("group", { name: "Create custom field" });
     expect(within(form).getByLabelText("Field name")).toHaveValue("Address");
     fireEvent.click(within(form).getByRole("button", { name: "Add standard field" }));
@@ -222,7 +271,7 @@ describe("mapping v2 editor", () => {
       return { data: ctxQuery.data };
     });
     fireEvent.click(screen.getByLabelText("Field for Mailing Address"));
-    fireEvent.click(await screen.findByRole("option", { name: /Address add standard field/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /Add Address standard field/ }));
     fireEvent.click(screen.getByRole("button", { name: "Add standard field" }));
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("provision_standard_lead_fields", { p_dry_run: false }));
     await waitFor(() => expect(screen.getByLabelText("Field for Mailing Address")).toHaveTextContent("Address"));
