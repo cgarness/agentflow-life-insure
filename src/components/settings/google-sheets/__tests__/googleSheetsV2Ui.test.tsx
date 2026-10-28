@@ -163,7 +163,7 @@ describe("mapping v2 editor", () => {
     expect(first).toHaveClass("truncate");
     expect(first.parentElement).toHaveClass("min-h-9");
     expect(screen.getByTitle("Amt Requested")).toHaveTextContent(/^Amt Requested$/);
-    expect(screen.queryByText(/^e\\.g\\./i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^e\.g\./i)).not.toBeInTheDocument();
     expect(screen.queryByText("Ann", { exact: true })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Field for First Name")).toHaveTextContent("First Name");
     expect(screen.getByLabelText("Field for Amt Requested")).toHaveTextContent("Amt Requested");
@@ -181,7 +181,7 @@ describe("mapping v2 editor", () => {
     expect(longHeader).toHaveTextContent(/^History of Heart Attack Stroke Cancer$/);
     expect(longHeader.parentElement).toHaveTextContent("New");
     expect(screen.getByLabelText("Field for History of Heart Attack Stroke Cancer")).toHaveTextContent("Don't import");
-    expect(screen.queryByText(/^e\\.g\\./i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^e\.g\./i)).not.toBeInTheDocument();
   });
 
   it("new sheet: auto-maps address columns, previews stored values, needs the acknowledgement, then saves v2", async () => {

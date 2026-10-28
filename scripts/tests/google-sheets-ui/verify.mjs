@@ -185,7 +185,7 @@ async function v2Flow(page, vp) {
   const sourceHeader = page.locator('[title="First Name"]');
   check(await sourceHeader.count() === 1 && (await sourceHeader.textContent())?.trim() === "First Name",
         `${vp.name} v2: source column label is one line without the spreadsheet letter`);
-  check(await page.getByText(/^e\\.g\\./i).count() === 0 && await page.locator('[title="Ann"]').count() === 0,
+  check(await page.getByText(/^e\.g\./i).count() === 0 && await page.locator('[title="Ann"]').count() === 0,
         `${vp.name} v2: nonempty sheet samples are hidden in mapping rows (remain in Preview)`);
 
   check(await page.getByText(/Columns without a header have data: J\./).isVisible(), `${vp.name} v2: blank-header column with data is reported`);
