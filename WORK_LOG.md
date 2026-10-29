@@ -22,7 +22,8 @@ tools, provenance, budgets and hashes. No runtime dependency was added.
 `public/marketing-v2/*`; non-production `scripts/tests/homepage-v2/capture/*`;
 private V2 plan, claims/capture evidence and media manifest; this work log.
 
-**Verification:** 22 focused Vitest checks; scoped ESLint; root TypeScript;
+**Verification:** 22 focused Vitest checks; scoped ESLint, including capture
+tools with zero warnings (entry component exported for development hot refresh); root TypeScript;
 meaningful app types versus exact base `7a03033492c55fd16ea1bacd049934102fe340e4`
 (80 baseline, zero added errors); Vite production build. Actual footage checked
 on desktop 1440/mobile 390 CSS viewports with no horizontal overflow, muted

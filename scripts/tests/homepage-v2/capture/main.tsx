@@ -14,7 +14,7 @@ const SCENES = { dashboard: DashboardScene, dialer: DialerScene, leaderboard: Le
 type Scene = keyof typeof SCENES;
 const TITLES: Record<Scene, string> = { dashboard: "Dashboard", dialer: "Power Dialer", leaderboard: "Annual Premium Leaderboard", conversations: "Conversations" };
 
-function Capture() {
+export function Capture() {
   const [scene, setScene] = useState<Scene>("leaderboard"), [epoch, setEpoch] = useState(0);
   const [status, setStatus] = useState("Ready — actual UI components, entirely synthetic data");
   const [busy, setBusy] = useState(false), [url, setUrl] = useState("");
