@@ -1,5 +1,93 @@
 # AgentFlow Work Log
 
+## 2026-10-29 — Private homepage V2 production test-route release approved
+
+Chris authorized merging PR #503 to production for testing before replacing the current homepage. Release only the existing Super Admin-gated `/homepage-v2`; keep `/` and `/homepagetest1` unchanged. Incorporate current main without changing its CRM/backend files. No migration dispatch, environment change, auth change or public-homepage replacement is authorized. Deployment and production-route verification are recorded in PR #503.
+
+## 2026-10-29 — Private homepage V2 authentic demos and review candidate (PR #503)
+
+**Status:** The earlier secure-login blocker is resolved. The test account signed
+in through browserAuth; rendered UI confirms Super Admin access to private V2.
+Branch-only review candidate; PR remains unmerged and production approval is
+still required. Shared real agency names were excluded from every recording.
+
+**What changed:** Replaced all four V2 concept/illustrative panels with actual
+shipped dashboard, dialer, AP board and messaging component recordings. Each
+approximately six-second loop uses synthetic fixtures in an isolated capture
+workspace, with real numeric/rank/glow animations, local call/message simulation,
+explicit demo disclosure, blocked backend access and no real calls or sends.
+Authorized AgentFlow imagery consists of existing brand assets and genuine
+product frames. Removed the illustrative component module and stale pending
+labels. Optimized H.264 MP4/VP9 WebM/WebP set totals 656,701 bytes; every encoded
+frame decodes, with no audio and stripped source metadata. Added reproducible capture/encoding
+tools, provenance, budgets and hashes. No runtime dependency was added.
+
+**Files touched:** V2 page, DemoShell/ProductSections/media and page tests;
+`public/marketing-v2/*`; non-production `scripts/tests/homepage-v2/capture/*`;
+private V2 plan, claims/capture evidence and media manifest; this work log.
+
+**Verification:** 22 focused Vitest checks; scoped ESLint, including capture
+tools with zero warnings (entry component exported for development hot refresh); root TypeScript;
+meaningful app types versus exact base `7a03033492c55fd16ea1bacd049934102fe340e4`
+(80 baseline, zero added errors); Vite production build. Actual footage checked
+on desktop 1440/mobile 390 CSS viewports with no horizontal overflow, muted
+viewport autoplay, deferred offscreen sources, offscreen pause, manual pause
+retained on resize, mobile menu and FAQ. Capture fixtures remain outside dist.
+Both Git-linked preview outcomes and the final signed-in walkthrough are
+recorded in PR #503 after push, along with protection/production read-back.
+
+**Migrations/deploys:** No backend/data write, schema/RLS/auth/telephony change,
+Vercel configuration change, main update, merge or production release. Only
+protected branch previews. Live homepage and CRM functionality are unchanged.
+
+**Review:** See PR #503 and its protected `/homepage-v2` URL. Separate user
+approval is required before merging or releasing the homepage.
+
+## 2026-10-29 — Private homepage V2 playback/access polish (PR #503; capture BLOCKED)
+
+**Status:** Explicitly requested by Chris on `feat/private-homepage-v2-20261029`.
+Branch-only preparation; draft PR remains open, not merged or released.
+**Not complete:** secure AgentFlow sign-in returned `Invalid login credentials`;
+authentic dashboard/dialer/AP board/messaging clips and authenticated preview QA
+remain pending. No footage is represented as real and no real prospect was
+called or messaged.
+
+**What changed:** Preserved the approved dark navy/sky layout; split V2 into
+small components; lazy-loaded only V2 behind the unchanged SuperAdminRoute.
+Player attaches sources near the viewport, plays only in view/active tab, honors
+reduced motion, Save-Data and slow networks, preserves manual pause, handles
+blocked autoplay and per-source format failure, and reserves media space.
+Added accessible navigation, FAQ relationships and private metadata cleanup.
+Removed V2 links to unsupported pricing/trial promises and the contact form
+that only shows a local success toast. Get started uses the existing `/signup`
+setup flow; no purchase, trial or immediate-access promise.
+
+**Files touched:** `src/pages/LandingPageV2.tsx`; V2 lazy import/route wrapper in
+`src/App.tsx`; `src/components/marketing-v2/*` and focused tests;
+`scripts/tests/homepage-v2/*` (isolated, non-production visual/playback harness);
+`docs/plans/2026-10-29-private-homepage-v2/{implementation_plan,claims-and-capture}.md`;
+`WORK_LOG.md`.
+
+**Migrations/deploys:** No backend commands, data writes, Edge deploys, RLS,
+telephony changes, Vercel settings or production release. Only the existing
+Git-linked protected branch previews may build from this update. `/`,
+`/homepagetest1`, SuperAdminRoute, live pricing/contact and CRM functionality
+remain byte-identical.
+
+**Verification:** 21 focused Vitest checks; scoped ESLint; root TypeScript;
+meaningful app TypeScript against exact base `7a03033492c55fd16ea1bacd049934102fe340e4`
+(80 baseline errors, 0 added); Vite production build. Browser QA on isolated
+1440/390px viewports: no horizontal overflow, mobile navigation/FAQ, real video
+loading/autoplay/manual pause/offscreen pause with an explicitly technical
+six-second color-pattern fixture. Fixture/harness excluded from dist. Both
+Vercel projects retain SSO protection `all_except_custom_domains`. Final deployed
+branch SHA/URL and Ready state are recorded in the PR, not assumed here.
+
+**Blockers / next:** Secure sign-in via browser handoff; locate a safe synthetic
+capture workspace; record/review/encode all four authentic loops, replace the
+legacy concepts, complete signed-in protected-preview review. See the capture
+document for exact boundaries and provenance requirements. Separate approval is
+still required before merge or production release.
 ## 2026-10-29 — Dashboard attention G3 protected backend release PR prepared (NOT applied)
 
 **Status:** Chris approved exact Gate 3 migration and RLS bytes with separately controlled protected workflow stages. This change is release-only, staged on `release/dashboard-attention-g3-20261029`, and **does not apply any database migration or merge Dashboard PR #504**. No Vercel flag, production frontend, CRM source row or Twilio/telephony change.
