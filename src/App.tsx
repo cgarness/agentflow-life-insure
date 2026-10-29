@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -43,7 +44,7 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
 import EmailUnsubscribePage from "./pages/EmailUnsubscribePage";
 import LandingPageTest1 from "./pages/LandingPageTest1";
-import LandingPageV2 from "./pages/LandingPageV2";
+const LandingPageV2 = lazy(() => import("./pages/LandingPageV2"));
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
@@ -133,7 +134,7 @@ const App = () => (
                         <Route path="/email/unsubscribe" element={<EmailUnsubscribePage />} />
                         <Route path="/homepagetest1" element={<LandingPageTest1 />} />
                         {/* Internal concept preview only; never expose to general users. */}
-                        <Route path="/homepage-v2" element={<SuperAdminRoute><LandingPageV2 /></SuperAdminRoute>} />
+                        <Route path="/homepage-v2" element={<SuperAdminRoute><Suspense fallback={<div role="status" className="flex min-h-screen items-center justify-center bg-[#060c17] text-white">Loading private preview…</div>}><LandingPageV2 /></Suspense></SuperAdminRoute>} />
                         {/* Retired comparison route — kept as a redirect so shared links keep working. */}
                         <Route path="/logintest1" element={<Navigate to="/login" replace />} />
                         <Route path="/pricing" element={<PricingPage />} />

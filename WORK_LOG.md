@@ -1,5 +1,52 @@
 # AgentFlow Work Log
 
+## 2026-10-29 — Private homepage V2 playback/access polish (PR #503; capture BLOCKED)
+
+**Status:** Explicitly requested by Chris on `feat/private-homepage-v2-20261029`.
+Branch-only preparation; draft PR remains open, not merged or released.
+**Not complete:** secure AgentFlow sign-in returned `Invalid login credentials`;
+authentic dashboard/dialer/AP board/messaging clips and authenticated preview QA
+remain pending. No footage is represented as real and no real prospect was
+called or messaged.
+
+**What changed:** Preserved the approved dark navy/sky layout; split V2 into
+small components; lazy-loaded only V2 behind the unchanged SuperAdminRoute.
+Player attaches sources near the viewport, plays only in view/active tab, honors
+reduced motion, Save-Data and slow networks, preserves manual pause, handles
+blocked autoplay and per-source format failure, and reserves media space.
+Added accessible navigation, FAQ relationships and private metadata cleanup.
+Removed V2 links to unsupported pricing/trial promises and the contact form
+that only shows a local success toast. Get started uses the existing `/signup`
+setup flow; no purchase, trial or immediate-access promise.
+
+**Files touched:** `src/pages/LandingPageV2.tsx`; V2 lazy import/route wrapper in
+`src/App.tsx`; `src/components/marketing-v2/*` and focused tests;
+`scripts/tests/homepage-v2/*` (isolated, non-production visual/playback harness);
+`docs/plans/2026-10-29-private-homepage-v2/{implementation_plan,claims-and-capture}.md`;
+`WORK_LOG.md`.
+
+**Migrations/deploys:** No backend commands, data writes, Edge deploys, RLS,
+telephony changes, Vercel settings or production release. Only the existing
+Git-linked protected branch previews may build from this update. `/`,
+`/homepagetest1`, SuperAdminRoute, live pricing/contact and CRM functionality
+remain byte-identical.
+
+**Verification:** 21 focused Vitest checks; scoped ESLint; root TypeScript;
+meaningful app TypeScript against exact base `7a03033492c55fd16ea1bacd049934102fe340e4`
+(80 baseline errors, 0 added); Vite production build. Browser QA on isolated
+1440/390px viewports: no horizontal overflow, mobile navigation/FAQ, real video
+loading/autoplay/manual pause/offscreen pause with an explicitly technical
+six-second color-pattern fixture. Fixture/harness excluded from dist. Both
+Vercel projects retain SSO protection `all_except_custom_domains`. Final deployed
+branch SHA/URL and Ready state are recorded in the PR, not assumed here.
+
+**Blockers / next:** Secure sign-in via browser handoff; locate a safe synthetic
+capture workspace; record/review/encode all four authentic loops, replace the
+legacy concepts, complete signed-in protected-preview review. See the capture
+document for exact boundaries and provenance requirements. Separate approval is
+still required before merge or production release.
+
+
 ## 2026-10-29 — G2 production closeout; G3 Dashboard release candidate prepared on current main
 
 **Status:** G2 PRODUCTION COMPLETE. Protected PR #501 merged at `78d532b` (release workflow only). `check` [#40925336827], `apply-migration` [#40925926281], and `record-history` [#40926621789] succeeded; independently verified in production on project `jncvvsvckxhqgqvkppmj`. G3 visual release is **branch-only**, not merged, not activated or deployed.
