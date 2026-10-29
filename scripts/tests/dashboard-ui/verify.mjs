@@ -167,9 +167,19 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
     const page = await ctx.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
+    // Load evidence printed only if the Dashboard never renders (the CI artifact holds no page state).
+    const trail = [];
+    page.on("console", (m) => { if (m.type() === "error") trail.push(`console.error: ${m.text()}`); });
+    page.on("response", (r) => { if (r.status() >= 400 && r.url().startsWith(BASE)) trail.push(`HTTP ${r.status()} ${r.url()}`); });
+    page.on("requestfailed", (r) => { if (r.url().startsWith(BASE)) trail.push(`failed ${r.url()}: ${r.failure()?.errorText}`); });
+    page.on("framenavigated", (f) => { if (f === page.mainFrame()) trail.push(`navigated ${f.url()}`); });
     await page.goto(`${BASE}/dashboard`);
     const kpis = page.locator("div.grid").filter({ hasText: "Calls Made Today" }).first();
-    await kpis.waitFor({ timeout: 30000 });
+    await kpis.waitFor({ timeout: 30000 }).catch(async (e) => {
+      const body = await page.locator("body").innerText().catch(() => "<no body>");
+      console.error(`${tag}: KPI cards never rendered at ${page.url()}\n${[...errors, ...trail].slice(-40).join("\n")}\nbody: ${body.slice(0, 600)}`);
+      throw e;
+    });
     await page.getByText("$4,200.00").first().waitFor({ timeout: 15000 });
     await page.waitForTimeout(800);
     await kpis.screenshot({ path: `${OUT}/kpi-${tag}.png`, animations: "disabled" });

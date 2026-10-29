@@ -121,21 +121,27 @@ jobs:
           mkdir -p "$OUT"
           git worktree add --detach "$OUT/main-tree" "$BASE_SHA"
           ln -s "$GITHUB_WORKSPACE/node_modules" "$OUT/main-tree/node_modules"
-          npx vite --port 5181 --host 127.0.0.1 >"$OUT/g3-vite.log" 2>&1 &
-          G3_PID=$!
-          ( cd "$OUT/main-tree" && npx vite --port 5182 --host 127.0.0.1 >"$OUT/main-vite.log" 2>&1 ) &
-          MAIN_PID=$!
-          trap 'kill "$G3_PID" "$MAIN_PID" 2>/dev/null || true; git worktree remove --force "$OUT/main-tree" || true' EXIT
-          for port in 5181 5182; do
-            ready=0
+          wait_ready() {
             for attempt in $(seq 1 40); do
-              if curl --fail --silent "http://127.0.0.1:$port" >/dev/null; then ready=1; break; fi
+              if curl --fail --silent "http://127.0.0.1:$1" >/dev/null; then return 0; fi
               sleep 1
             done
-            test "$ready" -eq 1
-          done
+            return 1
+          }
+          npx vite --port 5181 --host 127.0.0.1 >"$OUT/g3-vite.log" 2>&1 &
+          G3_PID=$!
+          MAIN_PID=""
+          trap 'status=$?; if [ "$status" -ne 0 ]; then tail -n 60 "$OUT/g3-vite.log" "$OUT/main-vite.log" 2>/dev/null || true; fi; kill "$G3_PID" $MAIN_PID 2>/dev/null || true; git worktree remove --force "$OUT/main-tree" || true' EXIT
+          wait_ready 5181
           DASH_BASE_URL=http://127.0.0.1:5181 node scripts/tests/dashboard-ui/verify.mjs "$OUT/g3"
           test "$(grep -c '^PASS ' "$OUT/g3/results.txt")" -eq 80
+          # The base server starts only after the G3 checks: both trees share node_modules, so two cold
+          # Vite servers would pre-bundle into one node_modules/.vite cache at once and overwrite each
+          # other's dependency files while a page is loading. Started now, it reuses the finished cache.
+          kill "$G3_PID" 2>/dev/null || true
+          ( cd "$OUT/main-tree" && exec npx vite --port 5182 --host 127.0.0.1 >"$OUT/main-vite.log" 2>&1 ) &
+          MAIN_PID=$!
+          wait_ready 5182
           DASH_KPI_ONLY=1 DASH_BASE_URL=http://127.0.0.1:5182 node scripts/tests/dashboard-ui/verify.mjs "$OUT/main"
           for viewport in desktop mobile; do
             for theme in light dark; do
