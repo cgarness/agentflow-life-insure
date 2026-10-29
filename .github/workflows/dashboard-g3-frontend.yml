@@ -126,7 +126,7 @@ jobs:
               python3 scripts/tests/dashboard-ui/compare-kpi.py "$OUT/g3/kpi-${viewport}-${theme}.png" "$OUT/main/kpi-${viewport}-${theme}.png"
             done
           done
-          echo "PASS: 44 browser checks and 4 pixel-identical KPI card screenshots"
+          echo "PASS: 44 browser checks and 4 KPI card captures within strict anti-alias tolerance"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
