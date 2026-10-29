@@ -261,7 +261,7 @@ Non-negotiables from production:
 - **Current production state — re-paused September 26, 16:32:24 UTC:** signed-in Dashboard/Leaderboard/TV functional verification passed, but three successful HTTP standings responses took 2,734 / 3,574 / 4,481 ms, crossing the approved two-over-two-seconds stop rule. The exact tested re-pause is APPLIED as `20260926163224_leaderboard_repause_latency_gate`; immutable SQL SHA-256 `4893c227610bd55474b880ff73eb9b9ab4d441ebe2584b34566074a7857d4028`, guarded-and-paused definition `75eec092f7039c2c8cb0cca93e93d1ae`. Original security metadata and Group are unchanged; authenticated PT503 and the real maintenance screen are verified. Do not replay the original forward script against this new preimage. Root-cause attribution and another approved reopening remain outstanding; details and the next diagnostic protocol are in `docs/incidents/2026-09-26-leaderboard-backend/verification.md`.
 - **Request discipline + truthful states (Leaderboard Recovery, 2026-09-25; frontend only; amends the frontend contract above).** After the 2026-09-23 incident (4 s polling, realtime-triggered refreshes in hidden tabs, piled-up slow requests, no backoff), **every standings and Recent Wins read goes through `src/lib/leaderboardRequestGate.ts`**: one gate per viewer (`auth user id : organization id`) shared by the Leaderboard page, TV mode and the Dashboard widget; it holds scheduling metadata only, never rows. Rules: **one request in flight per gate**; identical requests share one promise (keys never include the moving `p_end = now`); at most one queued request per channel; per-endpoint backoff (errors 30 s → 5 min, `busy` 15 s → 2 min, ±20 % jitter); automatic runs at least 15 s apart and `2 ×` the last response time after a slow answer; a 25 s gate-owned timeout that frees the lane. **`PT503` is a maintenance hold** (the live-only pause `20260923224254` raises `SQLSTATE 'PT503'`; PostgREST maps `PTxyz` to HTTP xyz; postgrest-js 2.98 does not auto-retry and reports an abort as `code: ""`, so timeouts are classified by the gate, never by error shape): no automatic **or manual** request for ~5 min; `PT429` (busy) is held the same way. **Polling is 30 s by default** (`VITE_LEADERBOARD_POLL_MS` clamped to 30 s – 5 min; the legacy 4 s is rejected) and runs **only in a visible, online tab**; a tab that mounts hidden loads when shown. **Realtime binds `wins` INSERT only** (the win celebration); the `calls` binding was removed (it shared the dialer's org-wide `calls` stream) and so was `appointments` (not in the publication). The "realtime-debounced refreshes" wording above is superseded. **Truthful states:** standings and wins snapshots are tagged with their scope (viewer / view / group / period); a stale banner appears only over rows of the current scope, a failed or held switch clears the rows (never another period's, view's or viewer's numbers under the current selection); "No agents on the board", "No sales" and "No wins yet" appear only after a successful empty read; an offline tab or a period switch in progress is not "live"; TV mode shows a notice (with period buttons) instead of an empty podium or zero totals and uses "live" wording only when live; the promised "next check" is the time the gate will really accept the automatic run; Group stays selected on failure (no silent switch to the org endpoint). **The Dashboard has no automatic refresh:** one bounded Refresh control (30 s after opening and after each refresh) reloads the stat cards and signals every widget once; a failed Refresh of the same selection keeps the values on screen (first loads and switches behave as before).
 - **Rev 1.2 corrections (Leaderboard Recovery, 2026-09-25; frontend only; amends the bullet above).**
-  - **Dashboard sections:** stat cards, Callbacks, Schedule, Goal Progress, Missed Calls and Anniversaries load through `useDashboardSection` → `src/lib/dashboardRefresh.ts`, one lane per viewer and section.
+  - **Dashboard sections:** stat cards, Callbacks, Schedule, Goal Progress, Missed Calls and Anniversaries load through `useDashboardSection` → `src/lib/dashboardRefresh.ts`, one lane per viewer and section. (Since 2026-10-29 the Anniversaries section is labelled **Client Milestones**; its persisted widget key and section lane key stay `anniversaries`.)
     - One load on the wire: a Refresh, a remount or a repeated signal joins it.
     - A perspective or period switch aborts it and starts only after it settles; there are never two requests for a section on the wire.
     - Each load is bounded at 25 s. It is then reported failed, while a load that ignores the abort keeps its lane, and later requests are refused `busy` rather than stacked.
@@ -970,6 +970,11 @@ Chris's October 18 20:19 PDT request supersedes gold actions and neutral-only ma
 
 ### Lead → Client conversion data preservation (built 2026-10-21 on `claude/sweet-fermi-jpsnyn`; migration `20261021200000` NOT applied; frontend NOT released)
 
+**Status correction (2026-10-29, read-only `list_migrations`):** production history records
+`20261021200000 / lead_client_conversion_preservation` as APPLIED, so `clients.date_of_birth` / `age` /
+`best_time_to_call` / `spouse_info` / `lead_conversion` exist. The "NOT applied" wording below is historical; always
+check `list_migrations` before relying on any status in this section.
+
 Gate 2 approved 2026-10-21 but NOT applied: this cloud session had no SQL Editor route, so it stopped after a 12/12
 preflight and a rehearsed package (`release/apply_20261021200000.sql`, SHA-256 `fd796409…742a`); never apply it
 through `execute_sql` or `apply_migration`. Proposed contract, live only after Chris's Gate 2 (database) and Gate 3 (frontend) approvals; check `list_migrations`
@@ -1316,3 +1321,52 @@ A new row reaches AgentFlow through a Google Drive `files.watch` notification, n
 - **Release order** (each step separately approved; `docs/plans/2026-10-27-sheets-mapping-reliability/release.md`): merge with G1 unset → M1 → M2 → Edge (`--no-verify-jwt`, live source re-read first) → G1 on → approved conversions/provisioning → owners edit sources into v2. Before any Edge rollback to pre-v2 code, run the approved `supabase/ops/google_sheets_mapping_v2_to_v1.sql`.
 - **As-applied SQL and opt-in rollout (2026-10-28).** M1's forward file is `supabase/migrations/20261028034425_google_sheets_context_field_types.sql` (MD5 `e93a8f1e3904fa5c6da6cf3843fe2ad4`); M2's is `supabase/migrations/20261028040215_standard_lead_fields.sql` (MD5 `d8a405763974cdccd616b800e4314883`). Both were byte-equal to `supabase_migrations.schema_migrations.statements[1]` at reconciliation and **must never be edited**; the old NOT APPLIED header inside each is immutable historical content. Four sources remained healthy; three owners opted their individual sources into v2, while Alexa's FEX Aged source intentionally remains on supported v1. Pilot B "big test" imported once automatically via v2. Teo's Beneficiary Name → Full Name and excluded address fields await owner correction; nine older Pilot B receipts have absent lead records and need a separate audit, not a silent repair.
 
+## Dashboard Client Milestones invariant — October 29, 2026 (frontend on branch `claude/great-clarke-c1gpw6`; G2 migration `pending/20261029120000_dashboard_milestone_reviews.sql` NOT applied)
+
+Plan and evidence: `docs/plans/2026-10-29-dashboard-premium-redesign/implementation_plan.md` (rev 1 + implementation status).
+Check `list_migrations` before assuming the review table exists.
+
+- **One definition.** `src/lib/dashboard-milestones.ts` is the ONLY milestone engine (pure; `today`/`now` are
+  arguments). The widget and the detail modal both use it through `loadClientMilestones` in
+  `src/lib/dashboard-milestones-data.ts`. Date-only values go through `src/lib/calendar-date.ts`; never
+  `new Date("YYYY-MM-DD")`, which is the previous day in US zones. "Today" is browser-local, like the rest of the Dashboard.
+- **Client Birthdays:** `clients.date_of_birth` only (stored text, parsed with `parseDOB`). **Leads are never read.**
+  Shown today … +14 days. Feb 29 is observed on Feb 28 in non-leap years.
+- **Policy Anniversaries:** every policy of the existing normalized model (`getClientPolicyDisplay` →
+  `normalizeClientPolicies`, so primary only with policy evidence, plus every additional entry), using that policy's own
+  Effective Date. Anniversaries start at year 1; the effective date itself is never one. Widget +30 days, detail +90.
+  **Never labelled a renewal or an expiration.**
+- **First Payment Reminders:** the client Draft Date, shown from Draft Date − 3 days, pending until reviewed, ONE-TIME per
+  user/organization/client. A reviewed reminder never re-arms when Draft Date ("the next scheduled draft") later moves.
+  - No historical reminders: a Draft Date before `VITE_FIRST_PAYMENT_REMINDERS_START` (the go-live date), or before the
+    client's local creation date, never qualifies. Existing clients with valid future Draft Dates stay eligible.
+  - Never inferred as paid, missed, failed or late; never derived for additional policies.
+  - The category exists only when reviews are on and the start date is a real date (fail closed).
+- **Review state is alert state, never a CRM record.** Mark Reviewed / Remind Later / Undo write ONLY
+  `public.dashboard_milestone_reviews`, through `set_dashboard_milestone_review` / `clear_dashboard_milestone_review`
+  (SECURITY INVOKER; identity from `auth.uid()`/`get_org_id()`; Active same-org profile; client visible under the
+  existing clients RLS).
+  - Never hide a milestone by editing a client, policy, task or notification, and never use local/browser storage for review state.
+  - Per user + organization + event + occurrence year: `birthday` / policy uuid or `primary` / `first_payment`.
+  - A review matches only the occurrence date it recorded.
+  - Remind Later (Tomorrow / In 3 days / Next week, local start of day, server bound ≤ 31 days) is allowed after the
+    date; a snoozed past birthday/anniversary returns as a "Follow-up" at its time until reviewed.
+  - Undo deletes the caller's row only if `updated_at` is unchanged since the action (the guard trigger stamps
+    `clock_timestamp()` on every write).
+- **Release switches:** `VITE_DASHBOARD_MILESTONE_REVIEWS=true` only after the G2 migration is applied and read back;
+  `VITE_FIRST_PAYMENT_REMINDERS_START=<go-live date>`. Unset means no review read, no action rendered and no First
+  Payment category. Actions are also hidden under View As (`isImpersonating`). Release order: database first;
+  rollback: frontend (unset the flag) first.
+- **Truncation is never silent:** `src/lib/paged-exact-read.ts` reads with keyset paging plus an exact count.
+  - The read is complete only when an empty page or the exact count proves it; never infer it from page length.
+  - At the 5,000-client cap the UI says "Milestones from the first N of M clients", counts read "N+", and the empty state is never shown.
+- **Scope (plan §2A):** a detail modal uses the scope of the surface that opened it (`src/lib/dashboard-scope.ts`).
+  KPI cards use the Reports-scope rule; list widgets use the role rule. A Team Leader in Team perspective sees their own
+  list items with a disclosure. This is NOT an authorization boundary and changes no permission or RLS. True downline
+  lists need the protected `dashboard-callbacks.ts` contract changed with separate approval.
+- **Presentation contract:**
+  - Widgets and modals take their colors only from `src/components/dashboard/ui/dashboardTones.ts`.
+  - Modals use `DashboardModalShell`, which returns focus to its opener (Radix only restores to a `Dialog.Trigger`).
+  - Row actions are visible buttons plus a Radix menu, never hover-only.
+  - Motion respects `prefers-reduced-motion`.
+  - The KPI cards (`StatCards.tsx`) are outside this contract and were left byte-for-byte unchanged.

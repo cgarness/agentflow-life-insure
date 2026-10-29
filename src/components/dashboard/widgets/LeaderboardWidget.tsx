@@ -39,26 +39,25 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
     return (
       <div className="space-y-2">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-14 bg-muted/20 rounded-xl animate-pulse" />
+          <div key={i} className="h-14 bg-muted/20 rounded-xl animate-pulse motion-reduce:animate-none" />
         ))}
       </div>
     );
   }
 
   const viewToggle = agencyGroup && (
-    <div className="flex bg-accent/40 rounded-lg p-0.5 w-fit mx-auto text-[10px]">
-      <button
-        onClick={() => setWidgetView("org")}
-        className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${widgetView === "org" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-      >
-        My Agency
-      </button>
-      <button
-        onClick={() => setWidgetView("group")}
-        className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${widgetView === "group" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-      >
-        Group
-      </button>
+    <div role="group" aria-label="Standings view" className="flex bg-accent/40 rounded-lg p-0.5 w-fit mx-auto text-[11px]">
+      {(["org", "group"] as const).map((view) => (
+        <button
+          key={view}
+          type="button"
+          aria-pressed={widgetView === view}
+          onClick={() => setWidgetView(view)}
+          className={`px-2.5 py-1 rounded-md font-semibold transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 ${widgetView === view ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+        >
+          {view === "org" ? "My Agency" : "Group"}
+        </button>
+      ))}
     </div>
   );
 
@@ -157,7 +156,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
         variant="ghost"
         size="sm"
         onClick={() => navigate("/leaderboard")}
-        className="w-full text-primary hover:text-primary/80 hover:bg-primary/5 rounded-xl text-xs font-bold uppercase tracking-widest"
+        className="w-full text-amber-700 dark:text-amber-400 hover:bg-amber-500/5 rounded-xl text-xs font-bold uppercase tracking-widest"
       >
         View Full Standings
       </Button>

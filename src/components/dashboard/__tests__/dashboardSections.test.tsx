@@ -39,7 +39,7 @@ vi.mock("@/integrations/supabase/client", () => {
     let signal: AbortSignal | null = null;
     const q: Record<string, unknown> = {};
     const chain = () => q;
-    for (const m of ["select", "eq", "in", "gte", "lt", "lte", "not", "or", "order", "limit"]) q[m] = chain;
+    for (const m of ["select", "eq", "in", "gt", "gte", "lt", "lte", "not", "or", "order", "limit"]) q[m] = chain;
     q.abortSignal = (s: AbortSignal) => {
       signal = s;
       return q;
@@ -94,7 +94,7 @@ vi.mock("@/lib/dashboard-callbacks", async (importOriginal) => ({
 
 import AppointmentsWidget from "@/components/dashboard/widgets/AppointmentsWidget";
 import MissedCallsWidget from "@/components/dashboard/widgets/MissedCallsWidget";
-import AnniversariesWidget from "@/components/dashboard/widgets/AnniversariesWidget";
+import ClientMilestonesWidget from "@/components/dashboard/widgets/ClientMilestonesWidget";
 import GoalProgressWidget from "@/components/dashboard/widgets/GoalProgressWidget";
 import CallbacksWidget from "@/components/dashboard/widgets/CallbacksWidget";
 import StatCards from "@/components/dashboard/StatCards";
@@ -114,7 +114,15 @@ const CALL = {
 };
 const soon = new Date();
 soon.setDate(soon.getDate() + 3);
-const CLIENT = { id: "k1", first_name: "Riley", last_name: "Stone", phone: "+15555550111", effective_date: soon.toISOString().slice(0, 10), policy_type: "Term", assigned_agent_id: USER };
+const ORG = "11111111-1111-4111-8111-111111111111";
+const pad = (n: number) => String(n).padStart(2, "0");
+// A policy-bearing client whose 2-year policy anniversary is three days away (Client Milestones).
+const CLIENT = {
+  id: "k1", first_name: "Riley", last_name: "Stone", phone: "+15555550111", created_at: "2024-01-01T12:00:00Z",
+  date_of_birth: null, draft_date: null, primary_policy_id: null, policy_type: "Term", carrier: "Mutual of Omaha",
+  policy_number: "", premium: 0, face_amount: 0, sold_date: null, custom_fields: null,
+  effective_date: `${soon.getFullYear() - 2}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())}`,
+};
 const GOALS = { monthly_call_goal: 100, monthly_policies_goal: 0, monthly_appointment_goal: 0, monthly_premium_goal: 0 };
 const CALLBACK_ROW = {
   key: "cb1", source: "campaign", contactId: "l1", contactType: "lead", contactName: "Casey Callback",
@@ -154,7 +162,7 @@ beforeEach(() => {
   h.result = (t) =>
     t === "appointments" ? { data: [APPT], error: null } :
     t === "calls" ? { data: [CALL], error: null } :
-    t === "clients" ? { data: [CLIENT], error: null } :
+    t === "clients" ? { data: [CLIENT], error: null, count: 1 } :
     t === "profiles" ? { data: GOALS, error: null } :
     { data: [], error: null, count: 0 };
   h.callbackPage.mockReset().mockResolvedValue([CALLBACK_ROW]);
@@ -321,7 +329,7 @@ describe("correction 2: nothing is sent while hidden or offline", () => {
 
   it("a follow-on read never goes out after the tab went hidden mid-load; the section loads once when shown", async () => {
     h.hold = new Set(["calls"]);
-    render(<MissedCallsWidget userId={USER} role="Agent" adminToggle="my" />);
+    render(<MemoryRouter><MissedCallsWidget userId={USER} role="Agent" adminToggle="my" /></MemoryRouter>);
     await waitFor(() => expect(h.held).toHaveLength(1));
     act(() => setVisibility("hidden"));
     await act(async () => h.held[0].resolve({ data: [{ ...CALL, contact_id: "l1" }], error: null }));
@@ -385,11 +393,11 @@ describe("correction 3: a failed refresh keeps the data and says so", () => {
       label: "missed calls",
     },
     {
-      name: "Anniversaries",
-      element: (s) => <AnniversariesWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={s} />,
+      name: "Client Milestones",
+      element: (s) => <ClientMilestonesWidget userId={USER} role="Agent" adminToggle="my" organizationId={ORG} refreshSignal={s} />,
       rows: "Riley Stone",
       fail: () => (h.result = (t) => (t === "clients" ? FAIL : { data: [], error: null })),
-      label: "anniversaries",
+      label: "client milestones",
     },
     {
       name: "Goal Progress",
@@ -428,35 +436,35 @@ describe("correction 3: a failed refresh keeps the data and says so", () => {
       <MemoryRouter>
         <AppointmentsWidget userId={USER} role="Agent" adminToggle="my" />
         <MissedCallsWidget userId={USER} role="Agent" adminToggle="my" />
-        <AnniversariesWidget userId={USER} role="Agent" adminToggle="my" />
+        <ClientMilestonesWidget userId={USER} role="Agent" adminToggle="my" organizationId={ORG} />
         <GoalProgressWidget userId={USER} />
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByText("Couldn't load your schedule")).toBeInTheDocument());
     expect(screen.getByText("Couldn't load missed calls")).toBeInTheDocument();
-    expect(screen.getByText("Couldn't load anniversaries")).toBeInTheDocument();
+    expect(screen.getByText("Couldn't load client milestones")).toBeInTheDocument();
     expect(screen.getByText("Couldn't load goal progress")).toBeInTheDocument();
-    for (const empty of ["Your schedule is clear for today", "All caught up!", "No policy anniversaries soon", "No goals configured"]) {
+    for (const empty of ["Your schedule is clear for today", "All caught up!", "No upcoming client milestones", "No goals configured"]) {
       expect(screen.queryByText(empty)).not.toBeInTheDocument();
     }
   });
 
   it("over an empty result, a failed Refresh shows the empty message only together with the stale note", async () => {
     h.result = () => ({ data: [], error: null });
-    const view = render(<MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={0} />);
+    const view = render(<MemoryRouter><MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={0} /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText("All caught up!")).toBeInTheDocument());
     h.result = () => FAIL;
-    view.rerender(<MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={1} />);
+    view.rerender(<MemoryRouter><MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={1} /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText(/Couldn't refresh — showing missed calls from/)).toBeInTheDocument());
     expect(screen.getByText("All caught up!")).toBeInTheDocument();
   });
 
   it("Missed Calls: a failed contact lookup is a failure, never rows claiming 'no linked contact'", async () => {
-    const view = render(<MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={0} />);
+    const view = render(<MemoryRouter><MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={0} /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText("Jordan Kay")).toBeInTheDocument());
     h.result = (t) =>
       t === "calls" ? { data: [{ ...CALL, contact_id: "l1", contact_name: "Lee Lookup" }], error: null } : t === "leads" ? FAIL : { data: [], error: null };
-    view.rerender(<MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={1} />);
+    view.rerender(<MemoryRouter><MissedCallsWidget userId={USER} role="Agent" adminToggle="my" refreshSignal={1} /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText(/Couldn't refresh — showing missed calls from/)).toBeInTheDocument());
     expect(screen.getByText("Jordan Kay")).toBeInTheDocument();
     expect(screen.queryByText("Lee Lookup")).not.toBeInTheDocument();

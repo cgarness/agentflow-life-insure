@@ -6,7 +6,8 @@ import React from "react";
 import { Target, TrendingUp, PhoneCall, ShieldCheck, Calendar } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
+import { DASHBOARD_TONES, type DashboardTone } from "@/components/dashboard/ui/dashboardTones";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
@@ -38,34 +39,42 @@ const ProgressBar: React.FC<{
   target: number;
   label: string;
   icon: React.ElementType;
-  gradient: string;
+  tone: DashboardTone;
   formatValue?: (v: number) => string;
-}> = ({ current, target, label, icon: Icon, gradient, formatValue }) => {
+}> = ({ current, target, label, icon: Icon, tone, formatValue }) => {
+  const reduceMotion = useReducedMotion();
   const pct = current !== null && target > 0 ? Math.min((current / target) * 100, 100) : 0;
   const fmt = formatValue ?? ((v: number) => String(v));
+  const valueText = `${current === null ? "Unavailable" : fmt(current)} / ${fmt(target)}`;
 
   return (
     <div className="space-y-2">
-      <div className="flex justify-between items-end px-1">
-        <div className="flex items-center gap-2">
-          <div className={`p-1.5 rounded-lg bg-card border border-border shadow-sm`}>
-            <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-          </div>
-          <span className="text-xs font-bold text-foreground uppercase tracking-wider">{label}</span>
+      <div className="flex justify-between items-end gap-2 px-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${DASHBOARD_TONES[tone].soft}`}>
+            <Icon className={`h-3.5 w-3.5 ${DASHBOARD_TONES[tone].text}`} aria-hidden="true" />
+          </span>
+          <span className="break-words text-xs font-bold text-foreground uppercase tracking-wider">{label}</span>
         </div>
-        <span className="text-[10px] font-bold text-muted-foreground tabular-nums bg-muted/50 px-2 py-0.5 rounded-full">
-          {current === null ? "Unavailable" : fmt(current)} / {fmt(target)}
+        <span className="shrink-0 text-xs font-semibold text-muted-foreground tabular-nums bg-muted/50 px-2 py-0.5 rounded-full">
+          {valueText}
         </span>
       </div>
-      <div className="relative h-3 bg-muted/30 rounded-full overflow-hidden border border-white/5 shadow-inner">
+      <div
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={current === null ? undefined : Math.round(pct)}
+        aria-valuetext={current === null ? "Unavailable" : `${Math.round(pct)}% (${valueText})`}
+        className="relative h-3 bg-muted/40 rounded-full overflow-hidden border border-border/40"
+      >
         {current !== null && <motion.div
-          initial={{ width: 0 }}
+          initial={{ width: reduceMotion ? `${pct}%` : 0 }}
           animate={{ width: `${pct}%` }}
-          transition={{ duration: 1, ease: "easeOut" }}
-          className={`h-full rounded-full ${gradient} relative shadow-[0_0_10px_rgba(0,0,0,0.1)]`}
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent w-full animate-shimmer" style={{ backgroundSize: "200% 100%" }} />
-        </motion.div>}
+          transition={{ duration: reduceMotion ? 0 : 0.8, ease: "easeOut" }}
+          className={`h-full rounded-full ${DASHBOARD_TONES[tone].chip}`}
+        />}
       </div>
     </div>
   );
@@ -126,11 +135,11 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refresh
 
   if (section.loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6" aria-hidden="true">
         {[1, 2, 3].map((i) => (
           <div key={i} className="space-y-2">
-            <div className="h-3 w-32 bg-muted rounded animate-pulse" />
-            <div className="h-3 bg-muted rounded-full animate-pulse" />
+            <div className="h-3 w-32 bg-muted rounded animate-pulse motion-reduce:animate-none" />
+            <div className="h-3 bg-muted rounded-full animate-pulse motion-reduce:animate-none" />
           </div>
         ))}
       </div>
@@ -143,14 +152,14 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refresh
     return (
       <div className="text-center py-10 flex flex-col items-center">
         {notice}
-        <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
-          <Target className="w-8 h-8 text-muted-foreground opacity-50" />
+        <div className="w-14 h-14 rounded-full bg-emerald-500/10 flex items-center justify-center mb-3">
+          <Target className="w-7 h-7 text-emerald-600 dark:text-emerald-400 opacity-70" aria-hidden="true" />
         </div>
         <p className="text-sm text-muted-foreground font-medium mb-4">No goals configured</p>
         <button
           type="button"
           onClick={() => navigate("/settings?section=my-profile")}
-          className="text-xs font-bold text-primary hover:text-primary/80 uppercase tracking-widest bg-primary/5 px-4 py-2 rounded-xl transition-all"
+          className="text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 uppercase tracking-widest bg-emerald-500/5 px-4 py-2 rounded-xl transition-colors motion-reduce:transition-none"
         >
           Configure goals in My Profile
         </button>
@@ -162,43 +171,13 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refresh
     <div className="space-y-6">
       {notice}
       <p className="text-xs text-muted-foreground">{data.unknownPremiums ? `${data.unknownPremiums} policies have unknown premium; premium progress is incomplete.` : "Month to date"}</p>
-      {data.callsTarget > 0 && (
-        <ProgressBar
-          current={data.callsMonth}
-          target={data.callsTarget}
-          label="Monthly Calls"
-          icon={PhoneCall}
-          gradient="premium-gradient-blue"
-        />
-      )}
-      {data.policiesTarget > 0 && (
-        <ProgressBar
-          current={data.policiesMonth}
-          target={data.policiesTarget}
-          label="Monthly Policies"
-          icon={ShieldCheck}
-          gradient="premium-gradient-emerald"
-        />
-      )}
-      {data.appointmentsMonthTarget > 0 && (
-        <ProgressBar
-          current={data.appointmentsMonth}
-          target={data.appointmentsMonthTarget}
-          label="Monthly Appointments"
-          icon={Calendar}
-          gradient="premium-gradient-amber"
-        />
-      )}
-      {data.premiumTarget > 0 && (
-        <ProgressBar
-          current={data.premiumSold}
-          target={data.premiumTarget}
-          label="Monthly Premium"
-          icon={TrendingUp}
-          gradient="premium-gradient-violet"
-          formatValue={fmtCurrency}
-        />
-      )}
+      {/* Each bar in its category tone: calls blue, policies green, appointments purple, premium gold. */}
+      {([
+        { label: "Monthly Calls", current: data.callsMonth, target: data.callsTarget, icon: PhoneCall, tone: "blue" },
+        { label: "Monthly Policies", current: data.policiesMonth, target: data.policiesTarget, icon: ShieldCheck, tone: "green" },
+        { label: "Monthly Appointments", current: data.appointmentsMonth, target: data.appointmentsMonthTarget, icon: Calendar, tone: "purple" },
+        { label: "Monthly Premium", current: data.premiumSold, target: data.premiumTarget, icon: TrendingUp, tone: "gold", formatValue: fmtCurrency },
+      ] as const).filter((bar) => bar.target > 0).map((bar) => <ProgressBar key={bar.label} {...bar} />)}
     </div>
   );
 };

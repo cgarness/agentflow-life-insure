@@ -1,8 +1,8 @@
 import React from "react";
-import { CheckCircle, PhoneForwarded, User, Clock } from "lucide-react";
+import { CheckCircle, ExternalLink, PhoneForwarded } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { dispatchQuickCall, type QuickCallContactType } from "@/lib/quick-call";
 import { buildMyMissedCallsOrFilter } from "@/lib/missedCallScope";
@@ -12,6 +12,12 @@ import { useDashboardSection } from "@/hooks/useDashboardSection";
 import { assertPageActive } from "@/lib/pageActivity";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
+import { contactHref } from "@/lib/dashboard-contact-identity";
+import { listScopeIsFiltered, listScopeNote } from "@/lib/dashboard-scope";
+import { DashboardEmptyState, DashboardIconWell, DashboardList, DashboardListRow, DashboardRowSkeleton } from "@/components/dashboard/ui/DashboardListRow";
+import { DashboardRowActions } from "@/components/dashboard/ui/DashboardRowActions";
+import { DashboardScopeNote } from "@/components/dashboard/ui/DashboardScopeNote";
+import { DASHBOARD_TONES } from "@/components/dashboard/ui/dashboardTones";
 
 interface MissedCallsWidgetProps {
   userId: string;
@@ -36,13 +42,12 @@ interface MissedCallItem {
   voicemailId: string | null;
 }
 
+/** The widget is a preview of the latest calls; the detail view lists the last 24 hours. */
+const PREVIEW_LIMIT = 5;
+
 const timeAgo = (dateStr: string) => {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+  return mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : `${Math.floor(mins / 1440)}d ago`;
 };
 
 /** The last 24 h of missed calls; throws on a query error (a failure is never "All caught up!"). */
@@ -56,7 +61,7 @@ async function loadMissedCalls(userId: string, isFiltered: boolean, signal: Abor
     .eq("is_missed", true)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
-    .limit(5);
+    .limit(PREVIEW_LIMIT);
 
   if (isFiltered) {
     // D13 (§3.2): a missed row has no answering agent, so `agent_id = me` never matched. Scope
@@ -113,14 +118,9 @@ async function loadMissedCalls(userId: string, isFiltered: boolean, signal: Abor
   });
 }
 
-const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
-  userId,
-  role,
-  adminToggle,
-  refreshSignal,
-  refreshTracker,
-}) => {
-  const isFiltered = role !== "Admin" || adminToggle === "my";
+const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({ userId, role, adminToggle, refreshSignal, refreshTracker }) => {
+  const navigate = useNavigate();
+  const isFiltered = listScopeIsFiltered(role, adminToggle);
   // One load at a time; a failed refresh keeps this perspective's list and says so.
   const section = useDashboardSection<MissedCallItem[]>({
     section: "missed_calls",
@@ -132,94 +132,65 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({
   });
   const calls = section.data ?? [];
   const notice = <DashboardSectionNotice state={section} label="missed calls" className="mb-3" />;
+  const scopeNote = <DashboardScopeNote text={listScopeNote(role, adminToggle, "missed calls")} />;
 
-  const handleCallBack = (e: React.MouseEvent, item: MissedCallItem) => {
-    // Keep the action inside the button — it must not open the parent widget card.
-    e.stopPropagation();
-
+  const handleCallBack = (item: MissedCallItem) => {
     if (!item.contactId || !item.contactType) {
       toast.error("This call has no linked contact record — open it in Contacts to call back.");
       return;
     }
-    const started = dispatchQuickCall({
-      contactId: item.contactId,
-      name: item.contactName,
-      phone: item.phone,
-      type: item.contactType,
-    });
+    const started = dispatchQuickCall({ contactId: item.contactId, name: item.contactName, phone: item.phone, type: item.contactType });
     // Never report a call that did not start.
     if (!started) toast.error(`No phone number on file for ${item.contactName}.`);
   };
 
-  if (section.loading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-12 bg-muted/20 rounded-xl animate-pulse" />
-        ))}
-      </div>
-    );
-  }
+  if (section.loading) return <DashboardRowSkeleton />;
 
   if (section.data === null) return <DashboardSectionUnavailable state={section} label="missed calls" />;
 
   if (calls.length === 0) {
-    return (
-      <div className="text-center py-10 flex flex-col items-center">
-        {notice}
-        <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mb-4">
-          <CheckCircle className="w-8 h-8 text-emerald-500 opacity-50" />
-        </div>
-        <p className="text-sm text-muted-foreground font-medium">All caught up!</p>
-      </div>
-    );
+    return <DashboardEmptyState tone="green" icon={CheckCircle} title="All caught up!" notice={<>{notice}{scopeNote}</>} />;
   }
 
   return (
     <div className="space-y-3">
       {notice}
-      {calls.map((call, idx) => (
-        <motion.div
-          key={call.id}
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: idx * 0.05 }}
-          className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-red-500/20 hover:bg-red-500/5 transition-all group"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center shrink-0">
-              <PhoneForwarded className="w-5 h-5 text-red-500/50" />
-            </div>
-            <div className="min-w-0">
-              <p className="font-bold text-sm text-foreground truncate group-hover:text-red-500 transition-colors">
-                {call.contactName}
-              </p>
-              <div className="flex items-center gap-2">
-                <Clock className="w-3 h-3 text-muted-foreground" />
-                <p className="text-[10px] font-medium text-muted-foreground">
-                  {timeAgo(call.createdAt)}
-                </p>
-                <p className="text-[10px] font-medium text-red-500/80 truncate" data-testid="missed-call-outcome">
-                  {call.outcomeLabel}
-                </p>
-              </div>
-              {call.voicemailId && (
-                <div className="mt-1" onClick={(e) => e.stopPropagation()}>
-                  <VoicemailPlayer voicemailId={call.voicemailId} compact />
-                </div>
-              )}
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={(e) => handleCallBack(e, call)}
-            className="rounded-lg shadow-sm hover:bg-red-500 hover:text-white hover:border-red-500 transition-all px-4 h-9"
-          >
-            Call Back
-          </Button>
-        </motion.div>
-      ))}
+      {scopeNote}
+      <DashboardList label="Missed calls">
+        {calls.map((call) => {
+          const href = contactHref(call.contactId, call.contactType);
+          return (
+            <DashboardListRow
+              key={call.id}
+              tone="red"
+              leading={<DashboardIconWell tone="red" icon={PhoneForwarded} />}
+              title={call.contactName}
+              meta={timeAgo(call.createdAt)}
+              detail={
+                <>
+                  <p className={`text-xs font-medium ${DASHBOARD_TONES.red.text}`} data-testid="missed-call-outcome">{call.outcomeLabel}</p>
+                  {call.voicemailId && <div className="mt-1"><VoicemailPlayer voicemailId={call.voicemailId} compact /></div>}
+                </>
+              }
+              actions={
+                <DashboardRowActions
+                  name={call.contactName}
+                  primary={<Button type="button" variant="outline" size="sm" onClick={() => handleCallBack(call)}
+                    className="h-9 rounded-lg px-3" aria-label={`Call back ${call.contactName}`}>Call Back</Button>}
+                  items={[{
+                    id: "view", label: "View contact", icon: ExternalLink, disabled: !href,
+                    hint: href ? undefined : "No linked contact record is available",
+                    onSelect: () => href && navigate(href),
+                  }]}
+                />
+              }
+            />
+          );
+        })}
+      </DashboardList>
+      {calls.length === PREVIEW_LIMIT && (
+        <p className="text-xs text-muted-foreground">Latest {PREVIEW_LIMIT} missed calls. Open details for the last 24 hours.</p>
+      )}
     </div>
   );
 };

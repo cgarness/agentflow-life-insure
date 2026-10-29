@@ -52,7 +52,7 @@ vi.mock("@/components/dashboard/widgets/AppointmentsWidget", () => ({ default: (
 vi.mock("@/components/dashboard/widgets/GoalProgressWidget", () => ({ default: (p: StubProps) => <SectionStub name="goal_progress" {...p} /> }));
 vi.mock("@/components/dashboard/widgets/LeaderboardWidget", () => ({ default: (p: StubProps) => <SectionStub name="leaderboard" {...p} /> }));
 vi.mock("@/components/dashboard/widgets/MissedCallsWidget", () => ({ default: (p: StubProps) => <SectionStub name="missed_calls" {...p} /> }));
-vi.mock("@/components/dashboard/widgets/AnniversariesWidget", () => ({ default: (p: StubProps) => <SectionStub name="anniversaries" {...p} /> }));
+vi.mock("@/components/dashboard/widgets/ClientMilestonesWidget", () => ({ default: (p: StubProps) => <SectionStub name="anniversaries" {...p} /> }));
 vi.mock("@/components/dashboard/StatCards", () => ({ default: () => null }));
 vi.mock("@/components/dashboard/AgencyGroupInviteBanner", () => ({ default: () => null }));
 vi.mock("@/components/dashboard/DashboardDetailModal", () => ({ default: () => null }));
