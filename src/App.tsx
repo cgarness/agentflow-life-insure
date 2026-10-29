@@ -43,6 +43,7 @@ import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import TermsOfServicePage from "./pages/TermsOfServicePage";
 import EmailUnsubscribePage from "./pages/EmailUnsubscribePage";
 import LandingPageTest1 from "./pages/LandingPageTest1";
+import LandingPageV2 from "./pages/LandingPageV2";
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
@@ -131,6 +132,8 @@ const App = () => (
                         <Route path="/terms" element={<TermsOfServicePage />} />
                         <Route path="/email/unsubscribe" element={<EmailUnsubscribePage />} />
                         <Route path="/homepagetest1" element={<LandingPageTest1 />} />
+                        {/* Internal concept preview only; never expose to general users. */}
+                        <Route path="/homepage-v2" element={<SuperAdminRoute><LandingPageV2 /></SuperAdminRoute>} />
                         {/* Retired comparison route — kept as a redirect so shared links keep working. */}
                         <Route path="/logintest1" element={<Navigate to="/login" replace />} />
                         <Route path="/pricing" element={<PricingPage />} />
