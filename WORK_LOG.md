@@ -134,8 +134,8 @@
 - No flags set, no merge, no Vercel change.
 
 **Blockers / next:**
-1. Chris reviews the G2 release-workflow design (or picks another authorized route).
-2. If approved: implement the runner, test and workflow; rehearse them on loopback PostgreSQL with the pinned CLI; release-only PR (Chris's merge approval); dispatch check → apply-migration → record-history; independent read-back + advisors.
+1. ✅ Design approved with safeguards. The runner, rehearsal and workflow are built. The release-only [PR #501](https://github.com/cgarness/agentflow-life-insure/pull/501) is open with all 10 Actions checks green on `36a25e7`, including the rehearsal (38 checks on `postgres:17.6`) and the live environment guard. See the entry above.
+2. Chris's merge decision on #501. Then dispatch check → apply-migration → independent read-back + advisors → record-history, each stage separately approved.
 3. After apply: move the file out of `pending/` byte-identically (recorded version `20261029120000`), regenerate types, focused verification. Set the two Vercel variables only at G3.
 4. G3 merge approval.
 
