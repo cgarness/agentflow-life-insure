@@ -1,8 +1,19 @@
 # Dashboard Premium Redesign + Client Milestones — Implementation Plan
 
 **Date:** 2026-10-29 · **Branch:** `claude/great-clarke-c1gpw6` · **Base:** `main` `2a18e263`
-**Mode:** FEATURE / REFACTOR · **Status:** PLAN ONLY — awaiting Chris's explicit approval. No application code
-edited, no backend command run, nothing applied or deployed.
+**Mode:** FEATURE / REFACTOR · **Status:** **G1 APPROVED with revisions (rev 1, below)** — frontend implementation on
+the feature branch only. G2 package prepared as files only; no database change executed. No merge, no deploy.
+
+## Rev 1 — Chris's G1 approval adjustments (2026-10-29; supersede anything below that conflicts)
+
+| # | Adjustment | Resolution in this plan |
+|---|---|---|
+| R1 | First Payment Reminders start 3 days before the existing Draft Date and stay pending until reviewed. No historical overdue reminders. Existing clients with valid future Draft Dates stay eligible. | §6.1 rule rewritten. "Historical" means a Draft Date before the **reminders start date** (the production go-live date, configured at release). It also covers a client entered after go-live whose Draft Date had already passed. Every client with a Draft Date on/after go-live is eligible, including clients created long before go-live. |
+| R2 | Address the Team Leader widget/modal scope inconsistency. No permission or RLS change without separate approval. | New §2A. **A detail modal always uses the scope of the surface that opened it.** List-widget modals use the widget rule; KPI-card modals use the KPI rule. Implemented in one shared resolver, with no permission or RLS change. A Team Leader in Team perspective sees a visible "your own items" note on list surfaces. |
+| R3 | Remind Later must allow follow-up after an anniversary date (Tomorrow / In 3 Days / Next Week). | §6.5: all three options are always offered. A snoozed birthday or anniversary **resurfaces at its reminder time even after the date has passed**, as a "Follow-up", until it is reviewed or snoozed again (D8 revised). |
+| R4 | Large client datasets must never silently appear complete when truncated. | §6.6: exact-count paging. Completeness is decided by the server's exact count, never by page length, so a smaller server row limit cannot hide rows. Any shortfall marks the result **incomplete**, the UI says so, and counts read "at least N". Preview lists that are capped by design (Schedule 8, Missed Calls 5) say they are previews. |
+
+D1–D14 otherwise accepted as recommended, with D8 revised by R3 and D10 replaced by R2.
 
 **Approval gates (each separate):**
 
@@ -70,9 +81,40 @@ see §10 for how the branch behaves until G2 is applied.
 16. Body text is mostly 10 px bold uppercase metadata, which is hard to read. Several `*-500` text colors on white
     fall below AA contrast (pink-500, amber-500).
 
-**Not changed, noted for follow-up (pre-existing, out of scope):** for a Team Leader in Team perspective, the
-widgets scope to "own" (`role !== "Admin"`) while `DashboardDetailModal` scopes by `getDataScope("reports")`. A TL's
-widget and modal can therefore describe different sets. This plan keeps each surface's current scope rule (D10).
+## 2A. Team Leader scope consistency (rev 1, R2)
+
+**Today's rules (audited):**
+
+| Surface | Rule | Team Leader in Team perspective |
+|---|---|---|
+| KPI cards (`useDashboardStats.ts:45`) | `getDataScope("reports") === "own" \|\| perspective === "my"` → server RPC `get_performance_summary` (own/team, downline resolved **server-side**) | team (server-scoped downline) |
+| Callbacks / Schedule / Missed Calls / Anniversaries widgets | `role !== "Admin" \|\| perspective === "my"` → own filter, else unfiltered | **own** |
+| `DashboardDetailModal` (every type) | the KPI rule | **unfiltered** (whatever RLS returns) |
+
+So a TL in Team perspective sees their own callbacks / missed calls / anniversaries in a widget, but clicking the
+header opens a modal showing RLS-bounded rows. For `campaign_leads` and `calls` those rows are not necessarily
+the TL's downline. The Schedule widget (own, today) opens the performance Appointments modal (server team), a
+different set again.
+
+**Resolution — principle: a detail modal uses the scope of the surface that opened it.**
+- New `src/lib/dashboard-scope.ts`:
+  - `kpiScopeIsFiltered(reportsScope, perspective)` — the existing KPI expression, unchanged.
+  - `listScopeIsFiltered(role, perspective)` — the existing widget expression, unchanged.
+  - `dashboardScopeNote(role, perspective)` — the disclosure text.
+- `DashboardDetailModal` gains `origin: "kpi" | "widget"`. Dashboard passes `"kpi"` from a card click and
+  `"widget"` from a widget header or "View all".
+  - `origin="widget"`: list feeds (callbacks, missed calls, milestones) and the Schedule-opened Appointments modal use
+    the **widget rule**. Performance modals pass the corresponding `own` / `team` mode to `get_performance_details`,
+    which is still server-scoped.
+  - `origin="kpi"`: the KPI rule, exactly as today, so a KPI card and its modal always agree.
+- **No permission, role, RLS or RPC change.** The only behavior change: a TL's widget-opened list modal in Team
+  perspective now matches the widget (own) instead of showing RLS-bounded rows. That narrows the view; it never
+  widens it.
+- **Disclosure:** for a Team Leader in Team perspective, list widgets and their modals show "Showing your own
+  {items}. Team lists for this section aren't available on the Dashboard yet." Team totals stay in the KPI cards.
+- **Follow-up (needs separate approval, not started):** true downline lists on these widgets through the audited
+  resolver (`usersSupabaseApi.getAgentScopeIds`, query-enforced, fail-closed), which requires changing the protected
+  `dashboard-callbacks.ts` contract.
 
 ---
 
@@ -174,14 +216,23 @@ Windows are inclusive day counts from today.
 | Feb 29 | observed Feb 28 in non-leap years (D4) | same | n/a (a real date) |
 | Row text | "Birthday · Nov 3 · turns 66" (age only when the birth year is valid) | "1-year policy anniversary · Nov 12 · Final Expense · Carrier" — **never "renewal" or "expiration"** | "First draft in 3 days · Nov 5" / "First draft today" / "Draft date was Nov 5 — not yet reviewed" |
 
-**First-payment eligibility (D3)** — all must hold:
-1. `draft_date` is a valid ISO date.
-2. `draft_date ≥ FIRST_PAYMENT_REMINDERS_START` — the approved go-live date, a named constant pinned by tests. This
-   excludes the existing book, so launch creates no overdue reminders for historical draft dates.
-3. `draft_date ≥` the client's local creation date. A client entered with a draft date already in the past is historical.
-4. No review row exists for (user, organization, client, `first_payment`), whatever the date. One-time: because
-   Draft Date is documented as "the next scheduled draft" (AGENT_RULES, commissions §), a later edit of the date must
-   not re-arm the reminder once reviewed.
+**First-payment eligibility (D3, revised by R1)** — all must hold:
+1. `draft_date` (the existing client Draft Date) is a valid ISO calendar date.
+2. **Not historical at go-live:** `draft_date ≥ reminders start date`.
+   - The start date is the production go-live date, set at release through
+     `VITE_FIRST_PAYMENT_REMINDERS_START=YYYY-MM-DD`. This follows the house Vercel-flag pattern
+     (`VITE_GOOGLE_SHEETS_MAPPING_V2`).
+   - Launch therefore creates no overdue reminders for Draft Dates that had already passed.
+   - Every client, however old, whose Draft Date is on/after go-live **is eligible**.
+3. **Not historical at entry:** `draft_date ≥` the client's local creation date. This only matters for clients
+   entered after go-live; for older clients it is implied by rule 2.
+4. **Visible from `draft_date − 3` calendar days, and pending until reviewed.** It never expires by itself and never
+   repeats monthly.
+5. No `first_payment` review row exists for (user, organization, client), whatever its date. This makes it one-time:
+   Draft Date is documented as "the next scheduled draft" (AGENT_RULES, commissions §), so a later edit of the date
+   must not re-arm a reviewed reminder.
+6. Fail closed: if reviews are not enabled (G2 not live) or the start date is missing or invalid, the First Payment
+   category is **not shown at all**. It never shows without a way to clear it.
 
 The reminder never says paid, missed, failed or late. It does not use additional policies and does not invent
 per-policy payment dates.
@@ -233,7 +284,7 @@ overwrites that year's row.
 | Call | `dispatchQuickCall` (existing canonical path); reports only a call that actually started | — |
 | View Contact | `/contacts?contact={id}&tab=Clients` | — |
 | Mark Reviewed | RPC upsert → state `reviewed` for (user, org, kind, client, event_key, year) | change `clients`, policies, wins, tasks, notifications |
-| Remind Later | RPC upsert → state `snoozed`, `remind_at` = local start of day +1/+3/+7 (DST-safe `startOfLocalDayPlus`). For annual events an option is hidden when it would fall after the occurrence date. Max 30 days. | — |
+| Remind Later | RPC upsert → state `snoozed`, `remind_at` = local start of day +1/+3/+7 (DST-safe `startOfLocalDayPlus`). **All three options are always offered (R3)**, including after a birthday or anniversary date. A snoozed annual occurrence resurfaces at `remind_at` even when its date has passed, labelled **"Follow-up · anniversary was Nov 12"**, and stays until it is reviewed or snoozed again. The server allows `remind_at` up to 31 days ahead. | — |
 | Undo / Restore | RPC delete of **this user's row**, conditional on the `updated_at` the action returned, so an Undo can never erase a newer action from another tab | — |
 
 - Every write is awaited. The row leaves the list only after the server confirms one affected row; zero rows is a
@@ -249,9 +300,17 @@ overwrites that year's row.
 - `loadClientMilestones(scope, signal)` in `src/lib/dashboard-milestones-data.ts`:
   - **Clients:** `id, first_name, last_name, phone, created_at, date_of_birth, effective_date, draft_date,
     primary_policy_id, policy_type, carrier, policy_number, premium, face_amount, sold_date, custom_fields`.
-    Scope rule unchanged per surface (D10): widget `assigned_agent_id = me` unless Admin + Team; modal keeps its
-    current `getDataScope("reports")` rule. Ordered by `id`, read in pages of 1,000 up to 5,000 rows (D14). Beyond
-    that, an "incomplete" note shows (no silent truncation).
+    Scope: the widget rule (`listScopeIsFiltered`) for both the widget and its modal (R2):
+    `assigned_agent_id = me` unless Admin + Team.
+  - **Truncation is never silent (R4).** The first page requests `count: "exact"`. Pages advance by the number of
+    rows actually returned, so a server row limit below the page size cannot end the read early. Reading stops at the
+    exact count, at the 5,000-row cap (D14), or at an empty page. Whenever loaded < exact count, or the count is
+    unavailable, the result is `incomplete` with `{ loaded, total }`.
+    - The widget and modal then show "Milestones from the first 5,000 of 6,212 clients — some may be missing".
+    - Category counts read "at least N".
+    - The empty state is never shown for an incomplete read.
+    - Rows are de-duplicated by `id` if a client was inserted mid-read.
+  - The same paging helper reads the review rows.
   - **Review rows** (after G2): own rows (`user_id = me`, `organization_id = my org`) where
     `milestone_kind = 'first_payment' OR occurrence_date ≥ today − 1 year`.
   - Both reads run through `settleAll` / `linkedAbort` (invariant #22: no bare `Promise.all` in a lane-serialized
@@ -384,12 +443,19 @@ says `apply_migration` stamps its own version). No data backfill; no existing ro
 
 1. **Commit A (G1):** shared UI kit, tones, verbatim extractions, restyled widgets and modals, milestone engine +
    read path (clients only), widget/modal with **Call** and **View contact**. Review-state reads and writes sit
-   behind one capability check, `MILESTONE_REVIEWS_ENABLED` (a build constant set `false` until G2 is applied and
-   verified). While it is false, Mark Reviewed / Remind Later / Undo are **not rendered** (no dead buttons, no fake
-   persistence).
+   behind one capability check, `VITE_DASHBOARD_MILESTONE_REVIEWS === "true"` (unset until G2 is applied and read
+   back). While it is off:
+   - Mark Reviewed / Remind Later / Undo are **not rendered** (no dead buttons, no fake persistence).
+   - No review table is read.
+   - The First Payment category is hidden (R1 rule 6).
 2. **Commit B (G2 package):** migration, rollback, SQL suite, runner, CI, type additions — files only, nothing applied.
-3. **After G2 is applied and read back:** Commit C flips the constant and wires the action hooks. Release order is
-   database first, then frontend.
+   The action hooks and RPC calls are already written in Commit A, behind the flag, and covered by unit tests with a
+   mocked client.
+3. **After G2 is applied and read back, at G3:** set both Vercel variables:
+   - `VITE_DASHBOARD_MILESTONE_REVIEWS=true`;
+   - `VITE_FIRST_PAYMENT_REMINDERS_START=<go-live date>`.
+
+   No code change is needed to turn it on. Release order is database first, then frontend.
 4. **G3:** merge only with Chris's separate approval.
 
 **Recommendation (D2):** the First Payment category depends on "pending until reviewed", so it should not ship to
@@ -422,6 +488,9 @@ First Payment category would be hidden in that release.
 - `src/hooks/useMilestoneActions.ts`
 - `src/lib/dashboard-milestones.ts`
 - `src/lib/dashboard-milestones-data.ts`
+- `src/lib/dashboard-milestones-config.ts` (rev 1: env flags, fail-closed parsing)
+- `src/lib/dashboard-scope.ts` (rev 1, R2: KPI/list scope rules + TL disclosure)
+- `src/lib/paged-exact-read.ts` (rev 1, R4: exact-count paging helper)
 
 **Modified — frontend**
 - `src/pages/Dashboard.tsx` (label, frame, MotionConfig, extractions; KPI/StatCards usage unchanged)
@@ -513,9 +582,9 @@ First Payment category would be hidden in that release.
 | D5 | Whose "today" | **Browser-local**, like the rest of the Dashboard (agency timezone stays the Reports authority). |
 | D6 | Policy set for anniversaries | **Normalized model** (drops policy-less phantom clients — behavior change). |
 | D7 | Legacy policies without stored identity | Primary → `primary` key; additional without `policyId` → actions disabled with a reason. |
-| D8 | Remind Later options | **Tomorrow / In 3 days / Next week** (local start of day), max 30 days, hidden past an annual occurrence. |
+| D8 | Remind Later options | **Tomorrow / In 3 days / Next week** (local start of day), always offered; resurfaces as a Follow-up after the date (R3). |
 | D9 | Undo semantics | **Delete own row only if unchanged since the action**; toast Undo + Restore in modal. |
-| D10 | Scope rules | **Keep each surface's current rule**; log the TL widget/modal inconsistency as a follow-up. |
+| D10 | Scope rules | **Replaced by R2 / §2A:** the modal uses the opener's scope; TL Team note; no permission/RLS change. |
 | D11 | Callbacks "View all" | **Open the Callbacks modal** (currently navigates to `/contacts`). |
 | D12 | 200-line rule | **Verbatim extraction** of `Dashboard.tsx` / `DashboardDetailModal.tsx` logic into hooks. |
 | D13 | Category icons | **Cake / CalendarHeart / Wallet**. |
