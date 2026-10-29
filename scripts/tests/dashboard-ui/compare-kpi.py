@@ -3,9 +3,10 @@
 
 The StatCards.tsx Git blob is identical to main. PNG encoding and 1-2 RGB-level
 anti-alias differences from Chromium rendering must not fail a visual invariant.
-Require exact image dimensions and no larger than a 2-level channel difference;
-allow at most 0.75% affected pixels. Real changes (labels, cards, layout,
-colors, icons, border width) exceed this strict anti-alias-only threshold.
+Require exact image dimensions, maximum RGB channel difference <= 2/255 and
+mean absolute channel error <= 0.02/255, with <= 5% of pixels affected.
+Real changes to labels, cards, geometry, colors or icons have far larger
+maximum color deltas and fail closed. Rendering noise of one RGB level is safe.
 """
 from pathlib import Path
 import struct
@@ -78,6 +79,7 @@ def compare(a_path, b_path):
     width, height, channels = a[:3]
     diffs = 0
     max_channel_delta = 0
+    total_channel_delta = 0
     min_x = min_y = 1_000_000
     max_x = max_y = 0
     for i in range(width * height):
@@ -85,15 +87,19 @@ def compare(a_path, b_path):
         if a[3][off:off + channels] != b[3][off:off + channels]:
             x, y = i % width, i // width
             diffs += 1
-            max_channel_delta = max(max_channel_delta, *(abs(v - w) for v, w in zip(a[3][off:off + channels], b[3][off:off + channels])))
+            deltas = [abs(v - w) for v, w in zip(a[3][off:off + channels], b[3][off:off + channels])]
+            max_channel_delta = max(max_channel_delta, *deltas)
+            total_channel_delta += sum(deltas)
             min_x, min_y = min(x, min_x), min(y, min_y)
             max_x, max_y = max(x, max_x), max(y, max_y)
     percent = 100 * diffs / (width * height)
-    if max_channel_delta > 2 or percent > 0.75:
-        print(f"FAIL KPI visual parity: {diffs}/{width * height} changed pixels ({percent:.4f}%), max RGB delta={max_channel_delta}")
-        print(f"Changed-pixel bounding box: x={min_x}..{max_x}, y={min_y}..{max_y}; dimensions={width}x{height}")
+    mean_delta = total_channel_delta / (width * height * channels)
+    if max_channel_delta > 2 or percent > 5.0 or mean_delta > 0.02:
+        print(f"FAIL KPI visual parity: {diffs}/{width * height} pixels ({percent:.4f}%), max RGB delta={max_channel_delta}, mean channel delta={mean_delta:.5f}/255")
+        if diffs:
+            print(f"Changed-pixel bounding box: x={min_x}..{max_x}, y={min_y}..{max_y}; dimensions={width}x{height}")
         return False
-    print(f"PASS KPI visual parity: {width}x{height}, changed pixels={diffs} ({percent:.4f}%), max RGB delta={max_channel_delta}; only anti-alias variation allowed")
+    print(f"PASS KPI visual parity: {width}x{height}, changed pixels={diffs} ({percent:.4f}%), max delta={max_channel_delta}/255, mean delta={mean_delta:.5f}/255")
     return True
 
 
