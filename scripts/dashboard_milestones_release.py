@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Dashboard milestone reviews — protected G2 release runner.
 
-Applies ONLY the approved G2 migration supabase/migrations/pending/20261029120000_dashboard_milestone_reviews.sql
+Applies ONLY the approved G2 migration supabase/migrations/20261029120000_dashboard_milestone_reviews.sql
 (16,405 bytes, SHA-256 e6737493…8806) to production jncvvsvckxhqgqvkppmj, in one psql transaction fed from the
 checksummed bytes, then records it as 20261029120000 with the pinned CLI's `supabase migration repair --status
 applied` from a temporary workdir that holds only a byte copy of that file. It never runs db push, migration up or
@@ -49,7 +49,7 @@ ENVIRONMENT = 'google-sheets-production'
 REVIEWER = 'cgarness'
 VERSION = '20261029120000'
 NAME = 'dashboard_milestone_reviews'
-SOURCE = Path('supabase/migrations/pending/20261029120000_dashboard_milestone_reviews.sql')
+SOURCE = Path('supabase/migrations/20261029120000_dashboard_milestone_reviews.sql')
 SOURCE_BYTES = 16405
 SOURCE_SHA256 = 'e673749357f7612991cccf7405aa0f5f0a9ac49c798bfbd13b006d34f78d8806'
 ROLLBACK = Path('supabase/migrations/rollback/20261029120000_dashboard_milestone_reviews.rollback.sql')
@@ -142,8 +142,8 @@ def files_gate(root):
             and hashlib.sha256(rollback.read_bytes()).hexdigest() == ROLLBACK_SHA256,
             'rollback bytes and checksum (1,724 bytes, SHA-256 08a2a897…)')
     migrations = root / 'supabase/migrations'
-    require(sorted(migrations.glob(f'*_{NAME}.sql')) == [], 'no top-level copy (no integration can pick it up)')
-    require(sorted((migrations / 'pending').glob(f'*_{NAME}.sql')) == [source], 'exactly one copy, in pending/')
+    require(sorted(migrations.glob(f'*_{NAME}.sql')) == [source], 'exactly one copy, in migrations/')
+    require(sorted((migrations / 'pending').glob(f'*_{NAME}.sql')) == [], 'no pending copy (already applied)')
     require(sorted((migrations / 'rollback').glob(f'*_{NAME}.rollback.sql')) == [rollback], 'exactly one rollback')
     return source.read_bytes(), rollback.read_bytes()
 
@@ -451,7 +451,7 @@ def rollback_sql(target, rollback_bytes):
 
 
 def repair(target, status, source_bytes, cli):
-    # A temporary workdir holding only a byte copy of this migration at its version (main keeps it in pending/).
+    # A temporary workdir holding only a byte copy of this migration at its version (main keeps the applied file in migrations/).
     # The CLI reads name and statements from that copy; it executes none of it. `reverted` deletes only the row.
     work = Path(tempfile.mkdtemp(prefix='dmr-release-'))
     try:

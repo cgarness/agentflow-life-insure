@@ -1,6 +1,6 @@
 name: Dashboard milestone reviews G2 release (approval required)
 # Manual, main only. Applies ONLY the approved G2 migration
-# supabase/migrations/pending/20261029120000_dashboard_milestone_reviews.sql (16,405 bytes, SHA-256 e6737493…8806)
+# supabase/migrations/20261029120000_dashboard_milestone_reviews.sql (16,405 bytes, SHA-256 e6737493…8806)
 # to jncvvsvckxhqgqvkppmj in one psql transaction, then records it as 20261029120000 with the pinned CLI's
 # `migration repair --status applied`. Never db push / migration up; no other migration can run. No frontend flag,
 # Vercel variable or deploy is touched. Each dispatch needs Chris's separate approval, then the protected

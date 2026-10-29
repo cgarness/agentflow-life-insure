@@ -3109,6 +3109,66 @@ export type Database = {
           },
         ]
       }
+      dashboard_milestone_reviews: {
+        Row: {
+          client_id: string
+          created_at: string
+          event_key: string
+          id: string
+          milestone_kind: string
+          occurrence_date: string
+          occurrence_year: number
+          organization_id: string
+          remind_at: string | null
+          state: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          event_key: string
+          id?: string
+          milestone_kind: string
+          occurrence_date: string
+          occurrence_year: number
+          organization_id: string
+          remind_at?: string | null
+          state: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          event_key?: string
+          id?: string
+          milestone_kind?: string
+          occurrence_date?: string
+          occurrence_year?: number
+          organization_id?: string
+          remind_at?: string | null
+          state?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_milestone_reviews_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dashboard_milestone_reviews_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dialer_daily_stats: {
         Row: {
           agent_id: string
@@ -5844,6 +5904,40 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      clear_dashboard_milestone_review: {
+        Args: { p_expected_updated_at: string; p_id: string }
+        Returns: boolean
+      }
+      set_dashboard_milestone_review: {
+        Args: {
+          p_client_id: string
+          p_event_key: string
+          p_kind: string
+          p_occurrence_date: string
+          p_remind_at?: string
+          p_state: string
+        }
+        Returns: {
+          client_id: string
+          created_at: string
+          event_key: string
+          id: string
+          milestone_kind: string
+          occurrence_date: string
+          occurrence_year: number
+          organization_id: string
+          remind_at: string | null
+          state: string
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "dashboard_milestone_reviews"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       get_commission_calculator_status: { Args: never; Returns: Json }
       get_commission_calculator_context: { Args: never; Returns: Json }
       comp_list_shared_grid_catalog: {

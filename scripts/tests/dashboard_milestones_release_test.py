@@ -206,6 +206,7 @@ def checkout_with_decoys(tmp):
               'supabase/migrations/pending/20261029140000_decoy_pending.sql': 'decoy_pending',
               'supabase/migrations/rollback/20261029130000_decoy_after.rollback.sql': 'decoy_rollback'}
     for rel, marker in decoys.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(f'CREATE TABLE public.{marker} (id int);\n'
                                 f"INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('1', '{marker}');\n")
     return root, sorted(decoys.values())
@@ -376,13 +377,14 @@ def test_entry_gates(tmp):
     (fake / m.ROLLBACK).write_bytes(flip(rollback))
     stops(lambda: m.files_gate(fake), 'rollback bytes and checksum (1,724 bytes, SHA-256 08a2a897…)')
     (fake / m.ROLLBACK).write_bytes(rollback)
-    top = fake / 'supabase/migrations/20261029120000_dashboard_milestone_reviews.sql'
-    top.write_bytes(source)
-    stops(lambda: m.files_gate(fake), 'no top-level copy (no integration can pick it up)')
-    top.unlink()
-    second = fake / 'supabase/migrations/pending/20261029130000_dashboard_milestone_reviews.sql'
+    pending = fake / 'supabase/migrations/pending/20261029120000_dashboard_milestone_reviews.sql'
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_bytes(source)
+    stops(lambda: m.files_gate(fake), 'no pending copy (already applied)')
+    pending.unlink()
+    second = fake / 'supabase/migrations/20261029130000_dashboard_milestone_reviews.sql'
     second.write_bytes(source)
-    stops(lambda: m.files_gate(fake), 'exactly one copy, in pending/')
+    stops(lambda: m.files_gate(fake), 'exactly one copy, in migrations/')
     second.unlink()
     extra = fake / 'supabase/migrations/rollback/20261029130000_dashboard_milestone_reviews.rollback.sql'
     extra.write_bytes(rollback)
@@ -390,7 +392,7 @@ def test_entry_gates(tmp):
     extra.unlink()
     (fake / m.SOURCE).unlink()
     stops(lambda: m.files_gate(fake), 'migration bytes and checksum (16,405 bytes, SHA-256 e6737493…)')
-    ok('one-bit and one-byte changes to either file, a top-level copy, a second pending copy, a second rollback and '
+    ok('one-bit and one-byte changes to either file, a pending copy, a second top-level copy, a second rollback and '
        'a missing file are all refused')
 
     with patch.dict(os.environ, {'PGPASSWORD': 'x', 'SUPABASE_ACCESS_TOKEN': 'x', 'SUPABASE_DB_PASSWORD': 'x'}):

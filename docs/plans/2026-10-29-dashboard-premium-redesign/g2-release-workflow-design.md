@@ -1,8 +1,6 @@
-# G2 release route — protected GitHub Actions workflow (DESIGN ONLY, for separate review)
+# G2 release route — protected GitHub Actions workflow (approved and executed; historical design below)
 
-**Status (2026-10-29):** Chris approved the design with safeguards R-1 to R-8 (§9). It is **implemented and
-rehearsed**, and goes up as a release-only PR. Nothing has been merged or dispatched: the approved G2 migration is
-still NOT applied to `jncvvsvckxhqgqvkppmj`.
+**Status (2026-10-29): G2 complete in production.** The protected release-only PR #501 merged at `78d532b`. GitHub runs #40925336827 (check), #40925926281 (apply-migration), and #40926621789 (record-history) completed successfully. Supabase independently confirms 351 history entries with `20261029120000_dashboard_milestone_reviews`, its 28-statement digest, the table, functions, trigger, RLS and grants. The migration's immutable 16,405 approved bytes are reconciled from `pending/` into the normal `supabase/migrations/` path on the G3 candidate branch, and the runner/test guard is re-pinned to that path. **The rest of this document is the historical reviewed pre-release design.** G3 frontend merge and Vercel activation remain unapproved and undeployed.
 
 The migration it would apply is `supabase/migrations/pending/20261029120000_dashboard_milestone_reviews.sql`:
 16,405 bytes, SHA-256 `e673749357f7612991cccf7405aa0f5f0a9ac49c798bfbd13b006d34f78d8806`. Its rollback is
