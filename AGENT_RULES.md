@@ -1428,6 +1428,11 @@ Do not infer frontend activation from database deployment.
   - The list scope rule is unchanged: a Team Leader in Team view still sees their own list items.
 - **Release switch:** `VITE_DASHBOARD_ATTENTION_CLEARANCES=true` only after the migration is applied and read back.
   Unset means no Clear action, no clearance read, and today's queries. Actions are hidden under View As.
-  - Release order: database, then frontend, then the switch. Rollback: unset the switch first.
+  - **Vite build-time release order:** database first (G3 is complete), then configure/verify the Production
+    `VITE_DASHBOARD_ATTENTION_CLEARANCES=true` environment variable, then merge/rebuild the frontend after Chris's
+    separate G5 approval. A flag saved AFTER a deployment does not change that deployment; it needs a new build.
+    Rollback the frontend to the previous READY deployment before considering any separate flag change; keep the
+    G3 database objects/history intact. Changing an env value alone cannot disable code already compiled into
+    an existing deployment.
   - The rollback SQL refuses while clearance rows exist unless the session confirms
     `dashboard_attention.rollback_discard_rows = 'confirmed'`.
