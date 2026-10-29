@@ -43,7 +43,7 @@ export default function DemoShell({ asset, children, priority = false, chrome = 
       </div>
       <div className="flex min-h-11 items-center justify-between gap-2 border-t border-white/10 bg-[#07101f] pl-3 pr-1">
         <span className="py-2 text-[10px] font-medium tracking-wide text-slate-300">
-          {canPlay ? "Actual interface · synthetic data" : media.failed ? "Recording unavailable · static preview" : "Illustrative preview · recording pending"}
+          {canPlay ? "Actual interface · demo activity" : media.failed ? "Recording unavailable · static preview" : "Illustrative preview · recording pending"}
         </span>
         {canPlay && <button type="button" onClick={media.toggle} aria-controls={id}
           aria-label={`${media.playing ? "Pause" : "Play"} ${asset.label} demonstration`}

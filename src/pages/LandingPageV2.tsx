@@ -16,7 +16,7 @@ export default function LandingPageV2() {
         <a href="#homepage-v2-main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[80] focus:rounded-xl focus:bg-sky-300 focus:px-5 focus:py-3 focus:text-slate-950">Skip to content</a>
         <div className="relative z-[60] border-b border-sky-400/20 bg-sky-950 px-4 py-2 text-center text-[11px] font-medium text-sky-200">
           <LockKeyhole aria-hidden="true" className="mr-2 inline-block align-[-2px]" size={13} />
-          Private V2 preview — product recordings pending review
+          Private V2 preview — not the live homepage
         </div>
         <HomepageNav />
         <main id="homepage-v2-main" tabIndex={-1}>

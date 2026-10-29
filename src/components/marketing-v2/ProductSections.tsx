@@ -3,7 +3,6 @@ import { ClipboardCheck, Headphones, MessageSquareText, Trophy } from "lucide-re
 import { CheckPoint, Reveal, SectionEyebrow } from "./theme";
 import DemoShell from "./DemoShell";
 import { MEDIA } from "./media";
-import { SampleConversation, SampleLeaderboard } from "./Illustrations";
 
 export default function ProductSections() {
   return <>
@@ -43,7 +42,7 @@ export default function ProductSections() {
         <section id="leaderboard" className="scroll-mt-24 border-y border-white/10 bg-[#0a1525]">
           <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 py-20 sm:px-8 lg:grid-cols-2 lg:gap-16 lg:py-28">
             <Reveal className="lg:order-first">
-              <DemoShell asset={MEDIA.leaderboard}><SampleLeaderboard /></DemoShell>
+              <DemoShell asset={MEDIA.leaderboard} />
             </Reveal>
             <Reveal>
               <SectionEyebrow>02 / Live leaderboard</SectionEyebrow>
@@ -71,7 +70,7 @@ export default function ProductSections() {
             </ul>
           </Reveal>
           <Reveal>
-            <DemoShell asset={MEDIA.conversations}><SampleConversation /></DemoShell>
+            <DemoShell asset={MEDIA.conversations} />
           </Reveal>
         </section>
 

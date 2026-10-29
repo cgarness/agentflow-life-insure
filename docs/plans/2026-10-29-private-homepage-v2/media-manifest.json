@@ -1,0 +1,139 @@
+{
+  "capture": "Recorded shipped UI components in an isolated synthetic workspace; simulated activity only",
+  "source_commit": "975cd1544888feec55ed94881092ad3fd10d2353",
+  "capture_size": [
+    1200,
+    750
+  ],
+  "output_size": [
+    960,
+    600
+  ],
+  "no_live_calls_or_messages": true,
+  "scenes": [
+    {
+      "scene": "dashboard",
+      "assets": [
+        {
+          "path": "public/marketing-v2/dashboard.mp4",
+          "bytes": 83233,
+          "duration_seconds": 5.966667,
+          "width": 960,
+          "height": 600,
+          "codec": "h264",
+          "audio_streams": 0,
+          "sha256": "b645a35e00fddd58f1a8c9a6434d48b745eb2c63ec215d1f9c2e2c6be6a4cad8"
+        },
+        {
+          "path": "public/marketing-v2/dashboard.webm",
+          "bytes": 65708,
+          "duration_seconds": 5.966,
+          "width": 960,
+          "height": 600,
+          "codec": "vp9",
+          "audio_streams": 0,
+          "sha256": "b98cc996d98a44255622401676b67e700ef43a1124966af7b450c90d9ea1bbd6"
+        },
+        {
+          "path": "public/marketing-v2/dashboard.webp",
+          "bytes": 22508,
+          "sha256": "e4cc0361cc761afd0ad9a991655d20b52832e61181efdbde0bac0a22bf061a8e",
+          "poster_time": 1.1
+        }
+      ]
+    },
+    {
+      "scene": "dialer",
+      "assets": [
+        {
+          "path": "public/marketing-v2/dialer.mp4",
+          "bytes": 70716,
+          "duration_seconds": 5.966667,
+          "width": 960,
+          "height": 600,
+          "codec": "h264",
+          "audio_streams": 0,
+          "sha256": "48a0b2ca1565199f98a6d9e0619bd9f81fbc362c5a68bf9bd565584a5e94724a"
+        },
+        {
+          "path": "public/marketing-v2/dialer.webm",
+          "bytes": 64156,
+          "duration_seconds": 5.966,
+          "width": 960,
+          "height": 600,
+          "codec": "vp9",
+          "audio_streams": 0,
+          "sha256": "c3bd424230f619a9e8b8d1627f905542bf45c99e1c9d4baf25f462fcff00e01b"
+        },
+        {
+          "path": "public/marketing-v2/dialer.webp",
+          "bytes": 20958,
+          "sha256": "5d1d9aab92aa9021b76e91b50fd391accdc58aa42273c0b0a30146d8571cea44",
+          "poster_time": 2.8
+        }
+      ]
+    },
+    {
+      "scene": "leaderboard",
+      "assets": [
+        {
+          "path": "public/marketing-v2/leaderboard.mp4",
+          "bytes": 92815,
+          "duration_seconds": 6.0,
+          "width": 960,
+          "height": 600,
+          "codec": "h264",
+          "audio_streams": 0,
+          "sha256": "def38660420b8ee9dcd9c3b80399b9ae48d849e426020515c7d1c41069d01e6f"
+        },
+        {
+          "path": "public/marketing-v2/leaderboard.webm",
+          "bytes": 83799,
+          "duration_seconds": 6.0,
+          "width": 960,
+          "height": 600,
+          "codec": "vp9",
+          "audio_streams": 0,
+          "sha256": "3cc3a19cec440ee003dad771d635e02119cc40660aea6aff97d7cfdaf849f397"
+        },
+        {
+          "path": "public/marketing-v2/leaderboard.webp",
+          "bytes": 24714,
+          "sha256": "d75b6f0cbaa3c597127a288d2d9717f2abcc04b1a2e05c701409f9d6a6bf027f",
+          "poster_time": 2.7
+        }
+      ]
+    },
+    {
+      "scene": "conversations",
+      "assets": [
+        {
+          "path": "public/marketing-v2/conversations.mp4",
+          "bytes": 62488,
+          "duration_seconds": 6.0,
+          "width": 960,
+          "height": 600,
+          "codec": "h264",
+          "audio_streams": 0,
+          "sha256": "233d4a70a4a108c896f8f218e66e7635590fb6428d2c2acea090abffa17f752b"
+        },
+        {
+          "path": "public/marketing-v2/conversations.webm",
+          "bytes": 49396,
+          "duration_seconds": 6.0,
+          "width": 960,
+          "height": 600,
+          "codec": "vp9",
+          "audio_streams": 0,
+          "sha256": "127c9423523162967cee80e60ab7c8b7b7ab37ffefed67adca5f89f2231a5754"
+        },
+        {
+          "path": "public/marketing-v2/conversations.webp",
+          "bytes": 16210,
+          "sha256": "f59aa8076be4a7172db4495c556235b9eeeeec654d8d50e31c7a6eb0528acf70",
+          "poster_time": 4.5
+        }
+      ]
+    }
+  ]
+}

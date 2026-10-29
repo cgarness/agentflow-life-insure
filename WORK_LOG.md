@@ -1,5 +1,43 @@
 # AgentFlow Work Log
 
+## 2026-10-29 — Private homepage V2 authentic demos and review candidate (PR #503)
+
+**Status:** The earlier secure-login blocker is resolved. The test account signed
+in through browserAuth; rendered UI confirms Super Admin access to private V2.
+Branch-only review candidate; PR remains unmerged and production approval is
+still required. Shared real agency names were excluded from every recording.
+
+**What changed:** Replaced all four V2 concept/illustrative panels with actual
+shipped dashboard, dialer, AP board and messaging component recordings. Each
+approximately six-second loop uses synthetic fixtures in an isolated capture
+workspace, with real numeric/rank/glow animations, local call/message simulation,
+explicit demo disclosure, blocked backend access and no real calls or sends.
+Authorized AgentFlow imagery consists of existing brand assets and genuine
+product frames. Removed the illustrative component module and stale pending
+labels. Optimized H.264 MP4/VP9 WebM/WebP set totals 656,701 bytes; every encoded
+frame decodes, with no audio and stripped source metadata. Added reproducible capture/encoding
+tools, provenance, budgets and hashes. No runtime dependency was added.
+
+**Files touched:** V2 page, DemoShell/ProductSections/media and page tests;
+`public/marketing-v2/*`; non-production `scripts/tests/homepage-v2/capture/*`;
+private V2 plan, claims/capture evidence and media manifest; this work log.
+
+**Verification:** 22 focused Vitest checks; scoped ESLint; root TypeScript;
+meaningful app types versus exact base `7a03033492c55fd16ea1bacd049934102fe340e4`
+(80 baseline, zero added errors); Vite production build. Actual footage checked
+on desktop 1440/mobile 390 CSS viewports with no horizontal overflow, muted
+viewport autoplay, deferred offscreen sources, offscreen pause, manual pause
+retained on resize, mobile menu and FAQ. Capture fixtures remain outside dist.
+Both Git-linked preview outcomes and the final signed-in walkthrough are
+recorded in PR #503 after push, along with protection/production read-back.
+
+**Migrations/deploys:** No backend/data write, schema/RLS/auth/telephony change,
+Vercel configuration change, main update, merge or production release. Only
+protected branch previews. Live homepage and CRM functionality are unchanged.
+
+**Review:** See PR #503 and its protected `/homepage-v2` URL. Separate user
+approval is required before merging or releasing the homepage.
+
 ## 2026-10-29 — Private homepage V2 playback/access polish (PR #503; capture BLOCKED)
 
 **Status:** Explicitly requested by Chris on `feat/private-homepage-v2-20261029`.

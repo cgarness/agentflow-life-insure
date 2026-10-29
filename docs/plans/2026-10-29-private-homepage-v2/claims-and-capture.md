@@ -1,103 +1,99 @@
-# Claims and authentic-media status — 2026-10-29
+# Claims and authentic-media evidence — 2026-10-29
 
 ## Claims audit
 
 | Topic | Evidence | V2 decision |
 | --- | --- | --- |
-| Life-insurance-specific CRM | `VISION.md`, current contact/campaign/dialer pages | Retained |
-| Browser-started calling | `AGENT_RULES.md` single-leg WebRTC invariant | Agent starts each call; no predictive, multi-line or unattended-dial claims |
-| SMS and email conversations | `VISION.md`, `Conversations.tsx` | Retained; recordings must not send to real recipients |
-| Annualized premium | AP board and sold-date invariants in `AGENT_RULES.md` | AP is production, not commissions; no promised earnings |
-| Plans, trial and usage fees | `VISION.md`: billing deferred; `PricingPage.tsx` contains unsupported billing/trial promises | No advertised prices, trial duration, unlimited-usage or fee promises; V2 points to its access section |
-| Contact-sales destination | `ContactPage.tsx` `handleSubmit` only sets local success state and shows a toast; no send request | No V2 links to this non-sending form |
-| Signup | `/signup` → `PublicRoute` → `SignupPage`, validated invitation token and `create-user` flow | Get started → `/signup`; says begin setup, not purchase or guaranteed CRM access; existing signed-in users keep their normal redirect |
-| Testimonials / customer totals | No verified supporting evidence supplied | Omitted |
-| AI agents | `VISION.md`: mock dashboard, not production AI | Omitted |
+| Life-insurance CRM | `VISION.md`, current contact/campaign/dialer pages | Retained |
+| Browser-started calling | `AGENT_RULES.md` single-leg WebRTC invariant | Agent starts each call; no predictive, multi-line or unattended-dial claim |
+| SMS and email | `VISION.md`, `Conversations.tsx`, shared conversation components | Retained; recording activity is explicitly simulated |
+| Annualized premium | AP board and sold-date invariants in `AGENT_RULES.md` | AP is policy production, not take-home commissions; no earnings promise |
+| Plans, trial and usage fees | Billing is deferred in `VISION.md`; existing `PricingPage.tsx` promises lack confirmed support | No price, trial duration, unlimited-usage or fee promise; access section explains that terms need confirmation |
+| Contact-sales link | `ContactPage.tsx` only sets local success state/toast; no send request | No V2 link to that non-sending form |
+| Signup | Existing `/signup`, `PublicRoute`, `SignupPage`, invitation validation and `create-user` flow; signup form inspected in browser | Three Get started links use `/signup`; setup language, no purchase or guaranteed immediate access; normal signed-in redirects preserved |
+| Testimonials and customer counts | No verified evidence supplied | Omitted |
+| AI agents | `VISION.md` describes mock AI UI | No production AI promise |
 
-The live pricing/contact/homepage were inspected but **not changed**. Their
-existing unsupported content requires a separately scoped future correction.
+The live homepage, pricing and contact pages were inspected and remain unchanged.
+No stock photo is presented as an AgentFlow customer. Authorized AgentFlow brand
+assets and actual product frames supply the imagery.
 
-## Media status: NOT COMPLETE
+## Completed recordings and provenance
 
-Secure sign-in through browserAuth submitted, but the AgentFlow login page
-displayed **Invalid login credentials**. No authenticated product capture has
-been made. Do not describe this task as complete or the placeholders as real
-footage. `media.ts` has no recording sources and every asset is unverified.
+Secure browserAuth sign-in succeeded with the user-provided test account.
+Rendered UI confirmed Super Admin access to the protected `/homepage-v2` route.
+The account's shared dashboard contained real agent names, so it was excluded
+from recordings. Credentials, cookies, tokens and browser storage were never
+exported into this repository or the media.
 
-| Clip | Required capture | Current status |
-| --- | --- | --- |
-| Dashboard | 5–7 s, actual shipped dashboard, period/widget interaction | Pending secure login and a safe synthetic workspace |
-| Dialer | 5–7 s, real lead preview/outcome workflow, no real call | Pending; never click a live call control to make footage |
-| AP leaderboard | 5–7 s, shipped AP/rank/recognition animations | Pending; do not insert production wins to trigger an animation |
-| Conversations | 5–7 s, synthetic thread/follow-up interaction | Pending; no real SMS/email send |
+All four clips record **unmodified shipped AgentFlow React components** in an
+isolated synthetic capture workspace. The capture tool samples their rendered
+DOM, text, transforms, numeric animations and glow styles into a native browser
+Canvas/MediaRecorder stream. These are genuine component recordings with local
+simulated activity, not recordings of live calls, delivered messages or backend
+transactions. The footage and captions disclose demo activity.
 
-The existing dashboard and dialer PNGs are legacy **concept/reference** images.
-The empty dashboard reference is not a finished product hero. Both must be
-replaced. The AP board and thread fallbacks are explicitly illustrative. No
-stock agency/team photo is used as though it depicted an AgentFlow customer.
+Component revision: `975cd1544888feec55ed94881092ad3fd10d2353`. CRM components at
+this revision are unchanged from production `7a03033492c55fd16ea1bacd049934102fe340e4`
+(G3 Dashboard PR #502, production deployment `dpl_EDZ4obVUw3dgB8fwxPi7PnbgkoUq`).
+An older historical work-log entry calls G3 pending; the actual deployment and
+source establish that the recorded components are shipped.
 
-## Safe capture and encoding procedure
+| Clip | Real components | Synthetic activity | Drawn frames / capture time |
+| --- | --- | --- | --- |
+| Dashboard | DashboardControls, StatCards, DashboardWidgetFrame, CallbacksWidget, AppointmentsWidget | Day/month totals, invented callback and appointment names | 212 / 6.02 s |
+| Dialer | LeadCard, DialerActions, ConversationHistory | Local call state, Interested outcome, note and next sample lead; no connection | 240 / 6.02 s |
+| AP leaderboard | LeaderboardPodium, LeaderboardRankingsTable, production ranking/motion utilities | Jordan Demo overtakes Avery Demo; real odometer, rank and recognition animation | 194 / 6.04 s |
+| Conversations | ConversationHistory and MessageComposePanel | Synthetic SMS thread, typing and local reply insertion; no send | 291 / 6.02 s |
 
-1. Complete secure AgentFlow authentication. Verify the signed-in identity and
-   Super Admin role from rendered UI. Never inspect cookies, tokens or storage.
-2. Inspect existing demo/test facilities read-only before using them. Do not run
-   the `leaderboard-demo:*` seed/simulate/reset scripts against production.
-3. Prefer an isolated synthetic workspace or a test-only render of the shipped
-   components with synthetic fixtures and network actions blocked. Document
-   this provenance accurately; do not present an illustration as a live feature.
-   Use the dashboard from verified production main `7a03033492c55fd16ea1bacd049934102fe340e4`
-   (Vercel production `dpl_EDZ4obVUw3dgB8fwxPi7PnbgkoUq`, READY; G3 PR #502).
-   The inherited work log still calls G3 pending, but the live deployment proves
-   it is now shipped. Do not import a different/unmerged dashboard branch.
-4. Use invented names and reserved 555-01xx numbers, no real client names,
-   addresses, phone numbers, policy identifiers, notes or financial records.
-   No real calls, messages, sales or backend writes are authorized by this plan.
-5. Capture 5–7 seconds of meaningful interaction per workflow. Check every frame
-   and crop unrelated chrome; remove all audio, browser URLs and metadata. Never
-   commit raw private captures or authentication state.
-6. Encode a fast-start H.264 MP4 and VP9 WebM, max 1280 px wide, 24–30 fps,
-   yuv420p, `-an -map_metadata -1 -map_chapters -1`. Aim for at most 1 MB per
-   desktop loop per format; review any exception. Create WebP posters under
-   120 KB. Use a tighter mobile crop if full desktop UI is unreadable at 390 px.
-7. Add sanitized media under `public/marketing-v2/`, record path, duration,
-   dimensions, source/component revision, synthetic scenario and SHA-256 in
-   this document, then set `verifiedRecording: true` and both source paths.
-8. Watch the encoded loops on desktop/mobile and verify error fallback,
-   viewport playback, muted inline looping, pause, reduced motion and Save-Data.
+Only invented Demo identities and reserved `202-555-0142` appear. No prospect,
+customer, real phone, email, address, policy identifier, client note or live
+financial record is captured. Test-only provider aliases supply fixtures;
+Supabase accessors throw, and capture CSP disallows external connections. No
+production data, schema, RLS, telephony, messaging or authentication code changed.
 
-## Technical playback fixture
+## Encoding and review
 
-`scripts/tests/homepage-v2/playback-test.mp4` is a six-second FFmpeg color test
-pattern, 320×200 at 24 fps, with no audio or user content. It exists only in the
-isolated development QA harness and is excluded from the Vite production build.
-It validates the player; it is **not** one of the four requested recordings.
+Capture surface: 1200 × 750, downsampled to 960 × 600. Four approximately
+six-second, 30 fps loops, each as fast-start H.264 MP4 and VP9 WebM, with genuine
+WebP poster frames. All twelve assets total **656,701 bytes**. The largest video
+is 92,815 bytes and the largest poster 24,714 bytes. Every asset is comfortably
+below the 1 MB video / 120 KB poster budgets.
 
-Reproduce with:
+`media-manifest.json` records each path, byte count, duration, dimensions, codec,
+zero audio streams and SHA-256. `capture/encode.py` strips audio, metadata,
+chapters and subtitles; validates duration, stream counts, dimensions and MP4
+fast-start placement; and fully decodes every encoded frame in both formats.
+Visual contact-sheet and browser playback review checked framing, synthetic-only
+content, AP transitions and chronological messaging. No raw recording is committed.
 
-```sh
-ffmpeg -f lavfi -i testsrc2=size=320x200:rate=24 -t 6 -an \
-  -c:v libx264 -crf 32 -pix_fmt yuv420p -movflags +faststart \
-  -map_metadata -1 scripts/tests/homepage-v2/playback-test.mp4
-```
+The hero and three feature sections now use only these real posters and loops.
+Legacy concepts and illustrative leaderboard/conversation panels were removed.
+No capture-only code, fixtures or technical test pattern enters the production
+bundle. See `scripts/tests/homepage-v2/capture/README.md` for reproduction.
 
-## Verification evidence
+## Playback, layout and access checks
 
-- Focused Vitest: 21 checks, media lifecycle, source fallback, reduced motion,
-  Save-Data/2g, autoplay rejection, manual pause, hidden/offscreen pause,
-  ordinary-user denial, Super Admin allow, navigation and metadata restoration.
-- Root `npx tsc --noEmit` passes. Meaningful app check compared to exact base
-  `7a03033492c55fd16ea1bacd049934102fe340e4`: 80 preexisting errors, no new errors.
-- V2-scoped ESLint and Vite production build; isolated V2 chunk approximately
-  28 KB raw / 8.5 KB gzip. The inherited main CRM bundle remains large and is
-  outside this preview's scope. No whole-app performance score is claimed.
-- Browser: isolated 1440px and 390px iframe viewports (1425/375 content width
-  after scrollbar); scrollWidth equals clientWidth at both sizes, no horizontal
-  overflow. Mobile menu/section navigation and FAQ toggle verified.
-- Browser playback fixture: initially 0 attached sources and paused. On entering
-  viewport: 1 source, muted true, readyState 4, currentTime advancing. Manual
-  pause survives resizing; moving offscreen pauses playback. Background-tab and
-  preference changes covered by unit tests.
-- Both Vercel projects inspected: SSO enabled, `all_except_custom_domains`.
-  Their protection settings, auth gate and production configuration are unchanged.
-- Authenticated branch-preview walkthrough and all real footage are blocked by
-  secure sign-in. Preview deployment status is recorded in PR #503 after push.
+- Sources attach near the viewport; only an in-view video plays. Initial browser
+  observation showed dashboard playing muted at readyState 4, while all three
+  offscreen videos had zero attached sources and were paused.
+- Real dialer and AP clips loaded and played on entering their sections;
+  dashboard/offscreen clips paused. Manual dialer pause survived a mobile resize.
+- Desktop 1440 and mobile 390 CSS iframe viewports: content widths 1425/375
+  after scrollbars; scrollWidth equals clientWidth, no horizontal overflow.
+  Mobile navigation closes after section selection; FAQ state and answer work.
+- 22 focused Vitest checks cover viewport/background playback, reduced motion,
+  Save-Data/2g, rejected autoplay, source-format fallback, manual pause, ordinary
+  user denial, Super Admin allow, valid CTA/anchor targets and metadata cleanup.
+- Root TypeScript and scoped ESLint pass. Meaningful app TypeScript against
+  exact base `7a03033492c55fd16ea1bacd049934102fe340e4`: 80 preexisting errors,
+  zero added. Production Vite build checked separately; no whole-app performance
+  score is claimed. The inherited large CRM entry bundle is outside this scope.
+- Vercel SSO remains `all_except_custom_domains` on both existing projects.
+  The SuperAdminRoute implementation is unchanged. Branch SHA, Ready status,
+  authenticated final preview and production comparison are recorded in PR #503.
+
+The technical six-second color-pattern fixture in `scripts/tests/homepage-v2/`
+only tests player behavior and is excluded from production. It is not product
+footage. No main branch update, merge, production release or protection change
+is authorized by this project.

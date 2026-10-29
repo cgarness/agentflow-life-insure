@@ -2,28 +2,24 @@ export interface DemoAsset {
   label: string;
   description: string;
   poster?: string;
-  /** Set only after authentic capture and every-frame privacy review. */
+  /** Enabled only after actual-component capture and privacy/output review. */
   sources?: readonly { src: string; type: "video/webm" | "video/mp4" }[];
   verifiedRecording: boolean;
 }
 
-// Deliberately no guessed media URLs or simulated recordings. These reference
-// images are concepts, not authenticated footage. See the capture evidence doc.
+function recording(label: string, name: string, description: string): DemoAsset {
+  return { label, description, verifiedRecording: true, poster: `/marketing-v2/${name}.webp`, sources: [
+    { src: `/marketing-v2/${name}.webm`, type: "video/webm" },
+    { src: `/marketing-v2/${name}.mp4`, type: "video/mp4" },
+  ] };
+}
+
+// Recorded from the shipped, unmodified UI components in an isolated synthetic
+// workspace. Activity is simulated; no prospect was called or messaged.
+// Provenance, validation and checksums: docs/plans/2026-10-29-private-homepage-v2/.
 export const MEDIA = {
-  dashboard: {
-    label: "Dashboard", poster: "/test1/dashboard.png", verifiedRecording: false,
-    description: "Dashboard concept; authentic product recording pending.",
-  },
-  dialer: {
-    label: "Power dialer", poster: "/test1/dialer.png", verifiedRecording: false,
-    description: "Dialer concept; authentic product recording pending.",
-  },
-  leaderboard: {
-    label: "AP leaderboard", verifiedRecording: false,
-    description: "Illustrative annualized premium rankings using synthetic agents and values.",
-  },
-  conversations: {
-    label: "Conversations", verifiedRecording: false,
-    description: "Illustrative SMS conversation using synthetic messages; nothing is sent.",
-  },
+  dashboard: recording("Dashboard", "dashboard", "AgentFlow dashboard showing sample day and monthly performance."),
+  dialer: recording("Power dialer", "dialer", "AgentFlow dialer showing a simulated call, outcome and next sample lead."),
+  leaderboard: recording("AP leaderboard", "leaderboard", "AgentFlow annual premium leaderboard with synthetic agents and a rank change."),
+  conversations: recording("Conversations", "conversations", "AgentFlow messaging interface with a synthetic conversation and simulated reply."),
 } satisfies Record<string, DemoAsset>;
