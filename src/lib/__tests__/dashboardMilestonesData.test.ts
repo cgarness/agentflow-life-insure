@@ -188,7 +188,7 @@ describe("review actions", () => {
     expect(row.id).toBe(REVIEW);
     expect(h.rpcCalls).toEqual([{
       fn: "set_dashboard_milestone_review",
-      args: { p_kind: "policy_anniversary", p_client_id: CLIENT, p_event_key: "primary", p_occurrence_date: "2026-11-05", p_state: "reviewed", p_remind_at: null },
+      args: { p_kind: "policy_anniversary", p_client_id: CLIENT, p_event_key: "primary", p_occurrence_date: "2026-11-05", p_state: "reviewed", p_remind_at: undefined },
     }]);
     expect(JSON.stringify(h.rpcCalls)).not.toMatch(/user_id|organization_id/);
   });
