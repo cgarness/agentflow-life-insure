@@ -206,6 +206,7 @@ def checkout_with_decoys(tmp):
               'supabase/migrations/pending/20261029140000_decoy_pending.sql': 'decoy_pending',
               'supabase/migrations/rollback/20261029130000_decoy_after.rollback.sql': 'decoy_rollback'}
     for rel, marker in decoys.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(f'CREATE TABLE public.{marker} (id int);\n'
                                 f"INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('1', '{marker}');\n")
     return root, sorted(decoys.values())
