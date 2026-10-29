@@ -1,0 +1,96 @@
+name: Dashboard milestone reviews (G2) verification
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/pending/*_dashboard_milestone_reviews.sql'
+      - 'supabase/migrations/*_dashboard_milestone_reviews.sql'
+      - 'supabase/migrations/rollback/*_dashboard_milestone_reviews.rollback.sql'
+      - 'supabase/tests/dashboard_milestone_reviews.sql'
+      - 'supabase/tests/dashboard_milestone_reviews_harness.sql'
+      - 'scripts/run_dashboard_milestone_tests.sh'
+      - '.github/workflows/dashboard-milestones-backend.yml'
+      # The protected G2 release workflow, its runner and the runner's rehearsal.
+      - '.github/workflows/dashboard-milestones-release.yml'
+      - 'scripts/dashboard_milestones_release.py'
+      - 'scripts/tests/dashboard_milestones_release_test.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports: ['55444:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Replay guard, behaviour suite, negative controls and rollback (disposable database only)
+        env:
+          PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55444
+          PGPASSWORD: isolated-test-only
+        run: bash scripts/run_dashboard_milestone_tests.sh
+  release-runner:
+    name: G2 release runner rehearsal (pinned CLI 2.121.0, PostgreSQL 17.6 with TLS on loopback, synthetic data)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # No `services:` container: the rehearsal's loopback proof refuses a bridged port, and the runner's identity gate
+    # pins port 5432. PostgreSQL runs on the host network, bound to 127.0.0.1 only, with TLS (the image's snakeoil
+    # certificate) so every identity check is exercised. No secrets are used.
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      # System PyYAML: the test runs with python3 -I, which ignores user site-packages.
+      - name: PostgreSQL client and PyYAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client python3-yaml
+      # The official postgres:17.6 image pinned by its OCI index digest (as hierarchy-stabilization.yml).
+      - name: Start disposable PostgreSQL 17.6 on loopback only (host network, TLS)
+        run: |
+          docker run --detach --name dmr-release-postgres --network host \
+            -e POSTGRES_PASSWORD=isolated-test-only \
+            postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929 \
+            -c listen_addresses=127.0.0.1 -c port=5432 -c ssl=on \
+            -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U postgres; then exit 0; fi
+            sleep 1
+          done
+          docker logs dmr-release-postgres || true
+          exit 1
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.121.0
+      - name: Gates, refusals, the release under CRM traffic, interrupted-stage recovery, rollback protection, read-back
+        env:
+          DMR_RELEASE_PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:5432
+        run: python3 -I scripts/tests/dashboard_milestones_release_test.py
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm --force dmr-release-postgres
+  environment-guard:
+    # Read-only and secret-free: the same guard the release workflow runs before its protected job, against the live
+    # settings of google-sheets-production (required reviewer cgarness, main only, administrator bypass off).
+    name: Protected environment settings (live, read-only, no secrets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Required reviewer, main only, administrator bypass off
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/dashboard_milestones_release.py guard-environment

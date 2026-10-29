@@ -1,5 +1,52 @@
 # AgentFlow Work Log
 
+## 2026-10-29 — G2 protected release workflow for Dashboard milestone reviews (release-only PR; NOT merged, NOT dispatched)
+
+**Status:** Chris approved the G2 release-workflow design with safeguards.
+- Implemented and rehearsed on an isolated PostgreSQL.
+- Proposed to `main` as a release-only PR, with no `src/` change.
+- **Not merged. No stage has been dispatched. The G2 migration is NOT applied** (production read back: 350 history rows, head `20261028040215`, none of the objects).
+- No Vercel variable changed. The Dashboard frontend (G3) is not released.
+- Design and evidence: `docs/plans/2026-10-29-dashboard-premium-redesign/g2-release-workflow-design.md`.
+
+**What changed:**
+- **New `.github/workflows/dashboard-milestones-release.yml`:**
+  - dispatch only, main only, behind the protected `google-sheets-production` environment (reviewer cgarness, admin bypass off);
+  - four typed, confirmed stages: `check` → `apply-migration` → `record-history` → `rollback-migration`;
+  - only `SUPABASE_DB_PASSWORD` / `SUPABASE_POOLER_HOST`, a pinned checkout and CLI 2.121.0.
+- **New `scripts/dashboard_milestones_release.py`.**
+  - It executes only the approved migration, fed from its checksummed bytes (16,405 B, SHA-256 `e6737493…`), in one psql transaction.
+  - It records history with `migration repair` from a temporary workdir that holds only that file. Never `db push` or `migration up`.
+  - **Rollback refuses while any milestone review row exists:** a pre-check, then a re-check under `ACCESS EXCLUSIVE` inside the rollback transaction.
+  - **CRM activity can't cause a false failure:** the invariants are a schema-only fingerprint and the migration history. No CRM rows are read.
+- **New `scripts/tests/dashboard_milestones_release_test.py`:** the rehearsal (real CLI, TLS loopback, synthetic data).
+- `dashboard-milestones-backend.yml` gains two jobs: `release-runner` (`postgres:17.6` pinned by digest) and a live, secret-free `environment-guard`.
+
+**Unchanged:**
+- the migration and rollback bytes;
+- the Google Sheets and hierarchy release workflows;
+- unrelated migrations: 12 local files drift from production history; they are listed in the design and untouched.
+
+**Migrations/deploys:** none.
+- Read-only production checks only: the state classifier, the `get_org_id` digest, and the fingerprint query (5,892 entries).
+
+**Verification:**
+- Rehearsal (local PostgreSQL 16.15, TLS, port 5432; pinned CLI 2.121.0, release checksum verified): `ALL PASSED: 38 checks`.
+  - Security failures: refs, confirmations, bytes, copies, CLI, hosts, identity, environment settings, drifted states.
+  - The full release under live CRM traffic: about 1,400 committed client write cycles.
+  - Interrupted-stage recovery: lock timeout, watchdog, SIGTERM, a lost runner, a lost CLI, a lost rollback.
+  - Rollback refusal with review rows, including the race.
+  - 13 read-back tamper cases, decoy migrations never run, and no secret in any output.
+- SQL suite: 45 checks, both negative controls and the rollback proof pass.
+- CI on PostgreSQL 17.6: see the PR.
+
+**Blockers / next (each separately approved):**
+1. Chris's merge decision on the release-only PR.
+2. Dispatch `check` → `apply-migration` → independent read-back and advisors → `record-history`.
+3. Follow-up: move the file out of `pending/` byte-identically, re-pin the runner, regenerate types.
+4. G3.
+
+**Context snapshot:** the release machinery is ready for review; production is unchanged; G2 and G3 are still gated.
 
 ## 2026-10-28 — Google Sheets v2 source-column UI cleanup (approved, PR candidate)
 
