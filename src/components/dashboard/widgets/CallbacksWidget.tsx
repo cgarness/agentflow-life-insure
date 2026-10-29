@@ -1,8 +1,7 @@
 import React from "react";
-import { Phone, Clock, User, AlertTriangle, RotateCw } from "lucide-react";
+import { AlertTriangle, ExternalLink, Phone, RotateCw, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { dispatchQuickCall } from "@/lib/quick-call";
 import {
@@ -12,11 +11,16 @@ import {
   fetchCallbackPage,
   fetchCallbackTotal,
 } from "@/lib/dashboard-callbacks";
+import { contactHref } from "@/lib/dashboard-contact-identity";
 import { startOfLocalDayPlus } from "@/lib/local-calendar";
 import { linkedAbort, settleAll } from "@/lib/requestLifetime";
+import { listScopeIsFiltered, listScopeNote } from "@/lib/dashboard-scope";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
+import { DashboardEmptyState, DashboardIconWell, DashboardList, DashboardListRow, DashboardRowSkeleton } from "@/components/dashboard/ui/DashboardListRow";
+import { DashboardRowActions } from "@/components/dashboard/ui/DashboardRowActions";
+import { DashboardScopeNote } from "@/components/dashboard/ui/DashboardScopeNote";
 
 interface CallbacksWidgetProps {
   userId: string;
@@ -25,6 +29,8 @@ interface CallbacksWidgetProps {
   /** Incremented by the Dashboard's Refresh control. */
   refreshSignal?: number;
   refreshTracker?: DashboardRefreshTracker | null;
+  /** Opens the Callbacks detail view (decision D11). */
+  onOpenDetails?: () => void;
 }
 
 /** Rows fetched per render. The displayed total comes from an exact count, not this. */
@@ -66,12 +72,19 @@ async function loadCallbacks(userId: string, isFiltered: boolean, signal: AbortS
   }
 }
 
-const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminToggle, refreshSignal, refreshTracker }) => {
+const GROUPS: { bucket: CallbackBucket; title: string; dot: string }[] = [
+  { bucket: "overdue", title: "Overdue", dot: "bg-red-500" },
+  { bucket: "dueToday", title: "Due Today", dot: "bg-emerald-500" },
+  { bucket: "dueSoon", title: "Due Soon", dot: "bg-blue-500" },
+];
+
+const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminToggle, refreshSignal, refreshTracker, onOpenDetails }) => {
   const navigate = useNavigate();
 
-  // Existing Personal/Team gate, preserved verbatim. No hierarchy expansion here —
-  // Team/Agency scope resolution is Build 2 (decisions D3/D4).
-  const isFiltered = role !== "Admin" || adminToggle === "my";
+  // Existing Personal/Team gate (the list rule, plan §2A). No hierarchy expansion here.
+  const isFiltered = listScopeIsFiltered(role, adminToggle);
 
   // One load at a time. Another user's or perspective's callbacks are never shown;
   // a failed refresh keeps this perspective's last complete page and says so.
@@ -83,44 +96,21 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     refreshSignal,
     refreshTracker,
   });
-  const overdue = section.data?.overdue ?? [];
-  const dueToday = section.data?.dueToday ?? [];
-  const dueSoon = section.data?.dueSoon ?? [];
   const totalCount = section.data?.totalCount ?? 0;
   const notice = <DashboardSectionNotice state={section} label="callbacks" className="mb-3" />;
+  const scopeNote = <DashboardScopeNote text={listScopeNote(role, adminToggle, "callbacks")} />;
 
-  const handleCall = (e: React.MouseEvent, item: NormalizedCallbackRow) => {
-    // Keep the action inside the button — it must not open the parent widget card.
-    e.stopPropagation();
-
+  const handleCall = (item: NormalizedCallbackRow) => {
     if (!item.canAct || !item.contactId || !item.contactType) {
       toast.error(item.blockedReason ?? "This callback cannot be dialed.");
       return;
     }
-    const started = dispatchQuickCall({
-      contactId: item.contactId,
-      name: item.contactName,
-      phone: item.phone,
-      type: item.contactType,
-    });
+    const started = dispatchQuickCall({ contactId: item.contactId, name: item.contactName, phone: item.phone, type: item.contactType });
     // Never report a call that did not start.
     if (!started) toast.error(`No phone number on file for ${item.contactName}.`);
   };
 
-  const formatTime = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  };
-
-  if (section.loading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-12 bg-muted/20 rounded-xl animate-pulse" />
-        ))}
-      </div>
-    );
-  }
+  if (section.loading) return <DashboardRowSkeleton />;
 
   if (section.data === null && section.offline) {
     return <DashboardSectionUnavailable state={section} label="callbacks" />;
@@ -132,117 +122,72 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     return (
       <div role="status" aria-live="polite" className="text-center py-10 flex flex-col items-center">
         <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
-          <AlertTriangle className="w-8 h-8 text-amber-500" />
+          <AlertTriangle className="w-8 h-8 text-amber-500" aria-hidden="true" />
         </div>
         <p className="text-sm text-foreground font-semibold">Couldn't load callbacks</p>
-        <p className="text-xs text-muted-foreground mt-1 mb-4">
-          Something went wrong. Your callbacks may still be there.
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            section.reload();
-          }}
-          className="rounded-xl"
-        >
-          <RotateCw className="w-3.5 h-3.5 mr-2" />
-          Try again
+        <p className="text-xs text-muted-foreground mt-1 mb-4">Something went wrong. Your callbacks may still be there.</p>
+        <Button variant="outline" size="sm" onClick={() => section.reload()} className="rounded-xl">
+          <RotateCw className="w-3.5 h-3.5 mr-2" aria-hidden="true" /> Try again
         </Button>
       </div>
     );
   }
 
-  const allEmpty = overdue.length === 0 && dueToday.length === 0 && dueSoon.length === 0;
-
-  if (allEmpty) {
-    return (
-      <div className="text-center py-10 flex flex-col items-center">
-        {notice}
-        <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
-          <Phone className="w-8 h-8 text-muted-foreground opacity-50" />
-        </div>
-        <p className="text-sm text-muted-foreground font-medium">No pending callbacks</p>
-      </div>
-    );
+  const data = section.data;
+  if (GROUPS.every(({ bucket }) => data[bucket].length === 0)) {
+    return <DashboardEmptyState tone="blue" icon={Phone} title="No pending callbacks" notice={<>{notice}{scopeNote}</>} />;
   }
 
-  const renderSection = (
-    title: string,
-    dotColor: string,
-    items: NormalizedCallbackRow[]
-  ) => {
-    if (items.length === 0) return null;
-    return (
-      <div className="mb-4 last:mb-0">
-        <div className="flex items-center gap-2 mb-3">
-          <span
-            className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(0,0,0,0.1)]"
-            style={{ backgroundColor: dotColor }}
-          />
-          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-            {title} ({items.length})
-          </span>
-        </div>
-        <div className="space-y-2">
-          {items.slice(0, 5).map((item, idx) => (
-            <motion.div
-              key={item.key}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: idx * 0.05 }}
-              className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-primary/20 hover:bg-muted/50 transition-all group"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center shrink-0">
-                  <User className="w-5 h-5 text-muted-foreground/50" />
-                </div>
-                <div className="min-w-0">
-                  <p className="font-bold text-sm text-foreground truncate group-hover:text-primary transition-colors">
-                    {item.contactName}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-3 h-3 text-muted-foreground" />
-                    <p className="text-[10px] font-medium text-muted-foreground">
-                      {formatTime(item.dueAt)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(e) => handleCall(e, item)}
-                disabled={!item.canAct}
-                title={item.blockedReason ?? undefined}
-                className="rounded-lg shadow-sm hover:bg-primary hover:text-white hover:border-primary transition-all px-4 disabled:opacity-50"
-              >
-                Call
-              </Button>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div>
+    <div className="space-y-4">
       {notice}
-      {renderSection("Overdue", "#EF4444", overdue)}
-      {renderSection("Due Today", "#22C55E", dueToday)}
-      {renderSection("Due Soon", "#3B82F6", dueSoon)}
-      {totalCount > 5 && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate("/contacts");
-          }}
-          className="w-full mt-4 text-primary hover:text-primary/80 hover:bg-primary/5 rounded-xl text-xs font-bold uppercase tracking-widest"
-        >
+      {scopeNote}
+      {GROUPS.map(({ bucket, title, dot }) => {
+        const items = data[bucket];
+        if (items.length === 0) return null;
+        return (
+          <div key={bucket}>
+            <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+              <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
+              {title} ({items.length})
+            </p>
+            <DashboardList label={`${title} callbacks`}>
+              {items.slice(0, 5).map((item) => {
+                const href = contactHref(item.contactId, item.contactType);
+                return (
+                  <DashboardListRow
+                    key={item.key}
+                    tone="blue"
+                    leading={<DashboardIconWell tone="blue" icon={UserRound} />}
+                    title={item.contactName}
+                    meta={`${formatTime(item.dueAt)} · ${item.source === "campaign" ? "Campaign" : "Follow-up"}${item.note ? ` · ${item.note}` : ""}`}
+                    actions={
+                      <DashboardRowActions
+                        name={item.contactName}
+                        primary={
+                          <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5 rounded-lg"
+                            onClick={() => handleCall(item)} disabled={!item.canAct}
+                            title={item.blockedReason ?? undefined} aria-label={`Call ${item.contactName}`}>
+                            <Phone className="h-3.5 w-3.5" aria-hidden="true" /> Call
+                          </Button>
+                        }
+                        items={[{
+                          id: "view", label: "View contact", icon: ExternalLink, disabled: !href,
+                          hint: href ? undefined : item.blockedReason ?? "No linked contact record is available",
+                          onSelect: () => href && navigate(href),
+                        }]}
+                      />
+                    }
+                  />
+                );
+              })}
+            </DashboardList>
+          </div>
+        );
+      })}
+      {totalCount > 5 && onOpenDetails && (
+        <Button variant="ghost" size="sm" onClick={onOpenDetails}
+          className="w-full text-blue-600 dark:text-blue-400 hover:bg-blue-500/5 rounded-xl text-xs font-bold uppercase tracking-widest">
           View All {totalCount} Callbacks
         </Button>
       )}

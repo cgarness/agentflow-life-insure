@@ -243,11 +243,11 @@ describe("widgets reload on the Refresh signal", () => {
       missed_reason: null, outcome: null, agent_id: null, answered_by_agent_id: null, voicemail_id: null,
     };
     h.result = (t) => (t === "calls" ? { data: [CALL], error: null } : { data: [], error: null });
-    const { rerender } = render(<MissedCallsWidget userId={USER} role="Admin" adminToggle="team" refreshSignal={0} />);
+    const { rerender } = render(<MemoryRouter><MissedCallsWidget userId={USER} role="Admin" adminToggle="team" refreshSignal={0} /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText("Jordan Kay")).toBeInTheDocument());
 
     h.result = () => ({ data: [], error: null });
-    rerender(<MissedCallsWidget userId={USER} role="Admin" adminToggle="team" refreshSignal={1} />);
+    rerender(<MemoryRouter><MissedCallsWidget userId={USER} role="Admin" adminToggle="team" refreshSignal={1} /></MemoryRouter>);
     await waitFor(() => expect(screen.getByText("All caught up!")).toBeInTheDocument());
     expect(screen.queryByText("Jordan Kay")).not.toBeInTheDocument();
   });

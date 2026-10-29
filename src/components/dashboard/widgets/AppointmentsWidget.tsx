@@ -1,12 +1,16 @@
 import React from "react";
-import { Calendar, Clock, User } from "lucide-react";
+import { Calendar, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
+import { listScopeIsFiltered, listScopeNote } from "@/lib/dashboard-scope";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
+import { DashboardEmptyState, DashboardList, DashboardListRow, DashboardRowSkeleton, DashboardStatusPill } from "@/components/dashboard/ui/DashboardListRow";
+import { DashboardScopeNote } from "@/components/dashboard/ui/DashboardScopeNote";
+import { DASHBOARD_TONES, NEUTRAL_PILL } from "@/components/dashboard/ui/dashboardTones";
 
 interface AppointmentsWidgetProps {
   userId: string;
@@ -17,19 +21,14 @@ interface AppointmentsWidgetProps {
   refreshTracker?: DashboardRefreshTracker | null;
 }
 
-const TYPE_STYLES: Record<string, { bg: string; text: string }> = {
-  "Sales Call": { bg: "bg-blue-500/10", text: "text-blue-500" },
-  "Follow Up": { bg: "bg-amber-500/10", text: "text-amber-500" },
-  "Policy Review": { bg: "bg-violet-500/10", text: "text-violet-500" },
-  "Recruit Interview": { bg: "bg-emerald-500/10", text: "text-emerald-500" },
-  Other: { bg: "bg-muted", text: "text-muted-foreground" },
-};
+/** Most appointments the widget reads; a full page says the list is a preview. */
+const DAY_LIMIT = 8;
 
-const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
-  Scheduled: { bg: "bg-muted", text: "text-muted-foreground" },
-  Confirmed: { bg: "bg-emerald-500/10", text: "text-emerald-500" },
-  Completed: { bg: "bg-blue-500/10", text: "text-blue-500" },
-  "No Show": { bg: "bg-red-500/10", text: "text-red-500" },
+const STATUS_STYLES: Record<string, string> = {
+  Scheduled: NEUTRAL_PILL,
+  Confirmed: DASHBOARD_TONES.green.pill,
+  Completed: DASHBOARD_TONES.blue.pill,
+  "No Show": DASHBOARD_TONES.red.pill,
 };
 
 interface Appointment {
@@ -55,7 +54,7 @@ async function loadDayAppointments(userId: string, isFiltered: boolean, dayStart
     .lt("start_time", nextDayStart.toISOString())
     .order("start_time", { ascending: true })
     .order("id", { ascending: true })
-    .limit(8);
+    .limit(DAY_LIMIT);
 
   if (isFiltered) q = q.eq("user_id", userId);
 
@@ -64,15 +63,11 @@ async function loadDayAppointments(userId: string, isFiltered: boolean, dayStart
   return data ?? [];
 }
 
-const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
-  userId,
-  role,
-  adminToggle,
-  refreshSignal,
-  refreshTracker,
-}) => {
+const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({ userId, role, adminToggle, refreshSignal, refreshTracker }) => {
   const navigate = useNavigate();
-  const isFiltered = role !== "Admin" || adminToggle === "my";
+  const isFiltered = listScopeIsFiltered(role, adminToggle);
   // Today is part of the scope: after midnight yesterday's schedule is never kept as today's.
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -87,106 +82,65 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({
   });
   const appointments = section.data ?? [];
   const notice = <DashboardSectionNotice state={section} label="your schedule" className="mb-3" />;
+  const scopeNote = <DashboardScopeNote text={listScopeNote(role, adminToggle, "appointments")} />;
+  const openCalendar = () => navigate("/calendar");
 
-  if (section.loading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-12 bg-muted/20 rounded-xl animate-pulse" />
-        ))}
-      </div>
-    );
-  }
+  if (section.loading) return <DashboardRowSkeleton />;
 
   if (section.data === null) return <DashboardSectionUnavailable state={section} label="your schedule" />;
 
   if (appointments.length === 0) {
     return (
-      <div className="text-center py-10 flex flex-col items-center">
-        {notice}
-        <div className="w-16 h-16 rounded-full bg-muted/20 flex items-center justify-center mb-4">
-          <Calendar className="w-8 h-8 text-muted-foreground opacity-50" />
-        </div>
-        <p className="text-sm text-muted-foreground font-medium mb-4">
-          Your schedule is clear for today
-        </p>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate("/calendar");
-          }}
-          className="rounded-xl border-dashed hover:border-solid transition-all"
-        >
-          Schedule Appointment
-        </Button>
-      </div>
+      <DashboardEmptyState
+        tone="purple"
+        icon={Calendar}
+        title="Your schedule is clear for today"
+        notice={<>{notice}{scopeNote}</>}
+        action={
+          <Button variant="outline" size="sm" onClick={openCalendar} className="rounded-xl border-dashed hover:border-solid">
+            Schedule Appointment
+          </Button>
+        }
+      />
     );
   }
-
-  const formatTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  };
 
   return (
     <div className="space-y-3">
       {notice}
-      {appointments.map((appt, idx) => {
-        const typeStyle = TYPE_STYLES[appt.type] || TYPE_STYLES.Other;
-        const statusStyle = STATUS_STYLES[appt.status] || STATUS_STYLES.Scheduled;
-        
-        return (
-          <motion.div
-            key={appt.id}
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: idx * 0.05 }}
-            className="group relative flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-transparent hover:border-primary/20 hover:bg-muted/50 transition-all cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate("/calendar");
-            }}
-          >
-            <div className="flex items-center gap-4 min-w-0">
-              <div className="flex flex-col items-center justify-center w-12 h-12 rounded-lg bg-background border border-border shadow-sm shrink-0">
-                <Clock className="w-3.5 h-3.5 text-muted-foreground mb-1" />
-                <span className="text-[10px] font-bold text-foreground uppercase tracking-tighter">
+      {scopeNote}
+      <DashboardList label="Today's appointments">
+        {appointments.map((appt) => {
+          const name = appt.contact_name || appt.title;
+          return (
+            <DashboardListRow
+              key={appt.id}
+              tone="purple"
+              leading={
+                <span className={cn("flex h-10 w-14 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold tabular-nums", DASHBOARD_TONES.purple.soft, DASHBOARD_TONES.purple.text)}>
                   {formatTime(appt.start_time)}
                 </span>
-              </div>
-              <div className="min-w-0">
-                <h4 className="text-sm font-bold text-foreground truncate group-hover:text-primary transition-colors">
-                  {appt.contact_name || appt.title}
-                </h4>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${typeStyle.bg} ${typeStyle.text}`}>
-                    {appt.type}
-                  </span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex flex-col items-end gap-2 shrink-0">
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${statusStyle.bg} ${statusStyle.text}`}>
-                {appt.status}
-              </span>
-            </div>
-          </motion.div>
-        );
-      })}
-      
-      <Button 
-        variant="ghost" 
-        size="sm" 
-        onClick={(e) => {
-          e.stopPropagation();
-          navigate("/calendar");
-        }}
-        className="w-full mt-2 text-primary hover:text-primary/80 hover:bg-primary/5 rounded-xl text-xs font-bold uppercase tracking-widest"
+              }
+              title={name}
+              meta={appt.type}
+              status={<DashboardStatusPill className={STATUS_STYLES[appt.status] ?? NEUTRAL_PILL}>{appt.status}</DashboardStatusPill>}
+              actions={
+                <Button type="button" variant="ghost" size="icon" className="h-9 w-9 rounded-lg" onClick={openCalendar} aria-label={`Open ${name} in Calendar`}>
+                  <CalendarDays className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              }
+            />
+          );
+        })}
+      </DashboardList>
+      {appointments.length === DAY_LIMIT && (
+        <p className="text-xs text-muted-foreground">Showing the first {DAY_LIMIT} appointments today. Open the calendar for the rest.</p>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={openCalendar}
+        className={cn("w-full mt-1 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-violet-500/5", DASHBOARD_TONES.purple.text)}
       >
         View Full Calendar
       </Button>
