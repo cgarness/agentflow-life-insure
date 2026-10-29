@@ -1376,10 +1376,13 @@ Check `list_migrations` before assuming the review table exists.
   - Motion respects `prefers-reduced-motion`.
   - The KPI cards (`StatCards.tsx`) are outside this contract and were left byte-for-byte unchanged.
 
-## Dashboard attention clearances invariant — October 29, 2026 (Polish V2; migration PREPARED in `pending/`, NOT applied; frontend branch-only, NOT released; `VITE_DASHBOARD_ATTENTION_CLEARANCES` unset)
+## Dashboard attention clearances invariant — October 29, 2026 (Polish V2; G3 APPLIED and RECORDED in production as `20261029200000`; migration file reconciled on draft PR #504; G5 frontend NOT released)
 
-Plan and evidence: `docs/plans/2026-10-29-dashboard-polish-v2/implementation_plan.md`. Check `list_migrations` before assuming
-`public.dashboard_attention_clearances` exists.
+Plan and evidence: `docs/plans/2026-10-29-dashboard-polish-v2/implementation_plan.md`. G3 is live:
+`20261029200000_dashboard_attention_clearances` recorded with 352 history entries, 24 statements and digest
+`43769e1677e2a218021e7f8bc146f92e86b1154ae00aa1d3c63e8d1515f07693`. Table and RPCs exist,
+RLS is enabled; `VITE_DASHBOARD_ATTENTION_CLEARANCES` is NOT independently verified enabled in production.
+Do not infer frontend activation from database deployment.
 
 - **Clear is per-viewer alert state, never a CRM or telemetry write.** Clear on Missed Calls and Callbacks hides ONE
   occurrence from the viewer's own Dashboard. It never writes `calls`, voicemails, recordings, notifications,

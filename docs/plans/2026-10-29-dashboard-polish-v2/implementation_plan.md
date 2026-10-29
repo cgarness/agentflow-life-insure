@@ -1,10 +1,10 @@
 # Dashboard Polish V2 — Clear / Dismiss, visual polish, Team-mode context — Implementation Plan
 
 **Date:** 2026-10-29 · **Branch:** `claude/upbeat-cannon-uy6fpg` (from `main` `7a03033`) · **Mode:** FEATURE
-**Status:** G1 APPROVED (D1–D16 as recommended, including the narrow protected callback-contract edit).
-**G2 BUILT on the feature branch with local tests.** No production SQL, merge, deploy or flag change. The migration is
-in `supabase/migrations/pending/` and is NOT applied. Next: G3, a separate approval of the exact migration and RLS
-(see "Gate 2 implementation status" below).
+**Status:** G1/G2 approved and built on draft PR #504. **G3 APPLIED AND RECORDED IN PRODUCTION**
+(version `20261029200000_dashboard_attention_clearances`, 352 history entries). G4 reconciliation and
+CI verification are in progress on the draft branch. **G5 frontend merge and Vercel activation are NOT approved
+or deployed.** The original G1/G2 descriptions below are historical.
 
 | Gate | What it approves | Touches |
 |---|---|---|
@@ -16,7 +16,33 @@ in `supabase/migrations/pending/` and is NOT applied. Next: G3, a separate appro
 
 Nothing in this plan is production-live until G3 and G5 are each separately approved and verified.
 
-## Gate 2 implementation status (2026-10-29)
+## G3 backend closeout and G4 candidate (2026-10-29)
+
+**G3 production complete:** Protected GitHub Actions runs `40967614726` (check), `40968145912`
+(apply-migration), and `40968675025` (record-history) succeeded. Supabase independently confirms
+**352 migrations**, recorded version `20261029200000` with **24 statements**, digest
+`43769e1677e2a218021e7f8bc146f92e86b1154ae00aa1d3c63e8d1515f07693`,
+table, 3 RLS policies, 2 SECURITY INVOKER RPCs and guard. Security advisor 256 (unchanged);
+performance advisor 465 (+1 informational unused index on the new empty table).
+
+**G4 draft PR #504 reconciliation:** Move the approved SQL blob
+`4ab80696278eb8a0bf2b6731b0d8c64e708a52da` (16,396 bytes; SHA-256
+`85ac2ff7dcd435bd48718311b05704e4e7d96293abf9b47fd062ce30610cb8e8`)
+unchanged from `pending/` into `supabase/migrations/`. Re-pin the protected release runner,
+workflow comment and disposable PostgreSQL 17.6 rehearsal path guards. The runner still recognizes
+the recorded production state and refuses apply/history replay and rollback containing clearance
+records. The rollback SQL is unchanged.
+
+**Generated types:** Live production-generated table and two RPC signatures match the
+`src/integrations/supabase/types.ts` declarations on PR #504 byte-for-byte; no unrelated
+type-file regeneration or `as any` casts.
+
+**G4 verification pending:** Run the PR CI, PostgreSQL 17.6 release rehearsal, typecheck baseline,
+lint, build, 80 browser checks, KPI parity and Vercel preview. Do not change production flags.
+**G5 requires separate approval** for PR #504 merge, production build-time
+`VITE_DASHBOARD_ATTENTION_CLEARANCES=true`, authenticated Clear/Undo/Dismiss smoke and rollback plan.
+
+## Gate 2 implementation status (historical, before G3)
 
 **Migration package (never applied):**
 - Forward migration `supabase/migrations/pending/20261029200000_dashboard_attention_clearances.sql`: 16,396 bytes,
