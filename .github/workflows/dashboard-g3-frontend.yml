@@ -1,0 +1,136 @@
+name: Dashboard G3 premium frontend verification
+# Pull-request checks only. Synthetic data, fake Supabase, no production credentials or writes.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/dashboard-g3-frontend.yml'
+      - 'src/pages/Dashboard.tsx'
+      - 'src/components/dashboard/**'
+      - 'src/hooks/useDashboard*.ts'
+      - 'src/hooks/useMilestoneActions.ts'
+      - 'src/lib/dashboard*.ts'
+      - 'src/lib/paged-exact-read.ts'
+      - 'src/lib/calendar-date.ts'
+      - 'src/lib/__tests__/dashboard*.test.ts'
+      - 'src/integrations/supabase/types.ts'
+      - 'scripts/tests/dashboard-ui/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dashboard-g3-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VITE_SUPABASE_URL: https://mock.supabase.co
+  VITE_SUPABASE_ANON_KEY: synthetic-anon-key
+  VITE_DASHBOARD_MILESTONE_REVIEWS: 'true'
+  VITE_FIRST_PAYMENT_REMINDERS_START: '2026-10-01'
+
+jobs:
+  frontend:
+    name: Focused Dashboard tests, app typecheck baseline, lint and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Root tsc (required, vacuous in this repo)
+        run: npx tsc --noEmit
+      - name: Reject new app type errors versus exact PR base
+        env:
+          A2P_BASE_SHA: ${{ github.event.pull_request.base.sha || '78d532b3025a37a75d8d9d30c660983eb7624f2a' }}
+        run: node scripts/verify-a2p-types.mjs
+      - name: Dashboard and milestone regression suites
+        run: >-
+          npx vitest run src/components/dashboard
+          src/lib/__tests__/dashboardMilestones.test.ts
+          src/lib/__tests__/dashboardMilestonesData.test.ts
+          src/lib/__tests__/dashboardScope.test.ts
+          src/lib/__tests__/dashboardWidgetPrefs.test.ts
+          src/lib/__tests__/dashboardRefresh.test.ts
+          src/lib/__tests__/normalizedPolicy.test.ts
+          src/pages/__tests__/dashboardRefreshWiring.test.tsx
+      - name: Milestone engine under western, eastern and UTC time zones
+        run: |
+          for tz in America/Los_Angeles Pacific/Auckland UTC; do
+            TZ="$tz" npx vitest run src/lib/__tests__/dashboardMilestones.test.ts
+          done
+      - name: Lint changed Dashboard surfaces
+        run: >-
+          npx eslint src/pages/Dashboard.tsx src/components/dashboard
+          src/hooks/useDashboardLayout.ts src/hooks/useDashboardDetailFeed.ts
+          src/hooks/useMilestoneActions.ts src/lib/dashboard-milestones.ts
+          src/lib/dashboard-milestones-data.ts src/lib/dashboard-milestones-config.ts
+          src/lib/dashboard-scope.ts src/lib/calendar-date.ts src/lib/paged-exact-read.ts
+          src/integrations/supabase/types.ts
+      - name: Production Vite build (no live credentials)
+        run: npm run build
+
+  browser:
+    name: Desktop/mobile and dark/light functional browser checks; KPI parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Isolated pinned Chromium runner
+        run: |
+          npm install --prefix "$RUNNER_TEMP/g3-browser" --no-save playwright@1.56.1
+          "$RUNNER_TEMP/g3-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Dashboard functional checks and main-versus-G3 KPI pixel parity
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/g3-browser/node_modules/playwright/index.mjs
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '78d532b3025a37a75d8d9d30c660983eb7624f2a' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/g3-dashboard"
+          mkdir -p "$OUT"
+          git worktree add --detach "$OUT/main-tree" "$BASE_SHA"
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$OUT/main-tree/node_modules"
+          npx vite --port 5181 --host 127.0.0.1 >"$OUT/g3-vite.log" 2>&1 &
+          G3_PID=$!
+          ( cd "$OUT/main-tree" && npx vite --port 5182 --host 127.0.0.1 >"$OUT/main-vite.log" 2>&1 ) &
+          MAIN_PID=$!
+          trap 'kill "$G3_PID" "$MAIN_PID" 2>/dev/null || true; git worktree remove --force "$OUT/main-tree" || true' EXIT
+          for port in 5181 5182; do
+            ready=0
+            for attempt in $(seq 1 40); do
+              if curl --fail --silent "http://127.0.0.1:$port" >/dev/null; then ready=1; break; fi
+              sleep 1
+            done
+            test "$ready" -eq 1
+          done
+          DASH_BASE_URL=http://127.0.0.1:5181 node scripts/tests/dashboard-ui/verify.mjs "$OUT/g3"
+          test "$(grep -c '^PASS ' "$OUT/g3/results.txt")" -eq 44
+          DASH_KPI_ONLY=1 DASH_BASE_URL=http://127.0.0.1:5182 node scripts/tests/dashboard-ui/verify.mjs "$OUT/main"
+          for viewport in desktop mobile; do
+            for theme in light dark; do
+              cmp "$OUT/g3/kpi-${viewport}-${theme}.png" "$OUT/main/kpi-${viewport}-${theme}.png"
+            done
+          done
+          echo "PASS: 44 browser checks and 4 byte-identical KPI card screenshots"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: dashboard-g3-synthetic-browser-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/g3-dashboard/g3/
+          if-no-files-found: ignore
+          retention-days: 7
