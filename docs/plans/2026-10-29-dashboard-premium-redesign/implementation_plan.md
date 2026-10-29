@@ -1,8 +1,7 @@
 # Dashboard Premium Redesign + Client Milestones — Implementation Plan
 
-**Date:** 2026-10-29 · **Branch:** `claude/great-clarke-c1gpw6` · **Base:** `main` `2a18e263`
-**Mode:** FEATURE / REFACTOR · **Status:** **G1 APPROVED with revisions (rev 1, below)** — frontend implementation on
-the feature branch only. G2 package prepared as files only; no database change executed. No merge, no deploy.
+**Date:** 2026-10-29 · **Original G1 branch:** `claude/great-clarke-c1gpw6` · **G3 release-candidate branch:** `claude/dashboard-g3-finalize-20261029` (based on `main` `78d532b`)
+**Mode:** FEATURE / REFACTOR · **Current status:** G1 frontend built on branch, **G2 migration applied and recorded in production** (`20261029120000_dashboard_milestone_reviews`, 351 total history entries). G3 frontend is **NOT** merged, deployed or activated; Vercel flags unchanged. The G1/G2 preparation narrative below is historical.
 
 ## Rev 1 — Chris's G1 approval adjustments (2026-10-29; supersede anything below that conflicts)
 
@@ -15,7 +14,9 @@ the feature branch only. G2 package prepared as files only; no database change e
 
 D1–D14 otherwise accepted as recommended, with D8 revised by R3 and D10 replaced by R2.
 
-## Implementation status (2026-10-29, branch only — not merged, not deployed)
+## Implementation status (historical pre-G2 notes; see live G2 closeout below)
+
+**G2 completion / G3 preparation update (2026-10-29):** Production GitHub protected runs `40925336827` (check), `40925926281` (apply-migration), and `40926621789` (record-history) completed successfully; independent Supabase read-back confirms one recorded version `20261029120000_dashboard_milestone_reviews` (28 statements, digest `07cabc94f4a42c2c0d9a7c1265c9aa622eee65af14bb26dc9889b878d9765ec7`), four required objects, RLS and the exact grants. Production schema SQL remains unchanged since G2. The G3 candidate branch is based on current `main`, carries the approved G1 frontend without changing `StatCards.tsx`, reconciles the approved migration file byte-identically from `pending/` to `supabase/migrations/`, updates the protected workflow runner path/tests, and adds only milestone table and RPC types from the live generated schema (no wholesale 316k-character type replacement). **No Vercel variables or frontend deployment changed.** G3 requires separate approval. Latest CI evidence must be reviewed before G3 approval.
 
 **Done on `claude/great-clarke-c1gpw6`:** the G1 frontend (§4–§8 with rev 1) and the G2 package as files.
 
