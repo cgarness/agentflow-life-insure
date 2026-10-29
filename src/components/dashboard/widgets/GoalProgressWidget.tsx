@@ -54,7 +54,7 @@ const ProgressBar: React.FC<{
           <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${DASHBOARD_TONES[tone].soft}`}>
             <Icon className={`h-3.5 w-3.5 ${DASHBOARD_TONES[tone].text}`} aria-hidden="true" />
           </span>
-          <span className="truncate text-xs font-bold text-foreground uppercase tracking-wider">{label}</span>
+          <span className="break-words text-xs font-bold text-foreground uppercase tracking-wider">{label}</span>
         </div>
         <span className="shrink-0 text-xs font-semibold text-muted-foreground tabular-nums bg-muted/50 px-2 py-0.5 rounded-full">
           {valueText}

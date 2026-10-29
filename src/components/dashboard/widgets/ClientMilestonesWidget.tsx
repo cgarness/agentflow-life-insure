@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AlertTriangle, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -8,7 +8,7 @@ import { loadClientMilestones, type MilestoneLoad } from "@/lib/dashboard-milest
 import { MILESTONE_CONFIG, type MilestoneConfig } from "@/lib/dashboard-milestones-config";
 import { listScopeIsFiltered, listScopeNote } from "@/lib/dashboard-scope";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
-import { useMilestoneActions, useMilestoneContactHandlers } from "@/hooks/useMilestoneActions";
+import { MILESTONES_CHANGED_EVENT, useMilestoneActions, useMilestoneContactHandlers } from "@/hooks/useMilestoneActions";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
 import { DashboardEmptyState, DashboardList, DashboardRowSkeleton } from "@/components/dashboard/ui/DashboardListRow";
@@ -51,7 +51,13 @@ const ClientMilestonesWidget: React.FC<ClientMilestonesWidgetProps> = ({
     refreshSignal,
     refreshTracker,
   });
-  const actions = useMilestoneActions(section.reload);
+  // A review stored from the detail view reloads this list too (through the section lane).
+  const reload = section.reload;
+  useEffect(() => {
+    window.addEventListener(MILESTONES_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(MILESTONES_CHANGED_EVENT, reload);
+  }, [reload]);
+  const actions = useMilestoneActions(() => {});
   const contact = useMilestoneContactHandlers();
   const reviewsEnabled = config.reviewsEnabled && !isImpersonating;
   const handlers: MilestoneRowHandlers = {

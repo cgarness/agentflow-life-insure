@@ -81,7 +81,7 @@ export const DashboardListRow: React.FC<DashboardListRowProps> = ({
       {leading}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-foreground">{title}</p>
-        {meta && <p className="truncate text-xs text-muted-foreground">{meta}</p>}
+        {meta && <p className="line-clamp-2 break-words text-xs text-muted-foreground">{meta}</p>}
         {detail}
       </div>
     </div>

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,8 +22,12 @@ interface DashboardModalShellProps {
 
 /**
  * The one Dashboard detail-modal frame (plan §4.2): a Radix dialog, so focus is
- * trapped and returned, Escape closes, and the title/description label it. Content
- * scrolls inside; header, toolbar and footer stay put. Full width on a phone.
+ * trapped, Escape closes, and the title/description label it. Content scrolls inside;
+ * header, toolbar and footer stay put. Full width on a phone.
+ *
+ * These dialogs are opened from code, not a Radix `Dialog.Trigger`, so Radix has no
+ * trigger to return focus to: the shell remembers what had focus when it opened (a
+ * widget's Details button, say) and puts focus back there on close.
  */
 export const DashboardModalShell: React.FC<DashboardModalShellProps> = ({
   open,
@@ -36,9 +40,26 @@ export const DashboardModalShell: React.FC<DashboardModalShellProps> = ({
   onScroll,
   footer,
   children,
-}) => (
+}) => {
+  const opener = useRef<HTMLElement | null>(null);
+  // Layout effect: runs before Radix moves focus into the dialog.
+  useLayoutEffect(() => {
+    if (open && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+      opener.current = document.activeElement;
+    }
+  }, [open]);
+
+  return (
   <Dialog open={open} onOpenChange={(value) => { if (!value) onClose(); }}>
     <DialogContent
+      onCloseAutoFocus={(event) => {
+        const target = opener.current;
+        opener.current = null;
+        if (target?.isConnected) {
+          event.preventDefault();
+          target.focus();
+        }
+      }}
       className="flex max-h-[min(90dvh,780px)] w-[calc(100vw-1.5rem)] max-w-[760px] flex-col gap-0 overflow-hidden rounded-2xl border border-border bg-background p-0 shadow-2xl motion-reduce:!animate-none"
     >
       <DialogHeader className={cn("shrink-0 border-b px-4 py-4 pr-12 text-left sm:px-6 sm:py-5", DASHBOARD_TONES[tone].border, DASHBOARD_TONES[tone].band)}>
@@ -68,7 +89,8 @@ export const DashboardModalShell: React.FC<DashboardModalShellProps> = ({
       </div>
     </DialogContent>
   </Dialog>
-);
+  );
+};
 
 /** Initial load in progress. */
 export const DashboardModalLoading: React.FC = () => (

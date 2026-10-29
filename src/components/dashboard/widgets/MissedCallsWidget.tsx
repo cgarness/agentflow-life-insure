@@ -14,7 +14,7 @@ import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
 import { contactHref } from "@/lib/dashboard-contact-identity";
 import { listScopeIsFiltered, listScopeNote } from "@/lib/dashboard-scope";
-import { DashboardEmptyState, DashboardIconWell, DashboardList, DashboardListRow, DashboardRowSkeleton, DashboardStatusPill } from "@/components/dashboard/ui/DashboardListRow";
+import { DashboardEmptyState, DashboardIconWell, DashboardList, DashboardListRow, DashboardRowSkeleton } from "@/components/dashboard/ui/DashboardListRow";
 import { DashboardRowActions } from "@/components/dashboard/ui/DashboardRowActions";
 import { DashboardScopeNote } from "@/components/dashboard/ui/DashboardScopeNote";
 import { DASHBOARD_TONES } from "@/components/dashboard/ui/dashboardTones";
@@ -166,12 +166,12 @@ const MissedCallsWidget: React.FC<MissedCallsWidgetProps> = ({ userId, role, adm
               leading={<DashboardIconWell tone="red" icon={PhoneForwarded} />}
               title={call.contactName}
               meta={timeAgo(call.createdAt)}
-              status={
-                <DashboardStatusPill className={DASHBOARD_TONES.red.pill}>
-                  <span data-testid="missed-call-outcome">{call.outcomeLabel}</span>
-                </DashboardStatusPill>
+              detail={
+                <>
+                  <p className={`text-xs font-medium ${DASHBOARD_TONES.red.text}`} data-testid="missed-call-outcome">{call.outcomeLabel}</p>
+                  {call.voicemailId && <div className="mt-1"><VoicemailPlayer voicemailId={call.voicemailId} compact /></div>}
+                </>
               }
-              detail={call.voicemailId && <div className="mt-1"><VoicemailPlayer voicemailId={call.voicemailId} compact /></div>}
               actions={
                 <DashboardRowActions
                   name={call.contactName}

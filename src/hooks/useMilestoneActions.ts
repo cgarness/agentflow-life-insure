@@ -16,6 +16,10 @@ import {
 
 const UNDO_TOAST_MS = 8000;
 
+/** Fired after any stored review change, so every milestone surface (widget and detail) reloads. */
+export const MILESTONES_CHANGED_EVENT = "agentflow:client-milestones-changed";
+const announceChange = () => window.dispatchEvent(new Event(MILESTONES_CHANGED_EVENT));
+
 function failure(err: unknown, fallback: string) {
   // Only the user-safe message is shown; raw errors were already logged by the data layer.
   toast.error(err instanceof MilestoneActionError ? err.message : fallback);
@@ -56,6 +60,7 @@ export function useMilestoneActions(onChanged: () => void) {
           failure(err, "Couldn't undo. Please try again.");
         } finally {
           onChanged();
+          announceChange();
         }
       }),
     [guarded, onChanged],
@@ -76,6 +81,7 @@ export function useMilestoneActions(onChanged: () => void) {
             action: { label: "Undo", onClick: () => void undo(item, row) },
           });
           onChanged();
+          announceChange();
         } catch (err) {
           failure(err, "Couldn't update this reminder. Please try again.");
         }
