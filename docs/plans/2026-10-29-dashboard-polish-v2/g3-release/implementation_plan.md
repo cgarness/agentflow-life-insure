@@ -42,7 +42,7 @@ The independent read-back after `apply-migration` must include table, 3 RLS poli
 
 ## Local CI, no hosted access
 
-Release-only PR includes the **exact** 69-check SQL suite, two-session concurrency test, 3 negative controls and rollback proof on disposable PostgreSQL 17.6; a new real Supabase CLI 2.121.0 release-runner rehearsal using isolated TLS localhost PostgreSQL 17.6 and synthetic history/data only; and a read-only live GitHub protected-environment configuration check. The rehearsal must determine and **pin** actual CLI recorded statement count and SHA-256 digest before the PR may be recommended for merge. No production DB credentials are exposed to CI or the PR.
+Release-only PR includes the **exact** 69-check SQL suite, two-session concurrency test, 3 negative controls and rollback proof on disposable PostgreSQL 17.6; a new real Supabase CLI 2.121.0 release-runner rehearsal using isolated TLS localhost PostgreSQL 17.6 and synthetic history/data only; and a read-only live GitHub protected-environment configuration check. The first production-matching rehearsal determined and pinned **24 CLI statements**, concatenation SHA-256 **43769e1677e2a218021e7f8bc146f92e86b1154ae00aa1d3c63e8d1515f07693**. These are now hardcoded in the runner and the full rehearsal re-runs to verify them before merge review. No production DB credentials are exposed to CI or the PR.
 
 ## File list / boundaries
 

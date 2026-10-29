@@ -38,8 +38,8 @@ ROLLBACK_SHA256 = '9250e2e7cedc8d8e6476838d84e1bc924b869b79248a0e982f68dd267393d
 CLI_VERSION = '2.121.0'
 # These are pinned after rehearsal with exactly PostgreSQL 17.6 and Supabase CLI 2.121.0.
 # Unpinned values fail closed: do not merge this release workflow until proven.
-RECORDED_STATEMENTS = 0
-RECORDED_DIGEST = 'UNPINNED'
+RECORDED_STATEMENTS = 24
+RECORDED_DIGEST = '43769e1677e2a218021e7f8bc146f92e86b1154ae00aa1d3c63e8d1515f07693'
 GET_ORG_ID_MD5 = 'fb1d12f537aac3b3ed18c9e0628f2251'
 STAGES = ('check', 'apply-migration', 'record-history', 'rollback-migration')
 WATCHDOG_SECONDS = 120
