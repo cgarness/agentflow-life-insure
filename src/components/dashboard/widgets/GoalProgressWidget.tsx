@@ -54,7 +54,7 @@ const ProgressBar: React.FC<{
           <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${DASHBOARD_TONES[tone].soft}`}>
             <Icon className={`h-3.5 w-3.5 ${DASHBOARD_TONES[tone].text}`} aria-hidden="true" />
           </span>
-          <span className="break-words text-xs font-bold text-foreground uppercase tracking-wider">{label}</span>
+          <span className="break-words text-sm font-semibold text-foreground">{label}</span>
         </div>
         <span className="shrink-0 text-xs font-semibold text-muted-foreground tabular-nums bg-muted/50 px-2 py-0.5 rounded-full">
           {valueText}
@@ -159,7 +159,7 @@ const GoalProgressWidget: React.FC<GoalProgressWidgetProps> = ({ userId, refresh
         <button
           type="button"
           onClick={() => navigate("/settings?section=my-profile")}
-          className="text-xs font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 uppercase tracking-widest bg-emerald-500/5 px-4 py-2 rounded-xl transition-colors motion-reduce:transition-none"
+          className="rounded-xl bg-emerald-500/5 px-4 py-2 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 motion-reduce:transition-none dark:text-emerald-300"
         >
           Configure goals in My Profile
         </button>

@@ -1,102 +1,80 @@
-import React from "react";
-import { AlertTriangle, ExternalLink, Phone, RotateCw, UserRound } from "lucide-react";
+import React, { useEffect } from "react";
+import { AlertTriangle, Phone, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import { dispatchQuickCall } from "@/lib/quick-call";
-import {
-  type CallbackBucket,
-  type NormalizedCallbackRow,
-  bucketCallback,
-  fetchCallbackPage,
-  fetchCallbackTotal,
-} from "@/lib/dashboard-callbacks";
+import type { NormalizedCallbackRow } from "@/lib/dashboard-callbacks";
+import { ATTENTION_TYPE } from "@/lib/dashboard-callbacks";
 import { contactHref } from "@/lib/dashboard-contact-identity";
-import { startOfLocalDayPlus } from "@/lib/local-calendar";
-import { linkedAbort, settleAll } from "@/lib/requestLifetime";
+import { ATTENTION_CHANGED_EVENT } from "@/lib/dashboard-attention";
+import { ATTENTION_CONFIG, type AttentionConfig } from "@/lib/dashboard-attention-config";
+import { CALLBACK_BUCKETS, type CallbackWidgetData, loadCallbackWidget } from "@/lib/dashboard-widget-loads";
 import { listScopeIsFiltered, listScopeNote } from "@/lib/dashboard-scope";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
+import { useAttentionClearActions } from "@/hooks/useAttentionClearActions";
+import { useRowFocusRecovery } from "@/hooks/useRowFocusRecovery";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
-import { DashboardEmptyState, DashboardIconWell, DashboardList, DashboardListRow, DashboardRowSkeleton } from "@/components/dashboard/ui/DashboardListRow";
-import { DashboardRowActions } from "@/components/dashboard/ui/DashboardRowActions";
+import { DashboardEmptyState, DashboardList, DashboardRowSkeleton } from "@/components/dashboard/ui/DashboardListRow";
 import { DashboardScopeNote } from "@/components/dashboard/ui/DashboardScopeNote";
+import { DashboardAttentionSummary } from "@/components/dashboard/ui/DashboardAttentionSummary";
+import { DASHBOARD_TONES } from "@/components/dashboard/ui/dashboardTones";
+import { CallbackRow } from "@/components/dashboard/callbacks/CallbackRow";
 
 interface CallbacksWidgetProps {
   userId: string;
   role: string;
   adminToggle: "team" | "my";
+  /** Defaults to the signed-in profile's organization. */
+  organizationId?: string | null;
   /** Incremented by the Dashboard's Refresh control. */
   refreshSignal?: number;
   refreshTracker?: DashboardRefreshTracker | null;
-  /** Opens the Callbacks detail view (decision D11). */
-  onOpenDetails?: () => void;
+  /** Opens the Callbacks detail view (decision D11), optionally on its Cleared view. */
+  onOpenDetails?: (view?: "active" | "cleared") => void;
+  /** Release switch; injectable for tests. */
+  config?: AttentionConfig;
 }
 
-/** Rows fetched per render. The displayed total comes from an exact count, not this. */
-const PAGE_SIZE = 15;
-
-type CallbackBuckets = Record<CallbackBucket, NormalizedCallbackRow[]> & { totalCount: number };
-
-/** One complete page + exact total from the shared contract; throws on any failure. */
-async function loadCallbacks(userId: string, isFiltered: boolean, signal: AbortSignal): Promise<CallbackBuckets> {
-  // Page and total share one cancellation: either failing cancels the other, and the
-  // load settles only once every read of both has — so the section's lane is never
-  // released while callback reads are still on the wire.
-  const cancel = linkedAbort(signal);
-  try {
-    // Rows and total come from the SAME shared contract, so the "View All N" label
-    // can never describe a different set from the rows on screen.
-    const scope = { isFiltered, userId, signal: cancel.signal };
-    const [rows, total] = await settleAll(
-      [fetchCallbackPage({ ...scope, pageSize: PAGE_SIZE }), fetchCallbackTotal(scope)] as const,
-      cancel.abort,
-    );
-
-    // Calendar-constructed local midnight — DST-safe across 2026-03-08 / 2026-11-01.
-    const now = new Date();
-    const todayEndExclusive = startOfLocalDayPlus(now, 1);
-
-    const buckets: CallbackBuckets = { overdue: [], dueToday: [], dueSoon: [], totalCount: total };
-    for (const row of rows) buckets[bucketCallback(row, now, todayEndExclusive)].push(row);
-    return buckets;
-  } catch (err) {
-    // A returned query error is a FAILURE, not "no callbacks" (never a partial page).
-    // Note the deliberate asymmetry: a SUCCESSFUL empty result never reaches here, so
-    // a stale JWT role claim that makes campaign_leads RLS return zero rows still
-    // reports "none found" (AGENT_RULES #19/#22), not an error.
-    console.error("[CallbacksWidget] Failed to load callbacks:", err);
-    throw err;
-  } finally {
-    cancel.dispose();
-  }
-}
-
-const GROUPS: { bucket: CallbackBucket; title: string; dot: string }[] = [
+const GROUPS = [
   { bucket: "overdue", title: "Overdue", dot: "bg-red-500" },
-  { bucket: "dueToday", title: "Due Today", dot: "bg-emerald-500" },
-  { bucket: "dueSoon", title: "Due Soon", dot: "bg-blue-500" },
-];
+  { bucket: "dueToday", title: "Due Today", dot: "bg-blue-500" },
+  { bucket: "dueSoon", title: "Upcoming", dot: "bg-violet-500" },
+] as const;
 
-const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-
-const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminToggle, refreshSignal, refreshTracker, onOpenDetails }) => {
+const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({
+  userId, role, adminToggle, organizationId, refreshSignal, refreshTracker, onOpenDetails, config = ATTENTION_CONFIG,
+}) => {
   const navigate = useNavigate();
-
+  const { profile, isImpersonating } = useAuth();
+  const orgId = organizationId === undefined ? profile?.organization_id ?? null : organizationId;
   // Existing Personal/Team gate (the list rule, plan §2A). No hierarchy expansion here.
   const isFiltered = listScopeIsFiltered(role, adminToggle);
+  // Clear is per viewer; under View As nothing is cleared and nothing is excluded.
+  const clearable = config.clearancesEnabled && !isImpersonating;
 
   // One load at a time. Another user's or perspective's callbacks are never shown;
   // a failed refresh keeps this perspective's last complete page and says so.
-  const section = useDashboardSection<CallbackBuckets>({
+  const section = useDashboardSection<CallbackWidgetData>({
     section: "callbacks",
     userId,
-    scope: String(isFiltered),
-    load: (signal) => loadCallbacks(userId, isFiltered, signal),
+    scope: `${isFiltered}|${clearable}|${orgId ?? "no-org"}`,
+    load: (signal) => loadCallbackWidget({ userId, organizationId: orgId, isFiltered, clearancesEnabled: clearable, signal }),
     refreshSignal,
     refreshTracker,
   });
-  const totalCount = section.data?.totalCount ?? 0;
+  // A Clear / Undo stored from the detail view reloads this list too (through the section lane).
+  const reload = section.reload;
+  useEffect(() => {
+    window.addEventListener(ATTENTION_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(ATTENTION_CHANGED_EVENT, reload);
+  }, [reload]);
+  const actions = useAttentionClearActions("callback", () => {});
+  const data = section.data;
+  const shown = data ? GROUPS.flatMap(({ bucket }) => data.buckets[bucket].slice(0, 5)) : [];
+  const focus = useRowFocusRecovery(shown.map((r) => r.key).join("|"));
   const notice = <DashboardSectionNotice state={section} label="callbacks" className="mb-3" />;
   const scopeNote = <DashboardScopeNote text={listScopeNote(role, adminToggle, "callbacks")} />;
 
@@ -109,6 +87,17 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     // Never report a call that did not start.
     if (!started) toast.error(`No phone number on file for ${item.contactName}.`);
   };
+  const handlers = {
+    onCall: handleCall,
+    onView: (row: NormalizedCallbackRow) => {
+      const href = contactHref(row.contactId, row.contactType);
+      if (href) navigate(href);
+    },
+    onClear: (row: NormalizedCallbackRow) => {
+      focus.remember(shown.findIndex((r) => r.key === row.key));
+      void actions.clear({ key: row.key, sourceType: ATTENTION_TYPE[row.source], sourceId: row.sourceRowId, occurrenceAt: row.dueAt, name: row.contactName });
+    },
+  };
 
   if (section.loading) return <DashboardRowSkeleton />;
 
@@ -118,7 +107,7 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
 
   // Rendered before the empty state on purpose: after a failed request the widget must
   // never claim "No pending callbacks".
-  if (section.data === null) {
+  if (!data) {
     return (
       <div role="status" aria-live="polite" className="text-center py-10 flex flex-col items-center">
         <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
@@ -133,63 +122,53 @@ const CallbacksWidget: React.FC<CallbacksWidgetProps> = ({ userId, role, adminTo
     );
   }
 
-  const data = section.data;
-  if (GROUPS.every(({ bucket }) => data[bucket].length === 0)) {
-    return <DashboardEmptyState tone="blue" icon={Phone} title="No pending callbacks" notice={<>{notice}{scopeNote}</>} />;
-  }
+  const summary = (
+    <DashboardAttentionSummary
+      activeText={`${data.totalCount} pending ${data.totalCount === 1 ? "callback" : "callbacks"}`}
+      hiddenCount={clearable ? data.clearedCount : 0}
+      hiddenWord="cleared"
+      toneText={DASHBOARD_TONES.blue.text}
+      onOpenHidden={onOpenDetails && (() => onOpenDetails("cleared"))}
+    />
+  );
+  const team = isFiltered ? null : { people: data.people, campaigns: data.campaigns };
 
   return (
-    <div className="space-y-4">
-      {notice}
-      {scopeNote}
-      {GROUPS.map(({ bucket, title, dot }) => {
-        const items = data[bucket];
-        if (items.length === 0) return null;
-        return (
-          <div key={bucket}>
-            <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-              <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
-              {title} ({items.length})
-            </p>
-            <DashboardList label={`${title} callbacks`}>
-              {items.slice(0, 5).map((item) => {
-                const href = contactHref(item.contactId, item.contactType);
-                return (
-                  <DashboardListRow
-                    key={item.key}
-                    tone="blue"
-                    leading={<DashboardIconWell tone="blue" icon={UserRound} />}
-                    title={item.contactName}
-                    meta={`${formatTime(item.dueAt)} · ${item.source === "campaign" ? "Campaign" : "Follow-up"}${item.note ? ` · ${item.note}` : ""}`}
-                    actions={
-                      <DashboardRowActions
-                        name={item.contactName}
-                        primary={
-                          <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5 rounded-lg"
-                            onClick={() => handleCall(item)} disabled={!item.canAct}
-                            title={item.blockedReason ?? undefined} aria-label={`Call ${item.contactName}`}>
-                            <Phone className="h-3.5 w-3.5" aria-hidden="true" /> Call
-                          </Button>
-                        }
-                        items={[{
-                          id: "view", label: "View contact", icon: ExternalLink, disabled: !href,
-                          hint: href ? undefined : item.blockedReason ?? "No linked contact record is available",
-                          onSelect: () => href && navigate(href),
-                        }]}
-                      />
-                    }
-                  />
-                );
-              })}
-            </DashboardList>
-          </div>
-        );
-      })}
-      {totalCount > 5 && onOpenDetails && (
-        <Button variant="ghost" size="sm" onClick={onOpenDetails}
-          className="w-full text-blue-600 dark:text-blue-400 hover:bg-blue-500/5 rounded-xl text-xs font-bold uppercase tracking-widest">
-          View All {totalCount} Callbacks
-        </Button>
+    <div ref={focus.containerRef} className="space-y-4 outline-none">
+      {CALLBACK_BUCKETS.every((b) => data.buckets[b].length === 0) ? (
+        <DashboardEmptyState tone="blue" icon={Phone} title="No pending callbacks"
+          notice={<>{notice}{scopeNote}{data.clearedCount > 0 && clearable && <div className="mb-3 w-full">{summary}</div>}</>} />
+      ) : (
+        <>
+          {notice}
+          {scopeNote}
+          {data.people.unavailable && team && <p className="text-xs text-muted-foreground">Some agent names couldn't be loaded.</p>}
+          {summary}
+          {GROUPS.map(({ bucket, title, dot }) => {
+            const items = data.buckets[bucket];
+            if (items.length === 0) return null;
+            return (
+              <div key={bucket}>
+                <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                  <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden="true" />
+                  {title} ({data.bucketCounts[bucket] ?? items.length})
+                </p>
+                <DashboardList label={`${title} callbacks`}>
+                  {items.slice(0, 5).map((item) => (
+                    <CallbackRow key={item.key} row={item} bucket={bucket} compact team={team} clearable={clearable}
+                      busy={actions.busyKeys.has(item.key)} handlers={handlers} />
+                  ))}
+                </DashboardList>
+              </div>
+            );
+          })}
+          {data.totalCount > 5 && onOpenDetails && (
+            <Button variant="ghost" size="sm" onClick={() => onOpenDetails()}
+              className="w-full rounded-xl text-xs font-semibold text-blue-700 hover:bg-blue-500/10 focus-visible:ring-blue-500/60 dark:text-blue-300">
+              View All {data.totalCount} Callbacks
+            </Button>
+          )}
+        </>
       )}
     </div>
   );

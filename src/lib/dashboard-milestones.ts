@@ -61,6 +61,8 @@ export interface MilestoneClientRow {
   face_amount: number | string | null;
   sold_date: string | null;
   custom_fields: unknown;
+  /** The client's assigned agent (Team-mode label only; scope is decided by the read). */
+  assigned_agent_id?: string | null;
 }
 
 /** One `dashboard_milestone_reviews` row (the viewer's own). */
@@ -103,6 +105,8 @@ export interface Milestone {
   carrier: string | null;
   /** Why review actions are unavailable, or `null`. */
   actionBlockedReason: string | null;
+  /** The client's assigned agent, for the Team-mode label (presentation only). */
+  assignedAgentId?: string | null;
 }
 
 export interface MilestoneOptions {
@@ -250,6 +254,7 @@ function annualMilestone(
     policyType: event.policyType,
     carrier: event.carrier,
     actionBlockedReason: event.eventKey === null ? NO_IDENTITY_REASON : null,
+    assignedAgentId: event.client.assigned_agent_id ?? null,
   };
 }
 
@@ -290,6 +295,7 @@ function firstPaymentMilestone(row: MilestoneClientRow, opts: MilestoneOptions, 
     policyType: null,
     carrier: null,
     actionBlockedReason: null,
+    assignedAgentId: row.assigned_agent_id ?? null,
   };
 }
 

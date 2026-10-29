@@ -8,9 +8,13 @@ import { useDashboardSection } from "@/hooks/useDashboardSection";
 import type { DashboardRefreshTracker } from "@/lib/dashboardRefresh";
 import { listScopeIsFiltered, listScopeNote } from "@/lib/dashboard-scope";
 import { DashboardSectionNotice, DashboardSectionUnavailable } from "@/components/dashboard/DashboardSectionNotice";
-import { DashboardEmptyState, DashboardList, DashboardListRow, DashboardRowSkeleton, DashboardStatusPill } from "@/components/dashboard/ui/DashboardListRow";
+import { DashboardEmptyState, DashboardList, DashboardListRow, DashboardRowSkeleton, DashboardStatusBadge, DashboardStatusPill } from "@/components/dashboard/ui/DashboardListRow";
 import { DashboardScopeNote } from "@/components/dashboard/ui/DashboardScopeNote";
-import { DASHBOARD_TONES, NEUTRAL_PILL } from "@/components/dashboard/ui/dashboardTones";
+import { DashboardActionButton } from "@/components/dashboard/ui/DashboardActionButton";
+import { DashboardPersonChip } from "@/components/dashboard/ui/DashboardPersonChip";
+import { DASHBOARD_TONES, NEUTRAL_PILL, type DashboardStatusKey } from "@/components/dashboard/ui/dashboardTones";
+import { useAuth } from "@/contexts/AuthContext";
+import { EMPTY_PEOPLE, personLabel, type PeopleLookup, resolvePeople } from "@/lib/dashboard-people";
 
 interface AppointmentsWidgetProps {
   userId: string;
@@ -24,11 +28,9 @@ interface AppointmentsWidgetProps {
 /** Most appointments the widget reads; a full page says the list is a preview. */
 const DAY_LIMIT = 8;
 
-const STATUS_STYLES: Record<string, string> = {
-  Scheduled: NEUTRAL_PILL,
-  Confirmed: DASHBOARD_TONES.green.pill,
-  Completed: DASHBOARD_TONES.blue.pill,
-  "No Show": DASHBOARD_TONES.red.pill,
+/** Appointment statuses with their shared badge (plan §4.1); anything else is a neutral pill. */
+const STATUS_BADGES: Record<string, DashboardStatusKey> = {
+  Scheduled: "scheduled", Confirmed: "confirmed", Completed: "completed", "No Show": "noShow", Cancelled: "cancelled",
 };
 
 interface Appointment {
@@ -38,10 +40,12 @@ interface Appointment {
   start_time: string;
   type: string;
   status: string;
+  user_id?: string | null;
+  created_by?: string | null;
 }
 
 /** One day's appointments; throws on a query error (a failure is never "clear"). */
-async function loadDayAppointments(userId: string, isFiltered: boolean, dayStart: Date, signal: AbortSignal) {
+async function loadDayAppointments(userId: string, isFiltered: boolean, dayStart: Date, organizationId: string | null, signal: AbortSignal) {
   // Half-open [start, end): the exclusive end is the NEXT day's midnight, so an
   // appointment at exactly 00:00:00.000 tomorrow belongs to tomorrow — not to
   // both days, which the old inclusive `23:59:59.999` bound allowed.
@@ -49,7 +53,7 @@ async function loadDayAppointments(userId: string, isFiltered: boolean, dayStart
 
   let q = supabase
     .from("appointments")
-    .select("id, title, contact_name, start_time, type, status")
+    .select("id, title, contact_name, start_time, type, status, user_id, created_by")
     .gte("start_time", dayStart.toISOString())
     .lt("start_time", nextDayStart.toISOString())
     .order("start_time", { ascending: true })
@@ -60,27 +64,35 @@ async function loadDayAppointments(userId: string, isFiltered: boolean, dayStart
 
   const { data, error } = await q.abortSignal(signal);
   if (error) throw error;
-  return data ?? [];
+  const rows = (data ?? []) as Appointment[];
+  // Team view: who each appointment is assigned to — the workload owner, `user_id`, else the
+  // scheduler when unassigned (#22). Presentation only; a failed lookup says "Name unavailable".
+  const people = isFiltered || rows.length === 0
+    ? EMPTY_PEOPLE
+    : await resolvePeople(organizationId, rows.map((a) => a.user_id ?? a.created_by), signal);
+  return { rows, people };
 }
 
 const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
 const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({ userId, role, adminToggle, refreshSignal, refreshTracker }) => {
   const navigate = useNavigate();
+  const { profile } = useAuth();
+  const organizationId = profile?.organization_id ?? null;
   const isFiltered = listScopeIsFiltered(role, adminToggle);
   // Today is part of the scope: after midnight yesterday's schedule is never kept as today's.
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   // One load at a time; a failed refresh keeps this perspective's appointments and says so.
-  const section = useDashboardSection<Appointment[]>({
+  const section = useDashboardSection<{ rows: Appointment[]; people: PeopleLookup }>({
     section: "appointments",
     userId,
     scope: `${isFiltered}|${dayStart.toISOString()}`,
-    load: (signal) => loadDayAppointments(userId, isFiltered, dayStart, signal),
+    load: (signal) => loadDayAppointments(userId, isFiltered, dayStart, organizationId, signal),
     refreshSignal,
     refreshTracker,
   });
-  const appointments = section.data ?? [];
+  const appointments = section.data?.rows ?? [];
   const notice = <DashboardSectionNotice state={section} label="your schedule" className="mb-3" />;
   const scopeNote = <DashboardScopeNote text={listScopeNote(role, adminToggle, "appointments")} />;
   const openCalendar = () => navigate("/calendar");
@@ -123,11 +135,16 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({ userId, role, a
               }
               title={name}
               meta={appt.type}
-              status={<DashboardStatusPill className={STATUS_STYLES[appt.status] ?? NEUTRAL_PILL}>{appt.status}</DashboardStatusPill>}
+              detail={!isFiltered && section.data ? (
+                <DashboardPersonChip role="Assigned to" name={personLabel(section.data.people, appt.user_id ?? appt.created_by)} className="mt-1" />
+              ) : undefined}
+              status={STATUS_BADGES[appt.status]
+                ? <DashboardStatusBadge status={STATUS_BADGES[appt.status]} label={appt.status} />
+                : <DashboardStatusPill className={NEUTRAL_PILL}>{appt.status}</DashboardStatusPill>}
               actions={
-                <Button type="button" variant="ghost" size="icon" className="h-9 w-9 rounded-lg" onClick={openCalendar} aria-label={`Open ${name} in Calendar`}>
-                  <CalendarDays className="h-4 w-4" aria-hidden="true" />
-                </Button>
+                <DashboardActionButton variant="secondary" icon={CalendarDays} label={`Open ${name} in Calendar`} compact rowFocus onClick={openCalendar}>
+                  Calendar
+                </DashboardActionButton>
               }
             />
           );
@@ -140,7 +157,7 @@ const AppointmentsWidget: React.FC<AppointmentsWidgetProps> = ({ userId, role, a
         variant="ghost"
         size="sm"
         onClick={openCalendar}
-        className={cn("w-full mt-1 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-violet-500/5", DASHBOARD_TONES.purple.text)}
+        className={cn("mt-1 w-full rounded-xl text-xs font-semibold hover:bg-violet-500/10 focus-visible:ring-violet-500/60", DASHBOARD_TONES.purple.text)}
       >
         View Full Calendar
       </Button>

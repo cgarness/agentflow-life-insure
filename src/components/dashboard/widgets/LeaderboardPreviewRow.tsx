@@ -51,11 +51,11 @@ const LeaderboardPreviewRow: React.FC<LeaderboardPreviewRowProps> = ({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-bold text-foreground">{name}</p>
         {organizationName && (
-          <p className="truncate text-[10px] text-muted-foreground">{organizationName}</p>
+          <p className="truncate text-xs text-muted-foreground">{organizationName}</p>
         )}
       </div>
       {isCurrentUser && (
-        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-foreground/70">You</span>
+        <span className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 text-xs font-medium text-amber-800 dark:text-amber-300">You</span>
       )}
     </motion.li>
   );

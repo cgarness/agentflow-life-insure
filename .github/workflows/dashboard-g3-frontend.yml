@@ -8,6 +8,9 @@ on:
       - 'src/components/dashboard/**'
       - 'src/hooks/useDashboard*.ts'
       - 'src/hooks/useMilestoneActions.ts'
+      - 'src/hooks/useAttention*.ts'
+      - 'src/hooks/useRowFocusRecovery.ts'
+      - 'src/test/fakePostgrest.ts'
       - 'src/lib/dashboard*.ts'
       - 'src/lib/paged-exact-read.ts'
       - 'src/lib/calendar-date.ts'
@@ -26,6 +29,8 @@ env:
   VITE_SUPABASE_ANON_KEY: synthetic-anon-key
   VITE_DASHBOARD_MILESTONE_REVIEWS: 'true'
   VITE_FIRST_PAYMENT_REMINDERS_START: '2026-10-01'
+  # VITE_DASHBOARD_ATTENTION_CLEARANCES stays UNSET here (the production default until G3/G5): the unit
+  # suites cover the switched-on behaviour by injecting the config; only the browser job turns it on.
 
 jobs:
   frontend:
@@ -54,6 +59,9 @@ jobs:
           npx vitest run src/components/dashboard
           src/lib/__tests__/dashboardMilestones.test.ts
           src/lib/__tests__/dashboardMilestonesData.test.ts
+          src/lib/__tests__/dashboardAttention.test.ts
+          src/lib/__tests__/dashboardMissedCalls.test.ts
+          src/lib/__tests__/dashboardPeople.test.ts
           src/lib/__tests__/dashboardScope.test.ts
           src/lib/__tests__/dashboardWidgetPrefs.test.ts
           src/lib/__tests__/dashboardRefresh.test.ts
@@ -68,7 +76,12 @@ jobs:
         run: >-
           npx eslint src/pages/Dashboard.tsx src/components/dashboard
           src/hooks/useDashboardLayout.ts src/hooks/useDashboardDetailFeed.ts
-          src/hooks/useMilestoneActions.ts src/lib/dashboard-milestones.ts
+          src/hooks/useMilestoneActions.ts src/hooks/useAttentionClearActions.ts src/hooks/useAttentionDetailFeed.ts
+          src/hooks/useRowFocusRecovery.ts src/lib/dashboard-attention.ts src/lib/dashboard-attention-config.ts
+          src/lib/dashboard-attention-sources.ts src/lib/dashboard-missed-calls.ts src/lib/dashboard-people.ts
+          src/lib/dashboard-widget-loads.ts src/lib/dashboard-callbacks.ts src/test/fakePostgrest.ts
+          src/lib/__tests__/dashboardAttention.test.ts src/lib/__tests__/dashboardMissedCalls.test.ts
+          src/lib/__tests__/dashboardPeople.test.ts src/lib/dashboard-milestones.ts
           src/lib/dashboard-milestones-data.ts src/lib/dashboard-milestones-config.ts
           src/lib/dashboard-scope.ts src/lib/calendar-date.ts src/lib/paged-exact-read.ts
           src/integrations/supabase/types.ts
@@ -79,6 +92,9 @@ jobs:
     name: Desktop/mobile and dark/light functional browser checks; KPI parity
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      # Synthetic only: Clear / Undo against the mocked RPCs. The base (main) KPI capture ignores it.
+      VITE_DASHBOARD_ATTENTION_CLEARANCES: 'true'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -119,14 +135,14 @@ jobs:
             test "$ready" -eq 1
           done
           DASH_BASE_URL=http://127.0.0.1:5181 node scripts/tests/dashboard-ui/verify.mjs "$OUT/g3"
-          test "$(grep -c '^PASS ' "$OUT/g3/results.txt")" -eq 44
+          test "$(grep -c '^PASS ' "$OUT/g3/results.txt")" -eq 80
           DASH_KPI_ONLY=1 DASH_BASE_URL=http://127.0.0.1:5182 node scripts/tests/dashboard-ui/verify.mjs "$OUT/main"
           for viewport in desktop mobile; do
             for theme in light dark; do
               python3 scripts/tests/dashboard-ui/compare-kpi.py "$OUT/g3/kpi-${viewport}-${theme}.png" "$OUT/main/kpi-${viewport}-${theme}.png"
             done
           done
-          echo "PASS: 44 browser checks and 4 KPI card captures within strict anti-alias tolerance"
+          echo "PASS: 80 browser checks and 4 KPI card captures within strict anti-alias tolerance"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

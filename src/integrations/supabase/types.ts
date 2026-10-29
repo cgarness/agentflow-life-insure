@@ -3109,6 +3109,44 @@ export type Database = {
           },
         ]
       }
+      dashboard_attention_clearances: {
+        Row: {
+          cleared_at: string
+          id: string
+          occurrence_at: string
+          organization_id: string
+          source_id: string
+          source_type: string
+          user_id: string
+        }
+        Insert: {
+          cleared_at?: string
+          id?: string
+          occurrence_at: string
+          organization_id: string
+          source_id: string
+          source_type: string
+          user_id: string
+        }
+        Update: {
+          cleared_at?: string
+          id?: string
+          occurrence_at?: string
+          organization_id?: string
+          source_id?: string
+          source_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_attention_clearances_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dashboard_milestone_reviews: {
         Row: {
           client_id: string
@@ -5904,6 +5942,32 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      clear_dashboard_attention_item: {
+        Args: {
+          p_expected_occurrence_at: string
+          p_source_id: string
+          p_source_type: string
+        }
+        Returns: {
+          cleared_at: string
+          id: string
+          occurrence_at: string
+          organization_id: string
+          source_id: string
+          source_type: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "dashboard_attention_clearances"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      undo_dashboard_attention_clear: {
+        Args: { p_expected_cleared_at: string; p_id: string }
+        Returns: boolean
+      }
       clear_dashboard_milestone_review: {
         Args: { p_expected_updated_at: string; p_id: string }
         Returns: boolean

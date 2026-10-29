@@ -29,6 +29,8 @@ vi.mock("@/integrations/supabase/client", () => {
     const self = () => b;
     b.select = (cols: string) => { db.selects.push(`${table}:${cols}`); return b; };
     b.eq = self; b.gte = self; b.lt = self; b.in = self; b.or = self; b.order = self; b.range = self; b.limit = self;
+    // Real PostgREST builders take a cancellation signal (the shared missed-call contract passes one).
+    b.abortSignal = self;
     b.then = (resolve: (v: unknown) => void) => resolve({ data: table === "calls" ? ROWS : [], error: null });
     return b;
   };

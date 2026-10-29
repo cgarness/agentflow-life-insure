@@ -1,7 +1,7 @@
 import type { PerformanceSummary } from "@/lib/performanceSummary";
 import { usePermissions } from "@/hooks/usePermissions";
 import React from "react";
-import { Calendar, Phone, PhoneMissed, ShieldCheck, TrendingUp } from "lucide-react";
+import { Calendar, Phone, ShieldCheck, TrendingUp } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { dispatchQuickCall } from "@/lib/quick-call";
@@ -15,8 +15,9 @@ import {
 import { toast } from "sonner";
 import { kpiScopeIsFiltered, listScopeIsFiltered, listScopeNote, type DashboardModalOrigin } from "@/lib/dashboard-scope";
 import { useDashboardDetailFeed, type DetailFeedType } from "@/hooks/useDashboardDetailFeed";
-import DashboardCallbacksModal, { type DashboardCallbackRow } from "@/components/dashboard/DashboardCallbacksModal";
+import DashboardAttentionModal from "@/components/dashboard/DashboardAttentionModal";
 import DashboardRecordsModal from "@/components/dashboard/DashboardRecordsModal";
+import type { AttentionView } from "@/hooks/useAttentionDetailFeed";
 import DashboardMilestonesModal from "@/components/dashboard/DashboardMilestonesModal";
 import type { RecordType } from "@/components/dashboard/dashboardRecordText";
 import type { DashboardTone } from "@/components/dashboard/ui/dashboardTones";
@@ -34,6 +35,8 @@ interface DashboardDetailModalProps {
   adminToggle: "team" | "my";
   timeRange?: "day" | "week" | "month" | "year";
   performanceSnapshot?: PerformanceSummary | null;
+  /** Callbacks / Missed Calls: open on the Active or the Cleared view. */
+  initialView?: AttentionView;
 }
 
 /**
@@ -65,11 +68,10 @@ const RECORD_META: Record<RecordType, { tone: DashboardTone; icon: React.Element
   appointments: { tone: "purple", icon: Calendar },
   policies_sold: { tone: "green", icon: ShieldCheck },
   premium_sold: { tone: "gold", icon: TrendingUp },
-  missed_calls: { tone: "red", icon: PhoneMissed },
 };
 
 const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
-  isOpen, onClose, type, origin = "kpi", userId, role, adminToggle, timeRange, performanceSnapshot,
+  isOpen, onClose, type, origin = "kpi", userId, role, adminToggle, timeRange, performanceSnapshot, initialView = "active",
 }) => {
   const navigate = useNavigate();
   const { profile, user } = useAuth();
@@ -79,7 +81,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     : kpiScopeIsFiltered(getDataScope("reports"), adminToggle);
 
   const feed = useDashboardDetailFeed({
-    type: type === "anniversaries" ? null : (type as DetailFeedType | null),
+    type: type === "anniversaries" || type === "callbacks" || type === "missed_calls" ? null : (type as DetailFeedType | null),
     isOpen, userId, isFiltered, timeRange, adminToggle, performanceSnapshot,
     organizationId: profile?.organization_id ?? null,
   });
@@ -89,7 +91,6 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     appointments: `Scheduled Appointments${rangeSuffix}`,
     calls_today: `Calls Made${rangeSuffix}`,
     policies_sold: `Policies Sold${rangeSuffix}`,
-    missed_calls: "Missed Calls (Recent)",
     premium_sold: `Annual Premium${rangeSuffix}`,
   };
 
@@ -111,8 +112,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     navigate(`/contacts?contact=${contactId}&tab=${tab}`);
   };
 
-  const handleStartCall = (e: React.MouseEvent, item: any) => {
-    e.stopPropagation(); // keep the action inside the button — no row navigation
+  const handleStartCall = (item: any) => {
     if (!user) {
       toast.error("You must be logged in to make calls.");
       return;
@@ -134,40 +134,26 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
     if (!started) toast.error(`No phone number on file for ${item.contact_name || "this contact"}.`);
   };
 
-  const scopeNote = origin === "widget" ? listScopeNote(role, adminToggle, type === "callbacks" ? "callbacks" : "records") : null;
+  const items = type === "callbacks" ? "callbacks" : type === "missed_calls" ? "missed calls" : "records";
+  const scopeNote = origin === "widget" ? listScopeNote(role, adminToggle, items) : null;
 
   if (type === "anniversaries") {
     return (
       <DashboardMilestonesModal open={isOpen} onClose={onClose} userId={userId} role={role} adminToggle={adminToggle}
-        organizationId={profile?.organization_id ?? null} />
+        organizationId={profile?.organization_id ?? null} initialStatus={initialView === "cleared" ? "reviewed" : "pending"} />
     );
   }
 
-  if (type === "callbacks") {
+  // Callbacks and Missed Calls: one feed over the same contract as their widgets, with Clear.
+  if (type === "callbacks" || type === "missed_calls") {
     return (
-      <DashboardCallbacksModal
-        open={isOpen}
-        onClose={onClose}
-        rows={feed.data as DashboardCallbackRow[]}
-        loading={feed.loading}
-        loadError={feed.loadError}
-        pageError={feed.pageError}
-        loadingMore={feed.isFetchingNextPage}
-        hasMore={feed.hasMore}
-        onScroll={feed.handleScroll}
-        onCall={(event, row) => handleStartCall(event, row)}
-        onView={handleRowClick}
-        onRetry={feed.retry}
-        onLoadMore={feed.loadMore}
-        scopeNote={scopeNote}
-      />
+      <DashboardAttentionModal open={isOpen} onClose={onClose} kind={type} userId={userId} isFiltered={isFiltered}
+        scopeNote={scopeNote} initialView={initialView} />
     );
   }
 
   if (!type) return null;
-  const description = type === "missed_calls"
-    ? "Last 24 hours"
-    : feed.performanceSubtitle ?? (timeRange ? `Selected period: ${timeRange}` : "Selected period");
+  const description = feed.performanceSubtitle ?? (timeRange ? `Selected period: ${timeRange}` : "Selected period");
 
   return (
     <DashboardRecordsModal
@@ -191,6 +177,7 @@ const DashboardDetailModal: React.FC<DashboardDetailModalProps> = ({
       onView={handleRowClick}
       onCall={handleStartCall}
       canOpen={(item) => !!rowContactId(item) && !!contactsTabFor(rowContactType(item))}
+      people={isFiltered ? null : feed.people}
     />
   );
 };

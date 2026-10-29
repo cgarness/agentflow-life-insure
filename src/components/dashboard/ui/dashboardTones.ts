@@ -95,3 +95,52 @@ export const DASHBOARD_TONES: Record<DashboardTone, ToneClasses> = {
 export const NEUTRAL_PILL = "border-border bg-muted text-muted-foreground";
 /** Attention pill (overdue callbacks, past Draft Dates). Never used to imply a payment outcome. */
 export const ATTENTION_PILL = "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300";
+
+/**
+ * Status badges (Polish V2 plan §4.1). Every badge renders its text label (and icon), so meaning
+ * never depends on color alone. Filled tints are the default; an outline marks a lighter or
+ * secondary state (Upcoming vs Scheduled, Answered on mobile vs Missed, No Show).
+ */
+export type DashboardStatusKey =
+  | "scheduled" | "overdue" | "dueToday" | "upcoming"
+  | "missed" | "voicemail" | "answeredOnMobile"
+  | "cleared" | "dismissed"
+  | "firstPayment" | "birthday" | "anniversary" | "followUp" | "needsReview" | "snoozed"
+  | "confirmed" | "completed" | "noShow" | "cancelled";
+
+export const DASHBOARD_STATUS: Record<DashboardStatusKey, { label: string; className: string }> = {
+  scheduled: { label: "Scheduled", className: "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300" },
+  overdue: { label: "Overdue", className: ATTENTION_PILL },
+  dueToday: { label: "Due Today", className: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300" },
+  upcoming: { label: "Upcoming", className: "border-violet-500/50 bg-transparent text-violet-700 dark:text-violet-300" },
+  missed: { label: "Missed", className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300" },
+  voicemail: { label: "Voicemail", className: "border-red-500/40 bg-red-500/[0.16] text-red-800 dark:text-red-200" },
+  answeredOnMobile: { label: "Answered on mobile", className: "border-rose-500/50 bg-transparent text-rose-700 dark:text-rose-300" },
+  cleared: { label: "Cleared", className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+  dismissed: { label: "Dismissed", className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+  firstPayment: { label: "First payment", className: "border-pink-500/30 bg-pink-500/10 text-pink-700 dark:text-pink-300" },
+  birthday: { label: "Birthday", className: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300" },
+  anniversary: { label: "Anniversary", className: "border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300" },
+  followUp: { label: "Follow-up", className: "border-pink-500/30 bg-pink-500/10 text-pink-700 dark:text-pink-300" },
+  needsReview: { label: "Needs review", className: "border-pink-500/40 bg-pink-500/[0.16] text-pink-800 dark:text-pink-200" },
+  snoozed: { label: "Snoozed", className: NEUTRAL_PILL },
+  confirmed: { label: "Confirmed", className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+  completed: { label: "Completed", className: NEUTRAL_PILL },
+  noShow: { label: "No Show", className: "border-red-500/40 bg-transparent text-red-700 dark:text-red-300" },
+  cancelled: { label: "Cancelled", className: `${NEUTRAL_PILL} line-through` },
+};
+
+/**
+ * Row action styles (plan §4.2). The primary call action is always Calls blue (the action's own
+ * category), whatever the row's tone; Clear / Dismiss are quiet secondary actions with a green
+ * (Cleared) hover. blue-600 on white keeps AA contrast in both themes.
+ */
+export const DASHBOARD_ACTIONS = {
+  call: "border border-blue-600 bg-blue-600 text-white hover:border-blue-700 hover:bg-blue-700 focus-visible:ring-blue-500/60",
+  secondary: "border border-border bg-background text-foreground hover:border-foreground/25 hover:bg-muted focus-visible:ring-ring",
+  clear:
+    "border border-border bg-background text-foreground hover:border-emerald-500/50 hover:bg-emerald-500/10 hover:text-emerald-800 " +
+    "dark:hover:text-emerald-200 focus-visible:ring-emerald-500/60",
+  quiet: "border border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring",
+} as const;
+export type DashboardActionVariant = keyof typeof DASHBOARD_ACTIONS;

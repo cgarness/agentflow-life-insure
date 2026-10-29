@@ -6,6 +6,7 @@ import { DashboardScopeNote } from "@/components/dashboard/ui/DashboardScopeNote
 import type { DashboardTone } from "@/components/dashboard/ui/dashboardTones";
 import { DashboardRecordRow } from "@/components/dashboard/DashboardRecordRow";
 import { recordText, type RecordType } from "@/components/dashboard/dashboardRecordText";
+import type { PeopleLookup } from "@/lib/dashboard-people";
 
 type Filter = string;
 
@@ -22,22 +23,6 @@ function filtersFor(type: RecordType, rows: any[]): { chips: FilterChip<Filter>[
         { id: "unknown", label: "Premium unknown", count: count((r) => !known(r)) },
       ],
       test: (f, row) => f === "all" || (f === "known") === known(row),
-    };
-  }
-  if (type === "missed_calls") {
-    const tests: Record<string, (row: any) => boolean> = {
-      voicemail: (r) => typeof r.voicemail_id === "string" && r.voicemail_id !== "",
-      linked: (r) => !!r.contact_id,
-      unlinked: (r) => !r.contact_id,
-    };
-    return {
-      chips: [
-        { id: "all", label: "All", count: rows.length },
-        { id: "voicemail", label: "Voicemail", count: count(tests.voicemail) },
-        { id: "linked", label: "Linked contact", count: count(tests.linked) },
-        { id: "unlinked", label: "No contact", count: count(tests.unlinked) },
-      ],
-      test: (f, row) => f === "all" || tests[f](row),
     };
   }
   if (type === "appointments") {
@@ -70,11 +55,13 @@ export interface DashboardRecordsModalProps {
   onRetry: () => void;
   onLoadMore: () => void;
   onView: (item: any) => void;
-  onCall: (event: React.MouseEvent, item: any) => void;
+  onCall: (item: any) => void;
   canOpen: (item: any) => boolean;
+  /** Writing-agent names (policies / premium in a Team view). */
+  people?: PeopleLookup | null;
 }
 
-/** Calls Made, Appointments, Policies Sold, Annual Premium and Missed Calls on the shared shell. */
+/** Calls Made, Appointments, Policies Sold and Annual Premium on the shared shell. */
 const DashboardRecordsModal: React.FC<DashboardRecordsModalProps> = (props) => {
   const { open, onClose, type, tone, icon, title, description, scopeNote, rows, loading, loadError, pageError, loadingMore, hasMore } = props;
   const [filter, setFilter] = useState<Filter>("all");
@@ -125,7 +112,8 @@ const DashboardRecordsModal: React.FC<DashboardRecordsModalProps> = (props) => {
         <DashboardList label={title}>
           {visible.map((item, idx) => (
             <DashboardRecordRow key={item.__rowKey ?? item.id ?? idx} type={type} tone={tone} item={item}
-              canOpen={props.canOpen(item)} onView={props.onView} onCall={props.onCall} />
+              canOpen={props.canOpen(item)} onView={props.onView} onCall={props.onCall}
+              people={props.people && (type === "policies_sold" || type === "premium_sold") ? props.people : null} />
           ))}
         </DashboardList>
       ) : (

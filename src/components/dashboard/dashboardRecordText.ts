@@ -1,7 +1,10 @@
 import { format, parseISO } from "date-fns";
 import { formatPremiumSold } from "@/components/leaderboard/leaderboardTypes";
 
-export type RecordType = "calls_today" | "appointments" | "policies_sold" | "premium_sold" | "missed_calls";
+export type RecordType = "calls_today" | "appointments" | "policies_sold" | "premium_sold";
+
+/** A display phone that never breaks across lines (non-breaking space and hyphen). */
+export const unbreakable = (text: string) => text.replace(/ /g, "\u00a0").replace(/-/g, "\u2011");
 
 /** A sale's agency Sold Date (YYYY-MM-DD) as a calendar date; never shifted through UTC. */
 const soldDateLabel = (soldDate?: string | null) => (soldDate ? ` • Sold ${format(parseISO(soldDate), "MM/dd/yyyy")}` : "");
@@ -12,8 +15,7 @@ export function recordText(type: RecordType, item: any): { title: string; meta: 
   switch (type) {
     case "appointments":
       return { title: item.contact_name || item.title || "Scheduled Event", meta: `${time(item.start_time)}${item.type ? ` • ${item.type}` : ""}` };
-    case "calls_today":
-    case "missed_calls": {
+    case "calls_today": {
       const direction = item.direction === "inbound" ? "Inbound" : "Outbound";
       const duration = item.duration ? ` • ${Math.floor(item.duration / 60)}m ${item.duration % 60}s` : "";
       return {

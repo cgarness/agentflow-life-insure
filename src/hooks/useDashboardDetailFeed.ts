@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { loadPerformanceDetails, type PerformanceSummary } from "@/lib/performanceSummary";
-import { buildMyMissedCallsOrFilter } from "@/lib/missedCallScope";
-import { fetchCallbackPage, type NormalizedCallbackRow } from "@/lib/dashboard-callbacks";
-import { periodBoundsIso } from "@/lib/dashboard-period-bounds";
+import { EMPTY_PEOPLE, type PeopleLookup, resolvePeople } from "@/lib/dashboard-people";
 
-/** Detail types this feed loads (Client Milestones load through their own data layer). */
-export type DetailFeedType = "callbacks" | "appointments" | "calls_today" | "policies_sold" | "missed_calls" | "premium_sold";
+/**
+ * Detail types this feed loads: the KPI performance details. Client Milestones, Callbacks and
+ * Missed Calls load through their own data layers (`dashboard-milestones-data`,
+ * `useAttentionDetailFeed`), which share the widgets' contracts.
+ */
+export type DetailFeedType = "appointments" | "calls_today" | "policies_sold" | "premium_sold";
 
 export const DETAIL_BATCH_SIZE = 20;
 
@@ -26,8 +27,9 @@ interface DetailFeedOptions {
 /**
  * The Dashboard detail feed: request generations, the pagination lock, page size 20,
  * the scroll trigger and the error states. Moved unchanged from
- * `DashboardDetailModal.tsx` (plan §8); only the anniversaries branch left, replaced by
- * the Client Milestones data layer.
+ * `DashboardDetailModal.tsx` (plan §8); the anniversaries, callbacks and missed-calls
+ * branches left for their own data layers. In a Team view, policy and premium rows also
+ * get their writing agent's name (presentation only; Polish V2 plan §6).
  */
 export function useDashboardDetailFeed({
   type, isOpen, userId, isFiltered, timeRange, adminToggle, performanceSnapshot, organizationId,
@@ -59,6 +61,8 @@ export function useDashboardDetailFeed({
   const paginationLockRef = useRef<{ generation: number; page: number } | null>(null);
   const performanceAsOf = useRef<string | null>(null);
   const [performanceSubtitle, setPerformanceSubtitle] = useState<string | null>(null);
+  /** Writing-agent names of policy / premium rows in a Team view (never decides what is shown). */
+  const [people, setPeople] = useState<PeopleLookup>(EMPTY_PEOPLE);
 
   const fetchData = useCallback(async (pageNum: number, isInitial: boolean = false) => {
     if (!type || !userId || userId === "") return;
@@ -80,6 +84,7 @@ export function useDashboardDetailFeed({
       setPageError(false);
       setLoading(true);
       setData([]);
+      setPeople(EMPTY_PEOPLE);
       performanceAsOf.current = performanceSnapshot?.end_at ?? new Date().toISOString();
       setPerformanceSubtitle(null);
     } else {
@@ -99,102 +104,30 @@ export function useDashboardDetailFeed({
     };
 
     try {
-      // Half-open [start, end) from the SHARED bounds module, so the tests assert the
-      // shipped logic rather than a copy. Calendar-constructed, so boundaries stay at
-      // local midnight across DST.
-      //
-      // NOTE: still BROWSER-local. Agency-timezone derivation is Build 2, not claimed here.
-      const { startIso: startStr, endIso: endStr } = periodBoundsIso(
-        new Date(),
-        timeRange || "month",
-      );
+      // Period bounds are resolved server-side by `get_performance_details` (agency time zone).
       const from = pageNum * DETAIL_BATCH_SIZE;
-      const to = (pageNum + 1) * DETAIL_BATCH_SIZE - 1;
 
-      let resultData: any[] = [];
-      /** True once a non-callback query actually ran — preserves the old `if (query)` scoping. */
-      let queryRan = false;
-
-      if (["calls_today", "policies_sold", "premium_sold", "appointments"].includes(type)) {
-        const detail = await loadPerformanceDetails(type, timeRange || "month", isFiltered ? "own" : "team",
-          isFiltered ? userId : null, performanceAsOf.current!, from);
-        if (isStale()) return;
-        if (organizationId && detail.organization_id !== organizationId) throw new Error("Organization changed");
-        setPerformanceSubtitle(detail.scope);
-        const rows = detail.rows.map(row => ({ ...row, __idIsContact: false }));
-        setHasMore(rows.length === DETAIL_BATCH_SIZE);
-        if (isInitial) setData(rows); else setData(previous => [...previous, ...rows]);
-        return;
-      }
-
-      // Callbacks: one shared contract with CallbacksWidget (dual-source, bounded,
-      // globally ordered, per-source ownership). Paged globally after the merge.
-      if (type === "callbacks") {
-        const rows = await fetchCallbackPage({
-          isFiltered,
-          userId,
-          pageSize: DETAIL_BATCH_SIZE,
-          offset: pageNum * DETAIL_BATCH_SIZE,
-        });
-        if (isStale()) return;
-        const mapped = rows.map((row: NormalizedCallbackRow) => ({
-          __callback: true,
-          // Dedicated RENDER identity, kept separate from contact identity. `row.key` is
-          // source-qualified ("campaign:<id>" / "appointment:<id>"), so two callbacks for
-          // the SAME contact still get distinct React keys. Using `contactId` here — as
-          // this code previously did via the shared `id` field — collided them.
-          __rowKey: row.key,
-          __idIsContact: row.contactId !== null,
-          __contactType: row.contactType,
-          __canAct: row.canAct,
-          __canOpen: Boolean(row.contactId && row.contactType),
-          __blockedReason: row.blockedReason,
-          id: row.contactId ?? row.key,   // never the source row id as a contact identity
-          contact_id: row.contactId,
-          contact_type: row.contactType,
-          contact_name: row.contactName,
-          phone: row.phone,
-          start_time: row.dueAt,
-          notes: row.note,
-          type: row.source === "campaign" ? "Campaign callback" : "Callback",
-        }));
-        if (mapped.length < DETAIL_BATCH_SIZE) setHasMore(false);
-        if (isInitial) setData(mapped);
-        else setData((prev) => [...prev, ...mapped]);
-        return;
-      }
-
-      let query: any;
-      switch (type) {
-        case "missed_calls": {
-          const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-          query = supabase.from("calls").select("id, contact_name, contact_id, contact_type, contact_phone, created_at, disposition_name, direction, is_missed, missed_reason, outcome, agent_id, answered_by_agent_id, voicemail_id").eq("direction", "inbound").eq("is_missed", true).gte("created_at", since24h).order("created_at", { ascending: false }).order("id", { ascending: false });
-          if (isFiltered) {
-            // D13 (§3.2): scope by intended recipient / snapshot / routed wave — `agent_id = me` never matches a missed row.
-            const scope = buildMyMissedCallsOrFilter(userId);
-            if (!scope) { query = null; break; }
-            query = query.or(scope);
-          }
-          break;
-        }
-      }
-
-      if (query) {
-        const { data: result, error } = await query.range(from, to);
-        if (error) throw error;
-        resultData = result || [];
-        queryRan = true;
-      }
-
+      const detail = await loadPerformanceDetails(type, timeRange || "month", isFiltered ? "own" : "team",
+        isFiltered ? userId : null, performanceAsOf.current!, from);
       if (isStale()) return;
-
-      // hasMore is written ONLY past this point, so no asynchronous success path can
-      // mutate it after losing request-generation ownership.
-      if (queryRan && resultData.length < DETAIL_BATCH_SIZE) setHasMore(false);
-      if (isInitial) {
-        setData(resultData);
-      } else {
-        setData(prev => [...prev, ...resultData]);
+      if (organizationId && detail.organization_id !== organizationId) throw new Error("Organization changed");
+      setPerformanceSubtitle(detail.scope);
+      const rows = detail.rows.map(row => ({ ...row, __idIsContact: false }));
+      setHasMore(rows.length === DETAIL_BATCH_SIZE);
+      if (isInitial) setData(rows); else setData(previous => [...previous, ...rows]);
+      // Team view: the writing agent of each sale (the RPC returns `agent_id` for these kinds only).
+      if (!isFiltered && (type === "policies_sold" || type === "premium_sold") && rows.length > 0) {
+        try {
+          const names = await resolvePeople(organizationId ?? null, (rows as Array<{ agent_id?: string | null }>).map((row) => row.agent_id));
+          if (isStale()) return;
+          setPeople((previous) => ({
+            names: new Map([...previous.names, ...names.names]),
+            unavailable: previous.unavailable || names.unavailable,
+          }));
+        } catch {
+          // Names are presentation only: a hidden tab or a failed lookup never fails the rows.
+          if (!isStale()) setPeople((previous) => ({ ...previous, unavailable: true }));
+        }
       }
     } catch (err) {
       // A returned query error is a FAILURE, not a valid empty result. An initial failure
@@ -271,6 +204,7 @@ export function useDashboardDetailFeed({
     hasMore,
     isFetchingNextPage,
     performanceSubtitle,
+    people,
     handleScroll,
     retry,
     loadMore,

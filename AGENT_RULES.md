@@ -236,6 +236,7 @@ Non-negotiables from production:
   - `CallbacksWidget` runs page + total the same way, under the section lane's signal, so the lane is never released while a callback read is outstanding. The lane's 25 s bound still reports failure and refuses later requests as `busy` until the outstanding reads settle.
   - **Never** combine reads that can reject early with a bare `Promise.all` in a load a lane serializes.
   - Sources, filters, ownership, branch exclusivity, pagination, ordering, exact totals and contact resolution are unchanged. `dashboard-contact-identity.ts` is untouched: its three lookups are awaited in full, cannot be cancelled, and still run after the tab hides mid-load, while the lane waits for them.
+- **Cleared callbacks (Dashboard Polish V2, 2026-10-29; Chris approved a second narrow exception to edit `dashboard-callbacks.ts`, D2; branch-only until released):** optional `exclusions` are applied INSIDE the paging math, never by filtering a limited page. Sources, filters, ownership, branch exclusivity, ordering, the window and contact resolution are unchanged. Without exclusions every query is identical. Details are in the "Dashboard attention clearances invariant" at the end of this file.
 - **Browser-local calendar math:** `src/lib/local-calendar.ts` constructs calendar days (`new Date(y, m, d + n)`); never add `n * 86_400_000` to a local midnight, which breaks across DST. That module is **browser-local only** and is **not** the agency-timezone architecture (still Build 2).
 - **Appointment ownership and reminders (Contact Follow-ups + Appointment Assignment Bugfix, 2026-09-29):** `appointments.user_id` = the **responsible/assigned person** and the ONLY personal-reminder recipient; `appointments.created_by` = the **scheduler**, stamped once on insert by `CalendarContext.addAppointment` (`buildAppointmentInsertOwnership` in `src/lib/calendar/appointmentOwnership.ts`) and by the Main Dialer's `dialer-api.saveAppointment` (the dialing agent is both `user_id` and `created_by`), and **never rewritten** on edit. An explicit assignee is never overwritten; with none, the scheduler self-assigns. An edit keeps the current responsible user (`user_id ?? created_by`) unless the modal explicitly picks another. `ReminderPopup` reminds only that responsible user (the same `user_id`, else `created_by` when `user_id IS NULL`, predicate as above — `src/lib/calendar/reminderEligibility.ts`) and only for raw status `Scheduled`/`Confirmed`. Google outbound sync pushes only self-assigned appointments (the inbound sync matches rows by `user_id` = integration owner). An update that affects zero rows is a failure (`.select('id')`), never a reported save. RLS is unchanged: a hand-off the current policies deny (e.g. a Team Leader or a role-claim-less Admin moving a row they neither own nor created) fails loudly — never weaken RLS or add a SECURITY DEFINER path to make it pass.
   - **Main Dialer writer (fixed 2026-09-30, root `implementation_plan.md` §19):**
@@ -1321,7 +1322,7 @@ A new row reaches AgentFlow through a Google Drive `files.watch` notification, n
 - **Release order** (each step separately approved; `docs/plans/2026-10-27-sheets-mapping-reliability/release.md`): merge with G1 unset → M1 → M2 → Edge (`--no-verify-jwt`, live source re-read first) → G1 on → approved conversions/provisioning → owners edit sources into v2. Before any Edge rollback to pre-v2 code, run the approved `supabase/ops/google_sheets_mapping_v2_to_v1.sql`.
 - **As-applied SQL and opt-in rollout (2026-10-28).** M1's forward file is `supabase/migrations/20261028034425_google_sheets_context_field_types.sql` (MD5 `e93a8f1e3904fa5c6da6cf3843fe2ad4`); M2's is `supabase/migrations/20261028040215_standard_lead_fields.sql` (MD5 `d8a405763974cdccd616b800e4314883`). Both were byte-equal to `supabase_migrations.schema_migrations.statements[1]` at reconciliation and **must never be edited**; the old NOT APPLIED header inside each is immutable historical content. Four sources remained healthy; three owners opted their individual sources into v2, while Alexa's FEX Aged source intentionally remains on supported v1. Pilot B "big test" imported once automatically via v2. Teo's Beneficiary Name → Full Name and excluded address fields await owner correction; nine older Pilot B receipts have absent lead records and need a separate audit, not a silent repair.
 
-## Dashboard Client Milestones invariant — October 29, 2026 (G2 production APPLIED/RECORDED as `20261029120000_dashboard_milestone_reviews`; G3 frontend not deployed)
+## Dashboard Client Milestones invariant — October 29, 2026 (G2 production APPLIED/RECORDED as `20261029120000_dashboard_milestone_reviews`; G3 frontend MERGED as PR #502 `7a03033` and deployed to Vercel production — whether `VITE_DASHBOARD_MILESTONE_REVIEWS` is set there is not recorded here; confirm in Vercel)
 
 Plan and evidence: `docs/plans/2026-10-29-dashboard-premium-redesign/implementation_plan.md` (rev 1 + implementation status).
 Check `list_migrations` before assuming the review table exists.
@@ -1342,7 +1343,11 @@ Check `list_migrations` before assuming the review table exists.
     client's local creation date, never qualifies. Existing clients with valid future Draft Dates stay eligible.
   - Never inferred as paid, missed, failed or late; never derived for additional policies.
   - The category exists only when reviews are on and the start date is a real date (fail closed).
-- **Review state is alert state, never a CRM record.** Mark Reviewed / Remind Later / Undo write ONLY
+- **Dismiss (Polish V2, branch-only until released):** the visible **Dismiss** action IS the stored `state = 'reviewed'`;
+  the UI says Dismiss / Dismissed (history: Pending · Snoozed · Dismissed), never "Mark reviewed" or "Handled". Same
+  storage, RPCs and per-occurrence semantics: an annual birthday / anniversary returns next year, a first payment
+  reminder stays dismissed.
+- **Review state is alert state, never a CRM record.** Mark Reviewed (Dismiss) / Remind Later / Undo write ONLY
   `public.dashboard_milestone_reviews`, through `set_dashboard_milestone_review` / `clear_dashboard_milestone_review`
   (SECURITY INVOKER; identity from `auth.uid()`/`get_org_id()`; Active same-org profile; client visible under the
   existing clients RLS).
@@ -1370,3 +1375,56 @@ Check `list_migrations` before assuming the review table exists.
   - Row actions are visible buttons plus a Radix menu, never hover-only.
   - Motion respects `prefers-reduced-motion`.
   - The KPI cards (`StatCards.tsx`) are outside this contract and were left byte-for-byte unchanged.
+
+## Dashboard attention clearances invariant — October 29, 2026 (Polish V2; migration PREPARED in `pending/`, NOT applied; frontend branch-only, NOT released; `VITE_DASHBOARD_ATTENTION_CLEARANCES` unset)
+
+Plan and evidence: `docs/plans/2026-10-29-dashboard-polish-v2/implementation_plan.md`. Check `list_migrations` before assuming
+`public.dashboard_attention_clearances` exists.
+
+- **Clear is per-viewer alert state, never a CRM or telemetry write.** Clear on Missed Calls and Callbacks hides ONE
+  occurrence from the viewer's own Dashboard. It never writes `calls`, voicemails, recordings, notifications,
+  `campaign_leads` (due time, owner, status, queue), `appointments` or `dialer_lead_locks`, and a cleared callback is
+  never "completed". Vocabulary: **Clear / Cleared** (Missed Calls, Callbacks), **Dismiss / Dismissed** (Client
+  Milestones), never "Handled".
+- **Storage:** `public.dashboard_attention_clearances` (organization, user, `source_type`, `source_id`, `occurrence_at`,
+  `cleared_at`), UNIQUE per (organization, user, source type, source id, occurrence).
+  - `source_id` is `calls.id` / `campaign_leads.id` / `appointments.id`, never a contact id.
+  - `occurrence_at` is server-derived: `calls.created_at`, `COALESCE(callback_due_at, scheduled_callback_at)`,
+    `appointments.start_time`. A rescheduled callback no longer matches, so it returns on its own.
+  - There is deliberately **no foreign key to the source tables** (no lock on hot telephony/queue tables, no cascade from
+    them).
+  - Rows are immutable (no UPDATE grant; a guard stamps `cleared_at`). Own rows older than 90 days are deleted by the
+    Clear RPC.
+- **Writes only through** `clear_dashboard_attention_item(p_source_type, p_source_id, p_expected_occurrence_at)` and
+  `undo_dashboard_attention_clear(p_id, p_expected_cleared_at)`, both SECURITY INVOKER. Identity comes from `auth.uid()` /
+  `get_org_id()`, and the caller's profile must be Active in the same organization.
+  - Clear refuses PT404 when the source is not visible or not pending, and PT409 when its current occurrence differs from
+    the one shown.
+  - The INSERT policy re-checks source visibility, organization (Agency Group peer rows refused), pending state and the
+    exact occurrence.
+  - The browser sends timestamps **exactly as PostgREST returned them**: never through `Date`, which drops microseconds.
+- **Exact exclusion, never filtering a limited page.** The protected `dashboard-callbacks.ts` contract gained ONE
+  approved narrow exception (Polish V2 D2): optional `exclusions`.
+  - Each branch is read `K_b` rows deeper (`K_b` = the clearances for its table). Cleared rows are dropped before the
+    merge, order and slice.
+  - Totals subtract only clearances that still match a row under the SAME `applyBranchFilters` (ownership included) and
+    the same due time.
+  - `fetchCallbackCounts`, `fetchClearedCallbacks`, and `ownerId` / `campaignId` on rows are additions. Sources,
+    filters, ownership, ordering, window and contact resolution are unchanged.
+  - Without exclusions every query is identical to before (pinned by a test).
+  - `src/lib/dashboard-missed-calls.ts` is the ONE missed-call contract (widget + detail view) and follows the same
+    rules.
+- **Missed Calls are organization-filtered explicitly** (`organization_id = viewer org`), because `calls` has an Agency
+  Group peer-read policy: RLS alone would let a Team list include another agency's missed calls. "My missed calls" keeps
+  the routing scope (`buildMyMissedCallsOrFilter`), never `agent_id`.
+- **Team-mode names are presentation only.** They are resolved in one organization-scoped batch (`dashboard-people.ts`,
+  ≤ 100 ids per read), as initials and names only, no avatars. A failed lookup shows "Name unavailable" and never fails
+  the section or invents a name.
+  - Missed-call recipients come from routing metadata (`missed_for_agent_id`, then `missed_recipient_ids`, then
+    `routed_agent_ids`). A call that rang several agents is never attributed to one.
+  - The list scope rule is unchanged: a Team Leader in Team view still sees their own list items.
+- **Release switch:** `VITE_DASHBOARD_ATTENTION_CLEARANCES=true` only after the migration is applied and read back.
+  Unset means no Clear action, no clearance read, and today's queries. Actions are hidden under View As.
+  - Release order: database, then frontend, then the switch. Rollback: unset the switch first.
+  - The rollback SQL refuses while clearance rows exist unless the session confirms
+    `dashboard_attention.rollback_discard_rows = 'confirmed'`.

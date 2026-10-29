@@ -1,8 +1,10 @@
 # Dashboard Polish V2 — Clear / Dismiss, visual polish, Team-mode context — Implementation Plan
 
 **Date:** 2026-10-29 · **Branch:** `claude/upbeat-cannon-uy6fpg` (from `main` `7a03033`) · **Mode:** FEATURE
-**Status:** **GATE 1: PLAN ONLY, awaiting Chris's approval.** No source file was edited and no backend write ran.
-The only production access was read-only catalog/metadata queries plus aggregate counts (§1).
+**Status:** G1 APPROVED (D1–D16 as recommended, including the narrow protected callback-contract edit).
+**G2 BUILT on the feature branch with local tests.** No production SQL, merge, deploy or flag change. The migration is
+in `supabase/migrations/pending/` and is NOT applied. Next: G3, a separate approval of the exact migration and RLS
+(see "Gate 2 implementation status" below).
 
 | Gate | What it approves | Touches |
 |---|---|---|
@@ -13,6 +15,47 @@ The only production access was read-only catalog/metadata queries plus aggregate
 | **G5** | Production frontend release (merge) and `VITE_DASHBOARD_ATTENTION_CLEARANCES=true` | Vercel production |
 
 Nothing in this plan is production-live until G3 and G5 are each separately approved and verified.
+
+## Gate 2 implementation status (2026-10-29)
+
+**Migration package (never applied):**
+- Forward migration `supabase/migrations/pending/20261029200000_dashboard_attention_clearances.sql`: 16,396 bytes,
+  SHA-256 `85ac2ff7dcd435bd48718311b05704e4e7d96293abf9b47fd062ce30610cb8e8`.
+- Rollback `supabase/migrations/rollback/20261029200000_dashboard_attention_clearances.rollback.sql`: SHA-256
+  `9250e2e7cedc8d8e6476838d84e1bc924b869b79248a0e982f68dd267393db55`.
+- The SQL matches §3.3: table, guard trigger, three own-row policies (the INSERT re-checks source visibility, pending
+  state and the exact occurrence), exact grants, and two SECURITY INVOKER RPCs.
+
+**Local verification (disposable PostgreSQL 16.15; CI runs 17.6):**
+- The behaviour suite passed 69 checks, with `plpgsql.variable_conflict = error` as in production.
+- Also passed: the replay guard, two-session concurrency (one row), three negative controls (no privilege reset → T1.3;
+  INSERT policy without the source check → T5.1; no guard trigger → T5.5b), and the rollback proof (refuses while rows
+  exist; once confirmed it removes all four objects, leaves `calls` untouched, and the migration re-applies).
+
+**Deviations from §9, and why:**
+- **Extra modules, to keep every component under 200 lines and one definition per contract:**
+  - `src/lib/dashboard-widget-loads.ts` — the widget section loads and bucket counts;
+  - `src/lib/dashboard-attention-sources.ts` — the detail-view reads, sharing the widget contracts;
+  - `src/hooks/useAttentionDetailFeed.ts` — Active / Cleared, exact totals, refresh in place;
+  - `src/components/dashboard/DashboardAttentionModal.tsx` — the container;
+  - `src/components/dashboard/attention/AttentionModalLayout.tsx` — the shared frame of both modals;
+  - `src/test/fakePostgrest.ts` — test only: an evaluating PostgREST stand-in for the oracle tests.
+- **`useDashboardDetailFeed.ts` now loads only the KPI kinds.** Its callbacks and missed-calls branches moved to the
+  dedicated feed instead of being modified in place.
+- **No summary slot was added to `DashboardModalShell`.** The Active (N) / Cleared (M) toggle sits in the toolbar.
+- **Missed Calls widget:** "Latest 5 … Open details" became "View All N Missed Calls" (D14).
+- **Modal callbacks no longer re-read on a KPI period change.** Callbacks are not period-scoped. The stale-request tests
+  now start their newer request with a scope change instead.
+- **Blocked Call buttons use `aria-disabled`** (focusable, with the reason as their description) instead of `disabled`.
+  One existing assertion changed accordingly.
+- **Existing-test updates** (selectors, fixtures, mocks; no contract assertion removed):
+  - Dismiss button instead of the "Mark reviewed" menu item, and visible Undo;
+  - exact totals seeded for paging fixtures;
+  - a word-bounded regex, so "Dismissed" is not read as "missed";
+  - `abortSignal` added to one mock builder;
+  - the presentational Callbacks modal test rewritten for the feed props.
+- **CI:** `VITE_DASHBOARD_ATTENTION_CLEARANCES` is on only in the browser job. The unit suites run with it unset (the
+  production default) and inject the switch where they test it.
 
 ---
 
@@ -606,6 +649,8 @@ centre; voicemail state (`listened_at`); Dialer, queue, Twilio and FloatingDiale
 pages; data backfills; any RLS change to existing tables.
 
 ## 13. Context snapshot
+
+> G1-time snapshot (historical). The current state is in "Gate 2 implementation status" above and in `WORK_LOG.md`.
 
 - **Changes:** this plan file and the root `implementation_plan.md` pointer only.
 - **Production access:** read-only catalog and policy queries plus aggregate counts (no rows, no PII); Vercel deployment

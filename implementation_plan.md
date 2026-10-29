@@ -1,4 +1,4 @@
-## 2026-10-29 — PLAN (Gate 1, awaiting Chris's approval; nothing built, applied or deployed): Dashboard Polish V2
+## 2026-10-29 — G1 APPROVED; G2 BUILT on the feature branch (migration in `pending/`, NOT applied; NOT merged or deployed): Dashboard Polish V2
 
 Full plan: `docs/plans/2026-10-29-dashboard-polish-v2/implementation_plan.md`.
 

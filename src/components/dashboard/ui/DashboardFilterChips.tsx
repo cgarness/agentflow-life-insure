@@ -35,7 +35,10 @@ export function DashboardFilterChips<T extends string>({
             size="sm"
             variant={pressed ? "default" : "outline"}
             aria-pressed={pressed}
-            className="h-8 gap-1.5 rounded-lg px-3 text-xs"
+            className={
+              "h-8 gap-1.5 rounded-lg px-3 text-xs transition-colors motion-reduce:transition-none " +
+              (pressed ? "shadow-sm" : "text-muted-foreground hover:text-foreground")
+            }
             onClick={() => onChange(chip.id)}
           >
             {Icon && <Icon className="h-3.5 w-3.5" aria-hidden="true" />}

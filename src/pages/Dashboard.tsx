@@ -34,7 +34,6 @@ const Dashboard: React.FC = () => {
   const userId = user?.id || "";
   const role = profile?.role || "Agent";
 
-  // Perspective states
   const [adminViewMode, setAdminViewMode] = useState<DashboardPerspective>("my"); // Default to personal
   // Default period is Today (approved contract §3).
   const [timeRange, setTimeRange] = useState<DashboardTimeRange>("day");
@@ -64,9 +63,9 @@ const Dashboard: React.FC = () => {
   // Detail Modal. The origin decides its scope: a KPI card's modal matches the card,
   // a widget's modal matches the widget (plan rev 1, §2A).
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-  const [detail, setDetail] = useState<{ type: ModalType; origin: DashboardModalOrigin } | null>(null);
-  const openDetail = (type: ModalType, origin: DashboardModalOrigin) => {
-    setDetail({ type, origin });
+  const [detail, setDetail] = useState<{ type: ModalType; origin: DashboardModalOrigin; view: "active" | "cleared" } | null>(null);
+  const openDetail = (type: ModalType, origin: DashboardModalOrigin, view: "active" | "cleared" = "active") => {
+    setDetail({ type, origin, view });
     setIsDetailModalOpen(true);
   };
 
@@ -77,12 +76,15 @@ const Dashboard: React.FC = () => {
     openDetail(type as ModalType, "kpi");
   };
 
+  /**
+   * A widget's detail view (Callbacks, Missed Calls and Milestones may ask for their Cleared /
+   * Dismissed history). The frame's Details button passes no view, never its click event.
+   */
   const widgetDetails = (key: DashboardWidgetKey) => {
     const modalType = DASHBOARD_WIDGET_META[key].modalType;
-    return modalType ? () => openDetail(modalType, "widget") : undefined;
+    return modalType ? (view?: unknown) => openDetail(modalType, "widget", view === "cleared" ? "cleared" : "active") : undefined;
   };
 
-  // DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -91,19 +93,20 @@ const Dashboard: React.FC = () => {
   const renderWidget = (key: DashboardWidgetKey) => {
     const section = { userId, refreshSignal, refreshTracker };
     const list = { ...section, role, adminToggle: adminViewMode };
+    const organizationId = profile?.organization_id ?? null;
     switch (key) {
       case "callbacks":
-        return <CallbacksWidget {...list} onOpenDetails={widgetDetails(key)} />;
+        return <CallbacksWidget {...list} organizationId={organizationId} onOpenDetails={widgetDetails(key)} />;
       case "appointments":
         return <AppointmentsWidget {...list} />;
       case "goal_progress":
         return <GoalProgressWidget {...section} />;
       case "leaderboard":
-        return <LeaderboardWidget {...section} organizationId={profile?.organization_id ?? null} />;
+        return <LeaderboardWidget {...section} organizationId={organizationId} />;
       case "missed_calls":
-        return <MissedCallsWidget {...list} />;
+        return <MissedCallsWidget {...list} organizationId={organizationId} onOpenDetails={widgetDetails(key)} />;
       case "anniversaries":
-        return <ClientMilestonesWidget {...list} organizationId={profile?.organization_id ?? null} onOpenDetails={widgetDetails(key)} />;
+        return <ClientMilestonesWidget {...list} organizationId={organizationId} onOpenDetails={widgetDetails(key)} />;
       default:
         return null;
     }
@@ -182,6 +185,7 @@ const Dashboard: React.FC = () => {
           onClose={() => setIsDetailModalOpen(false)}
           type={detail?.type ?? null}
           origin={detail?.origin ?? "kpi"}
+          initialView={detail?.view ?? "active"}
           userId={userId}
           role={role}
           adminToggle={adminViewMode}

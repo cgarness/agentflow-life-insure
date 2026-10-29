@@ -54,7 +54,7 @@ export const DashboardWidgetFrame: React.FC<DashboardWidgetFrameProps> = ({
           <button
             type="button"
             aria-label={`Reorder ${meta.label}`}
-            className="cursor-grab rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:cursor-grabbing"
+            className="cursor-grab rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing motion-reduce:transition-none"
             {...dragHandleProps}
           >
             <GripVertical className="h-4 w-4" aria-hidden="true" />
@@ -63,7 +63,7 @@ export const DashboardWidgetFrame: React.FC<DashboardWidgetFrameProps> = ({
         <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg shadow-sm", tone.chip)}>
           <Icon className="h-4 w-4 text-white" aria-hidden="true" />
         </span>
-        <h3 className="truncate text-sm font-bold uppercase tracking-tight text-foreground">{meta.label}</h3>
+        <h3 className="truncate text-sm font-semibold tracking-tight text-foreground">{meta.label}</h3>
         <div className="ml-auto flex items-center gap-1">
           {opensDetails && (
             <Button
@@ -71,7 +71,7 @@ export const DashboardWidgetFrame: React.FC<DashboardWidgetFrameProps> = ({
               variant="ghost"
               size="sm"
               aria-label={`Open ${meta.label} details`}
-              className={cn("h-8 gap-0.5 rounded-lg px-2 text-xs font-semibold", tone.text, tone.ring)}
+              className={cn("h-8 gap-0.5 rounded-lg px-2 text-xs font-semibold transition-colors motion-reduce:transition-none hover:bg-background/70", tone.text, tone.ring)}
               onClick={(event) => {
                 event.stopPropagation();
                 onOpenDetails?.();
@@ -86,7 +86,7 @@ export const DashboardWidgetFrame: React.FC<DashboardWidgetFrameProps> = ({
               type="button"
               aria-label={`Hide ${meta.label} widget`}
               onClick={() => onHide(widgetKey)}
-              className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             >
               <EyeOff className="h-4 w-4" aria-hidden="true" />
             </button>

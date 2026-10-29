@@ -6,6 +6,7 @@ import { localCalendarDate } from "@/lib/calendar-date";
 import { ANNIVERSARY_WIDGET_WINDOW_DAYS } from "@/lib/dashboard-milestones";
 import { loadClientMilestones, type MilestoneLoad } from "@/lib/dashboard-milestones-data";
 import { MILESTONE_CONFIG, type MilestoneConfig } from "@/lib/dashboard-milestones-config";
+import { EMPTY_PEOPLE, personLabel, type PeopleLookup, resolvePeople } from "@/lib/dashboard-people";
 import { listScopeIsFiltered, listScopeNote } from "@/lib/dashboard-scope";
 import { useDashboardSection } from "@/hooks/useDashboardSection";
 import { MILESTONES_CHANGED_EVENT, useMilestoneActions, useMilestoneContactHandlers } from "@/hooks/useMilestoneActions";
@@ -16,6 +17,8 @@ import { DashboardScopeNote } from "@/components/dashboard/ui/DashboardScopeNote
 import { MilestoneRow, type MilestoneRowHandlers } from "@/components/dashboard/milestones/MilestoneRow";
 import { MilestoneCategoryChips, type MilestoneCategoryFilter } from "@/components/dashboard/milestones/MilestoneCategoryChips";
 import { milestoneCompletenessNote } from "@/components/dashboard/milestones/milestoneCopy";
+import { DashboardAttentionSummary } from "@/components/dashboard/ui/DashboardAttentionSummary";
+import { DASHBOARD_TONES } from "@/components/dashboard/ui/dashboardTones";
 
 interface ClientMilestonesWidgetProps {
   userId: string;
@@ -25,7 +28,8 @@ interface ClientMilestonesWidgetProps {
   /** Incremented by the Dashboard's Refresh control. */
   refreshSignal?: number;
   refreshTracker?: DashboardRefreshTracker | null;
-  onOpenDetails?: () => void;
+  /** Opens the detail view, optionally on its Dismissed history. */
+  onOpenDetails?: (view?: "active" | "cleared") => void;
   /** Release switches; injectable for tests. */
   config?: MilestoneConfig;
 }
@@ -42,12 +46,17 @@ const ClientMilestonesWidget: React.FC<ClientMilestonesWidgetProps> = ({
   // Today is part of the scope, so a load after midnight never keeps yesterday's windows.
   const today = localCalendarDate(new Date());
   // One load at a time; a failed refresh keeps this perspective's milestones and says so.
-  const section = useDashboardSection<MilestoneLoad>({
+  const section = useDashboardSection<MilestoneLoad & { people: PeopleLookup }>({
     section: "anniversaries",
     userId,
     // A missing organization still loads, and fails closed in the loader (never an endless skeleton).
     scope: `${organizationId ?? "no-org"}|${isFiltered}|${today}|${config.reviewsEnabled}`,
-    load: (signal) => loadClientMilestones({ userId, organizationId, isFiltered }, config, ANNIVERSARY_WIDGET_WINDOW_DAYS, signal),
+    load: async (signal) => {
+      const result = await loadClientMilestones({ userId, organizationId, isFiltered }, config, ANNIVERSARY_WIDGET_WINDOW_DAYS, signal);
+      // Team view: each client's agent, presentation only (a failed lookup says "Name unavailable").
+      const people = isFiltered ? EMPTY_PEOPLE : await resolvePeople(organizationId, result.items.map((i) => i.assignedAgentId), signal);
+      return { ...result, people };
+    },
     refreshSignal,
     refreshTracker,
   });
@@ -62,7 +71,7 @@ const ClientMilestonesWidget: React.FC<ClientMilestonesWidgetProps> = ({
   const reviewsEnabled = config.reviewsEnabled && !isImpersonating;
   const handlers: MilestoneRowHandlers = {
     ...contact,
-    onMarkReviewed: actions.markReviewed,
+    onDismiss: actions.dismiss,
     onRemindLater: actions.remindLater,
     onRestore: actions.restore,
   };
@@ -75,6 +84,8 @@ const ClientMilestonesWidget: React.FC<ClientMilestonesWidgetProps> = ({
 
   const load = section.data;
   const pending = load.items.filter((item) => item.status === "pending");
+  const dismissed = load.items.filter((item) => item.status === "reviewed").length;
+  const agentName = (item: (typeof pending)[number]) => (isFiltered ? undefined : personLabel(load.people, item.assignedAgentId));
   const shown = pending.filter((item) => filter === "all" || item.kind === filter);
   const completeness = milestoneCompletenessNote(load);
   const dataNotes = (
@@ -102,8 +113,9 @@ const ClientMilestonesWidget: React.FC<ClientMilestonesWidgetProps> = ({
         hint="Birthdays appear for clients with a date of birth on file."
         notice={<>{notice}{scopeNote}{dataNotes}</>}
         action={onOpenDetails && (
-          <Button variant="ghost" size="sm" onClick={onOpenDetails} className="rounded-xl text-xs font-semibold text-pink-700 dark:text-pink-400">
-            View all milestones
+          <Button variant="ghost" size="sm" onClick={() => onOpenDetails(dismissed > 0 && reviewsEnabled ? "cleared" : undefined)}
+            className="rounded-xl text-xs font-semibold text-pink-700 hover:bg-pink-500/10 focus-visible:ring-pink-500/60 dark:text-pink-300">
+            {dismissed > 0 && reviewsEnabled ? `View ${dismissed} dismissed` : "View all milestones"}
           </Button>
         )}
       />
@@ -115,6 +127,13 @@ const ClientMilestonesWidget: React.FC<ClientMilestonesWidgetProps> = ({
       {notice}
       {scopeNote}
       {dataNotes}
+      <DashboardAttentionSummary
+        activeText={`${pending.length}${load.complete ? "" : "+"} pending ${pending.length === 1 ? "milestone" : "milestones"}`}
+        hiddenCount={reviewsEnabled ? dismissed : 0}
+        hiddenWord="dismissed"
+        toneText={DASHBOARD_TONES.pink.text}
+        onOpenHidden={onOpenDetails && (() => onOpenDetails("cleared"))}
+      />
       <MilestoneCategoryChips items={pending} value={filter} onChange={setFilter} complete={load.complete}
         firstPaymentsOn={config.firstPaymentStart !== null} />
       {shown.length === 0 ? (
@@ -124,13 +143,14 @@ const ClientMilestonesWidget: React.FC<ClientMilestonesWidgetProps> = ({
       ) : (
         <DashboardList label="Upcoming client milestones">
           {shown.slice(0, WIDGET_ROWS).map((item) => (
-            <MilestoneRow key={item.key} item={item} reviewsEnabled={reviewsEnabled} busy={actions.busyKeys.has(item.key)} handlers={handlers} />
+            <MilestoneRow key={item.key} item={item} reviewsEnabled={reviewsEnabled} busy={actions.busyKeys.has(item.key)} handlers={handlers}
+              agentName={agentName(item)} />
           ))}
         </DashboardList>
       )}
       {onOpenDetails && (
-        <Button variant="ghost" size="sm" onClick={onOpenDetails}
-          className="w-full rounded-xl text-xs font-bold uppercase tracking-widest text-pink-700 hover:bg-pink-500/5 dark:text-pink-400">
+        <Button variant="ghost" size="sm" onClick={() => onOpenDetails()}
+          className="w-full rounded-xl text-xs font-semibold text-pink-700 hover:bg-pink-500/10 focus-visible:ring-pink-500/60 dark:text-pink-300">
           {shown.length > WIDGET_ROWS ? `View all ${shown.length} milestones` : "View all milestones"}
         </Button>
       )}

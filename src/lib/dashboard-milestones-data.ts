@@ -31,7 +31,7 @@ export const MILESTONE_CLIENT_CAP = 5000;
 
 export const MILESTONE_CLIENT_COLUMNS =
   "id, first_name, last_name, phone, created_at, date_of_birth, effective_date, draft_date, primary_policy_id, " +
-  "policy_type, carrier, policy_number, premium, face_amount, sold_date, custom_fields";
+  "policy_type, carrier, policy_number, premium, face_amount, sold_date, custom_fields, assigned_agent_id";
 
 const REVIEW_COLUMNS = "id, milestone_kind, client_id, event_key, occurrence_year, occurrence_date, state, remind_at, updated_at";
 

@@ -85,7 +85,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
         </div>
         <p className="text-sm text-muted-foreground font-medium">No sales data yet</p>
         {refreshHeldUntil !== null && !refreshHeldOver && (
-          <p role="status" className="mt-2 text-[10px] text-muted-foreground">
+          <p role="status" className="mt-2 text-xs text-muted-foreground">
             Standings can refresh again at {formatStatusTime(refreshHeldUntil)}.
           </p>
         )}
@@ -105,7 +105,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
   return (
     <div className="space-y-4">
       {!live && (
-        <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-center gap-2 text-[10px] text-muted-foreground">
+        <div role="status" aria-live="polite" className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
           <Icon className="w-3 h-3" />
           <span>
             {offline && status.kind === "ok"
@@ -119,18 +119,18 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
             <LeaderboardRetryButton
               onRetry={retry}
               availableAt={status.manualAvailableAt}
-              className="h-6 px-2 text-[10px]"
+              className="h-7 px-2 text-xs"
             />
           )}
         </div>
       )}
       {live && refreshHeldUntil !== null && !refreshHeldOver && (
-        <p role="status" className="text-center text-[10px] text-muted-foreground">
+        <p role="status" className="text-center text-xs text-muted-foreground">
           Standings can refresh again at {formatStatusTime(refreshHeldUntil)}.
         </p>
       )}
       {viewToggle}
-      {rosterNote && <p className="text-center text-[10px] text-muted-foreground">{rosterNote}</p>}
+      {rosterNote && <p className="text-center text-xs text-muted-foreground">{rosterNote}</p>}
       {noSalesYet ? (
         <p className="py-6 rounded-xl bg-muted/30 text-center text-sm font-medium text-muted-foreground">
           {!live && asOf ? `No sales recorded as of ${asOf}.` : "No sales recorded yet this month."}
@@ -156,7 +156,7 @@ const LeaderboardWidget: React.FC<LeaderboardWidgetProps> = ({
         variant="ghost"
         size="sm"
         onClick={() => navigate("/leaderboard")}
-        className="w-full text-amber-700 dark:text-amber-400 hover:bg-amber-500/5 rounded-xl text-xs font-bold uppercase tracking-widest"
+        className="w-full rounded-xl text-xs font-semibold text-amber-700 hover:bg-amber-500/10 focus-visible:ring-amber-500/60 dark:text-amber-300"
       >
         View Full Standings
       </Button>

@@ -45,6 +45,21 @@
  * An optional caller `signal` cancels every read of the call. Nothing else changes: the
  * sources, filters, ownership, ordering, pagination, exact totals and contact resolution.
  *
+ * ## Cleared callbacks (Dashboard Polish V2, approved narrow exception D2)
+ *
+ * When the caller passes `exclusions` (the viewer's own clearances, `dashboard-attention.ts`), a
+ * callback occurrence the viewer cleared is left out INSIDE the paging math, never filtered off an
+ * already limited page:
+ *   - each branch is fetched `K_b` rows deeper, where `K_b` is the number of clearances for that
+ *     branch's table (a clearance names one row and one occurrence, so it can hide at most one);
+ *   - cleared rows are dropped, and only then are the branches merged, ordered and sliced;
+ *   - totals subtract only clearances that still match a row under the SAME branch filters (match
+ *     reads built by `applyBranchFilters` + the cleared ids), and with the same due time — so a
+ *     rescheduled callback, or another perspective's row, is never subtracted.
+ * Without exclusions every query is exactly the one above. Sources, branch filters, ownership,
+ * ordering, window and contact resolution are unchanged; rows additionally carry their owner and
+ * campaign ids for Team-mode labels (presentation only).
+ *
  * Read-only. No migration, RPC, view, RLS change or Supabase mutation.
  */
 
@@ -58,9 +73,22 @@ import {
 } from "@/lib/dashboard-contact-identity";
 import { localCalendarWindow, windowToIso } from "@/lib/local-calendar";
 import { linkedAbort, settleAll } from "@/lib/requestLifetime";
+import {
+  type AttentionClearance,
+  type AttentionSourceType,
+  AttentionExclusions,
+  chunk,
+  MATCH_CHUNK_SIZE,
+} from "@/lib/dashboard-attention";
 
 /** Which writer a normalized row came from. */
 export type CallbackSource = "campaign" | "appointment";
+
+/** The clearance source type of each callback source. */
+export const ATTENTION_TYPE: Record<CallbackSource, AttentionSourceType> = {
+  campaign: "campaign_callback",
+  appointment: "appointment_callback",
+};
 
 /** Stable tie-breaker so equal `dueAt` values never reorder between renders. */
 const SOURCE_RANK: Record<CallbackSource, number> = { campaign: 0, appointment: 1 };
@@ -97,6 +125,15 @@ export interface NormalizedCallbackRow {
   canAct: boolean;
   /** Human-readable reason `canAct` is false, for a truthful disabled state. */
   blockedReason: string | null;
+  /**
+   * Who owns the callback, per source (#22): `callback_agent_id` for campaigns,
+   * `user_id ?? created_by` for appointments. Presentation only (Team-mode label).
+   */
+  ownerId?: string | null;
+  /** `campaign_leads.campaign_id` for campaign callbacks (Team-mode label), else `null`. */
+  campaignId?: string | null;
+  /** The viewer's clearance on rows of the Cleared view; `null` (or absent) on active rows. */
+  clearance?: AttentionClearance | null;
 }
 
 export interface CallbackScope {
@@ -112,6 +149,8 @@ export interface CallbackQueryOptions extends CallbackScope {
   lookaheadDays?: number;
   /** Cancels every read of the call (e.g. a superseded or timed-out Dashboard load). */
   signal?: AbortSignal;
+  /** The viewer's own clearances; omitted = nothing excluded and no extra read. */
+  exclusions?: AttentionExclusions;
 }
 
 /** The shared bounded window every branch and the counts must agree on. */
@@ -231,11 +270,90 @@ export function ownershipOrExpression(validatedUserId: string): string {
 }
 
 const CAMPAIGN_COLUMNS =
-  "id, lead_id, first_name, last_name, phone, callback_due_at, scheduled_callback_at, callback_note, status";
-const APPOINTMENT_COLUMNS = "id, contact_id, contact_name, start_time, type, notes";
+  "id, lead_id, first_name, last_name, phone, callback_due_at, scheduled_callback_at, callback_note, status, " +
+  "campaign_id, callback_agent_id";
+const APPOINTMENT_COLUMNS = "id, contact_id, contact_name, start_time, type, notes, user_id, created_by";
 
-/** Exact total across the mutually exclusive branches. Never a page length. */
+/** The due time a row of this branch is listed under (the compatibility rule). */
+function rowDueAt(branch: CallbackBranch, row: any): string {
+  return branch.table === "campaign_leads" ? (row.callback_due_at ?? row.scheduled_callback_at) : row.start_time;
+}
+
+/** Upper bound on how many of this branch's rows the viewer's clearances can hide. */
+function hiddenBound(branch: CallbackBranch, exclusions: AttentionExclusions): number {
+  return exclusions.count(ATTENTION_TYPE[branch.source]);
+}
+
+/** The viewer's clearance hiding this row's CURRENT occurrence, or `null`. */
+function clearanceFor(branch: CallbackBranch, row: any, exclusions: AttentionExclusions): AttentionClearance | null {
+  return exclusions.match(ATTENTION_TYPE[branch.source], row.id, rowDueAt(branch, row) ?? "");
+}
+
+/**
+ * Rows of each branch that a clearance currently hides: the branch's own filters (the same
+ * `applyBranchFilters`, ownership included) plus the cleared ids, then the same due time.
+ * No clearances, no reads.
+ */
+async function fetchMatchedRows(
+  opts: CallbackQueryOptions,
+  columns: (branch: CallbackBranch) => string,
+): Promise<Array<{ branch: CallbackBranch; row: any; clearance: AttentionClearance }>> {
+  const exclusions = opts.exclusions ?? AttentionExclusions.empty();
+  if (exclusions.isEmpty) return [];
+  const branches = callbackBranches();
+  const work: Array<{ branch: CallbackBranch; query: any }> = [];
+  for (const branch of branches) {
+    for (const ids of chunk(exclusions.sourceIds(ATTENTION_TYPE[branch.source]), MATCH_CHUNK_SIZE)) {
+      work.push({
+        branch,
+        query: applyBranchFilters(supabase.from(branch.table).select(columns(branch)) as any, branch, opts).in("id", ids),
+      });
+    }
+  }
+  const cancel = linkedAbort(opts.signal);
+  try {
+    const results = await settleAll(
+      work.map(({ branch, query }) =>
+        query.abortSignal(cancel.signal).then((res: any) => {
+          assertNoQueryError(`callback-cleared:${branch.id}`, res);
+          return ((res?.data ?? []) as any[]).map((row) => ({ branch, row, clearance: clearanceFor(branch, row, exclusions) }));
+        }),
+      ),
+      cancel.abort,
+    );
+    return results.flat().filter((m): m is { branch: CallbackBranch; row: any; clearance: AttentionClearance } => m.clearance !== null);
+  } finally {
+    cancel.dispose();
+  }
+}
+
+/** Exact total across the mutually exclusive branches, cleared callbacks excluded. Never a page length. */
 export async function fetchCallbackTotal(opts: CallbackQueryOptions): Promise<number> {
+  return (await fetchCallbackCounts(opts)).active;
+}
+
+/**
+ * Exact counts: `active` = every branch count minus the rows a clearance currently hides;
+ * `cleared` = those hidden rows. Both describe the SAME filtered set as the rows.
+ */
+export async function fetchCallbackCounts(opts: CallbackQueryOptions): Promise<{ active: number; cleared: number }> {
+  const cancel = linkedAbort(opts.signal);
+  try {
+    const [total, matched] = await settleAll(
+      [
+        fetchBranchTotal({ ...opts, signal: cancel.signal }),
+        fetchMatchedRows({ ...opts, signal: cancel.signal }, (branch) => `id, ${branch.table === "campaign_leads" ? "callback_due_at, scheduled_callback_at" : "start_time"}`),
+      ] as const,
+      cancel.abort,
+    );
+    return { active: Math.max(0, total - matched.length), cleared: matched.length };
+  } finally {
+    cancel.dispose();
+  }
+}
+
+/** Sum of the three exact branch counts (before any clearance). */
+async function fetchBranchTotal(opts: CallbackQueryOptions): Promise<number> {
   const branches = callbackBranches();
   // Built before any is sent: an invalid user id throws before any request runs.
   const queries = branches.map((branch) =>
@@ -285,15 +403,18 @@ export async function fetchCallbackPage(
 ): Promise<NormalizedCallbackRow[]> {
   const offset = opts.offset ?? 0;
   const ceiling = offset + opts.pageSize;
+  const exclusions = opts.exclusions ?? AttentionExclusions.empty();
 
   // Built before any is sent: an invalid user id throws before any request runs.
+  // With clearances, each branch reads `hiddenBound` rows deeper, so dropping the cleared ones
+  // still leaves that branch's first `ceiling` active rows (plan §3.5.2).
   const branches = callbackBranches();
   const queries = branches.map((branch) => {
     const columns = branch.table === "campaign_leads" ? CAMPAIGN_COLUMNS : APPOINTMENT_COLUMNS;
     return applyBranchFilters(supabase.from(branch.table).select(columns) as any, branch, opts)
       .order(branch.dueColumn, { ascending: true })
       .order("id", { ascending: true })
-      .limit(ceiling);
+      .limit(ceiling + hiddenBound(branch, exclusions));
   });
 
   // Reject the whole page on any branch failure. A partial feed assembled from the
@@ -317,10 +438,24 @@ export async function fetchCallbackPage(
   // A caller that cancelled meanwhile (superseded, or past its bound) sends no contact lookup.
   if (opts.signal?.aborted) throw new DashboardQueryError("callback-rows:cancelled", opts.signal.reason);
 
+  // Cleared occurrences leave BEFORE the merge and slice (never after a limited page).
+  const visible = branchResults.map(({ branch, rows }) => ({
+    branch,
+    rows: exclusions.isEmpty ? rows : rows.filter((row) => clearanceFor(branch, row, exclusions) === null),
+  }));
+  const rows = await normalizeResolved(visible);
+  return rows.sort(compareCallbackRows).slice(offset, offset + opts.pageSize);
+}
+
+/** Contact resolution + normalization shared by the active page and the Cleared view. */
+async function normalizeResolved(
+  branchRows: Array<{ branch: CallbackBranch; rows: any[] }>,
+  clearanceOf: (branch: CallbackBranch, row: any) => AttentionClearance | null = () => null,
+): Promise<NormalizedCallbackRow[]> {
   // One batched lookup resolves both the contact type and a dialable number for
   // campaign leads (via lead_id) and appointment contacts (via contact_id).
   const idsToResolve: string[] = [];
-  for (const { branch, rows } of branchResults) {
+  for (const { branch, rows } of branchRows) {
     for (const row of rows) {
       const id = branch.table === "campaign_leads" ? row.lead_id : row.contact_id;
       if (typeof id === "string" && id.length > 0) idsToResolve.push(id);
@@ -329,17 +464,36 @@ export async function fetchCallbackPage(
   const details = await resolveContactDetailsByIds(idsToResolve);
 
   const normalized: NormalizedCallbackRow[] = [];
-  for (const { branch, rows } of branchResults) {
+  for (const { branch, rows } of branchRows) {
     for (const row of rows) {
-      normalized.push(
-        branch.table === "campaign_leads"
-          ? normalizeCampaignRow(row, branch, details)
-          : normalizeAppointmentRow(row, branch, details),
-      );
+      const base = branch.table === "campaign_leads"
+        ? normalizeCampaignRow(row, branch, details)
+        : normalizeAppointmentRow(row, branch, details);
+      normalized.push({ ...base, clearance: clearanceOf(branch, row) });
     }
   }
+  return normalized;
+}
 
-  return normalized.sort(compareCallbackRows).slice(offset, offset + opts.pageSize);
+/**
+ * The Cleared view: every callback occurrence the viewer cleared that is still pending at the
+ * cleared due time, under the same branch filters and window. Complete (no paging): it is bounded
+ * by the viewer's own clearances in the window.
+ */
+export async function fetchClearedCallbacks(opts: CallbackQueryOptions): Promise<NormalizedCallbackRow[]> {
+  const matched = await fetchMatchedRows(opts, (branch) => (branch.table === "campaign_leads" ? CAMPAIGN_COLUMNS : APPOINTMENT_COLUMNS));
+  if (opts.signal?.aborted) throw new DashboardQueryError("callback-cleared:cancelled", opts.signal.reason);
+  if (matched.length === 0) return [];
+  const byBranch = new Map<CallbackBranch["id"], { branch: CallbackBranch; rows: any[] }>();
+  const clearances = new Map<string, AttentionClearance>();
+  for (const { branch, row, clearance } of matched) {
+    const entry = byBranch.get(branch.id) ?? { branch, rows: [] };
+    entry.rows.push(row);
+    byBranch.set(branch.id, entry);
+    clearances.set(`${branch.source}:${row.id}`, clearance);
+  }
+  const rows = await normalizeResolved([...byBranch.values()], (branch, row) => clearances.get(`${branch.source}:${row.id}`) ?? null);
+  return rows.sort(compareCallbackRows);
 }
 
 function blockedFor(contactId: string | null, type: ContactType | null, phone: string): string | null {
@@ -383,6 +537,10 @@ export function normalizeCampaignRow(
     note: row.callback_note ?? null,
     canAct: blockedReason === null,
     blockedReason,
+    // Campaign callbacks are owned by `callback_agent_id` only (AGENT_RULES #16/#22).
+    ownerId: row.callback_agent_id ?? null,
+    campaignId: row.campaign_id ?? null,
+    clearance: null,
   };
 }
 
@@ -411,6 +569,10 @@ export function normalizeAppointmentRow(
     note: row.notes ?? null,
     canAct: blockedReason === null,
     blockedReason,
+    // `user_id` is authoritative; `created_by` only when it is NULL (the #22 compatibility rule).
+    ownerId: row.user_id ?? row.created_by ?? null,
+    campaignId: null,
+    clearance: null,
   };
 }
 

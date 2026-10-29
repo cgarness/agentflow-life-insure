@@ -43,9 +43,14 @@ export function milestoneDescription(item: Milestone): string {
   }
 }
 
-/** The status pill text. */
+/** The status pill text. "Dismissed" is the stored `reviewed` state (Polish V2 plan §3.2). */
 export function milestoneStatusLabel(item: Milestone): string {
-  if (item.status === "reviewed") return "Reviewed";
+  if (item.status === "reviewed") {
+    const at = item.reviewUpdatedAt ? new Date(item.reviewUpdatedAt) : null;
+    return at && !Number.isNaN(at.getTime())
+      ? `Dismissed ${at.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+      : "Dismissed";
+  }
   if (item.status === "snoozed") {
     const at = item.remindAt ? new Date(item.remindAt) : null;
     return at && !Number.isNaN(at.getTime())

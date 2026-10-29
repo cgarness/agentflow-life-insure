@@ -1,17 +1,25 @@
 import React from "react";
-import { CalendarDays, ExternalLink, Phone, PhoneMissed, ShieldCheck, TrendingUp, UserRound } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { describeInboundCallOutcome } from "@/lib/inbound-call-labels";
-import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
-import { DashboardIconWell, DashboardListRow, DashboardStatusPill } from "@/components/dashboard/ui/DashboardListRow";
+import { CalendarDays, ExternalLink, Phone, ShieldCheck, TrendingUp, UserRound } from "lucide-react";
+import { personLabel, type PeopleLookup } from "@/lib/dashboard-people";
+import { DashboardIconWell, DashboardListRow, DashboardStatusBadge, DashboardStatusPill } from "@/components/dashboard/ui/DashboardListRow";
 import { DashboardRowActions } from "@/components/dashboard/ui/DashboardRowActions";
-import { DASHBOARD_TONES, NEUTRAL_PILL, type DashboardTone } from "@/components/dashboard/ui/dashboardTones";
+import { DashboardActionButton } from "@/components/dashboard/ui/DashboardActionButton";
+import { DashboardPersonChip } from "@/components/dashboard/ui/DashboardPersonChip";
+import { NEUTRAL_PILL, type DashboardStatusKey, type DashboardTone } from "@/components/dashboard/ui/dashboardTones";
 
 import { recordText, type RecordType } from "@/components/dashboard/dashboardRecordText";
 
 const ICONS: Record<RecordType, React.ElementType> = {
-  calls_today: Phone, appointments: CalendarDays, policies_sold: ShieldCheck, premium_sold: TrendingUp, missed_calls: PhoneMissed,
+  calls_today: Phone, appointments: CalendarDays, policies_sold: ShieldCheck, premium_sold: TrendingUp,
 };
+
+/** Appointment statuses with their shared badge (plan §4.1); anything else is a neutral pill. */
+const APPOINTMENT_STATUS: Record<string, DashboardStatusKey> = {
+  Scheduled: "scheduled", Confirmed: "confirmed", Completed: "completed", "No Show": "noShow", Cancelled: "cancelled",
+};
+
+/** A call's own telephony status, display only (never a "contacted" judgement). */
+const callStatusText = (status: unknown) => (typeof status === "string" && status.trim() ? status.trim().replace(/-/g, " ") : null);
 
 export const DashboardRecordRow: React.FC<{
   type: RecordType;
@@ -19,28 +27,32 @@ export const DashboardRecordRow: React.FC<{
   item: any;
   canOpen: boolean;
   onView: (item: any) => void;
-  onCall: (event: React.MouseEvent, item: any) => void;
-}> = ({ type, tone, item, canOpen, onView, onCall }) => {
+  onCall: (item: any) => void;
+  /** Writing-agent names (policies / premium in a Team view); `null` = not shown. */
+  people?: PeopleLookup | null;
+}> = ({ type, tone, item, canOpen, onView, onCall, people = null }) => {
   const { title, meta } = recordText(type, item);
-  const isCall = type === "calls_today" || type === "missed_calls";
+  const isCall = type === "calls_today";
+  const appointmentStatus = type === "appointments" && item.status ? APPOINTMENT_STATUS[item.status] : undefined;
   const status =
-    type === "missed_calls" ? (
-      <DashboardStatusPill className={DASHBOARD_TONES.red.pill}>{describeInboundCallOutcome(item).label}</DashboardStatusPill>
-    ) : type === "appointments" && item.status ? (
-      <DashboardStatusPill className={item.status === "Scheduled" ? DASHBOARD_TONES.purple.pill : NEUTRAL_PILL}>{item.status}</DashboardStatusPill>
+    type === "appointments" && item.status ? (
+      appointmentStatus ? <DashboardStatusBadge status={appointmentStatus} label={item.status} /> : <DashboardStatusPill className={NEUTRAL_PILL}>{item.status}</DashboardStatusPill>
+    ) : isCall && callStatusText(item.status) ? (
+      <DashboardStatusPill className={NEUTRAL_PILL}>{callStatusText(item.status)}</DashboardStatusPill>
     ) : null;
 
   const viewLabel = type === "appointments" ? "Open in Calendar" : type === "policies_sold" || type === "premium_sold" ? "View client" : "View contact";
+  const blocked = canOpen ? null : item.__blockedReason ?? "No linked contact record is available";
   const primary = isCall ? (
-    <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5 rounded-lg" disabled={!canOpen}
-      onClick={(event) => onCall(event, item)} aria-label={`${type === "missed_calls" ? "Call back" : "Call"} ${title}`}>
-      <Phone className="h-3.5 w-3.5" aria-hidden="true" /> {type === "missed_calls" ? "Call back" : "Call"}
-    </Button>
+    <DashboardActionButton variant="call" icon={Phone} label={`Call ${title}`} rowFocus blockedReason={blocked}
+      onClick={() => onCall(item)}>
+      Call
+    </DashboardActionButton>
   ) : (
-    <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5 rounded-lg"
-      disabled={type !== "appointments" && !canOpen} onClick={() => onView(item)} aria-label={`${viewLabel}: ${title}`}>
-      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /> {type === "appointments" ? "Calendar" : "View"}
-    </Button>
+    <DashboardActionButton variant="secondary" icon={ExternalLink} label={`${viewLabel}: ${title}`} rowFocus
+      blockedReason={type === "appointments" ? null : blocked} onClick={() => onView(item)}>
+      {type === "appointments" ? "Calendar" : "View"}
+    </DashboardActionButton>
   );
 
   return (
@@ -50,18 +62,14 @@ export const DashboardRecordRow: React.FC<{
       title={title}
       meta={meta}
       status={status}
-      detail={type === "missed_calls" && typeof item.voicemail_id === "string" && item.voicemail_id ? (
-        // Inbound Calling v2 (corrective pass, defect 7): playback needs only the voicemail id — an
-        // unlinked caller (no contact row) can still be listened to here.
-        <div className="mt-1"><VoicemailPlayer voicemailId={item.voicemail_id} compact /></div>
-      ) : undefined}
+      detail={people && item.agent_id ? <DashboardPersonChip role="Writing agent" name={personLabel(people, item.agent_id)} className="mt-1" /> : undefined}
       actions={
         <DashboardRowActions
           name={title}
           primary={primary}
           items={isCall ? [{
             id: "view", label: "View contact", icon: ExternalLink, disabled: !canOpen,
-            hint: canOpen ? undefined : item.__blockedReason ?? "No linked contact record is available",
+            hint: canOpen ? undefined : blocked ?? undefined,
             onSelect: () => onView(item),
           }] : []}
         />
