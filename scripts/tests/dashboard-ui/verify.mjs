@@ -98,7 +98,7 @@ async function route(r) {
     const a = req.postDataJSON();
     const row = { id: `ffff0000-0000-4000-8000-${String(reviews.length + 1).padStart(12, "0")}`, milestone_kind: a.p_kind, client_id: a.p_client_id,
       event_key: a.p_event_key, occurrence_year: Number(a.p_occurrence_date.slice(0, 4)), occurrence_date: a.p_occurrence_date, state: a.p_state,
-      remind_at: a.p_remind_at, updated_at: new Date().toISOString() };
+      remind_at: a.p_remind_at ?? null, updated_at: new Date().toISOString() };
     reviews.push(row);
     return json(row);
   }
