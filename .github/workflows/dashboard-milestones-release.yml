@@ -1,0 +1,68 @@
+name: Dashboard milestone reviews G2 release (approval required)
+# Manual, main only. Applies ONLY the approved G2 migration
+# supabase/migrations/pending/20261029120000_dashboard_milestone_reviews.sql (16,405 bytes, SHA-256 e6737493…8806)
+# to jncvvsvckxhqgqvkppmj in one psql transaction, then records it as 20261029120000 with the pinned CLI's
+# `migration repair --status applied`. Never db push / migration up; no other migration can run. No frontend flag,
+# Vercel variable or deploy is touched. Each dispatch needs Chris's separate approval, then the protected
+# environment's review. Runner: scripts/dashboard_milestones_release.py.
+# Design: docs/plans/2026-10-29-dashboard-premium-redesign/g2-release-workflow-design.md.
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Separately approved stage (check is read-only)
+        required: true
+        type: choice
+        options: [check, apply-migration, record-history, rollback-migration]
+      confirm:
+        description: Repeat the stage name exactly
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: dashboard-milestones-release
+  cancel-in-progress: false
+jobs:
+  environment-guard:
+    if: github.ref == 'refs/heads/main'
+    name: Protected environment verified (no secrets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Required reviewer cgarness, main only, administrator bypass off
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I scripts/dashboard_milestones_release.py guard-environment
+  release:
+    needs: environment-guard
+    if: github.ref == 'refs/heads/main'
+    name: ${{ inputs.stage }} — G2 only, frontend flags untouched
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: google-sheets-production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install psql (no credentials)
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client-16
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.121.0
+      - name: Execute only the approved stage
+        env:
+          STAGE: ${{ inputs.stage }}
+          CONFIRM: ${{ inputs.confirm }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_POOLER_HOST: ${{ secrets.SUPABASE_POOLER_HOST }}
+        run: python3 -I scripts/dashboard_milestones_release.py run

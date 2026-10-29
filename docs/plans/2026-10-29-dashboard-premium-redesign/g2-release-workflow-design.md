@@ -1,7 +1,8 @@
 # G2 release route — protected GitHub Actions workflow (DESIGN ONLY, for separate review)
 
-**Status (2026-10-29):** design only. Nothing in this document is implemented, merged, dispatched or applied. The
-approved G2 migration is still NOT applied to `jncvvsvckxhqgqvkppmj` (read back after every attempt below).
+**Status (2026-10-29):** Chris approved the design with safeguards R-1 to R-8 (§9). It is **implemented and
+rehearsed**, and goes up as a release-only PR. Nothing has been merged or dispatched: the approved G2 migration is
+still NOT applied to `jncvvsvckxhqgqvkppmj`.
 
 The migration it would apply is `supabase/migrations/pending/20261029120000_dashboard_milestone_reviews.sql`:
 16,405 bytes, SHA-256 `e673749357f7612991cccf7405aa0f5f0a9ac49c798bfbd13b006d34f78d8806`. Its rollback is
@@ -142,9 +143,16 @@ secret hygiene and the same `guard-environment` checks.
 - Files: `SOURCE` (pending path, 16,405 bytes, `e6737493…`) and `ROLLBACK` (1,724 bytes, `08a2a897…`).
 - `CLI_VERSION=2.121.0`.
 - Production before the release: `HISTORY_BEFORE=350`, `HEAD_BEFORE=20261028040215`.
-- Filled in from the rehearsal (§6) before review:
-  - `RECORDED_STATEMENTS` and `RECORDED_DIGEST`: the CLI splits the file client-side, as M3 showed.
-  - Digests of the policy expressions, the function definitions and the ACLs.
+- The recorded row: CLI 2.121.0 splits these bytes client-side into **28 statements**, and their concatenation hashes
+  to `07cabc94f4a42c2c0d9a7c1265c9aa622eee65af14bb26dc9889b878d9765ec7`. The real CLI reproduced this in the rehearsal.
+- The RLS dependency: `md5(pg_get_functiondef(public.get_org_id()))` = `fb1d12f537aac3b3ed18c9e0628f2251`. This is
+  production's value, read on 2026-10-29, and it matches the harness copy.
+- Read-back pins, deparsed under `search_path = pg_catalog`, from the rehearsal:
+  - the exact column list and the trigger definition;
+  - SHA-256 digests of the constraint, index and policy-expression texts;
+  - grants expanded with `aclexplode`, so the owner's version-specific privilege letters don't matter;
+  - for each function: `md5(prosrc)` (the body bytes from the file), `prosecdef`, `provolatile`, `proconfig`, the
+    return type, and whether it has a comment.
 
 **Gates on every stage, in order (any failure is a STOP, with no retry and no next stage):**
 1. `GITHUB_REF == refs/heads/main`, and `CONFIRM == STAGE`, which must be one of the four stages.
@@ -176,12 +184,30 @@ re-review, and a re-version if a newer version exceeds `20261029120000`.
 | Stage | Needs | Does |
 |---|---|---|
 | `check` | any recognized state | read-only; runs the read-backs when the objects exist |
-| `apply-migration` | `before` | 1. Requires no idle-in-transaction or long client transaction.<br>2. Takes a snapshot: other history rows (full-row md5) and `public.clients` (count + md5 of `id`‖`updated_at`).<br>3. Runs `psql -X --set ON_ERROR_STOP=1 --single-transaction --file SOURCE` with a 120 s SIGINT watchdog; output is discarded, never logged.<br>4. Requires state `applied`, the read-backs, and both snapshots unchanged. |
+| `apply-migration` | `before` | 1. Runs the `get_org_id` dependency gate.<br>2. Takes a snapshot: the schema fingerprint (R-2: catalog only, no CRM rows) and the other history rows (full-row md5).<br>3. Runs `psql -X -v ON_ERROR_STOP=1 -v VERBOSITY=sqlstate --single-transaction --file -`, fed the checksummed bytes on stdin, with a 120 s SIGINT watchdog and a SIGTERM/SIGINT cancel handler. Output is discarded; only the SQLSTATE codes are matched, never logged.<br>4. Requires state `applied`, every read-back, 0 rows in the new table, and both snapshots unchanged. |
 | `record-history` | `applied` | 1. Re-runs the read-backs.<br>2. Runs `supabase migration repair 20261029120000 --status applied --db-url … --workdir <tmp>`. The temporary workdir holds only a byte copy at `20261029120000_dashboard_milestone_reviews.sql`, so the CLI reads its name and statements from that copy and executes none of it.<br>3. Requires state `recorded`; the row's name, statement count and digest match the pins; `created_by`, `idempotency_key` and `rollback` are null; every other history row is byte-identical. |
-| `rollback-migration` | `applied`, `recorded` or `reverted-recorded` | Runs the `ROLLBACK` file in one transaction where the objects exist, then `migration repair … --status reverted` where a row exists. Requires state `before` and an unchanged clients snapshot. It drops any review rows; those are alert state only, and the rollback prints their count. Needs its own approval. |
+| `rollback-migration` | `applied`, `recorded` or `reverted-recorded` | **R-1: refuses while any milestone review row exists.** There is a read-only pre-check, and the same check runs again inside the rollback transaction after `LOCK TABLE … IN ACCESS EXCLUSIVE MODE` (custom SQLSTATE `DMR01`), so no row can appear between the check and the drop. Destroying review records needs a separately approved, verified recovery procedure, which this workflow does not provide.<br>With no rows: the `ROLLBACK` file runs in one transaction where the objects exist, then `migration repair … --status reverted` runs where a history row exists. Requires state `before`, an unchanged schema fingerprint, and the other history rows byte-identical. Needs its own approval. |
 
 The migration's own `SET lock_timeout = '2s'` means a busy `clients`, `organizations` or `auth.users` lock aborts the
-whole transaction. The state stays `before`, the runner STOPs, and a new dispatch needs a new approval.
+whole transaction (SQLSTATE 55P03). The state stays `before`, and the runner reports `STATE AFTER FAILURE: before`
+and STOPs. A new dispatch needs a new approval.
+
+After any failed write, the runner prints the state it left (`STATE AFTER FAILURE: …`, a read-only read-back). An
+interrupted stage therefore always resolves to a recognized state that the next approved stage can continue from.
+
+**Production CRM activity (R-2).** No check reads or fingerprints CRM rows. The invariants are:
+- the schema outside the new objects: relations with their ACLs and options, columns, constraints, user triggers,
+  policies, views, routines, types, schema ACLs and default privileges in `public` and `private`;
+- the migration history.
+
+Client inserts, updates and deletes change neither. Neither do `ANALYZE` or `VACUUM` (the rehearsal proves this).
+Production read-only checks on 2026-10-29:
+- the fingerprint query runs on production's catalog (5,892 entries);
+- the state classifier returns `350|20261028040215|0|0|0000`;
+- there are no partitioned tables.
+
+A CRM write that is waiting for its lock can be delayed by at most the 2 s lock window. After that, either the
+migration's short transaction has committed or it has rolled back.
 
 **Read-backs** run read-only after `apply-migration` and `record-history`, and in `check`:
 - **Table:**
@@ -214,8 +240,10 @@ ship the G1 frontend, which is G3. So the proposal is a **separate release-only 
 carrying only:
 - the migration (still in `pending/`, byte-identical) and its rollback;
 - `supabase/tests/dashboard_milestone_reviews{,_harness}.sql` and `scripts/run_dashboard_milestone_tests.sh`;
-- `.github/workflows/dashboard-milestones-backend.yml`, so CI runs the 45-check SQL suite on PostgreSQL 17.6;
-- the new release workflow, the runner and its test (§6).
+- `.github/workflows/dashboard-milestones-backend.yml`: the 45-check SQL suite, the runner rehearsal and the live
+  environment guard, all on PostgreSQL 17.6;
+- the new release workflow, the runner and its test (§6);
+- this design document and a `WORK_LOG.md` entry.
 
 **No `src/` file changes**, so the production build that a `main` commit triggers ships the same frontend. No Vercel
 variable is set; `VITE_DASHBOARD_MILESTONE_REVIEWS` stays unset, so the review actions stay hidden. Merging that PR
@@ -225,22 +253,62 @@ the feature branch lands later.
 ## 6. Proof before any dispatch
 
 `scripts/tests/dashboard_milestones_release_test.py` has the shape of `scripts/tests/hierarchy_m3_history_record_test.py`.
-It runs against a loopback PostgreSQL 17, the real pinned CLI 2.121.0, the existing harness, and a synthetic history
-of 350 rows at the same head.
+It runs against:
+- a loopback PostgreSQL with TLS on port 5432 (the identity gate pins that port);
+- the real pinned CLI 2.121.0, connected as a role that can only touch the history table;
+- the G2 harness, a synthetic history of 350 rows at production's head, and 200 synthetic clients;
+- a checkout copy carrying four decoy migrations.
 
-It proves:
-- every stage and every state transition, including a rollback from each state;
-- every refusal: wrong ref, wrong confirmation, wrong bytes, a top-level copy, partial objects, an unknown history
-  state, a long transaction, and a lock timeout that leaves `before`;
-- that no other file executes.
+The CI job `release-runner` in `dashboard-milestones-backend.yml` runs it on the official `postgres:17.6` image,
+pinned by digest. The job `environment-guard` runs the live, secret-free check of the protected environment.
 
-It also produces the `RECORDED_*` and read-back pins. CI runs it on the release-only PR.
+**Rehearsal on 2026-10-29 (local PostgreSQL 16.15 with TLS): `ALL PASSED: 38 checks`.**
+- **Workflow and runner text:**
+  - dispatch only, main only, four typed stages;
+  - only the two database secrets, a pinned checkout and the pinned CLI;
+  - no `db push`, `migration up`, reset, `--linked` or `--include-all`, and no reference to Vercel or the flags.
+- **Environment guard:** 11 weakened configurations fail closed.
+- **Gates (R-3, R-4):** each of these is refused:
+  - a non-main ref, an unconfirmed stage or an unknown stage;
+  - a one-bit or one-byte change to the migration or the rollback;
+  - a top-level copy, a second pending copy or a second rollback;
+  - a wrong CLI version or a CLI without the reviewed flags;
+  - a direct, look-alike or loopback host;
+  - another user, no TLS, or a session that isn't `postgres/postgres`.
+- **Drifted states:** refused by all four stages, with nothing written:
+  - a later head;
+  - G2 recorded under another version;
+  - a missing history row;
+  - a partial object;
+  - a changed `get_org_id()`;
+  - out-of-order stages.
+- **Full release under live CRM traffic (R-2):**
+  - The background traffic committed about 1,400 insert/update/delete cycles on clients, and never failed.
+  - `apply-migration` → applied, `record-history` → recorded: 28 statements, digest `07cabc94…`.
+  - The only SQL executed was the approved migration, once, identified by SHA-256.
+  - The only CLI call was a single `migration repair`, and none of the decoys ran (R-5).
+- **Interrupted stages:** each one ends in a recognized state, and the next approved stage recovers from it:
+  - a lock timeout, the watchdog, or a SIGTERM cancel → `before`;
+  - a runner lost after the commit → `applied`;
+  - a CLI that reports success but writes nothing → caught;
+  - a record-history lost after its write → `recorded`;
+  - a rollback lost between its SQL and the history revert → `reverted-recorded`, which then completes.
+- **Rollback (R-1):**
+  - A review row stored through the real RPC makes `rollback-migration` refuse before any write.
+  - A row that slips past the pre-check is caught inside the locked transaction, and the row stays intact.
+  - With no rows, rollback returns the exact pre-release fingerprint, from `recorded` and from `applied`.
+- **Read-back:** each of 13 weakened or altered objects fails with its label: grants, RLS, policies,
+  SECURITY DEFINER, EXECUTE, a check, a partial index, a disabled trigger, a column. An unrelated schema change
+  during apply is caught by the fingerprint.
+- **Secrets:** none of 136 captured runner outputs contains a password or a connection URL.
+
+The same database also passed the existing SQL suite (`scripts/run_dashboard_milestone_tests.sh`): 45 checks, both
+negative controls and the rollback proof.
 
 ## 7. Sequence (each step separately approved)
 
-1. Chris approves this design.
-2. Implement the runner, the test and the workflow on `claude/great-clarke-c1gpw6`, with rehearsal evidence and the
-   pins filled in.
+1. ✅ Chris approved this design with safeguards (2026-10-29).
+2. ✅ The runner, the test and the workflow are implemented, with the rehearsal evidence (§6) and the pins filled in.
 3. Open the release-only PR to `main` and get CI green. **Chris approves the merge** (no frontend change).
 4. Dispatch `check`: read-only; it must report `before`.
 5. Dispatch `apply-migration`, then the environment review. Then an independent MCP read-only read-back plus the
@@ -265,3 +333,36 @@ A new session would then run the same runner locally. It is not recommended:
 - the repository already has a reviewed, audited route (§1).
 
 `db push` stays rejected on either route (§2).
+
+## 9. Safeguards in Chris's approval and where each is enforced
+
+| # | Requirement | Enforced by |
+|---|---|---|
+| R-1 | The rollback never destroys review records without separate approval and a verified recovery procedure | A read-only pre-check, then the same check inside the locked rollback transaction (`DMR01`). This workflow has no path that deletes review rows. |
+| R-2 | Normal CRM activity can't cause a false failure | The schema-only fingerprint plus the history snapshot; no CRM data is checked. Rehearsed under live client traffic, mass updates, `ANALYZE` and `VACUUM`. |
+| R-3 | The migration stays byte-identical (`e6737493…`) | The files gate checks byte length and SHA-256. The SQL is fed to psql from those same bytes on stdin, and the repair workdir copy is re-hashed. |
+| R-4 | Protected environment, identity, checksums and separate stages are preserved | The `environment-guard` job; the pooler, TLS and identity gates; four typed, confirmed stages, each needing its own dispatch. |
+| R-5 | No unrelated migration ever executes | Only `SOURCE` and `ROLLBACK` bytes are executed. The repair workdir holds only this migration. There is no `db push` or `migration up`. Decoys are proven never to run. |
+| R-6 | The Google Sheets and hierarchy workflows are untouched | This is a new file. The release-only PR's file list contains neither of them. |
+| R-7 | The full isolated rehearsal is run | §6: 38 checks pass, including the security failures and interrupted-stage recovery. CI repeats them on 17.6. |
+| R-8 | A release-only PR with its link, file list, CI and risks | The PR description, and the report to Chris. |
+
+## 10. Remaining risks (for the merge decision)
+
+- **Exact production pins.**
+  - The runner expects exactly 350 history rows at head `20261028040215`, and `get_org_id()` at `fb1d12f5…`.
+  - If any other migration lands first, every stage STOPs. Re-pinning is a reviewed change; if the new head is later
+    than `20261029120000`, this migration also needs a new version.
+- **The read-back pins were derived on PostgreSQL 16.15 locally.** Production runs 17.6.
+  - The CI job re-derives nothing: it asserts the same pins on `postgres:17.6`. A deparse difference would show up
+    there as a red check before the merge, not in production.
+- **A 2-second lock window.** While the migration waits for its locks on `clients`, `organizations` and `auth.users`,
+  writes to those tables queue behind it for at most 2 s. After that it either commits (milliseconds) or rolls back.
+- **The rollback order is still manual.** The rollback should follow a frontend rollback, or
+  `VITE_DASHBOARD_MILESTONE_REVIEWS` being unset. The runner can't see Vercel. With the flags never set, review rows
+  should not exist, and R-1 refuses if any do.
+- **After the release, the runner is pinned to `pending/`.** The follow-up that moves the file to
+  `supabase/migrations/20261029120000_dashboard_milestone_reviews.sql` must also update `SOURCE` and the files gate,
+  as the hierarchy runner was updated. Until then, `check` still verifies production read-only.
+- **The live environment guard needs the GitHub token's `actions`/`deployments` read permissions**, as in
+  `hierarchy-stabilization.yml`. CI shows whether the settings still match.
