@@ -129,6 +129,7 @@ function DemoShell({
   const [visible, setVisible] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
   const [manualPause, setManualPause] = useState(false);
+  const [manualPlay, setManualPlay] = useState(false);
   const reduceMotion = useReducedMotion();
   const hasVideo = Boolean(videoSrc && !videoFailed);
 
@@ -146,15 +147,16 @@ function DemoShell({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (visible && !reduceMotion && !manualPause) {
+    if (visible && (manualPlay || (!reduceMotion && !manualPause))) {
       void video.play().catch(() => { /* autoplay may be blocked by browser */ });
     } else {
       video.pause();
     }
-  }, [visible, reduceMotion, manualPause, hasVideo]);
+  }, [visible, reduceMotion, manualPause, manualPlay, hasVideo]);
 
   const togglePlayback = () => {
-    setManualPause((previous) => !previous);
+    if (reduceMotion) setManualPlay((previous) => !previous);
+    else setManualPause((previous) => !previous);
   };
 
   return (
@@ -188,9 +190,9 @@ function DemoShell({
               type="button"
               onClick={togglePlayback}
               className="absolute bottom-3 right-3 inline-flex min-h-9 items-center gap-2 rounded-lg border border-white/15 bg-[#07101f]/85 px-3 text-xs text-white backdrop-blur-md"
-              aria-label={manualPause ? "Play demonstration" : "Pause demonstration"}
+              aria-label={manualPause || (reduceMotion && !manualPlay) ? "Play demonstration" : "Pause demonstration"}
             >
-              <CirclePlay size={15} />{manualPause || reduceMotion ? "Play" : "Pause"} clip
+              <CirclePlay size={15} />{manualPause || (reduceMotion && !manualPlay) ? "Play" : "Pause"} clip
             </button>
           </>
         ) : children ? children : image ? (
@@ -317,6 +319,7 @@ const LandingPageV2: React.FC = () => {
       document.title = oldTitle;
       if (!existing) robots.remove();
       else if (prior !== null && prior !== undefined) robots.setAttribute("content", prior);
+      else robots.removeAttribute("content");
     };
   }, []);
 
