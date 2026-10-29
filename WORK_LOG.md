@@ -1,5 +1,78 @@
 # AgentFlow Work Log
 
+## 2026-10-29 — Dashboard premium redesign + Client Milestones (G1 frontend on branch; G2 package prepared, NOT applied)
+
+**Status:** Branch-only on `claude/great-clarke-c1gpw6`, base `main` `2a18e263`. Not merged and not deployed. Chris approved G1 (frontend) with revisions R1–R4. G2 (schema + RLS) is prepared as files only and needs its own approval. Plan: `docs/plans/2026-10-29-dashboard-premium-redesign/implementation_plan.md` (rev 1 + implementation status).
+
+**What changed:**
+- **Shared Dashboard UI kit** (`src/components/dashboard/ui/`): category tones (Blue calls/callbacks, Purple appointments/schedule, Green policies/goals, Gold premium/leaderboard, Red missed calls, Pink milestones), widget frame, list rows, accessible row menus, filter chips and a Radix modal shell.
+  - The widget frame has a real "Open … details" button and named edit-mode controls.
+  - The modal shell returns focus to its opener on close.
+  - Motion is restrained; reduced-motion is honoured.
+- **Widgets restyled; queries unchanged.**
+  - Goal Progress bars use the category tones (appointments purple, premium gold) and are ARIA progressbars.
+  - Callbacks "View all" opens the Callbacks modal (D11).
+  - Schedule and Missed Calls say when they show a capped preview.
+  - Leaderboard: no medallions, because the approved no-award-decoration rule stands.
+- **Detail modals unified on the shell.** Every modal now has loaded-record filters/search, Retry, Load more and visible actions. Pagination, generations and error states moved unchanged into `useDashboardDetailFeed`.
+- **Team Leader scope (R2):** a modal uses the scope of the surface that opened it (`src/lib/dashboard-scope.ts`). A TL in Team perspective sees an "own items" note on list surfaces. No permission, role or RLS change.
+- **Client Milestones replace Anniversaries.** The persisted key stays `anniversaries`.
+  - Client birthdays: clients only, 14 days, Feb 29 observed on Feb 28.
+  - Policy anniversaries: primary + additional policies via the normalized model, 30/90 days, from year 1; never called a renewal or expiration.
+  - First Payment Reminders: Draft Date, from 3 days before, pending until reviewed, one-time. No historical reminders: Draft Dates before the go-live date, or before the client was entered, never qualify. Existing clients with future Draft Dates stay eligible (R1).
+  - Mark Reviewed / Remind Later (also after the date, as a follow-up; R3) / Undo go through two RPCs only. They stay hidden until `VITE_DASHBOARD_MILESTONE_REVIEWS=true`. First Payment Reminders also need `VITE_FIRST_PAYMENT_REMINDERS_START`. Both fail closed.
+  - Exact-count keyset paging: a truncated client read is never presented as complete (R4).
+- **Defects fixed in the old path:**
+  - lead birthdays included;
+  - errors swallowed into "No records found";
+  - "Renewals" label;
+  - UTC-parsed dates (a day early in US zones);
+  - "today" anniversaries pushed a year;
+  - year-0 "anniversaries";
+  - additional policies ignored;
+  - silent truncation at the server row limit.
+- `Dashboard.tsx` (705 → 195 lines) and `DashboardDetailModal.tsx` (876 → 198 lines): logic moved verbatim into `useDashboardLayout` / `useDashboardDetailFeed`. **KPI cards (`StatCards.tsx`) untouched.**
+
+**Files touched:**
+- Frontend: `src/pages/Dashboard.tsx`; `src/components/dashboard/{DashboardDetailModal,DashboardCallbacksModal,DashboardRecordsModal,DashboardRecordRow,DashboardMilestonesModal,DashboardControls,DashboardLayoutEditorBar}.tsx`; `src/components/dashboard/dashboardRecordText.ts`; `src/components/dashboard/ui/*`; `src/components/dashboard/milestones/*`; widgets `Callbacks`, `Appointments`, `GoalProgress`, `Leaderboard`, `MissedCalls`, and `ClientMilestonesWidget` (renamed from `AnniversariesWidget`); `src/hooks/{useDashboardLayout,useDashboardDetailFeed,useMilestoneActions}.ts`; `src/lib/{calendar-date,dashboard-milestones,dashboard-milestones-data,dashboard-milestones-config,dashboard-scope,paged-exact-read}.ts`.
+- Tests: new `src/lib/__tests__/{dashboardMilestones,dashboardMilestonesData,dashboardScope}.test.ts` and `src/components/dashboard/__tests__/{clientMilestonesWidget,dashboardMilestonesModal,dashboardModalShell,dashboardWidgetFrame}.test.tsx`. Updated `dashboardSections`, `dashboardRefresh` and `dashboardRefreshWiring` (renamed widget, Router wrapper, fixture with policy evidence). Browser harness: `scripts/tests/dashboard-ui/verify.mjs`.
+- G2 package (NOT applied): `supabase/migrations/pending/20261029120000_dashboard_milestone_reviews.sql`, `supabase/migrations/rollback/20261029120000_dashboard_milestone_reviews.rollback.sql`, `supabase/tests/dashboard_milestone_reviews{,_harness}.sql`, `scripts/run_dashboard_milestone_tests.sh`, `.github/workflows/dashboard-milestones-backend.yml`.
+- Docs: the plan, this entry, `AGENT_RULES.md`.
+
+**Migrations/deploys:** None applied or deployed.
+- Read-only `list_migrations` (metadata) only. It showed `20261021200000_lead_client_conversion_preservation` IS applied, so `clients.date_of_birth` exists; the AGENT_RULES heading that said otherwise is corrected.
+- No Supabase, Edge, Twilio or Vercel writes.
+
+**Verification:**
+- Focused Vitest: 25 files, 440 passed / 12 skipped (452 total), under `TZ` America/Los_Angeles (452 passed), Pacific/Auckland and UTC.
+- Full Vitest: 6,585 passed, 1 failed, 10 files failed. The identical 10 files and 1 test fail on the untouched base `2a18e263`: missing `VITE_SUPABASE_URL` in this container, and a deployed-bytes comparison in `recordingRetentionVoicemail`. None of them are Dashboard files.
+- `npx tsc --noEmit` exit 0 (vacuous). `npx tsc -p tsconfig.app.json --noEmit`: 80 errors, the identical set to base, none new.
+- ESLint on changed files is clean. `npm run build` OK.
+- Browser (mocked Supabase, `verify.mjs`): 44/44 checks at 1440 and 390 px × light and dark (dark with reduced motion). Covered:
+  - no horizontal scroll;
+  - three category icons;
+  - no renewal/expiration wording;
+  - keyboard: Details → modal → row menu → Mark reviewed, toast with Undo, the widget behind updates, Escape closes and focus returns;
+  - no page errors.
+- KPI cards captured on base and branch are **byte-identical PNGs** in all four viewport/theme combinations.
+- G2 SQL suite on a disposable local PostgreSQL 16.15 (CI uses 17.6; not yet run there):
+  - 45 checks: metadata/ACL, isolation, RLS, constraints, one-time first payment, conditional Undo, identity agreement, cascade;
+  - replay guard;
+  - two negative controls, each failing at the expected check (T1.3, T2.2a);
+  - rollback proof.
+
+**Blockers / next:**
+1. Chris's G2 decision on the exact migration/RLS package. Apply route to be decided at G2; prior releases used the SQL Editor as `postgres` with a hashed package.
+2. After apply: read back, move the file out of `pending/` byte-identically, regenerate types, set the two Vercel variables at release.
+3. G3 merge approval.
+
+Follow-ups, not started:
+- TL downline lists through `getAgentScopeIds` (needs the protected `dashboard-callbacks.ts` contract change).
+- Contact-type lookup for modal Missed Calls / Calls rows.
+- A server-side milestones RPC for very large books.
+
+**Context snapshot:** frontend complete behind a fail-closed flag; G2 files tested locally; nothing applied; no production data read beyond migration metadata; no merge or deploy.
+
 
 ## 2026-10-28 — Google Sheets v2 source-column UI cleanup (approved, PR candidate)
 

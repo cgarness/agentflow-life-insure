@@ -15,6 +15,43 @@ the feature branch only. G2 package prepared as files only; no database change e
 
 D1–D14 otherwise accepted as recommended, with D8 revised by R3 and D10 replaced by R2.
 
+## Implementation status (2026-10-29, branch only — not merged, not deployed)
+
+**Done on `claude/great-clarke-c1gpw6`:** the G1 frontend (§4–§8 with rev 1) and the G2 package as files. No database
+command was executed against any hosted project. The only Supabase MCP call in this task was the read-only
+`list_migrations` during preparation.
+
+**Deviations from the plan, and why:**
+- **No rank medallions on the Leaderboard widget.** `leaderboardWidget.test.tsx` pins an approved rule: "no
+  award-style decoration of any kind inside the standings rows" (no SVG, trophy, medal or star). The widget gets the
+  gold tone, an accessible segmented control and gold "View Full Standings" only.
+- **`src/integrations/supabase/types.ts` is NOT modified.** The table and RPCs do not exist yet. The data layer uses
+  the narrow `(supabase as any)` cast the repository already uses for ungenerated objects. Regenerate the types after
+  G2 is applied.
+- **Migration path:** `supabase/migrations/pending/20261029120000_dashboard_milestone_reviews.sql`, not
+  `supabase/migrations/`. This is the repository's convention for unapplied migrations, so no merge or preview can
+  apply it. Rollback: `supabase/migrations/rollback/20261029120000_dashboard_milestone_reviews.rollback.sql`.
+- **Release switches are Vercel environment variables, not a code constant:** `VITE_DASHBOARD_MILESTONE_REVIEWS` and
+  `VITE_FIRST_PAYMENT_REMINDERS_START` (`src/lib/dashboard-milestones-config.ts`, fail-closed).
+- **Extra small modules** keep components under 200 lines and keep non-component exports out of component files:
+  `src/lib/calendar-date.ts`, `src/components/dashboard/ui/dashboardWidgetMeta.ts`,
+  `src/components/dashboard/ui/DashboardScopeNote.tsx`, `src/components/dashboard/dashboardRecordText.ts`,
+  `src/components/dashboard/milestones/milestoneCopy.ts`. `DashboardStatusPill`, `DashboardEmptyState` and the row
+  skeleton live in `ui/DashboardListRow.tsx` instead of their own files.
+- **Rows use a CSS fade** (`animate-in fade-in-0`, `motion-reduce:animate-none`) instead of framer-motion. The
+  remaining framer uses sit under `<MotionConfig reducedMotion="user">`, and the Goal Progress bar honours
+  `useReducedMotion()`.
+- **Found and fixed during verification:**
+  1. Radix restores focus only to a `Dialog.Trigger`, and these modals are opened from code, so focus fell to
+     `<body>` on close. That affected the old Callbacks modal too. `DashboardModalShell` now returns focus to the
+     element that opened it.
+  2. A review stored from the detail view did not refresh the widget behind it. A
+     `agentflow:client-milestones-changed` event now reloads the widget through its section lane.
+  3. A server that ignored the keyset filter could make the paged read loop. `readAllExact` now stops and reports
+     incomplete when a page adds nothing new.
+- **Missed Calls in the detail modal:** a Call back button is shown, but it is enabled only when the row's contact
+  type resolves. Most `calls.contact_type` values are NULL (§5), and the modal does no contact lookup, unchanged.
+
 **Approval gates (each separate):**
 
 | Gate | What it approves | Touches |
