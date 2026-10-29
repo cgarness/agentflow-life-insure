@@ -1,3 +1,17 @@
+## 2026-10-29 — PLAN (Gate 1, awaiting Chris's approval; nothing built, applied or deployed): Dashboard Polish V2
+
+Full plan: `docs/plans/2026-10-29-dashboard-polish-v2/implementation_plan.md`.
+
+- **Clear / Dismiss.** Clear on Missed Calls and Callbacks, backed by a new per-viewer table
+  `dashboard_attention_clearances` with SECURITY INVOKER RPCs. That migration needs its own G3 approval and is not applied.
+  Milestones get Dismiss on the existing `dashboard_milestone_reviews`.
+- **Exact exclusion.** Cleared items are excluded inside the paging math, so callback pages, totals and "View All N" stay
+  exact.
+- **Polish and context.** Visual polish and accessible status badges across every widget and modal, plus owner and
+  recipient context in Team mode. The Team Leader scope is unchanged.
+- **Untouched.** KPI cards, telephony and every source record.
+- **Branch:** `claude/upbeat-cannon-uy6fpg` (from `main` `7a03033`).
+
 ## 2026-10-27 — CORRECTION PLAN C (APPROVED and IMPLEMENTED on the PR branch; NOT merged; nothing applied or deployed): PR #498 preview validation and column overflow
 
 **Status.**
