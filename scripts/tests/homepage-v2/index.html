@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8"><meta name="robots" content="noindex, nofollow"><title>V2 isolated layout QA</title>
+    <style>body{margin:0;background:#030712;color:#e2e8f0;font:14px system-ui}header{display:flex;align-items:center;gap:16px;padding:16px}button{background:#38bdf8;border:0;border-radius:8px;padding:12px;color:#082f49;font-weight:700}iframe{display:block;border:1px solid #334155;margin:0 auto}p{margin:0}</style>
+  </head>
+  <body>
+    <header>
+      <p>Isolated layout QA — no login, CRM data or external actions</p>
+      <button id="desktop">Desktop 1440</button><button id="mobile">Mobile 390</button>
+      <button id="media">Playback test</button><button id="page">Homepage</button>
+    </header>
+    <iframe id="preview" title="Homepage V2 test viewport" width="1440" height="900" src="./frame.html"></iframe>
+    <script>
+      const frame = document.getElementById('preview');
+      document.getElementById('desktop').onclick = () => frame.width = '1440';
+      document.getElementById('mobile').onclick = () => frame.width = '390';
+      document.getElementById('media').onclick = () => frame.src = './frame.html?media-test';
+      document.getElementById('page').onclick = () => frame.src = './frame.html';
+    </script>
+  </body>
+</html>
