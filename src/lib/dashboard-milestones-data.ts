@@ -92,14 +92,18 @@ async function readReviews(scope: MilestoneScope, organizationId: string, today:
   const since = addCalendarDays(today, -366);
   const result = await readAllExact<MilestoneReviewRow>(
     (afterId, limit, withCount) => {
-      let q = (supabase as any) // table added by G2; not in the generated types yet
+      let q = supabase
         .from("dashboard_milestone_reviews")
         .select(REVIEW_COLUMNS, withCount ? { count: "exact" } : undefined)
         .eq("user_id", scope.userId)
         .eq("organization_id", organizationId)
         .or(`milestone_kind.eq.first_payment,occurrence_date.gte.${since}`);
       if (afterId) q = q.gt("id", afterId);
-      return q.order("id", { ascending: true }).limit(limit).abortSignal(signal);
+      return q.order("id", { ascending: true }).limit(limit).abortSignal(signal) as unknown as PromiseLike<{
+        data: MilestoneReviewRow[] | null;
+        error: unknown;
+        count?: number | null;
+      }>;
     },
     { context: "milestone-reviews", beforeFollowOn: assertPageActive },
   );
@@ -213,13 +217,13 @@ export async function setMilestoneReview(input: SetMilestoneReviewInput): Promis
   const parsed = setReviewSchema.safeParse(input);
   if (!parsed.success) throw new MilestoneActionError("This reminder can't be updated.", parsed.error);
   const v = parsed.data;
-  const { data, error } = await (supabase as any).rpc("set_dashboard_milestone_review", { // G2 RPC; not in the generated types yet
+  const { data, error } = await supabase.rpc("set_dashboard_milestone_review", {
     p_kind: v.kind,
     p_client_id: v.clientId,
     p_event_key: v.eventKey,
     p_occurrence_date: v.occurrenceDate,
     p_state: v.state,
-    p_remind_at: v.remindAt,
+    p_remind_at: v.remindAt ?? undefined,
   });
   if (error) {
     console.error("[ClientMilestones] Review update failed:", error);
@@ -235,7 +239,7 @@ export async function setMilestoneReview(input: SetMilestoneReviewInput): Promis
 export async function clearMilestoneReview(review: { id: string; updatedAt: string }): Promise<void> {
   const parsed = z.object({ id: z.string().uuid(), updatedAt: timestamp }).safeParse(review);
   if (!parsed.success) throw new MilestoneActionError("This reminder can't be restored.", parsed.error);
-  const { data, error } = await (supabase as any).rpc("clear_dashboard_milestone_review", { // G2 RPC; not in the generated types yet
+  const { data, error } = await supabase.rpc("clear_dashboard_milestone_review", {
     p_id: parsed.data.id,
     p_expected_updated_at: parsed.data.updatedAt,
   });
