@@ -1,16 +1,12 @@
-## 2026-10-29 — G1 APPROVED; G2 BUILT on the feature branch (migration in `pending/`, NOT applied; NOT merged or deployed): Dashboard Polish V2
+## 2026-10-29 — Dashboard Polish V2 G3 backend COMPLETE; G4 candidate in draft PR #504; G5 frontend NOT released
 
-Full plan: `docs/plans/2026-10-29-dashboard-polish-v2/implementation_plan.md`.
+Full current plan: `docs/plans/2026-10-29-dashboard-polish-v2/implementation_plan.md`.
 
-- **Clear / Dismiss.** Clear on Missed Calls and Callbacks, backed by a new per-viewer table
-  `dashboard_attention_clearances` with SECURITY INVOKER RPCs. That migration needs its own G3 approval and is not applied.
-  Milestones get Dismiss on the existing `dashboard_milestone_reviews`.
-- **Exact exclusion.** Cleared items are excluded inside the paging math, so callback pages, totals and "View All N" stay
-  exact.
-- **Polish and context.** Visual polish and accessible status badges across every widget and modal, plus owner and
-  recipient context in Team mode. The Team Leader scope is unchanged.
-- **Untouched.** KPI cards, telephony and every source record.
-- **Branch:** `claude/upbeat-cannon-uy6fpg` (from `main` `7a03033`).
+- **G3 production:** `20261029200000_dashboard_attention_clearances` is applied and recorded (352 migrations; 24 statements; digest `43769e1677e2a218021e7f8bc146f92e86b1154ae00aa1d3c63e8d1515f07693`). The table, RLS and RPCs exist.
+- **G4 reconciliation:** Draft PR #504 moves the exact approved SQL blob out of `pending/` into `supabase/migrations/` unchanged, updates the protected runner path, and verifies live-generated TypeScript signatures already match. CI and Vercel preview verification are pending.
+- **Approved feature scope:** Clear/Undo for Missed Calls and Callbacks; Dismiss for Client Milestones; premium badges, buttons and modal layout; improved Team-mode context. No KPI, telemetry, Twilio, Dialer or CRM source-record changes.
+- **G5 release gate:** Do not merge PR #504, deploy the new Dashboard, or activate `VITE_DASHBOARD_ATTENTION_CLEARANCES` in production without Chris's separate approval.
+- **Branch:** `claude/upbeat-cannon-uy6fpg` (current production `main` base `c7238244`).
 
 ## 2026-10-27 — CORRECTION PLAN C (APPROVED and IMPLEMENTED on the PR branch; NOT merged; nothing applied or deployed): PR #498 preview validation and column overflow
 
