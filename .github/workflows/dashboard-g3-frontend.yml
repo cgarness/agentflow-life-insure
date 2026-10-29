@@ -123,14 +123,16 @@ jobs:
           DASH_KPI_ONLY=1 DASH_BASE_URL=http://127.0.0.1:5182 node scripts/tests/dashboard-ui/verify.mjs "$OUT/main"
           for viewport in desktop mobile; do
             for theme in light dark; do
-              cmp "$OUT/g3/kpi-${viewport}-${theme}.png" "$OUT/main/kpi-${viewport}-${theme}.png"
+              python3 scripts/tests/dashboard-ui/compare-kpi.py "$OUT/g3/kpi-${viewport}-${theme}.png" "$OUT/main/kpi-${viewport}-${theme}.png"
             done
           done
-          echo "PASS: 44 browser checks and 4 byte-identical KPI card screenshots"
+          echo "PASS: 44 browser checks and 4 pixel-identical KPI card screenshots"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: dashboard-g3-synthetic-browser-${{ github.event.pull_request.head.sha || github.sha }}
-          path: ${{ runner.temp }}/g3-dashboard/g3/
+          path: |
+            ${{ runner.temp }}/g3-dashboard/g3/
+            ${{ runner.temp }}/g3-dashboard/main/kpi-*.png
           if-no-files-found: ignore
           retention-days: 7
