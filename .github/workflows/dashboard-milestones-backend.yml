@@ -1,0 +1,36 @@
+name: Dashboard milestone reviews (G2) verification
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/pending/*_dashboard_milestone_reviews.sql'
+      - 'supabase/migrations/*_dashboard_milestone_reviews.sql'
+      - 'supabase/migrations/rollback/*_dashboard_milestone_reviews.rollback.sql'
+      - 'supabase/tests/dashboard_milestone_reviews.sql'
+      - 'supabase/tests/dashboard_milestone_reviews_harness.sql'
+      - 'scripts/run_dashboard_milestone_tests.sh'
+      - '.github/workflows/dashboard-milestones-backend.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports: ['55444:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Replay guard, behaviour suite, negative controls and rollback (disposable database only)
+        env:
+          PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55444
+          PGPASSWORD: isolated-test-only
+        run: bash scripts/run_dashboard_milestone_tests.sh
