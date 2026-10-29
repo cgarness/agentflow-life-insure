@@ -17,9 +17,15 @@ D1–D14 otherwise accepted as recommended, with D8 revised by R3 and D10 replac
 
 ## Implementation status (2026-10-29, branch only — not merged, not deployed)
 
-**Done on `claude/great-clarke-c1gpw6`:** the G1 frontend (§4–§8 with rev 1) and the G2 package as files. No database
-command was executed against any hosted project. The only Supabase MCP call in this task was the read-only
-`list_migrations` during preparation.
+**Done on `claude/great-clarke-c1gpw6`:** the G1 frontend (§4–§8 with rev 1) and the G2 package as files.
+
+**G2 (approved for the exact file) is NOT applied:**
+- Two MCP `apply_migration` calls timed out on an unanswered Supabase confirmation. Production was read back
+  unchanged after each.
+- The cloud session has no Supabase authentication and no network route to production.
+- `supabase db push` is unsafe because of history drift.
+- The proposed authorized route, a protected dispatch-only workflow, is designed for separate review in
+  `g2-release-workflow-design.md` (beside this plan).
 
 **Deviations from the plan, and why:**
 - **No rank medallions on the Leaderboard widget.** `leaderboardWidget.test.tsx` pins an approved rule: "no

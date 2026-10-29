@@ -40,7 +40,11 @@
 - Docs: the plan, this entry, `AGENT_RULES.md`.
 
 **Migrations/deploys:** None applied or deployed.
-- Read-only `list_migrations` (metadata) only. It showed `20261021200000_lead_client_conversion_preservation` IS applied, so `clients.date_of_birth` exists; the AGENT_RULES heading that said otherwise is corrected.
+- Read-only only:
+  - `list_migrations`;
+  - `execute_sql` checks of metadata, object existence, dependencies and the history comparison;
+  - the security and performance advisors, as baselines (256 / 464 findings).
+- `list_migrations` showed `20261021200000_lead_client_conversion_preservation` IS applied, so `clients.date_of_birth` exists; the AGENT_RULES heading that said otherwise is corrected.
 - No Supabase, Edge, Twilio or Vercel writes.
 
 **Verification:**
@@ -61,17 +65,43 @@
   - two negative controls, each failing at the expected check (T1.3, T2.2a);
   - rollback proof.
 
+**G2 release attempts (Chris approved G2 for the exact file, SHA-256 `e6737493…8806`). Production is still unchanged.**
+- **Supabase MCP `apply_migration`:** called twice, with the exact bytes and the name `dashboard_milestone_reviews`.
+  - Both calls timed out after 60 s: Supabase's confirmation question never reached Chris.
+  - Read back after each call: head `20261028040215 standard_lead_fields`, no history row, and the table, both RPCs and the guard function absent.
+- **Supabase CLI from the cloud session:** stopped before any CLI call to production.
+  - No production authentication: no access token, no DB password, no linked project.
+  - The network policy denies `api.supabase.com` (proxy 403) and the database and pooler hosts.
+  - No credential was requested in chat.
+- **`supabase db push` is unsafe and rejected.** A read-only comparison against 350 history rows found:
+  - 278 recorded versions have no local file;
+  - 12 local files are not recorded under their own version; 11 of them are live under another version, plus the baseline.
+  - The list is in the design below. These unrelated files were not touched.
+- **The SQL Editor was not used:** an untracked workaround, per the instruction.
+- **Prepared for separate review (design only, nothing implemented or dispatched):** `docs/plans/2026-10-29-dashboard-premium-redesign/g2-release-workflow-design.md`.
+  - The exact new workflow `dashboard-milestones-release.yml` and the runner contract. Existing release workflows are unchanged.
+  - Production environment `google-sheets-production`: required reviewer cgarness, main only.
+  - Stages: check → apply-migration (psql, single transaction, exact file) → record-history (`migration repair`, CLI 2.121.0) → rollback-migration.
+  - A release-only PR to `main` with no `src/` change, so G3 stays gated.
+- No flags set, no merge, no Vercel change.
+
 **Blockers / next:**
-1. Chris's G2 decision on the exact migration/RLS package. Apply route to be decided at G2; prior releases used the SQL Editor as `postgres` with a hashed package.
-2. After apply: read back, move the file out of `pending/` byte-identically, regenerate types, set the two Vercel variables at release.
-3. G3 merge approval.
+1. Chris reviews the G2 release-workflow design (or picks another authorized route).
+2. If approved: implement the runner, test and workflow; rehearse them on loopback PostgreSQL with the pinned CLI; release-only PR (Chris's merge approval); dispatch check → apply-migration → record-history; independent read-back + advisors.
+3. After apply: move the file out of `pending/` byte-identically (recorded version `20261029120000`), regenerate types, focused verification. Set the two Vercel variables only at G3.
+4. G3 merge approval.
 
 Follow-ups, not started:
 - TL downline lists through `getAgentScopeIds` (needs the protected `dashboard-callbacks.ts` contract change).
 - Contact-type lookup for modal Missed Calls / Calls rows.
 - A server-side milestones RPC for very large books.
 
-**Context snapshot:** frontend complete behind a fail-closed flag; G2 files tested locally; nothing applied; no production data read beyond migration metadata; no merge or deploy.
+**Context snapshot:**
+- The frontend is complete behind a fail-closed flag.
+- The G2 files are tested locally. G2 is approved but NOT applied: MCP confirmation is unreachable, and the cloud CLI has no auth and no network access.
+- A protected-workflow design awaits review.
+- No production data was read beyond migration metadata and object existence.
+- No merge or deploy.
 
 
 ## 2026-10-28 — Google Sheets v2 source-column UI cleanup (approved, PR candidate)
