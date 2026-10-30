@@ -1,3 +1,84 @@
+## 2026-10-30 — PLAN (awaiting Chris's approval; nothing edited except this plan): Dialer Calling Settings modal fits the viewport
+
+**Problem.** Dialer → Campaign Selection → Settings opens `CampaignSettingsModal` ("Calling Settings").
+`DialogContent` has only `max-w-md`: no height limit, no internal scroll. The shared dialog is
+`fixed top-1/2 -translate-y-1/2`, so once the content is taller than the viewport (short laptops,
+phones, 200% zoom, "Specific teammates" chips) the header, Save/Cancel and the Close X land off-screen
+and cannot be reached.
+
+**Conflict check.** Branch `claude/zen-cerf-tjf1gq` = `main` `245f4b3`. The latest Work Log entries
+(Dashboard Polish V2, homepage V2) do not touch Dialer files. The three modal files were last changed
+in PR #450. No open conflict.
+
+### Design (frontend layout only — local fix, shared `ui/dialog.tsx` untouched)
+
+1. **Frame** (`DialogContent` classes on this modal only): `flex flex-col gap-0 overflow-hidden p-0`,
+   `w-[calc(100vw-1.5rem)] max-w-md` (fits 320px with 12px gutters), `max-h-[calc(100dvh-2rem)]`
+   (16px top/bottom margin; `dvh` follows mobile browser chrome — same unit already used by
+   `DashboardModalShell`). Theme tokens (`bg-background`, `border`, `text-muted-foreground`) unchanged.
+2. **Fixed header** (`shrink-0 border-b`): "Calling Settings" + description. Left padding plus `pr-12`
+   so the title never runs under the shared Close X (which stays absolutely positioned on the
+   non-scrolling frame, so it is always visible). Campaign name wraps (`break-words`) instead of
+   widening the dialog; full name kept in a `title` tooltip.
+3. **Scrollable body** (`min-h-0 flex-1 overflow-y-auto overscroll-contain`): every settings section
+   and the loading spinner (spinner gets `role="status"` + label).
+4. **Pinned error strip** (new placement, same text/condition): the save/validation `errorMessage`
+   moves from the bottom of the body to a non-scrolling strip directly above the footer with
+   `role="alert"`. Otherwise a Zod/permission error could be scrolled out of sight when Save is pressed.
+5. **Fixed footer** (`shrink-0 border-t`): Cancel + Save side by side at every width, with a gap
+   (today they stack touching on phones). Same handlers, same `disabled={saving || loading}`,
+   same "Saving…" label.
+6. **No horizontal overflow at 320px:** Calling Window time inputs may wrap/shrink (`flex-wrap`,
+   `min-w-0`); Retry Interval and Ring Timeout rows `flex-wrap`; toggle switches `shrink-0` with a gap
+   so long labels wrap instead of squeezing the switch.
+7. **Component size rule (< 200 lines):** the modal is already 199 lines. The Max Call Attempts and
+   Calling Window blocks move verbatim (same inputs, handlers, copy and blank-stays-blank behaviour)
+   into `campaignSettingsControls.tsx`, which exists for exactly this purpose.
+
+**Unchanged:** all props and the `DialerPage` call sites, state values, Zod schema and
+`handleSaveCallingSettings`, `canEditSettings` / `licensedStateApplicable` gating, Settings Access
+policy options (`isAdminOrSuper`), same-org teammate list, `update_campaign_settings` RPC,
+`organization_id` scoping, RLS, `.maybeSingle()` reads. Radix Select and the teammate Popover already
+portal to `document.body` at `z-[300]`, so the new scroll container cannot clip them.
+
+### Files to touch
+
+| File | Change |
+|------|--------|
+| `src/components/dialer/CampaignSettingsModal.tsx` | Frame/header/scroll body/error strip/footer layout; use the two moved field components |
+| `src/components/dialer/campaignSettingsControls.tsx` | Add `MaxAttemptsField` + `CallingWindowField` (moved verbatim); wrap/shrink classes on Retry, Ring Timeout and `ToggleRow` |
+| `src/components/dialer/__tests__/campaignSettingsModal.test.tsx` | **New** focused tests (below) |
+| `implementation_plan.md` | This plan |
+| `WORK_LOG.md` | Newest-first entry |
+
+Conditional, only if browser QA shows overflow there: `CampaignSettingsAccessSection.tsx`
+(cap long teammate chips at `max-w-full` + truncate). I will report it if needed.
+
+**Not touched:** `src/components/ui/dialog.tsx`, `DialerPage.tsx`, `campaignSettingsSchema.ts`,
+`campaign-settings-permissions`, Twilio/dialing/queue code, campaigns schema, migrations, Edge
+Functions, Vercel. **No migration, no backend command, no deploy.**
+
+### Verification
+
+- `npx tsc --noEmit` (root) and app project typecheck compared with base `245f4b3` (no new errors);
+  ESLint on touched files; focused Vitest (`src/components/dialer/__tests__`); `vite build`.
+- New unit tests: frame/body/footer classes; header, Close, Save, Cancel rendered outside the scroll
+  region; all eight sections present; loading → spinner + Save disabled; saving → "Saving…" disabled;
+  error rendered as `role="alert"` outside the scroll body; Cancel → `onOpenChange(false)`; Save →
+  `onSave`; Escape closes; licensed-state toggle disabled when `canEditSettings` false / Personal;
+  "Specific teammates" shows the picker; long campaign name rendered.
+- Real-browser QA (Playwright + bundled Chromium) on a temporary harness in the git-ignored `scratch/`
+  directory rendering the real modal with the app's Tailwind/theme CSS and stub props (no Supabase,
+  no network, no mock data in app code): 320×568, 390×844, 1366×768, 1440×900, and 200% zoom
+  (1366×768 and 1440×900 at device scale 2 → 683×384 / 720×450 CSS px), light and dark. At each:
+  dialog inside viewport, header/X/Save/Cancel visible without scrolling, body scrolls to every
+  section, `scrollWidth ≤ clientWidth`, Settings Access Select and teammate picker open above the
+  dialog and are clickable, Tab/Shift-Tab/Escape, loading/saving/error states, long campaign name.
+  Screenshots in the session scratchpad (not committed).
+
+**Release:** commit and push to `claude/zen-cerf-tjf1gq` only. No PR, merge or production release
+without Chris's separate approval.
+
 ## 2026-10-29 — Dashboard Polish V2 G3 backend COMPLETE; G4 candidate in draft PR #504; G5 frontend NOT released
 
 Full current plan: `docs/plans/2026-10-29-dashboard-polish-v2/implementation_plan.md`.
