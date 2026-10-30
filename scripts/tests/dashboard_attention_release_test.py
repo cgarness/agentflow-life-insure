@@ -178,15 +178,20 @@ def test_file_and_cli_gates():
         (root/m.SOURCE).write_bytes(files[0]+b'\n')
         stops(lambda:m.files_gate(root),'migration bytes and checksum (16,396 bytes, SHA-256 85ac2ff7…)')
         (root/m.SOURCE).write_bytes(files[0])
-        extra=root/'supabase/migrations/20261029200000_dashboard_attention_clearances.sql'
+        extra=root/'supabase/migrations/pending/20261029200000_dashboard_attention_clearances.sql'
+        extra.parent.mkdir(parents=True, exist_ok=True)
         extra.write_bytes(files[0])
-        stops(lambda:m.files_gate(root),'no top-level copy (no auto-apply)')
+        stops(lambda:m.files_gate(root),'no pending copy (already applied)')
         extra.unlink()
+        second=root/'supabase/migrations/20261029210000_dashboard_attention_clearances.sql'
+        second.write_bytes(files[0])
+        stops(lambda:m.files_gate(root),'exactly one copy, in migrations/')
+        second.unlink()
         (root/m.ROLLBACK).write_bytes(files[1]+b' ')
         stops(lambda:m.files_gate(root),'rollback bytes and checksum (2,338 bytes, SHA-256 9250e2e7…)')
     finally:
         shutil.rmtree(root)
-    ok('file tampering and accidental top-level migration fail before any write')
+    ok('file tampering, duplicate pending and duplicate top-level migrations fail before any write')
     for stage,confirm,ref in [('apply-migration','check','refs/heads/main'),
                                ('check','check','refs/heads/feature')]:
         with patch.dict(os.environ, {'GITHUB_REF':ref,'STAGE':stage,'CONFIRM':confirm}):

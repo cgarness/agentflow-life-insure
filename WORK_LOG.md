@@ -1,5 +1,19 @@
 # AgentFlow Work Log
 
+## 2026-10-29 — Dashboard Polish V2 G3 production complete; G4 reconciliation staged on draft PR #504
+
+**Status:** G3 BACKEND COMPLETE. Protected GitHub Actions runs `40967614726` (check), `40968145912` (apply-migration), and `40968675025` (record-history) succeeded for production `jncvvsvckxhqgqvkppmj`. Supabase independently confirms **352 migration-history entries**, version `20261029200000_dashboard_attention_clearances`, **24 statements**, recorded digest `43769e1677e2a218021e7f8bc146f92e86b1154ae00aa1d3c63e8d1515f07693`. The table, 3 RLS policies, 3 indexes, guard trigger and 2 SECURITY INVOKER RPCs are installed. Security advisor 256 findings (unchanged); performance 465 (+1 informational unused-index notice on the new empty table).
+
+**G4 branch-only reconciliation:** Draft PR #504 `claude/upbeat-cannon-uy6fpg` moves the approved 16,396-byte SQL Git blob `4ab80696278eb8a0bf2b6731b0d8c64e708a52da` unchanged from `supabase/migrations/pending/20261029200000_dashboard_attention_clearances.sql` to `supabase/migrations/20261029200000_dashboard_attention_clearances.sql`. Approved SHA-256 remains `85ac2ff7dcd435bd48718311b05704e4e7d96293abf9b47fd062ce30610cb8e8`. Rollback Git blob `647e78d16ba39480da5e7ec754f1f43598f9c3d6` is unchanged. Protected release runner, rehearsal path guards and workflow comments follow the new path; recorded-state gates still refuse apply/history replay and rollback with existing clearance records. **No production SQL executed during reconciliation.**
+
+**Live-generated TypeScript types:** `dashboard_attention_clearances`, `clear_dashboard_attention_item` and `undo_dashboard_attention_clear` declarations already on PR #504 match live Supabase-generated definitions byte-for-byte. No `types.ts` edit or wholesale regeneration required.
+
+**Files touched:** migration path move (same Git blob), `scripts/dashboard_attention_release.py`, `scripts/tests/dashboard_attention_release_test.py`, `.github/workflows/dashboard-attention-release.yml` (comments), `AGENT_RULES.md`, `WORK_LOG.md`, Dashboard Polish V2 and G3 release plans. No frontend `src/`, Twilio, Dialer or Edge Function edits.
+
+**Verification:** Production G3 history/advisors verified. New PR #504 CI (PostgreSQL 17.6 rehearsal, Dashboard regression/typecheck/lint/build, desktop/mobile dark/light browser and KPI parity) is pending after this reconciliation. The frontend is NOT released; `VITE_DASHBOARD_ATTENTION_CLEARANCES` remains unverified in production.
+
+**Next:** Review all PR #504 checks and Vercel preview, resolve any new failures on draft branch only, then request Chris's separate **G5 production frontend release approval**. No merge, Vercel configuration or deployment until then.
+
 ## 2026-10-29 — Private homepage V2 production test-route release approved
 
 Chris authorized merging PR #503 to production for testing before replacing the current homepage. Release only the existing Super Admin-gated `/homepage-v2`; keep `/` and `/homepagetest1` unchanged. Incorporate current main without changing its CRM/backend files. No migration dispatch, environment change, auth change or public-homepage replacement is authorized. Deployment and production-route verification are recorded in PR #503.
@@ -88,6 +102,7 @@ capture workspace; record/review/encode all four authentic loops, replace the
 legacy concepts, complete signed-in protected-preview review. See the capture
 document for exact boundaries and provenance requirements. Separate approval is
 still required before merge or production release.
+
 ## 2026-10-29 — Dashboard attention G3 protected backend release PR prepared (NOT applied)
 
 **Status:** Chris approved exact Gate 3 migration and RLS bytes with separately controlled protected workflow stages. This change is release-only, staged on `release/dashboard-attention-g3-20261029`, and **does not apply any database migration or merge Dashboard PR #504**. No Vercel flag, production frontend, CRM source row or Twilio/telephony change.
@@ -100,7 +115,128 @@ still required before merge or production release.
 
 **Verification/next:** Existing 69-test SQL suite passed in PR #504. The release-only PR must pass PostgreSQL 17.6 rehearsal, verify the pinned 24-statement CLI digest 43769e1677e2a218021e7f8bc146f92e86b1154ae00aa1d3c63e8d1515f07693, and check protected environment settings before a separate merge approval. Then read-only `check`, separately approved production `apply-migration`, read-back/advisors, separately approved `record-history`, and later distinct G5 frontend approval. No production work executed in this task.
 
+## 2026-10-29 — Dashboard Polish V2: G2 built on the feature branch (Clear / Dismiss, visual polish, Team-mode context); migration PREPARED, NOT applied
 
+**Status:**
+- G1 plan approved by Chris (D1–D16 as recommended, including the narrow protected `dashboard-callbacks.ts` edit).
+- G2 is implemented on `claude/upbeat-cannon-uy6fpg` only.
+- **Not merged, not deployed. No production SQL. No Vercel variable changed.**
+- `VITE_DASHBOARD_ATTENTION_CLEARANCES` is unset everywhere real.
+- Plan and evidence: `docs/plans/2026-10-29-dashboard-polish-v2/implementation_plan.md`.
+
+**Correction to the entry below (stale):**
+- G3 is no longer branch-only: PR #502 was merged as `7a03033`, and Vercel production deployment
+  `dpl_EDZ4obVUw3dgB8fwxPi7PnbgkoUq` is READY.
+- Whether `VITE_DASHBOARD_MILESTONE_REVIEWS=true` is set in production could not be read from this session (Vercel env
+  listing returned 403).
+
+**What changed:**
+- **Clear (Missed Calls, Callbacks):**
+  - Per-viewer, occurrence-specific alert state in the new `dashboard_attention_clearances`, written only by two
+    SECURITY INVOKER RPCs.
+  - A visible Clear button on widget and modal rows; Undo (toast and history); the Cleared view; "N cleared" links.
+  - Persists across refresh and login (database, not the browser).
+  - A rescheduled callback has a new due time, so it returns on its own.
+  - Source records are never written: calls, voicemails, notifications, campaign leads (due, owner, status, queue),
+    appointments.
+- **Exact counts:**
+  - Cleared items are excluded inside the paging math: each branch reads `K` rows deeper, then the merge and slice.
+  - Totals subtract only clearances that still match under the same branch filters.
+  - Widget rows, modal pages, active totals and "View All N" agree, including when campaign and appointment callbacks
+    interleave.
+- **Dismiss (Client Milestones):** a visible Dismiss button (stored as the existing `reviewed`); Pending · Snoozed ·
+  Dismissed history; a "View dismissed" link. No schema change.
+- **Missed Calls:**
+  - One shared contract (`dashboard-missed-calls.ts`) for the widget and the modal. The modal can now call back linked
+    contacts.
+  - An explicit organization filter closes a latent Agency-Group peer exposure (0 groups exist today).
+- **Visual polish:**
+  - Shared status badges with text labels, in the approved colors.
+  - A primary Calls-blue call action; Clear / Dismiss as secondary actions.
+  - Blocked actions stay focusable and state their reason (`aria-disabled`).
+  - Focus moves to the next row after a removal.
+  - Rows wrap on narrow screens (no horizontal scroll at 390 px).
+  - Normal-case typography; exact or "N+" callback bucket counts.
+- **Team-mode context** (an Admin's Team view; the Team Leader list scope is unchanged):
+  - owner, campaign, assignee, client agent and writing-agent names, from batched organization-scoped reads;
+  - missed-call recipients from routing metadata, never `calls.agent_id`, and never one agent for a call that rang
+    several;
+  - initials only.
+- **Unchanged:** the four KPI cards (pixel-identical), telephony, Twilio, the Dialer, the scope rules, contact identity
+  and RLS on existing tables.
+
+**Files touched:**
+- **Backend package (not applied):**
+  - `supabase/migrations/pending/20261029200000_dashboard_attention_clearances.sql`;
+  - `supabase/migrations/rollback/20261029200000_dashboard_attention_clearances.rollback.sql`;
+  - `supabase/tests/dashboard_attention_clearances{,_harness}.sql`;
+  - `scripts/run_dashboard_attention_tests.sh`;
+  - `.github/workflows/dashboard-attention-backend.yml`.
+- **New frontend:**
+  - `src/lib/dashboard-attention{,-config,-sources}.ts`, `dashboard-missed-calls.ts`, `dashboard-people.ts`,
+    `dashboard-widget-loads.ts`;
+  - `src/hooks/useAttentionClearActions.ts`, `useAttentionDetailFeed.ts`, `useRowFocusRecovery.ts`;
+  - `src/components/dashboard/DashboardAttentionModal.tsx`, `DashboardMissedCallsModal.tsx`,
+    `attention/AttentionModalLayout.tsx`, `callbacks/CallbackRow.tsx`, `missed-calls/MissedCallRow.tsx`;
+  - `ui/DashboardActionButton.tsx`, `ui/DashboardPersonChip.tsx`, `ui/DashboardAttentionSummary.tsx`.
+- **Modified frontend:**
+  - `src/lib/dashboard-callbacks.ts` (approved exception), `dashboard-milestones{,-data}.ts`;
+  - `src/hooks/useDashboardDetailFeed.ts`, `useMilestoneActions.ts`;
+  - `src/pages/Dashboard.tsx`;
+  - `DashboardCallbacksModal.tsx`, `DashboardDetailModal.tsx`, `DashboardMilestonesModal.tsx`, `DashboardRecordRow.tsx`,
+    `DashboardRecordsModal.tsx`, `dashboardRecordText.ts`;
+  - `milestones/MilestoneRow.tsx`, `milestoneCopy.ts`;
+  - `ui/dashboardTones.ts`, `DashboardListRow.tsx`, `DashboardRowActions.tsx`, `DashboardModalShell.tsx`,
+    `DashboardFilterChips.tsx`, `DashboardWidgetFrame.tsx`;
+  - all six widgets and `LeaderboardPreviewRow.tsx`;
+  - `src/integrations/supabase/types.ts` (surgical: one table and two RPCs).
+- **Tests:**
+  - new: `dashboardCallbacksClearances`, `attentionClearActions`, `dashboardMissedCallsModal`, `dashboardTeamContext`,
+    `dashboardStatusBadges`, `src/lib/__tests__/dashboardAttention`, `dashboardMissedCalls`, `dashboardPeople`, and
+    `src/test/fakePostgrest.ts`;
+  - updated: `dashboardCallbacks`, `dashboardCallbacksModal`, `dashboardDetailModalVoicemail`,
+    `clientMilestonesWidget`, `dashboardMilestonesModal`;
+  - `scripts/tests/dashboard-ui/verify.mjs`;
+  - `.github/workflows/dashboard-g3-frontend.yml`.
+- **Docs:** `AGENT_RULES.md` (new attention-clearance invariant, #22 amendment, milestone wording and status), the plan,
+  root `implementation_plan.md`, this log.
+
+**Migrations/deploys:**
+- None applied or deployed.
+- Read-only production catalog / aggregate reads during G1 only.
+- Migration SHA-256 `85ac2ff7dcd435bd48718311b05704e4e7d96293abf9b47fd062ce30610cb8e8` (16,396 bytes).
+- Rollback SHA-256 `9250e2e7cedc8d8e6476838d84e1bc924b869b79248a0e982f68dd267393db55`.
+
+**Verification (local; CI not yet run):**
+- **SQL** (disposable PostgreSQL 16.15, `plpgsql.variable_conflict = error`):
+  - 69 behaviour checks, plus the replay guard, the concurrency check, three negative controls and the rollback proof;
+  - all passed.
+- **Vitest:** 492 passed and 12 skipped across the 33 Dashboard and milestone files (base: 440).
+  - The new tests include an exclusion property test against a brute-force oracle, 40 seeded scenarios × 2 scopes ×
+    4 page sizes.
+  - The milestone engine passed under America/Los_Angeles, Pacific/Auckland and UTC.
+- **Full Vitest:** 6,637 passed. The 10 failing files fail identically on untouched `main` `7a03033`: 9 need
+  `VITE_SUPABASE_URL`, 1 is a recording-retention byte check. None is caused by this change.
+- **Type checks:** `npx tsc --noEmit` clean. App typecheck against `7a03033`: base 80, candidate 80, new 0.
+- **ESLint:** clean on all 59 touched TypeScript files.
+- **Build:** `npm run build` passed (the existing chunk-size warning only).
+- **Browser** (`verify.mjs`, mocked Supabase, 1440/390 px, light/dark, reduced motion): 80/80 checks.
+  - Covered: Clear, Undo and the Cleared view on Callbacks; Clear on Missed Calls; keyboard Dismiss and the Dismissed
+    history; focus after a removal; no horizontal overflow.
+  - KPI cards are pixel-identical to `main` in all four captures (0 changed pixels).
+
+**Blockers / next (each separately approved):**
+1. Chris reviews the G2 package. A PR for CI (G4 checks) only on request.
+2. **G3:** approval of the exact migration bytes and RLS. Then the apply through the approved route (recommended: a
+   protected-workflow release-only PR), catalog read-back, advisors against the 256 / 466 baseline, the history record,
+   a byte-identical move out of `pending/`, and a regenerated-types diff.
+3. **G4:** CI and Vercel preview, plus visual verification.
+4. **G5:** frontend merge, then Chris sets `VITE_DASHBOARD_ATTENTION_CLEARANCES=true`.
+5. Confirm `VITE_DASHBOARD_MILESTONE_REVIEWS` in production (Dismiss needs it).
+6. Follow-ups needing their own approval: `get_performance_details` agent / carrier fields; Team Leader downline lists.
+
+**Context snapshot:** frontend and migration package on the branch only. Production database, Vercel and flags
+unchanged.
 
 ## 2026-10-29 — G2 production closeout; G3 Dashboard release candidate prepared on current main
 

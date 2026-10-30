@@ -2,7 +2,31 @@
 
 **Date:** 2026-10-29 · **Branch:** `release/dashboard-attention-g3-20261029`
 **Base:** `main` 7a03033492c55fd16ea1bacd049934102fe340e4
-**Status:** RELEASE-ONLY PR PREPARATION. No production stage dispatched. No frontend merge, Vercel change or database mutation.
+**Status:** G3 PRODUCTION COMPLETE. The protected check/apply/record-history stages succeeded; migration `20261029200000_dashboard_attention_clearances` is recorded. G4 file reconciliation is staged on draft PR #504. **G5 frontend release remains unapproved.** The pre-release process below is historical.
+
+## G3 closeout and G4 reconciliation — October 29, 2026
+
+**Completed production stages:** `check` run [40967614726](https://github.com/cgarness/agentflow-life-insure/actions/runs/40967614726);
+`apply-migration` run [40968145912](https://github.com/cgarness/agentflow-life-insure/actions/runs/40968145912);
+`record-history` run [40968675025](https://github.com/cgarness/agentflow-life-insure/actions/runs/40968675025).
+All completed successfully through the protected `google-sheets-production` environment.
+
+**Independent production verification:** 352 migration-history rows, recorded version `20261029200000`,
+24 SQL statements, digest `43769e1677e2a218021e7f8bc146f92e86b1154ae00aa1d3c63e8d1515f07693`.
+The table, three RLS policies, both SECURITY INVOKER RPCs, guard and three indexes are present.
+Security advisor 256 findings (unchanged); performance advisor 465 (+1 informational unused index).
+No further production SQL is required for G4.
+
+**Reconciliation staged, not merged:** On draft PR #504, move the exact approved SQL Git blob
+`4ab80696278eb8a0bf2b6731b0d8c64e708a52da` unchanged to
+`supabase/migrations/20261029200000_dashboard_attention_clearances.sql`. The protected runner and
+rehearsal now require the top-level file and no pending duplicate. They retain the recorded-state
+replay refusal and protected rollback. The rollback SQL is byte-identical. Production-generated
+table and RPC types already match PR #504 exactly.
+
+**Next:** G4 CI, PostgreSQL 17.6 rehearsal, frontend regression, typecheck, lint, build, browser
+verification and Vercel preview. Then request Chris's **separate G5 production frontend approval**.
+No merge, production Vercel flag changes or frontend deployment during this reconciliation.
 
 ## Approval scope
 
@@ -15,7 +39,7 @@ Source of truth reviewed: `AGENT_RULES.md`, `VISION.md`, `WORK_LOG.md`, deployed
 - `supabase/migrations/pending/20261029200000_dashboard_attention_clearances.sql`: 16,396 bytes, SHA-256 **85ac2ff7dcd435bd48718311b05704e4e7d96293abf9b47fd062ce30610cb8e8**, Git blob `4ab80696278eb8a0bf2b6731b0d8c64e708a52da`.
 - `supabase/migrations/rollback/20261029200000_dashboard_attention_clearances.rollback.sql`: 2,338 bytes, SHA-256 **9250e2e7cedc8d8e6476838d84e1bc924b869b79248a0e982f68dd267393db55**, Git blob `647e78d16ba39480da5e7ec754f1f43598f9c3d6`.
 
-Both Git blobs are **byte-identical** to approved Dashboard feature PR #504. They remain in `pending/`. All existing CRM calls, campaign leads, appointments, missed-call telemetry, voicemail and other source tables are unchanged.
+Both Git blobs are **byte-identical** to approved Dashboard feature PR #504. This section describes their original pre-apply location; the G4 candidate now stages the forward SQL in `supabase/migrations/` with the same blob, while production `main` remains unchanged until an approved merge. All existing CRM calls, campaign leads, appointments, missed-call telemetry, voicemail and other source tables are unchanged.
 
 ## Verified production preflight
 

@@ -66,12 +66,12 @@ describe("DashboardMilestonesModal", () => {
   it("filters by status and restores a snoozed milestone through the conditional Undo", async () => {
     mount();
     await screen.findByText("Sam Ortiz");
+    expect(screen.getByRole("button", { name: /^Dismissed \(/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Snoozed (1)" }));
     expect(screen.getByText("Snoozed Sue")).toBeInTheDocument();
     expect(screen.getByText(/^Reminds you /)).toBeInTheDocument();
-    fireEvent.keyDown(screen.getByRole("button", { name: "More actions for Snoozed Sue" }), { key: "Enter" });
-    const menu = await screen.findByRole("menu");
-    await act(async () => { fireEvent.click(within(menu).getByRole("menuitem", { name: /Undo/ })); });
+    // Undo is a visible button on a dismissed or snoozed row (no hover, no menu needed).
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Undo for Snoozed Sue" })); });
     expect(h.clear).toHaveBeenCalledWith({ id: "dddd0000-0000-4000-8000-000000000001", updatedAt: "2026-10-29T19:00:00Z" });
     await waitFor(() => expect(h.load).toHaveBeenCalledTimes(2));
   });

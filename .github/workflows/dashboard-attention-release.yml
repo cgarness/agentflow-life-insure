@@ -1,6 +1,8 @@
 name: Dashboard attention clearances G3 release (approval required)
 # Manual, main only. Applies ONLY the approved G3 attention migration
-# supabase/migrations/pending/20261029200000_dashboard_attention_clearances.sql (16,396 bytes, SHA-256 85ac2ff7…10cb8e8)
+# supabase/migrations/20261029200000_dashboard_attention_clearances.sql (16,396 bytes, SHA-256 85ac2ff7…10cb8e8)
+# G3 is already applied/recorded; the SQL file is reconciled, not re-applied.
+# Apply/history replay fails closed in recorded state; rollback requires separate approval.
 # to jncvvsvckxhqgqvkppmj in one psql transaction, then records it as 20261029200000 with the pinned CLI's
 # `migration repair --status applied`. Never db push / migration up; no other migration can run. No frontend flag,
 # Vercel variable or deploy is touched. Each dispatch needs Chris's separate approval, then the protected

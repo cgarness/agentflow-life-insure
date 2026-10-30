@@ -68,9 +68,9 @@ export const DashboardModalShell: React.FC<DashboardModalShellProps> = ({
             <Icon className="h-5 w-5 text-white" aria-hidden="true" />
           </span>
           <div className="min-w-0">
-            <DialogTitle className="text-lg font-semibold tracking-tight">{title}</DialogTitle>
+            <DialogTitle className="text-lg font-semibold leading-6 tracking-tight">{title}</DialogTitle>
             {description ? (
-              <DialogDescription className="mt-1 text-xs">{description}</DialogDescription>
+              <DialogDescription className="mt-0.5 text-xs leading-4">{description}</DialogDescription>
             ) : (
               <DialogDescription className="sr-only">{title} details</DialogDescription>
             )}
@@ -94,7 +94,7 @@ export const DashboardModalShell: React.FC<DashboardModalShellProps> = ({
 
 /** Initial load in progress. */
 export const DashboardModalLoading: React.FC = () => (
-  <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+  <div role="status" className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
     <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> Loading records...
   </div>
 );

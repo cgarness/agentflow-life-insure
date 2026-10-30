@@ -52,7 +52,7 @@ export const DashboardRowActions: React.FC<{
   menuLabel?: string;
   busy?: boolean;
 }> = ({ name, primary, items = [], menuLabel, busy = false }) => (
-  <div className="flex items-center gap-1.5">
+  <div className="flex flex-wrap items-center justify-end gap-1.5">
     {primary}
     {items.length > 0 && (
       <DropdownMenu modal={false}>
@@ -61,7 +61,7 @@ export const DashboardRowActions: React.FC<{
             type="button"
             variant="ghost"
             size="icon"
-            className="h-9 w-9 rounded-lg"
+            className="h-9 w-9 rounded-lg text-muted-foreground hover:text-foreground motion-reduce:transition-none"
             aria-label={`More actions for ${name}`}
             disabled={busy}
           >

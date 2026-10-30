@@ -3,6 +3,7 @@
 // Usage: start Vite with the mock env, then `node scripts/tests/dashboard-ui/verify.mjs <outDir>`:
 //   VITE_SUPABASE_URL=https://mock.supabase.co VITE_SUPABASE_ANON_KEY=anon-test \
 //   VITE_DASHBOARD_MILESTONE_REVIEWS=true VITE_FIRST_PAYMENT_REMINDERS_START=<YYYY-MM-DD> \
+//   VITE_DASHBOARD_ATTENTION_CLEARANCES=true \
 //   npx vite --port 5181 --host 127.0.0.1
 // DASH_BASE_URL overrides the URL; DASH_KPI_ONLY=1 captures only the KPI cards (used on the base commit
 // to prove they are pixel-identical). PLAYWRIGHT_MODULE / CHROMIUM_PATH override module and browser.
@@ -54,11 +55,11 @@ const schedule = [
   { id: "a2", title: "Quote", contact_name: "Avery Brooks", start_time: at(18, 30), type: "Sales Call", status: "Scheduled" },
 ];
 const callbackAppointments = [
-  { id: "f1", contact_id: leads[0].id, contact_name: "Casey Callback", contact_type: null, start_time: new Date(Date.now() - 3_600_000).toISOString(),
+  { id: "f1000000-0000-4000-8000-000000000001", contact_id: leads[0].id, contact_name: "Casey Callback", contact_type: null, start_time: new Date(Date.now() - 3_600_000).toISOString(),
     notes: "Asked for a quote on final expense", user_id: USER, created_by: USER, type: "Follow Up", status: "Scheduled", phone: "5550000009" },
 ];
 const missed = [
-  { id: "call-1", contact_id: clients[1].id, contact_name: "Sam Ortiz", contact_type: null, contact_phone: "5550000002", created_at: new Date(Date.now() - 40 * 60_000).toISOString(),
+  { id: "c0110000-0000-4000-8000-000000000001", contact_id: clients[1].id, contact_name: "Sam Ortiz", contact_type: null, contact_phone: "5550000002", created_at: new Date(Date.now() - 40 * 60_000).toISOString(),
     disposition_name: null, direction: "inbound", is_missed: true, missed_reason: "no_answer", outcome: "missed", agent_id: null, answered_by_agent_id: null, voicemail_id: null },
 ];
 
@@ -77,8 +78,10 @@ function summary(args) {
     current: totals(1), previous: totals(1) };
 }
 
-// ---- stateful fake review store ----
+// ---- stateful fake review and clearance stores (the server derives the occurrence from the source) ----
 const reviews = [];
+const clearances = [];
+const inIds = (q) => q.get("id")?.match(/^in\.\((.*)\)$/)?.[1]?.split(",");
 const results = [];
 const check = (ok, name) => { results.push(`${ok ? "PASS" : "FAIL"} ${name}`); if (!ok) console.error("FAIL", name); };
 
@@ -89,7 +92,10 @@ async function route(r) {
   const q = url.searchParams;
   const single = (req.headers()["accept"] || "").includes("vnd.pgrst.object");
   const json = (body, status = 200, headers = {}) => r.fulfill({ status, contentType: "application/json", headers, body: JSON.stringify(body) });
-  const list = (rows) => json(single ? rows[0] ?? null : rows, 200, { "content-range": `0-${Math.max(rows.length - 1, 0)}/${rows.length}` });
+  // Exact counts arrive in Content-Range, which a cross-origin page can read only when it is exposed (as Supabase does).
+  const list = (rows) => json(single ? rows[0] ?? null : rows, 200, {
+    "content-range": `0-${Math.max(rows.length - 1, 0)}/${rows.length}`, "access-control-expose-headers": "Content-Range",
+  });
   if (p.startsWith("/auth/v1/user")) return json(user);
   if (p.startsWith("/auth/v1/token")) return json({ access_token: JWT, refresh_token: "r", token_type: "bearer", expires_in: 3600, expires_at: exp, user });
   if (p.startsWith("/auth/v1/")) return json({});
@@ -102,11 +108,30 @@ async function route(r) {
     reviews.push(row);
     return json(row);
   }
+  if (p === "/rest/v1/rpc/clear_dashboard_attention_item") {
+    const a = req.postDataJSON();
+    const source = a.p_source_type === "missed_call" ? missed.find((c) => c.id === a.p_source_id)
+      : callbackAppointments.find((x) => x.id === a.p_source_id);
+    if (!source) return json({ code: "PT404", message: "This item is no longer pending" }, 404);
+    const occurrence = a.p_source_type === "missed_call" ? source.created_at : source.start_time;
+    if (Date.parse(occurrence) !== Date.parse(a.p_expected_occurrence_at)) return json({ code: "PT409", message: "changed" }, 409);
+    const row = { id: `abcd0000-0000-4000-8000-${String(clearances.length + 1).padStart(12, "0")}`, user_id: USER, organization_id: ORG,
+      source_type: a.p_source_type, source_id: a.p_source_id, occurrence_at: occurrence, cleared_at: new Date().toISOString() };
+    clearances.push(row);
+    return json(row);
+  }
+  if (p === "/rest/v1/rpc/undo_dashboard_attention_clear") {
+    const a = req.postDataJSON();
+    const i = clearances.findIndex((c) => c.id === a.p_id && c.cleared_at === a.p_expected_cleared_at);
+    if (i >= 0) clearances.splice(i, 1);
+    return json(i >= 0);
+  }
   if (p.startsWith("/rest/v1/rpc/")) return json(null, 400);
   if (p === "/rest/v1/profiles") return json(single ? profile : [profile]);
   if (p === "/rest/v1/organizations") return json(single ? { id: ORG, name: "Test Agency", status: "active" } : [{ id: ORG, name: "Test Agency", status: "active" }]);
   if (p === "/rest/v1/user_preferences") return json(single ? null : []);
   if (p === "/rest/v1/dashboard_milestone_reviews") return list(reviews);
+  if (p === "/rest/v1/dashboard_attention_clearances") return list(q.get("id")?.startsWith("gt.") ? [] : clearances);
   if (p === "/rest/v1/clients") {
     const ids = q.get("id")?.match(/^in\.\((.*)\)$/)?.[1]?.split(",");
     if (ids) return list(clients.filter((c) => ids.includes(c.id)));
@@ -118,10 +143,14 @@ async function route(r) {
     return list(leads.filter((l) => ids.includes(l.id)));
   }
   if (p === "/rest/v1/appointments") {
-    if (q.get("type")?.startsWith("in.")) return list(callbackAppointments);
+    const ids = inIds(q);
+    if (q.get("type")?.startsWith("in.")) return list(ids ? callbackAppointments.filter((x) => ids.includes(x.id)) : callbackAppointments);
     return list(schedule);
   }
-  if (p === "/rest/v1/calls") return list(missed);
+  if (p === "/rest/v1/calls") {
+    const ids = inIds(q);
+    return list(ids ? missed.filter((c) => ids.includes(c.id)) : missed);
+  }
   if (p.startsWith("/rest/v1/")) return list([]);
   if (p.startsWith("/storage/")) return json([]);
   return json({});
@@ -138,9 +167,19 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
     const page = await ctx.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
+    // Load evidence printed only if the Dashboard never renders (the CI artifact holds no page state).
+    const trail = [];
+    page.on("console", (m) => { if (m.type() === "error") trail.push(`console.error: ${m.text()}`); });
+    page.on("response", (r) => { if (r.status() >= 400 && r.url().startsWith(BASE)) trail.push(`HTTP ${r.status()} ${r.url()}`); });
+    page.on("requestfailed", (r) => { if (r.url().startsWith(BASE)) trail.push(`failed ${r.url()}: ${r.failure()?.errorText}`); });
+    page.on("framenavigated", (f) => { if (f === page.mainFrame()) trail.push(`navigated ${f.url()}`); });
     await page.goto(`${BASE}/dashboard`);
     const kpis = page.locator("div.grid").filter({ hasText: "Calls Made Today" }).first();
-    await kpis.waitFor({ timeout: 30000 });
+    await kpis.waitFor({ timeout: 30000 }).catch(async (e) => {
+      const body = await page.locator("body").innerText().catch(() => "<no body>");
+      console.error(`${tag}: KPI cards never rendered at ${page.url()}\n${[...errors, ...trail].slice(-40).join("\n")}\nbody: ${body.slice(0, 600)}`);
+      throw e;
+    });
     await page.getByText("$4,200.00").first().waitFor({ timeout: 15000 });
     await page.waitForTimeout(800);
     await kpis.screenshot({ path: `${OUT}/kpi-${tag}.png`, animations: "disabled" });
@@ -166,35 +205,68 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile
     await page.screenshot({ path: `${OUT}/milestones-modal-${tag}.png`, animations: "disabled" });
     const box = await dialog.boundingBox();
     check(box && box.x >= 0 && box.x + box.width <= vp.width + 1, `${tag}: milestones modal fits the viewport`);
-    // Keyboard-operated row menu inside the modal.
+    // Keyboard-operated row menu inside the modal (Remind later), and a VISIBLE Dismiss button.
     const more = dialog.getByRole("button", { name: "More actions for Riley Stone" });
     await more.focus();
     await page.keyboard.press("Enter");
     const menu = page.getByRole("menu");
     await menu.waitFor({ timeout: 5000 });
-    check(await menu.getByRole("menuitem", { name: /Mark reviewed/ }).isVisible(), `${tag}: Mark reviewed reachable by keyboard`);
+    check(await menu.getByRole("menuitem", { name: /Remind later/ }).isVisible(), `${tag}: Remind later reachable by keyboard`);
     await page.screenshot({ path: `${OUT}/milestone-menu-${tag}.png`, animations: "disabled" });
-    await menu.getByRole("menuitem", { name: /Mark reviewed/ }).click();
-    await page.getByText(/Marked reviewed: Riley Stone/).waitFor({ timeout: 5000 });
-    check(true, `${tag}: Mark reviewed reports success with Undo`);
-    // The reviewed row leaves the list (and the widget behind reloads): wait for both.
+    await page.keyboard.press("Escape");
+    await menu.waitFor({ state: "hidden", timeout: 5000 });
+    const dismiss = dialog.getByRole("button", { name: "Dismiss birthday for Riley Stone" });
+    check(await dismiss.isVisible(), `${tag}: Dismiss is a visible button (no hover, no menu)`);
+    await dismiss.focus();
+    await page.keyboard.press("Enter");
+    await page.getByText(/Dismissed: Riley Stone/).waitFor({ timeout: 5000 });
+    check(true, `${tag}: Dismiss reports success with Undo`);
+    // The dismissed row leaves the list (and the widget behind reloads): wait for both.
     await dialog.getByText("Riley Stone").waitFor({ state: "detached", timeout: 5000 });
     await page.waitForTimeout(300);
     check(!(await page.getByRole("region", { name: "Client Milestones" }).getByText("Riley Stone").isVisible()),
-      `${tag}: the widget behind the modal also drops the reviewed milestone`);
+      `${tag}: the widget behind the modal also drops the dismissed milestone`);
+    await dialog.getByRole("button", { name: /^Dismissed \(1\)/ }).click();
+    check(await dialog.getByText("Riley Stone").isVisible(), `${tag}: the Dismissed history lists it`);
     await page.keyboard.press("Escape");
     await dialog.waitFor({ state: "hidden", timeout: 5000 });
     check(await details.evaluate((el) => el === document.activeElement), `${tag}: focus returns to the details button`);
     reviews.length = 0;
 
-    // Callbacks detail on the shared shell.
-    await page.getByRole("button", { name: "Open Callbacks details" }).click();
+    // Callbacks: Clear from the widget by keyboard; the row leaves only after the server stored it.
+    const cbWidget = page.getByRole("region", { name: "Callbacks" });
+    const clearCb = cbWidget.getByRole("button", { name: "Clear callback for Casey Callback" });
+    await clearCb.waitFor({ timeout: 10000 });
+    check(await clearCb.isVisible(), `${tag}: Clear is a visible button on a callback row`);
+    await clearCb.focus();
+    await page.keyboard.press("Enter");
+    await page.getByText("Callback cleared: Casey Callback").waitFor({ timeout: 5000 });
+    await cbWidget.getByText("Casey Callback").waitFor({ state: "detached", timeout: 5000 });
+    check(await cbWidget.getByText("No pending callbacks").isVisible(), `${tag}: an all-cleared queue is empty, with the exact total`);
+    check(await page.evaluate(() => document.activeElement !== document.body), `${tag}: focus is not lost after a row is cleared`);
+    await page.screenshot({ path: `${OUT}/callbacks-cleared-${tag}.png`, animations: "disabled" });
+    await cbWidget.getByRole("button", { name: /1 cleared/ }).click();
     const cb = page.getByRole("dialog", { name: "Callbacks" });
     await cb.waitFor({ timeout: 10000 });
-    await page.waitForTimeout(400);
+    await cb.getByText("Casey Callback").waitFor({ timeout: 5000 });
+    check(await cb.getByRole("button", { name: "Cleared (1)" }).getAttribute("aria-pressed") === "true", `${tag}: the Cleared view opens from the widget link`);
+    await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/callbacks-modal-${tag}.png`, animations: "disabled" });
+    const dialogOverflow = await cb.evaluate((el) => el.scrollWidth - el.clientWidth);
+    check(dialogOverflow <= 1, `${tag}: the Callbacks dialog has no horizontal overflow (${dialogOverflow}px)`);
+    await cb.getByRole("button", { name: "Undo clear for Casey Callback" }).click();
+    await cbWidget.getByText("Casey Callback").waitFor({ timeout: 5000 });
+    check(true, `${tag}: Undo restores the callback to the widget`);
     await page.keyboard.press("Escape");
     await cb.waitFor({ state: "hidden", timeout: 5000 });
+
+    // Missed Calls: Clear a missed call; the call record itself is never written (no write route exists).
+    const mcWidget = page.getByRole("region", { name: "Missed Calls" });
+    await mcWidget.getByRole("button", { name: "Clear missed call from Sam Ortiz" }).click();
+    await page.getByText("Missed call cleared: Sam Ortiz").waitFor({ timeout: 5000 });
+    await mcWidget.getByText("All caught up!").waitFor({ timeout: 5000 });
+    check(await mcWidget.getByRole("button", { name: /1 cleared/ }).isVisible(), `${tag}: a cleared missed call leaves the queue and is still reachable`);
+    clearances.length = 0;
 
     // A KPI drill-down on the same shell.
     await page.getByText("Calls Made Today").click();

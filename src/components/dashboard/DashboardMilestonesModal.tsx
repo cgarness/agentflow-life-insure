@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ANNIVERSARY_DETAIL_WINDOW_DAYS, BIRTHDAY_WINDOW_DAYS, type MilestoneStatus } from "@/lib/dashboard-milestones";
 import { loadClientMilestones, type MilestoneLoad } from "@/lib/dashboard-milestones-data";
 import { MILESTONE_CONFIG, type MilestoneConfig } from "@/lib/dashboard-milestones-config";
+import { EMPTY_PEOPLE, personLabel, type PeopleLookup, resolvePeople } from "@/lib/dashboard-people";
 import { listScopeIsFiltered, listScopeNote } from "@/lib/dashboard-scope";
 import { useMilestoneActions, useMilestoneContactHandlers } from "@/hooks/useMilestoneActions";
 import { DashboardModalEmpty, DashboardModalError, DashboardModalLoading, DashboardModalShell } from "@/components/dashboard/ui/DashboardModalShell";
@@ -23,16 +24,21 @@ interface Props {
   adminToggle: "team" | "my";
   organizationId: string | null;
   config?: MilestoneConfig;
+  /** Open on Pending (default) or on the Dismissed history (stored state `reviewed`). */
+  initialStatus?: MilestoneStatus;
 }
 
-type State = { status: "loading" } | { status: "failed" } | { status: "ready"; load: MilestoneLoad };
+type State = { status: "loading" } | { status: "failed" } | { status: "ready"; load: MilestoneLoad; people: PeopleLookup };
 
 /**
  * Client Milestones detail (plan §6.4): birthdays 14 days, anniversaries 90 days,
- * first payments from 3 days before the Draft Date until reviewed. One complete load
+ * first payments from 3 days before the Draft Date until dismissed. One complete load
  * (no pagination, as before); the widget's scope rule (opened from the widget, §2A).
+ * Pending · Snoozed · Dismissed; in an Admin's Team view each row names the client's agent.
  */
-const DashboardMilestonesModal: React.FC<Props> = ({ open, onClose, userId, role, adminToggle, organizationId, config = MILESTONE_CONFIG }) => {
+const DashboardMilestonesModal: React.FC<Props> = ({
+  open, onClose, userId, role, adminToggle, organizationId, config = MILESTONE_CONFIG, initialStatus = "pending",
+}) => {
   const { isImpersonating } = useAuth();
   const isFiltered = listScopeIsFiltered(role, adminToggle);
   const [state, setState] = useState<State>({ status: "loading" });
@@ -46,7 +52,12 @@ const DashboardMilestonesModal: React.FC<Props> = ({ open, onClose, userId, role
     const controller = new AbortController();
     if (!keepRows) setState({ status: "loading" });
     loadClientMilestones({ userId, organizationId, isFiltered }, config, ANNIVERSARY_DETAIL_WINDOW_DAYS, controller.signal)
-      .then((result) => { if (mine === generation.current) setState({ status: "ready", load: result }); })
+      .then(async (result) => {
+        // Team view: the client's agent per row (presentation only; a failed lookup says so).
+        const people = isFiltered ? EMPTY_PEOPLE
+          : await resolvePeople(organizationId, result.items.map((item) => item.assignedAgentId), controller.signal).catch(() => ({ ...EMPTY_PEOPLE, unavailable: true }));
+        if (mine === generation.current) setState({ status: "ready", load: result, people });
+      })
       .catch((err) => {
         console.error("[ClientMilestones] Failed to load milestone details:", err);
         if (mine === generation.current) setState({ status: "failed" });
@@ -56,15 +67,16 @@ const DashboardMilestonesModal: React.FC<Props> = ({ open, onClose, userId, role
 
   useEffect(() => {
     if (!open) return;
-    setCategory("all"); setStatus("pending"); setSearch("");
+    setCategory("all"); setStatus(initialStatus); setSearch("");
     const cancel = load(false);
     return () => { generation.current += 1; cancel(); };
-  }, [open, load]);
+  }, [open, load, initialStatus]);
 
   const actions = useMilestoneActions(() => { load(true); });
   const contact = useMilestoneContactHandlers();
   const reviewsEnabled = config.reviewsEnabled && !isImpersonating;
-  const handlers = { ...contact, onMarkReviewed: actions.markReviewed, onRemindLater: actions.remindLater, onRestore: actions.restore };
+  const handlers = { ...contact, onDismiss: actions.dismiss, onRemindLater: actions.remindLater, onRestore: actions.restore };
+  const people = state.status === "ready" && !isFiltered ? state.people : null;
 
   const items = state.status === "ready" ? state.load.items : [];
   const byStatus = items.filter((item) => item.status === status);
@@ -82,7 +94,7 @@ const DashboardMilestonesModal: React.FC<Props> = ({ open, onClose, userId, role
       tone="pink"
       icon={Gift}
       title="Client Milestones"
-      description={`Birthdays: next ${BIRTHDAY_WINDOW_DAYS} days · Anniversaries: next ${ANNIVERSARY_DETAIL_WINDOW_DAYS} days${firstPaymentsOn ? " · First payments: from 3 days before the Draft Date until reviewed" : ""}`}
+      description={`Birthdays: next ${BIRTHDAY_WINDOW_DAYS} days · Anniversaries: next ${ANNIVERSARY_DETAIL_WINDOW_DAYS} days${firstPaymentsOn ? " · First payments: from 3 days before the Draft Date until dismissed" : ""}`}
       toolbar={
         <>
           <DashboardScopeNote text={listScopeNote(role, adminToggle, "client milestones")} />
@@ -100,7 +112,7 @@ const DashboardMilestonesModal: React.FC<Props> = ({ open, onClose, userId, role
             <DashboardFilterChips<MilestoneStatus> label="Milestone status" value={status} onChange={setStatus} chips={[
               { id: "pending", label: "Pending", count: items.filter((i) => i.status === "pending").length },
               { id: "snoozed", label: "Snoozed", count: items.filter((i) => i.status === "snoozed").length },
-              { id: "reviewed", label: "Reviewed", count: items.filter((i) => i.status === "reviewed").length },
+              { id: "reviewed", label: "Dismissed", count: items.filter((i) => i.status === "reviewed").length },
             ]} />
           )}
           <MilestoneCategoryChips items={byStatus} value={category} onChange={setCategory} complete={complete} firstPaymentsOn={firstPaymentsOn} />
@@ -121,7 +133,8 @@ const DashboardMilestonesModal: React.FC<Props> = ({ open, onClose, userId, role
       ) : visible.length > 0 ? (
         <DashboardList label="Client milestones">
           {visible.map((item) => (
-            <MilestoneRow key={item.key} item={item} reviewsEnabled={reviewsEnabled} busy={actions.busyKeys.has(item.key)} handlers={handlers} />
+            <MilestoneRow key={item.key} item={item} reviewsEnabled={reviewsEnabled} busy={actions.busyKeys.has(item.key)} handlers={handlers}
+              agentName={people ? personLabel(people, item.assignedAgentId) : undefined} />
           ))}
         </DashboardList>
       ) : (

@@ -875,6 +875,8 @@ function seedFullFirstPage(count = 20) {
   });
   state.contacts.leads = leads;
   state.rows["campaign-due"] = rows;
+  // The detail view pages against the EXACT total (Polish V2): more rows exist beyond this page.
+  state.counts["campaign-due"] = count * 2;
   return rows;
 }
 
@@ -938,13 +940,14 @@ describe("Correction 2 — stale requests cannot overwrite newer results", () =>
 
     const { screen, waitFor, cleanup, view, React, Modal, props } = await renderDetailModal();
 
-    // Second initial request: change timeRange, which the effect deps watch. It succeeds.
+    // Second initial request: change the scope (Team perspective), which the feed watches —
+    // callbacks are not period-scoped, so the KPI period no longer starts one. It succeeds.
     delete state.deferred["campaign-due"];
     state.rows["campaign-due"] = [{
       id: "cl-new", lead_id: LEAD_B, callback_due_at: "2026-08-03T09:00:00.000Z",
       scheduled_callback_at: null, status: "Called", first_name: "Bo", last_name: "Bee", phone: "5551110002",
     }];
-    view.rerender(React.createElement(Modal, { ...props, timeRange: "month" as const }));
+    view.rerender(React.createElement(Modal, { ...props, adminToggle: "team" as const }));
     await waitFor(() => expect(screen.getByText("Bo Bee")).toBeTruthy());
 
     // NOW let the stale first request fail.
@@ -977,7 +980,7 @@ describe("Correction 2 — stale requests cannot overwrite newer results", () =>
       promise: new Promise((res) => { settleSecond = res; }),
       settle: (v) => settleSecond(v),
     };
-    view.rerender(React.createElement(Modal, { ...props, timeRange: "month" as const }));
+    view.rerender(React.createElement(Modal, { ...props, adminToggle: "team" as const }));
 
     // Stale request settles first.
     settleFirst({ data: [], error: null });

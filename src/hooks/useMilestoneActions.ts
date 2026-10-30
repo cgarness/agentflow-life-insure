@@ -26,7 +26,7 @@ function failure(err: unknown, fallback: string) {
 }
 
 /**
- * Mark Reviewed / Remind Later / Undo for Client Milestones (plan §6.5).
+ * Dismiss (stored as `reviewed`) / Remind Later / Undo for Client Milestones (plan §6.5; Polish V2 §3.2).
  *
  * Every action is awaited and reported only after the server stored it; a failure
  * leaves the milestone as it was. One action per milestone at a time. After any
@@ -89,8 +89,8 @@ export function useMilestoneActions(onChanged: () => void) {
     [guarded, onChanged, undo],
   );
 
-  const markReviewed = useCallback(
-    (item: Milestone) => store(item, { state: "reviewed" }, `Marked reviewed: ${item.clientName}`),
+  const dismiss = useCallback(
+    (item: Milestone) => store(item, { state: "reviewed" }, `Dismissed: ${item.clientName}`),
     [store],
   );
 
@@ -103,7 +103,7 @@ export function useMilestoneActions(onChanged: () => void) {
     [store],
   );
 
-  /** Restore a reviewed or snoozed milestone to pending (the detail view's Undo). */
+  /** Restore a dismissed or snoozed milestone to pending (Undo). */
   const restore = useCallback(
     (item: Milestone) => {
       if (!item.reviewId || !item.reviewUpdatedAt) return Promise.resolve();
@@ -112,7 +112,7 @@ export function useMilestoneActions(onChanged: () => void) {
     [undo],
   );
 
-  return { busyKeys, markReviewed, remindLater, restore };
+  return { busyKeys, dismiss, remindLater, restore };
 }
 
 /** Call and View Contact for a milestone row (a client, never a lead). */

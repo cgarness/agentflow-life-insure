@@ -2,6 +2,9 @@
 """Protected G3 release of approved Dashboard attention-clearance SQL.
 
 Only the pinned 16,396-byte approved migration and its pinned rollback may execute.
+G3 is already applied and recorded in production; the top-level migration file
+is a byte-identical reconciliation, NOT another database release. The recorded
+state refuses apply/history replay. Rollback still requires separate approval.
 Check, apply, record-history and rollback are separately dispatched, confirmed and
 reviewed by cgarness in protected GitHub environment google-sheets-production.
 Requires main, refuses configuration drift, refuses a rollback containing user data,
@@ -29,7 +32,7 @@ ENVIRONMENT = 'google-sheets-production'
 REVIEWER = 'cgarness'
 VERSION = '20261029200000'
 NAME = 'dashboard_attention_clearances'
-SOURCE = Path('supabase/migrations/pending/20261029200000_dashboard_attention_clearances.sql')
+SOURCE = Path('supabase/migrations/20261029200000_dashboard_attention_clearances.sql')
 SOURCE_BYTES = 16396
 SOURCE_SHA256 = '85ac2ff7dcd435bd48718311b05704e4e7d96293abf9b47fd062ce30610cb8e8'
 ROLLBACK = Path('supabase/migrations/rollback/20261029200000_dashboard_attention_clearances.rollback.sql')
@@ -121,8 +124,8 @@ def files_gate(root):
             and hashlib.sha256(rollback.read_bytes()).hexdigest() == ROLLBACK_SHA256,
             'rollback bytes and checksum (2,338 bytes, SHA-256 9250e2e7…)')
     migrations = root / 'supabase/migrations'
-    require(sorted(migrations.glob(f'*_{NAME}.sql')) == [], 'no top-level copy (no auto-apply)')
-    require(sorted((migrations / 'pending').glob(f'*_{NAME}.sql')) == [source], 'exactly one copy in pending/')
+    require(sorted(migrations.glob(f'*_{NAME}.sql')) == [source], 'exactly one copy, in migrations/')
+    require(sorted((migrations / 'pending').glob(f'*_{NAME}.sql')) == [], 'no pending copy (already applied)')
     require(sorted((migrations / 'rollback').glob(f'*_{NAME}.rollback.sql')) == [rollback], 'exactly one rollback')
     return source.read_bytes(), rollback.read_bytes()
 

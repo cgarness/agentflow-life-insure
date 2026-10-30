@@ -1,11 +1,38 @@
 import React from "react";
+import {
+  AlertCircle, BellRing, Cake, CalendarClock, CalendarDays, CalendarHeart, Check, CheckCircle2, Clock, EyeOff,
+  PhoneMissed, Smartphone, UserX, Voicemail, Wallet, XCircle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DASHBOARD_TONES, type DashboardTone } from "@/components/dashboard/ui/dashboardTones";
+import { DASHBOARD_STATUS, DASHBOARD_TONES, type DashboardStatusKey, type DashboardTone } from "@/components/dashboard/ui/dashboardTones";
 
 /** A status label. Always text, so meaning never depends on color alone. */
-export const DashboardStatusPill: React.FC<{ className: string; children: React.ReactNode }> = ({ className, children }) => (
-  <span className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium", className)}>
+export const DashboardStatusPill: React.FC<{ className: string; icon?: React.ElementType; children: React.ReactNode }> = ({
+  className,
+  icon: Icon,
+  children,
+}) => (
+  <span className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium", className)}>
+    {Icon && <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
     {children}
+  </span>
+);
+
+const STATUS_ICONS: Record<DashboardStatusKey, React.ElementType> = {
+  scheduled: CalendarClock, overdue: AlertCircle, dueToday: Clock, upcoming: CalendarDays,
+  missed: PhoneMissed, voicemail: Voicemail, answeredOnMobile: Smartphone,
+  // EyeOff, not a check mark: hidden from this Dashboard, never "done".
+  cleared: EyeOff, dismissed: EyeOff,
+  firstPayment: Wallet, birthday: Cake, anniversary: CalendarHeart, followUp: BellRing, needsReview: AlertCircle,
+  snoozed: BellRing, confirmed: CheckCircle2, completed: Check, noShow: UserX, cancelled: XCircle,
+};
+
+/** One of the shared status badges (`DASHBOARD_STATUS`); `label` overrides its text. */
+export const DashboardStatusBadge: React.FC<{ status: DashboardStatusKey; label?: string; testId?: string }> = ({ status, label, testId }) => (
+  <span data-testid={testId} data-status={status} className="inline-flex">
+    <DashboardStatusPill className={DASHBOARD_STATUS[status].className} icon={STATUS_ICONS[status]}>
+      {label ?? DASHBOARD_STATUS[status].label}
+    </DashboardStatusPill>
   </span>
 );
 
@@ -41,7 +68,7 @@ interface DashboardListRowProps {
   leading: React.ReactNode;
   title: React.ReactNode;
   meta?: React.ReactNode;
-  /** Extra content under the meta line (a note, a voicemail player). */
+  /** Extra content under the meta line (a note, a voicemail player, an owner chip). */
   detail?: React.ReactNode;
   status?: React.ReactNode;
   actions?: React.ReactNode;
@@ -70,23 +97,25 @@ export const DashboardListRow: React.FC<DashboardListRowProps> = ({
     className={cn(
       // A short fade-in only; none at all under prefers-reduced-motion.
       "animate-in fade-in-0 duration-150 motion-reduce:animate-none",
-      "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/60 bg-card/60 px-3 py-2.5",
-      "transition-colors hover:bg-muted/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-background",
-      "motion-reduce:transition-none sm:flex-nowrap",
+      "flex flex-wrap items-center gap-x-3 gap-y-2.5 rounded-xl border border-border/60 bg-card/60 px-3 py-3",
+      "transition-colors hover:border-border hover:bg-muted/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-background",
+      // Actions wrap under the text whenever the row is too narrow for both (a phone, a half-width widget).
+      "motion-reduce:transition-none",
       DASHBOARD_TONES[tone].rowRing,
       className,
     )}
   >
-    <div className="flex min-w-0 flex-1 basis-56 items-center gap-3">
+    <div className="flex min-w-0 flex-1 basis-64 items-center gap-3">
       {leading}
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-foreground">{title}</p>
-        {meta && <p className="line-clamp-2 break-words text-xs text-muted-foreground">{meta}</p>}
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="truncate text-sm font-semibold leading-5 text-foreground">{title}</p>
+        {meta && <p className="line-clamp-2 break-words text-xs leading-4 text-muted-foreground">{meta}</p>}
         {detail}
       </div>
     </div>
     {(status || actions) && (
-      <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+      // On a phone the status and actions take their own full-width line and wrap; from `sm` they sit at the end.
+      <div className="ml-auto flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:shrink-0">
         {status}
         {actions}
       </div>

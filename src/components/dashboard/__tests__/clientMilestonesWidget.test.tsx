@@ -96,7 +96,8 @@ describe("ClientMilestonesWidget", () => {
     expect(screen.queryByText("Done Already")).not.toBeInTheDocument();
     expect(screen.getByText(/^3-year policy anniversary · .* · Term · Aetna$/)).toBeInTheDocument();
     expect(screen.getByText(/^Draft date was .* · not yet reviewed$/)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/renewal|expir|overdue|missed|failed|paid/i);
+    // Word-bounded: "Dismissed" (the review history) is not the payment word "missed".
+    expect(document.body.textContent).not.toMatch(/\b(renewal|expir\w*|overdue|missed|failed|paid)\b/i);
     const group = screen.getByRole("group", { name: "Milestone category" });
     fireEvent.click(within(group).getByRole("button", { name: "Anniversaries (1)" }));
     expect(screen.queryByText("Riley Stone")).not.toBeInTheDocument();
@@ -111,19 +112,22 @@ describe("ClientMilestonesWidget", () => {
     expect(screen.getByText(/^Showing your own client milestones\./)).toBeInTheDocument();
   });
 
-  it("offers review actions only when reviews are live, operable from the keyboard", async () => {
+  it("offers review actions only when reviews are live: a VISIBLE Dismiss button, Remind later in the menu", async () => {
     const view = mount({ config: OFF });
     await screen.findByText("Riley Stone");
     let menu = await openMenu("Riley Stone");
     expect(within(menu).getByRole("menuitem", { name: /View contact/ })).toBeInTheDocument();
-    expect(within(menu).queryByRole("menuitem", { name: /Mark reviewed/ })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: /Remind later/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Dismiss / })).not.toBeInTheDocument();
     view.unmount();
     resetDashboardSectionLanes();
 
     mount();
     await screen.findByText("Riley Stone");
+    const dismiss = screen.getByRole("button", { name: "Dismiss birthday for Riley Stone" });
+    expect(dismiss).toHaveAccessibleDescription(/client record isn't changed/);
+    expect(dismiss).toBeVisible();
     menu = await openMenu("Riley Stone");
-    expect(within(menu).getByRole("menuitem", { name: /Mark reviewed.*client record isn't changed/ })).toBeInTheDocument();
     expect(within(menu).getByRole("menuitem", { name: /Remind later/ })).toBeInTheDocument();
   });
 
@@ -132,17 +136,17 @@ describe("ClientMilestonesWidget", () => {
     mount();
     await screen.findByText("Riley Stone");
     const menu = await openMenu("Riley Stone");
-    expect(within(menu).queryByRole("menuitem", { name: /Mark reviewed/ })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: /Remind later/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Dismiss / })).not.toBeInTheDocument();
   });
 
-  it("Mark reviewed stores the event identity, then reloads; Undo restores only that stored row", async () => {
+  it("Dismiss stores the event identity (state reviewed), then reloads; Undo restores only that stored row", async () => {
     const stored = { id: "dddd0000-0000-4000-8000-000000000004", updated_at: "2026-10-29T19:00:00Z" };
     h.set.mockResolvedValue(stored);
     h.clear.mockResolvedValue(undefined);
     mount();
     await screen.findByText("Riley Stone");
-    const menu = await openMenu("Riley Stone");
-    await act(async () => { fireEvent.click(within(menu).getByRole("menuitem", { name: /Mark reviewed/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dismiss birthday for Riley Stone" })); });
     await waitFor(() => expect(h.set).toHaveBeenCalledTimes(1));
     expect(h.set.mock.calls[0][0]).toEqual({
       kind: "client_birthday", clientId: ITEMS[2].clientId, eventKey: "birthday", occurrenceDate: "2026-11-03", state: "reviewed", remindAt: null,
@@ -158,8 +162,7 @@ describe("ClientMilestonesWidget", () => {
     h.set.mockRejectedValue(new MilestoneActionError("Couldn't update this reminder. Please try again."));
     mount();
     await screen.findByText("Riley Stone");
-    const menu = await openMenu("Riley Stone");
-    await act(async () => { fireEvent.click(within(menu).getByRole("menuitem", { name: /Mark reviewed/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Dismiss birthday for Riley Stone" })); });
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith("Couldn't update this reminder. Please try again."));
     expect(h.toast.success).not.toHaveBeenCalled();
     expect(h.load).toHaveBeenCalledTimes(1);
