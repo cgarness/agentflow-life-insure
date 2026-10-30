@@ -43,7 +43,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
 
-const agencyRows = (starter.templates as TemplateRow[]).map((t, i) => ({
+const agencyRows = (starter.templates as unknown as TemplateRow[]).map((t, i) => ({
   id: `starter-${i}`, name: t.name, type: t.type, subject: t.subject,
   content: t.content, scope: "agency", created_by: null, sms_purpose: t.sms_purpose,
 }));
