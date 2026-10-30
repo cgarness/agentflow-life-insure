@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 const sb = supabase as any;
 import { useOrganization } from "@/hooks/useOrganization";
 import { pipelineSupabaseApi } from "@/lib/supabase-settings";
+import { templateUsesManualMergeFields } from "@/lib/messageTemplateMerge";
 import {
   ACTION_METAS, sendSmsSchema, sendEmailSchema, updateStageSchema,
   tagSchema, assignAgentSchema, webhookSchema,
@@ -83,6 +84,12 @@ const ActionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete })
   const set = (patch: Record<string, unknown>) => setConfig((c) => ({ ...c, ...patch }));
 
   const handleSave = async () => {
+    const selectedTemplate = templates.find((t) => t.id === config.template_id);
+    if ((action === "send_sms" || action === "send_email") && selectedTemplate
+      && templateUsesManualMergeFields(selectedTemplate.content, selectedTemplate.subject)) {
+      toast({ title: "This template is for manual messages only", description: "Choose a workflow-compatible template.", variant: "destructive" });
+      return;
+    }
     const schema = SCHEMAS[action];
     if (schema) {
       const r = schema.safeParse(config);
@@ -105,10 +112,10 @@ const ActionConfigPanel: React.FC<Props> = ({ node, onClose, onSave, onDelete })
   return (
     <PanelShell open title={meta?.label ?? "Action"} onClose={onClose} onSave={handleSave} onDelete={onDelete} saving={saving}>
       {action === "send_sms" && (
-        <SmsForm config={config} set={set} templates={templates.filter((t) => (t.type ?? "").toLowerCase().includes("sms"))} />
+        <SmsForm config={config} set={set} templates={templates.filter((t) => (t.type ?? "").toLowerCase().includes("sms") && !templateUsesManualMergeFields(t.content, t.subject))} />
       )}
       {action === "send_email" && (
-        <EmailForm config={config} set={set} templates={templates.filter((t) => (t.type ?? "").toLowerCase().includes("email"))} />
+        <EmailForm config={config} set={set} templates={templates.filter((t) => (t.type ?? "").toLowerCase().includes("email") && !templateUsesManualMergeFields(t.content, t.subject))} />
       )}
       {action === "update_stage" && <StageForm config={config} set={set} stages={stages} />}
       {(action === "add_tag" || action === "remove_tag") && <TagForm config={config} set={set} />}
