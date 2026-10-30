@@ -1,3 +1,27 @@
+## 2026-10-30 — APPROVED BRANCH BUILD: Starter SMS & Email Templates V1.1 (ChatGPT continuation)
+
+**Approval:** Chris asked ChatGPT to pick up Claude's existing plan and finish the task. This authorizes surgical branch implementation and tests only. **Not approved:** production data changes, migrations, merge, live release, or outbound sends.
+
+**Authoritative handoff:** conversation-supplied `agentflow_templates_v1_1_handoff.zip` (JSON and exact matching insert-only SQL, both verified locally). Replaces missing V1 inputs; contents will be committed without copy edits.
+
+**Refined decisions:** D1 V1.1 source; D2 one-time home-org ops seed only, execution requires separate approval; D3 warn for empty known merge values in the manual picker, no automatic send; D4 prevent templates with manual-only merge syntax from being selected in the workflow builder (including existing incompatible agency templates); D5 all five categories supported, no schema change; D6 no provenance column, use deterministic seed IDs. Duplicate names are permitted across different channels (type+name unique within the starter dataset). Appointment V1.1 copy does not require unpopulated appointment merge fields. Marketing SMS bodies contain Reply STOP. No service-role frontend exposure or consent-routing change.
+
+**Files intended to touch (before edits):**
+1. `docs/plans/2026-10-30-starter-templates/agentflow_starter_templates_v1_1.json` (verbatim V1.1 source)
+2. `supabase/ops/starter_templates_v1_1_seed_home_agency.sql` (verbatim V1.1 input; NOT executed)
+3. `supabase/ops/starter_templates_v1_1_report.sql` (read-only audit)
+4. `src/lib/messageTemplateMerge.ts` (pure missing-merge helper, preserve existing replacements)
+5. `src/components/messaging/MessageTemplatesPickerModal.tsx` (single concise warning toast after template selection)
+6. `src/components/workflows/panels/ActionConfigPanel.tsx` (workflow selector safely excludes templates with incompatible manual-only merge tokens)
+7. `src/lib/__tests__/messageTemplateMerge.test.ts` and `src/lib/__tests__/starterTemplatesV1.test.ts`
+8. `src/components/messaging/__tests__/messageTemplatesPickerModal.test.tsx`
+9. `src/components/workflows/panels/__tests__/starterTemplateWorkflowGuard.test.ts` (pure guard tests; implementation location may be extracted)
+10. `implementation_plan.md`, `WORK_LOG.md`, and `AGENT_RULES.md` (reconciliation + invariant).
+
+**Checks:** validate 18 templates against supported merge fields, categories and save schema; verify exact seed/data parity and idempotency; test missing fields and workflow guard; run available root `npx tsc --noEmit`, lint, Vitest and build via CI if cloud environment cannot install the repo locally. Keep production G1 seed/G2 merge-deploy separate and specifically approved. Existing personal rows must remain unchanged.
+
+---
+
 ## 2026-10-30 — PLAN (awaiting Chris's approval; nothing built, applied or deployed): Prebuilt SMS & Email Templates V1 (12 SMS + 6 email starter library)
 
 **Branch:** `claude/sharp-johnson-2ojnub` (= `main` `d896413`). **Status:** plan only. No source file, schema,
