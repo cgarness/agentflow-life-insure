@@ -1,3 +1,138 @@
+## 2026-10-30 — PLAN (awaiting Chris's approval; nothing built, applied or deployed): Prebuilt SMS & Email Templates V1 (12 SMS + 6 email starter library)
+
+**Branch:** `claude/sharp-johnson-2ojnub` (= `main` `d896413`). **Status:** plan only. No source file, schema,
+production row, Edge Function or Vercel setting has been changed. No production SQL (including read-only) has been run.
+
+### 0. Blocker — the reviewed inputs are not in this session
+
+`agentflow_starter_templates_v1.json` and the reviewed insert-only seed SQL were not delivered to the cloud
+container (searched the whole filesystem and repo). Nothing below can be built without them. Please commit both to
+this branch (proposed paths in §4, items 1–2) or paste them into the chat. I will not write or re-word template copy.
+
+### 1. Conflict check
+
+- Latest Work Log entries (Calling Settings modal, Dashboard Polish V2, homepage V2) touch no template, messaging or
+  workflow files. Only other remote branch is `main`.
+- Template files were last changed in PR #452 (Dashboard Callbacks). No open conflict.
+
+### 2. What exists today (read from the code)
+
+- **Table** `public.message_templates`: `name`, `type` (`email`|`sms`), `subject`, `content`, `category`
+  (CHECK: `Prospecting`, `Follow-Up`, `Appointment`, `Re-Engagement`, `Closing`), `scope` (`agency`|`personal`,
+  personal requires `created_by`), `created_by`, `sms_purpose` (`informational`|`marketing`|NULL), `attachments`,
+  `organization_id` NOT NULL. No unique index on name.
+- **RLS:** SELECT = own-org agency rows + own personal rows (Super Admin all). INSERT/UPDATE/DELETE agency = Admin
+  (or Super Admin); personal = creator only. No change proposed.
+- **Settings → Email & SMS Templates** (`EmailSMSTemplates.tsx` + `TemplateModal`): lists every row the user can
+  read; Admin edits agency rows, owners edit personal rows; Duplicate/Delete; SMS save requires a purpose
+  (`templateFormSchema` + purpose check in `useTemplateModalForm`).
+- **Manual send:** Dialer and contact record both open `MessageTemplatesPickerModal` → `applyMessageTemplateMerge`
+  fills the compose box → the agent can edit → Send goes through the existing `manualSmsSender` → `twilio-sms`
+  (manual purpose, DNC/STOP/provider suppression server-side) or `email-send-contact-message` (Gmail).
+  The template's `sms_purpose` is passed to `onApply` but both callers ignore it, as required by the October 8
+  manual-SMS rule.
+- **Merge fields:** 18 `{{contact_*}}`, `{{policy_*}}`, `{{agent_*}}`, `{{agency_name}}`, `{{appointment_*}}`
+  tokens. A token with no value becomes an empty string ("Hi ," when first name is missing). Unknown tokens are
+  left as literal text. The three `{{appointment_*}}` tokens are **never filled** in manual send (neither caller
+  passes appointment data), so they always render blank.
+- **Workflows:** `ActionConfigPanel` lists every agency template for SMS/email actions. The workflow executor uses a
+  different merge syntax (`{{first_name}}`, raw contact columns), so `{{contact_first_name}}` renders blank there.
+  This is pre-existing for every template.
+
+### 3. Proposed design (surgical; no schema change unless D5 applies)
+
+1. **Starter templates are ordinary agency rows** in the home agency (`a0000000-0000-0000-0000-000000000001`):
+   `scope='agency'`, `created_by=NULL`, reviewed `category` and `sms_purpose`. Because they are normal rows, the
+   existing UI already lets everyone in the agency pick them and Admins edit, duplicate or delete them. Agents/TLs
+   who want their own wording use the existing Duplicate → Personal.
+2. **Seed = the reviewed insert-only SQL, committed as an ops file, run once after approval.** One transaction,
+   advisory lock, `INSERT … SELECT … WHERE NOT EXISTS` (same org, `scope='agency'`, same type, same
+   case-insensitive trimmed name). No UPDATE, no DELETE, never reads or writes a personal row, re-running inserts
+   nothing. If the reviewed SQL differs from this shape I will flag it, not change it silently.
+3. **Missing data (small frontend change, picker only):** after a template is applied, if any merge field it uses
+   resolved to empty, show one concise warning toast naming those fields (e.g. "Check before sending: First Name,
+   Appointment Date"). The text stays editable and nothing is sent automatically. Done inside
+   `MessageTemplatesPickerModal`, so `DialerPage.tsx` and `FullScreenContactView.tsx` are not edited.
+4. **Validation is test-backed, not new UI copy.** A test loads the committed JSON and checks every template against
+   the real form schema and merge-field list (§5). Manual-SMS UI stays as is (no purpose dropdown, no consent text).
+
+**Unchanged:** RLS, `message_templates` columns/constraints (unless D5), `twilio-sms`, `email-send-contact-message`,
+workflow executor and builder, Twilio/telephony, DNC, A2P, existing personal templates. No automated sequences.
+
+### 4. Files to touch
+
+1. `docs/plans/2026-10-30-starter-templates/agentflow_starter_templates_v1.json` — reviewed library, committed
+   verbatim (from Chris).
+2. `supabase/ops/starter_templates_v1_seed_home_agency.sql` — reviewed insert-only seed, committed verbatim
+   (from Chris). NOT run until G1.
+3. `supabase/ops/starter_templates_v1_report.sql` — new, read-only: home-agency counts by scope/type, md5
+   fingerprint of every existing row, and which of the 18 names already exist. Used before and after the seed.
+4. `src/lib/messageTemplateMerge.ts` — export the supported token list and a pure `emptyMergeFields(text, input)`
+   helper. Existing `applyMessageTemplateMerge` output unchanged.
+5. `src/components/messaging/MessageTemplatesPickerModal.tsx` — warning toast from item 4 (~8 lines; stays < 200).
+6. `src/lib/__tests__/messageTemplateMerge.test.ts` — new: full data, missing data, appointment tokens blank,
+   unknown tokens left literal, snake/camel contact keys.
+7. `src/lib/__tests__/starterTemplatesV1.test.ts` — new: JSON checks (§5) and JSON ↔ seed SQL parity.
+8. `src/components/messaging/__tests__/messageTemplatesPickerModal.test.tsx` — new: 18 starter rows + 2 personal
+   rows; SMS tab shows 12 (+ own personal), email tab 6; query keeps the agency/own-personal filter; picking fills
+   body/subject; warning appears only when a field is empty.
+9. `src/components/settings/__tests__/emailSmsTemplatesStarter.test.tsx` — new: all 18 open in the edit modal
+   with saved values, Admin can save, Agent/TL sees agency rows read-only, personal rows keep their owner rules.
+10. `implementation_plan.md`, `WORK_LOG.md`; `AGENT_RULES.md` only for a short invariant (starter templates are
+    ordinary agency rows; seed is insert-only; workflow merge syntax differs).
+
+Conditional (only if D5 applies): one migration extending `message_templates_category_check`, plus
+`messageTemplateTypes.ts`, `templateCategories.ts`, `templateModalSchema.ts` and the generated `types.ts` entry.
+
+**Not touched:** `DialerPage.tsx`, `TwilioContext.tsx`, `FullScreenContactView.tsx`, all Edge Functions, workflow
+files, RLS policies, Vercel config.
+
+### 5. Validation the tests will enforce (against the committed JSON)
+
+- Exactly 12 `sms` + 6 `email`; unique names; each passes `templateFormSchema` (name ≤ 80, content 1–10,000,
+  email subject 1–120, SMS subject null), so each opens and saves in the existing modal without errors.
+- `category` is one of the five allowed values (else D5).
+- Every SMS has `sms_purpose` `informational` or `marketing` (the modal requires one on save).
+- Every `{{token}}` is a supported manual merge field. Any `{{appointment_*}}` use is reported (always blank in
+  manual send; see D3).
+- Marketing-purpose SMS contain opt-out language ("Reply STOP"). Segment count reported per SMS (GSM-7/UCS-2).
+- Seed SQL contains each JSON template exactly (name, type, subject, content, category, purpose), inserts only
+  `scope='agency'`, `created_by NULL`, and contains no UPDATE/DELETE/TRUNCATE.
+- If the reviewed copy fails a check, I stop and report it; I do not edit reviewed copy.
+
+### 6. Production gates (each needs its own explicit approval)
+
+- **G0 — read-only audit** of the home agency's `message_templates` with `starter_templates_v1_report.sql`:
+  confirm the two existing personal templates (id, owner, md5) and any name collisions with the 18.
+- **G1 — seed:** run the committed seed file once, by exact sha256, in one transaction. Post-check with the report:
+  exactly 18 new agency rows (minus any approved collisions), `created_by NULL`, existing-row fingerprints identical
+  (including both personal templates). Rollback (separately approved): delete only the ids returned by the seed,
+  and only if `updated_at` is unchanged.
+- **G2 — frontend:** PR from this branch; merge/release only with Chris's approval. The seed works with the current
+  production UI, so G1 and G2 are independent; recommended order G2 then G1, so the missing-data warning is live
+  when the templates appear.
+
+### 7. Decisions for Chris
+
+- **D1 (blocker):** provide the JSON and the reviewed SQL (commit to the §4 paths or paste).
+- **D2 seed mechanism — recommend:** committed ops file run once (matches `standard_lead_fields_apply.sql` /
+  commission-grid home-agency ops). Alternative: a data migration, which would also run on every fresh/branch
+  database where the home org may not exist.
+- **D3 missing data — recommend:** concise warning toast, no send blocking. Alternatives: block Send while any
+  `{{…}}` remains, or no change. Appointment tokens will always be blank in manual send until appointment data is
+  passed in (separate change).
+- **D4 workflows — recommend:** leave the workflow builder unchanged and document that starter templates use manual
+  merge syntax. Alternative: hide them from workflow pickers (touches workflow UI).
+- **D5 categories:** only if the JSON uses categories outside the five allowed (needs a migration).
+- **D6 provenance — recommend:** no new column; starter rows are identified by exact name in the report.
+
+### 8. Verification after approval
+
+`npx tsc --noEmit`, ESLint on touched files, `vite build`, focused Vitest (new tests + `src/components/messaging`,
+`src/components/settings`, `src/components/contacts`), full suite compared to base. After G1: report diff, plus
+Chris (or an authenticated browser session, if one is available) opening all 18 in Settings and the Dialer/contact
+pickers.
+
 ## 2026-10-30 — APPROVED and IMPLEMENTED (branch `claude/zen-cerf-tjf1gq`; PR open; NOT merged, NOT released): Dialer Calling Settings modal fits the viewport
 
 **Implementation record (2026-10-30).** Built as designed below. Two QA-driven notes:
