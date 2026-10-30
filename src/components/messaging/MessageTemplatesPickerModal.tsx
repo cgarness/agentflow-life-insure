@@ -8,8 +8,10 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "@/hooks/use-toast";
 import {
   applyMessageTemplateMerge,
+  unresolvedTemplateFields,
   templateMatchesChannel,
   type MessageTemplateMergeInput,
 } from "@/lib/messageTemplateMerge";
@@ -103,11 +105,26 @@ export function MessageTemplatesPickerModal({
 
   function handlePick(t: TemplateRow) {
     const trimmedSubject = channel === "email" ? (t.subject?.trim() ?? "") : "";
-    onApply({ purpose: t.sms_purpose,
-      body: applyMessageTemplateMerge(t.content ?? "", mergeInput),
-      subject: channel === "email" ? (trimmedSubject ? applyMessageTemplateMerge(trimmedSubject, mergeInput) : "") : null,
+    const body = t.content ?? "";
+    const missing = unresolvedTemplateFields(
+      channel === "email" ? `${trimmedSubject}\n${body}` : body,
+      mergeInput,
+    );
+    onApply({
+      purpose: t.sms_purpose,
+      body: applyMessageTemplateMerge(body, mergeInput),
+      subject: channel === "email"
+        ? (trimmedSubject ? applyMessageTemplateMerge(trimmedSubject, mergeInput) : "")
+        : null,
     });
     onOpenChange(false);
+    if (missing.length) {
+      toast({
+        title: "Check template before sending",
+        description: `Missing or unknown fields: ${missing.slice(0, 4).join(", ")}${missing.length > 4 ? ` (+${missing.length - 4} more)` : ""}. Edit your message before sending.`,
+        variant: "destructive",
+      });
+    }
   }
 
   return (
