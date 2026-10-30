@@ -1436,3 +1436,11 @@ Do not infer frontend activation from database deployment.
     an existing deployment.
   - The rollback SQL refuses while clearance rows exist unless the session confirms
     `dashboard_attention.rollback_discard_rows = 'confirmed'`.
+
+## Starter messaging templates V1.1 (staged; 2026-10-30)
+
+- The 12 SMS/6 email starter library is **manual-send only**, stored as ordinary `message_templates` agency rows; `organization_id`, `scope='agency'`, `created_by=NULL`. No shared global catalog, schema, or RLS bypass.
+- The seed lives only in `supabase/ops/starter_templates_v1_1_seed_home_agency.sql`. Its home-org-only insert is idempotent by deterministic IDs and existing agency (type,name) collision check. Never apply it to production without Chris's separate exact SQL approval. Existing personal templates must remain untouched.
+- `sms_purpose` is template metadata and must **not** be treated as manual SMS consent authorization; manual sends continue through the established Twilio and consent/suppression path.
+- Manual template merge tokens (`{{contact_first_name}}`, `{{agent_first_name}}`, etc.) do **not** map to the workflow executor's raw-contact merge fields (`{{first_name}}`, etc.). The workflow action selector must exclude templates with manual-only tokens; do not weaken this guard without implementing verified end-to-end workflow-compatible rendering.
+- Missing contact/agent merge fields may appear as blanks in manually inserted text: warn agents to review the editable composer before sending. Do not change outbound behavior, DNC, calling telemetry, or reintroduce automation for this rollout.
