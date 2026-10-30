@@ -45,7 +45,7 @@ const node = (action: "send_sms" | "send_email", template: string) => ({
   action_type: action,
   label: "Send message",
   config: { template_id: template, purpose: "marketing", body: "Test body", subject: "Test subject" },
-}) as React.ComponentProps<typeof ActionConfigPanel>["node"];
+}) as unknown as React.ComponentProps<typeof ActionConfigPanel>["node"];
 
 beforeEach(() => { state.toast.mockReset(); state.rows = smsRows; });
 afterEach(cleanup);
