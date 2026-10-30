@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { CAMPAIGN_SETTINGS_COPY } from "./campaignSettingsSchema";
-import { inputCls, NumberField, RetryIntervalField, ToggleRow } from "./campaignSettingsControls";
+import { CallingWindowField, MaxAttemptsField, NumberField, RetryIntervalField, ToggleRow } from "./campaignSettingsControls";
 import CampaignSettingsAccessSection from "./CampaignSettingsAccessSection";
 import { type PickerProfile } from "./CampaignUserPicker";
 import { type SettingsEditPolicy } from "@/lib/campaign-settings-permissions";
@@ -97,102 +97,94 @@ export default function CampaignSettingsModal({
 }: CampaignSettingsModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
+      {/* Viewport-bounded frame: header, error and footer stay put; only the settings scroll. */}
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-1.5rem)] max-w-md flex-col gap-0 overflow-hidden rounded-lg p-0">
+        <DialogHeader className="shrink-0 border-b pb-4 pl-4 pr-12 pt-5 text-left sm:pl-6">
           <DialogTitle>Calling Settings</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="break-words">
             Configure call attempt limits and scheduling for{" "}
-            <span className="font-semibold">{campaignName}</span>.
+            <span className="font-semibold" title={campaignName}>{campaignName}</span>.
           </DialogDescription>
         </DialogHeader>
 
-        {loading ? (
-          <div className="flex justify-center py-8">
-            <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
-          </div>
-        ) : (
-          <div className="space-y-5 py-2">
-            {sessionActive && (
-              <p className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                {CAMPAIGN_SETTINGS_COPY.sessionActiveNote}
-              </p>
-            )}
+        {/* Radix's focus trap wraps Tab with preventScroll; keep the focused control in view.
+            The contains() check skips focus bubbling up from portaled Select/Popover content. */}
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6"
+          onFocus={(e) => { if (e.currentTarget.contains(e.target)) e.target.scrollIntoView?.({ block: "nearest" }); }}
+        >
+          {loading ? (
+            <div role="status" aria-label="Loading calling settings" className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {sessionActive && (
+                <p className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                  {CAMPAIGN_SETTINGS_COPY.sessionActiveNote}
+                </p>
+              )}
 
-            {/* Max Attempts (blank stays blank — never coerced to 0) */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Max Call Attempts</label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={isUnlimited ? "" : maxAttemptsValue}
-                  disabled={isUnlimited}
-                  onChange={(e) => setMaxAttemptsValue(e.target.value === "" ? "" : Number(e.target.value))}
-                  className={`w-20 disabled:opacity-40 ${inputCls}`}
-                  placeholder="3"
-                />
-                <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none">
-                  <input type="checkbox" checked={isUnlimited} onChange={(e) => setIsUnlimited(e.target.checked)} className="accent-primary" />
-                  Unlimited
-                </label>
+              <MaxAttemptsField
+                isUnlimited={isUnlimited}
+                onUnlimitedChange={setIsUnlimited}
+                value={maxAttemptsValue}
+                onChange={setMaxAttemptsValue}
+              />
+
+              <CallingWindowField
+                start={callingHoursStart}
+                end={callingHoursEnd}
+                onStartChange={setCallingHoursStart}
+                onEndChange={setCallingHoursEnd}
+              />
+
+              <RetryIntervalField
+                minutes={retryIntervalMinutes}
+                onChange={setRetryIntervalMinutes}
+              />
+
+              <NumberField
+                label="Ring Timeout (seconds)"
+                value={ringTimeoutValue}
+                min={5}
+                max={120}
+                hint="(Hangs up if no answer)"
+                onChange={setRingTimeoutValue}
+              />
+
+              {/* Toggles */}
+              <div className="space-y-4 pt-2 border-t">
+                <ToggleRow label="Auto-Dial" checked={settingsAutoDialEnabled} onToggle={() => setSettingsAutoDialEnabled((v) => !v)} />
+                <ToggleRow label="Local Presence" helper={CAMPAIGN_SETTINGS_COPY.localPresenceHelper} checked={localPresenceEnabled} onToggle={() => setLocalPresenceEnabled((v) => !v)} />
+                <ToggleRow label={CAMPAIGN_SETTINGS_COPY.requireLicensedStateLabel} helper={licensedStateApplicable ? CAMPAIGN_SETTINGS_COPY.requireLicensedStateHelper : CAMPAIGN_SETTINGS_COPY.requireLicensedStateNotApplicable} checked={licensedStateApplicable && requireLicensedStateAccess} disabled={!canEditSettings || !licensedStateApplicable} onToggle={() => setRequireLicensedStateAccess((v) => !v)} />
               </div>
+
+              <CampaignSettingsAccessSection
+                policy={settingsEditPolicy}
+                onPolicyChange={setSettingsEditPolicy}
+                selectedUserIds={settingsGrantUserIds}
+                onToggleUser={onToggleGrantUser}
+                orgProfiles={orgProfiles}
+                isAdminOrSuper={isAdminOrSuper}
+                disabled={saving}
+              />
             </div>
+          )}
+        </div>
 
-            {/* Calling Window */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{CAMPAIGN_SETTINGS_COPY.callingWindowLabel}</label>
-              <div className="flex items-center gap-2">
-                <input type="time" value={callingHoursStart} onChange={(e) => setCallingHoursStart(e.target.value)} className={inputCls} />
-                <span className="text-muted-foreground text-sm">to</span>
-                <input type="time" value={callingHoursEnd} onChange={(e) => setCallingHoursEnd(e.target.value)} className={inputCls} />
-              </div>
-              <p className="text-xs text-muted-foreground">{CAMPAIGN_SETTINGS_COPY.callingWindowHelper}</p>
-            </div>
-
-            <RetryIntervalField
-              minutes={retryIntervalMinutes}
-              onChange={setRetryIntervalMinutes}
-            />
-
-            <NumberField
-              label="Ring Timeout (seconds)"
-              value={ringTimeoutValue}
-              min={5}
-              max={120}
-              hint="(Hangs up if no answer)"
-              onChange={setRingTimeoutValue}
-            />
-
-            {/* Toggles */}
-            <div className="space-y-4 pt-2 border-t">
-              <ToggleRow label="Auto-Dial" checked={settingsAutoDialEnabled} onToggle={() => setSettingsAutoDialEnabled((v) => !v)} />
-              <ToggleRow label="Local Presence" helper={CAMPAIGN_SETTINGS_COPY.localPresenceHelper} checked={localPresenceEnabled} onToggle={() => setLocalPresenceEnabled((v) => !v)} />
-              <ToggleRow label={CAMPAIGN_SETTINGS_COPY.requireLicensedStateLabel} helper={licensedStateApplicable ? CAMPAIGN_SETTINGS_COPY.requireLicensedStateHelper : CAMPAIGN_SETTINGS_COPY.requireLicensedStateNotApplicable} checked={licensedStateApplicable && requireLicensedStateAccess} disabled={!canEditSettings || !licensedStateApplicable} onToggle={() => setRequireLicensedStateAccess((v) => !v)} />
-            </div>
-
-            <CampaignSettingsAccessSection
-              policy={settingsEditPolicy}
-              onPolicyChange={setSettingsEditPolicy}
-              selectedUserIds={settingsGrantUserIds}
-              onToggleUser={onToggleGrantUser}
-              orgProfiles={orgProfiles}
-              isAdminOrSuper={isAdminOrSuper}
-              disabled={saving}
-            />
-
-            {errorMessage && <p className="text-xs font-medium text-destructive">{errorMessage}</p>}
-          </div>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={onSave} disabled={saving || loading}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </DialogFooter>
+        {/* Pinned above the buttons so a save/validation error is never scrolled out of view. */}
+        <div className="shrink-0 space-y-2 border-t px-4 py-3 sm:px-6">
+          {!loading && errorMessage && <p role="alert" className="text-xs font-medium text-destructive">{errorMessage}</p>}
+          <DialogFooter className="flex-row justify-end gap-2 sm:space-x-0">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button onClick={onSave} disabled={saving || loading}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

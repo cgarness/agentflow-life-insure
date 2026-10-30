@@ -72,7 +72,8 @@ export default function CampaignUserPicker({
           <CommandInput placeholder={placeholder} className="h-9" />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
-            <CommandGroup className="max-h-60 overflow-y-auto">
+            {/* Cap at the space Radix reports on the open side, minus the search row, so a short viewport (e.g. 200% zoom) never pushes the search box off-screen. */}
+            <CommandGroup className="max-h-[min(15rem,calc(var(--radix-popover-content-available-height)-3.5rem))] overflow-y-auto">
               {profiles.map((p) => {
                 const isSelected = selected.has(p.id);
                 return (
