@@ -1,0 +1,59 @@
+name: Starter SMS and Email Templates V1.1 verification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/starter-templates-v1-1.yml'
+      - 'src/lib/messageTemplateMerge.ts'
+      - 'src/lib/__tests__/messageTemplateMerge.test.ts'
+      - 'src/lib/__tests__/starterTemplatesV1.test.ts'
+      - 'src/components/messaging/MessageTemplatesPickerModal.tsx'
+      - 'src/components/messaging/__tests__/messageTemplatesPickerModal.test.tsx'
+      - 'src/components/workflows/panels/ActionConfigPanel.tsx'
+      - 'src/components/workflows/panels/__tests__/starterTemplateWorkflowGuard.test.tsx'
+      - 'docs/plans/2026-10-30-starter-templates/**'
+      - 'supabase/ops/starter_templates_v1_1_*'
+permissions:
+  contents: read
+concurrency:
+  group: starter-templates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VITE_SUPABASE_URL: http://127.0.0.1:54321
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_synthetic_test_only
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Focused template verification
+        run: |
+          npx vitest run \
+            src/lib/__tests__/messageTemplateMerge.test.ts \
+            src/lib/__tests__/starterTemplatesV1.test.ts \
+            src/components/messaging/__tests__/messageTemplatesPickerModal.test.tsx \
+            src/components/workflows/panels/__tests__/starterTemplateWorkflowGuard.test.tsx
+      - name: Project root typecheck
+        run: npx tsc --noEmit
+      - name: ESLint of changed TS and TSX
+        run: |
+          npx eslint \
+            src/lib/messageTemplateMerge.ts \
+            src/lib/__tests__/messageTemplateMerge.test.ts \
+            src/lib/__tests__/starterTemplatesV1.test.ts \
+            src/components/messaging/MessageTemplatesPickerModal.tsx \
+            src/components/messaging/__tests__/messageTemplatesPickerModal.test.tsx \
+            src/components/workflows/panels/ActionConfigPanel.tsx \
+            src/components/workflows/panels/__tests__/starterTemplateWorkflowGuard.test.tsx
+      - name: Vite production build (synthetic env; no deploy)
+        run: npm run build

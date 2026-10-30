@@ -1,0 +1,218 @@
+{
+  "version": "1.1",
+  "description": "Assistant-polished candidate v1.1, not seeded or deployed. Reviewed-user approval required before production import.",
+  "target": "Agency-scoped starter templates; initial pilot recommended only in Chris's home organization; expand later upon explicit approval.",
+  "notes": [
+    "Preserve any existing personal or agency templates.",
+    "Seed is not a license to send messages. Enforce SMS consent / purpose, opt-outs, DNC, and applicable marketing email requirements in existing dispatch paths.",
+    "Template chooser replaces merge fields with current contact / agent / appointment values. Unset fields must be handled safely before send, not silently omitted in a way that creates broken messages.",
+    "Informational SMS classification is a starting draft; verify actual use and applicable consent rules before sending.",
+    "Do not auto-send; manual selection, preview and edit before user clicks Send.",
+    "Appointment templates should only be offered when a real appointment and its date/time are available.",
+    "Policy welcome should only be used after actual insurer issuance/in-force confirmation.",
+    "No unsupported promises of carrier approval, coverage start, or guaranteed prices.",
+    "This revised candidate adds Reply STOP to opt out to all marketing-purpose SMS bodies because the manual dispatch does not append it automatically.",
+    "The appointment confirmation/reminder drafts avoid appointment_date and appointment_time merge fields because current manual messaging does not populate them.",
+    "These messages are intended for manual composing only. Current workflow merge syntax differs; do not reuse in workflow actions without separate compatibility verification."
+  ],
+  "templates": [
+    {
+      "key": "af-v1-sms-01",
+      "name": "New Lead Introduction",
+      "type": "sms",
+      "category": "Prospecting",
+      "sms_purpose": "marketing",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, this is {{agent_first_name}} with {{agency_name}}. I received your request for life insurance information and can help you review your options. Is now a good time for a quick call? Reply STOP to opt out.",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-02",
+      "name": "First Call Attempt",
+      "type": "sms",
+      "category": "Follow-Up",
+      "sms_purpose": "marketing",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, {{agent_first_name}} with {{agency_name}} here. I just tried calling about the life insurance information you requested. Is later today or tomorrow better to connect? Reply STOP to opt out.",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-03",
+      "name": "Voicemail Follow-Up",
+      "type": "sms",
+      "category": "Follow-Up",
+      "sms_purpose": "marketing",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, this is {{agent_first_name}} with {{agency_name}}. I left you a voicemail about your life insurance request. You can reply here with a good time to talk. Reply STOP to opt out.",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-04",
+      "name": "Best Time to Call",
+      "type": "sms",
+      "category": "Prospecting",
+      "sms_purpose": "marketing",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, this is {{agent_first_name}} with {{agency_name}}. What's the best time for a brief call about the life insurance options you asked about? Reply STOP to opt out.",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-05",
+      "name": "Quote Follow-Up",
+      "type": "sms",
+      "category": "Follow-Up",
+      "sms_purpose": "marketing",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, it's {{agent_first_name}} with {{agency_name}}. Following up on the life insurance options we discussed. Would you like to review the quote together or ask any questions? Reply STOP to opt out.",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-06",
+      "name": "Still Interested?",
+      "type": "sms",
+      "category": "Follow-Up",
+      "sms_purpose": "marketing",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, {{agent_first_name}} with {{agency_name}} checking in. Are you still interested in reviewing life insurance options, or would you prefer I close out my follow-up? Reply STOP to opt out.",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-07",
+      "name": "Old Lead Re-engagement",
+      "type": "sms",
+      "category": "Re-Engagement",
+      "sms_purpose": "marketing",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, this is {{agent_first_name}} with {{agency_name}}. We spoke previously about life insurance options. If you'd like to revisit coverage, would a short call be useful? Reply STOP to opt out.",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-08",
+      "name": "Appointment Confirmation",
+      "type": "sms",
+      "category": "Appointment",
+      "sms_purpose": "informational",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, it's {{agent_first_name}} with {{agency_name}}. Confirming our scheduled life insurance call. Please reply to confirm or let me know if you need to reschedule.",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-09",
+      "name": "Appointment Reminder",
+      "type": "sms",
+      "category": "Appointment",
+      "sms_purpose": "informational",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, {{agent_first_name}} with {{agency_name}} here. Just a reminder about our scheduled life insurance call. Looking forward to speaking with you!",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-10",
+      "name": "Missed Appointment",
+      "type": "sms",
+      "category": "Appointment",
+      "sms_purpose": "informational",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, it's {{agent_first_name}} with {{agency_name}}. Looks like we missed each other for our scheduled call. Would you like to reschedule for later today or another day?",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-11",
+      "name": "Application Information Needed",
+      "type": "sms",
+      "category": "Closing",
+      "sms_purpose": "informational",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, this is {{agent_first_name}} with {{agency_name}}. I have a question about the application we discussed. When would be a good time to call? No sensitive details needed by text.",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-sms-12",
+      "name": "Client Coverage Check-In",
+      "type": "sms",
+      "category": "Follow-Up",
+      "sms_purpose": "informational",
+      "subject": null,
+      "content": "Hi {{contact_first_name}}, {{agent_first_name}} with {{agency_name}} here. Just checking in about your existing life insurance policy. Any coverage or policy questions I can help with?",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-email-01",
+      "name": "Meet Your Agent",
+      "type": "email",
+      "category": "Prospecting",
+      "sms_purpose": null,
+      "subject": "Your life insurance request — meet your agent",
+      "content": "Hi {{contact_first_name}},\n\nThank you for requesting information about life insurance. I'm {{agent_first_name}} {{agent_last_name}} with {{agency_name}}, and I'll be your point of contact.\n\nMy goal is to help you understand available coverage options, answer your questions, and find an option that fits your needs and budget.\n\nWhen would be a convenient time for a brief phone call? You can reply to this email or call me directly.\n\nBest,\n{{agent_first_name}} {{agent_last_name}}\n{{agency_name}}\n{{agent_phone}}\n{{agent_email}}",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-email-02",
+      "name": "Appointment Confirmation",
+      "type": "email",
+      "category": "Appointment",
+      "sms_purpose": null,
+      "subject": "Confirming your scheduled life insurance call",
+      "content": "Hi {{contact_first_name}},\n\nI'm confirming our upcoming scheduled call to discuss your life insurance options.\n\nWe'll review your goals, discuss coverage options, and answer your questions. If you need a reminder of the date or time, or you need to reschedule, please reply to this email.\n\nTalk soon,\n{{agent_first_name}} {{agent_last_name}}\n{{agency_name}}\n{{agent_phone}}",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-email-03",
+      "name": "Quote Follow-Up",
+      "type": "email",
+      "category": "Follow-Up",
+      "sms_purpose": null,
+      "subject": "Questions about your life insurance options?",
+      "content": "Hi {{contact_first_name}},\n\nI wanted to follow up on the life insurance quote and coverage options we discussed.\n\nChoosing coverage is an important decision, and I'm happy to walk through the benefits, premiums, and any questions before you decide. Final availability, rates, and policy terms depend on the insurer and its review.\n\nWould you like to set up a quick call to go through the details?\n\nBest,\n{{agent_first_name}} {{agent_last_name}}\n{{agency_name}}\n{{agent_phone}}\n{{agent_email}}",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-email-04",
+      "name": "Application Next Steps",
+      "type": "email",
+      "category": "Closing",
+      "sms_purpose": null,
+      "subject": "Next steps for your life insurance application",
+      "content": "Hi {{contact_first_name}},\n\nThank you for taking the time to complete the next steps in your life insurance application.\n\nDepending on the carrier's requirements, we may need to confirm additional information or complete another step before the insurer makes a decision. I'll keep you informed as updates become available.\n\nFor your privacy, please don't send Social Security numbers, payment details, or sensitive medical information in an ordinary email reply. We can use the carrier's approved secure process if anything sensitive is needed.\n\nPlease let me know if you have any questions.\n\nBest,\n{{agent_first_name}} {{agent_last_name}}\n{{agency_name}}\n{{agent_phone}}\n{{agent_email}}",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-email-05",
+      "name": "Policy Welcome",
+      "type": "email",
+      "category": "Closing",
+      "sms_purpose": null,
+      "subject": "Welcome — important information about your policy",
+      "content": "Hi {{contact_first_name}},\n\nThank you for trusting me to help with your life insurance coverage.\n\nPlease review the policy documents sent by your insurance carrier. Those documents are the official source for your coverage amount, premium, effective date, and any policy terms or conditions.\n\nIf you have trouble finding the documents or want to review anything together, please reply or call me. I'm happy to help.\n\nThank you again,\n{{agent_first_name}} {{agent_last_name}}\n{{agency_name}}\n{{agent_phone}}\n{{agent_email}}",
+      "scope": "agency",
+      "attachments": []
+    },
+    {
+      "key": "af-v1-email-06",
+      "name": "Referral Request",
+      "type": "email",
+      "category": "Follow-Up",
+      "sms_purpose": null,
+      "subject": "Know someone who has life insurance questions?",
+      "content": "Hi {{contact_first_name}},\n\nI appreciate the opportunity to help you with your life insurance needs.\n\nIf a friend or family member is looking into life insurance and would like to speak with an agent, you're welcome to share my contact information with them. They can reach out whenever they're ready.\n\nThere's no pressure, and I won't contact anyone unless they ask to connect.\n\nThanks again,\n{{agent_first_name}} {{agent_last_name}}\n{{agency_name}}\n{{agent_phone}}\n{{agent_email}}",
+      "scope": "agency",
+      "attachments": []
+    }
+  ]
+}
