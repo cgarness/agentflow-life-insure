@@ -17,6 +17,7 @@
 8. `src/components/messaging/__tests__/messageTemplatesPickerModal.test.tsx`
 9. `src/components/workflows/panels/__tests__/starterTemplateWorkflowGuard.test.ts` (pure guard tests; implementation location may be extracted)
 10. `implementation_plan.md`, `WORK_LOG.md`, and `AGENT_RULES.md` (reconciliation + invariant).
+11. `.github/workflows/starter-templates-v1-1.yml` — no-secret, PR-only CI with focused Vitest, lint, root typecheck and Vite build; necessary because existing path-scoped verification workflows do not execute the newly added tests.
 
 **Checks:** validate 18 templates against supported merge fields, categories and save schema; verify exact seed/data parity and idempotency; test missing fields and workflow guard; run available root `npx tsc --noEmit`, lint, Vitest and build via CI if cloud environment cannot install the repo locally. Keep production G1 seed/G2 merge-deploy separate and specifically approved. Existing personal rows must remain unchanged.
 
