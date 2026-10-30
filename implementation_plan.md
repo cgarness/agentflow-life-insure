@@ -1,14 +1,18 @@
-## 2026-10-30 — APPROVED and IMPLEMENTED (branch `claude/zen-cerf-tjf1gq`; NOT merged, NOT released): Dialer Calling Settings modal fits the viewport
+## 2026-10-30 — APPROVED and IMPLEMENTED (branch `claude/zen-cerf-tjf1gq`; PR open; NOT merged, NOT released): Dialer Calling Settings modal fits the viewport
 
 **Implementation record (2026-10-30).** Built as designed below. Two QA-driven notes:
 - **Added (in scope, same file):** the scroll body brings a focused control into view
   (`scrollIntoView({ block: "nearest" })`, only for elements inside the body). Radix's focus trap
   wraps Tab with `focus({ preventScroll: true })`, so without this, wrapping from Close back to Max
   Call Attempts left the focused input off-screen once the body was scrolled.
-- **Not changed (outside the approved files):** at 683×384 (1366×768 at 200% zoom), the teammate
-  picker popover (`CampaignUserPicker.tsx`, ~280px) opens upward and its search box sits just above
-  the viewport; list, selection and typing still work. A proposed one-class fix, validated in the
-  browser by injecting the CSS, is recorded in the Work Log. It needs separate approval.
+- **Follow-up, approved and applied:** at 683×384 (1366×768 at 200% zoom), the teammate picker
+  popover (`CampaignUserPicker.tsx`, ~280px) opened upward with its search box above the viewport.
+  Its list is now capped to Radix's available height minus the search row
+  (`max-h-[min(15rem,calc(var(--radix-popover-content-available-height)-3.5rem))]`), and the popover
+  fits at every tested size.
+- **Known, pre-existing, not changed:** mouse-wheel scrolling over the teammate list is blocked by
+  the Dialog's scroll lock in the original production modal too. Arrow keys and filtering work.
+  Fixing it needs a separate decision.
 - `CampaignSettingsAccessSection.tsx` was not needed: long teammate chips wrap within the dialog.
 
 **Problem.** Dialer → Campaign Selection → Settings opens `CampaignSettingsModal` ("Calling Settings").
