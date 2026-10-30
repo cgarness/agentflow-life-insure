@@ -63,6 +63,38 @@ function buildReplacementMap(input: MessageTemplateMergeInput): Record<string, s
   return map;
 }
 
+/** Canonical manual-composer fields. Workflow actions use a different merge-field resolver. */
+export const MANUAL_MESSAGE_TEMPLATE_TOKENS = Object.freeze(
+  Object.keys(buildReplacementMap({ contact: null })),
+);
+const MANUAL_TOKEN_SET = new Set<string>(MANUAL_MESSAGE_TEMPLATE_TOKENS);
+
+function friendlyMergeFieldName(token: string): string {
+  const name = token.slice(2, -2).trim().replace(/^contact_/, "").replace(/_/g, " ");
+  return name.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+/** Missing or unknown fields require a manual review; never silently send a malformed greeting. */
+export function unresolvedTemplateFields(text: string, input: MessageTemplateMergeInput): string[] {
+  const replacements = buildReplacementMap(input);
+  const unresolved = (text.match(/\{\{[^{}]+\}\}/g) ?? []).filter(
+    (token) => !Object.prototype.hasOwnProperty.call(replacements, token)
+      || !replacements[token].trim(),
+  );
+  return [...new Set(unresolved.map(friendlyMergeFieldName))];
+}
+
+/** Manual merge syntax must not be passed to workflow-executor's contact-only renderer. */
+export function templateUsesManualMergeFields(
+  content: string,
+  subject: string | null = null,
+): boolean {
+  const combined = [subject ?? "", content].join("\n");
+  return [...combined.matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)].some(
+    (match) => MANUAL_TOKEN_SET.has(`{{${match[1]}}}`),
+  );
+}
+
 /** Replaces merge tokens in saved template bodies/subjects using live contact + agent context. */
 export function applyMessageTemplateMerge(text: string, input: MessageTemplateMergeInput): string {
   if (!text) return text;
