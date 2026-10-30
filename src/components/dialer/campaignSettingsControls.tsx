@@ -1,5 +1,5 @@
 import React from "react";
-import { RETRY_PRESETS, RETRY_MINUTES_MAX } from "./campaignSettingsSchema";
+import { CAMPAIGN_SETTINGS_COPY, RETRY_PRESETS, RETRY_MINUTES_MAX } from "./campaignSettingsSchema";
 
 /**
  * Small shared field controls for the Calling Settings modal. Extracted from
@@ -9,6 +9,50 @@ import { RETRY_PRESETS, RETRY_MINUTES_MAX } from "./campaignSettingsSchema";
 
 export const inputCls =
   "rounded border border-input bg-background px-2 py-1.5 text-sm";
+
+/* Max Call Attempts (blank stays blank — never coerced to 0) + Unlimited. */
+export function MaxAttemptsField({ isUnlimited, onUnlimitedChange, value, onChange }: {
+  isUnlimited: boolean; onUnlimitedChange: (v: boolean) => void; value: number | ""; onChange: (v: number | "") => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">Max Call Attempts</label>
+      <div className="flex items-center gap-3">
+        <input
+          type="number"
+          min={1}
+          max={99}
+          value={isUnlimited ? "" : value}
+          disabled={isUnlimited}
+          onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
+          className={`w-20 disabled:opacity-40 ${inputCls}`}
+          placeholder="3"
+        />
+        <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none">
+          <input type="checkbox" checked={isUnlimited} onChange={(e) => onUnlimitedChange(e.target.checked)} className="accent-primary" />
+          Unlimited
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/* Calling window: start/end time inputs. Wraps instead of overflowing on narrow phones. */
+export function CallingWindowField({ start, end, onStartChange, onEndChange }: {
+  start: string; end: string; onStartChange: (v: string) => void; onEndChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">{CAMPAIGN_SETTINGS_COPY.callingWindowLabel}</label>
+      <div className="flex flex-wrap items-center gap-2">
+        <input type="time" value={start} onChange={(e) => onStartChange(e.target.value)} className={`min-w-0 ${inputCls}`} />
+        <span className="text-muted-foreground text-sm">to</span>
+        <input type="time" value={end} onChange={(e) => onEndChange(e.target.value)} className={`min-w-0 ${inputCls}`} />
+      </div>
+      <p className="text-xs text-muted-foreground">{CAMPAIGN_SETTINGS_COPY.callingWindowHelper}</p>
+    </div>
+  );
+}
 
 /* A plain numeric field (label + number input + optional hint). */
 export function NumberField({
@@ -29,7 +73,7 @@ export function NumberField({
   return (
     <div className="space-y-2">
       <label className="text-sm font-medium">{label}</label>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <input
           type="number"
           min={min}
@@ -64,7 +108,7 @@ export function RetryIntervalField({
   return (
     <div className="space-y-2">
       <label className="text-sm font-medium">Retry Interval</label>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <select
           value={isCustom ? RETRY_CUSTOM : String(minutes)}
           onChange={(e) => {
@@ -124,7 +168,7 @@ export function ToggleRow({
 }) {
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium">{label}</span>
         <button
           type="button"
@@ -132,7 +176,7 @@ export function ToggleRow({
           aria-checked={checked}
           disabled={disabled}
           onClick={onToggle}
-          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${checked ? "bg-primary" : "bg-muted"} ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
+          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${checked ? "bg-primary" : "bg-muted"} ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
         >
           <span
             className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-4" : "translate-x-1"}`}

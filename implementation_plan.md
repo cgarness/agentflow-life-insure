@@ -1,4 +1,15 @@
-## 2026-10-30 — PLAN (awaiting Chris's approval; nothing edited except this plan): Dialer Calling Settings modal fits the viewport
+## 2026-10-30 — APPROVED and IMPLEMENTED (branch `claude/zen-cerf-tjf1gq`; NOT merged, NOT released): Dialer Calling Settings modal fits the viewport
+
+**Implementation record (2026-10-30).** Built as designed below. Two QA-driven notes:
+- **Added (in scope, same file):** the scroll body brings a focused control into view
+  (`scrollIntoView({ block: "nearest" })`, only for elements inside the body). Radix's focus trap
+  wraps Tab with `focus({ preventScroll: true })`, so without this, wrapping from Close back to Max
+  Call Attempts left the focused input off-screen once the body was scrolled.
+- **Not changed (outside the approved files):** at 683×384 (1366×768 at 200% zoom), the teammate
+  picker popover (`CampaignUserPicker.tsx`, ~280px) opens upward and its search box sits just above
+  the viewport; list, selection and typing still work. A proposed one-class fix, validated in the
+  browser by injecting the CSS, is recorded in the Work Log. It needs separate approval.
+- `CampaignSettingsAccessSection.tsx` was not needed: long teammate chips wrap within the dialog.
 
 **Problem.** Dialer → Campaign Selection → Settings opens `CampaignSettingsModal` ("Calling Settings").
 `DialogContent` has only `max-w-md`: no height limit, no internal scroll. The shared dialog is
