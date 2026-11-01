@@ -1,6 +1,6 @@
 # AgentFlow Work Log
 
-## 2026-11-01 — Reports V2 PKG-A Batch 3: call and journey helpers (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
+## 2026-11-01 — Reports V2 PKG-A Batch 3: call and journey helpers; branch pushed; PostgreSQL 17.6 CI green (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
 
 **Status.** Built under Chris's Batch 3 message and the existing branch approval. Normal checkpoint pushes and one isolated `reports-backend.yml` dispatch on the pushed head are authorized; nothing else is. ★1 and ★4 remain pending: the journey history gates are the **proposed design**, implemented and tested only in isolation. No privacy acceptance, reviewer or agency-only fallback is recorded or enabled. No telephony, `TwilioContext`, call-initiation or duration-writer change.
 
@@ -76,9 +76,9 @@
 - **Static test:** 17/17.
 - **TypeScript:** root `npx tsc --noEmit` passes. The app typecheck gives 80 errors whose identities match base, line for line.
 - **ESLint and Reports Vitest:** scoped ESLint is clean. Reports Vitest: 27 files, 420 passed, 1 pre-existing skip.
-- **Full Vitest:** still running when this commit was made; the result is added in the follow-up record commit.
+- **Full Vitest:** 6,704 passed, 2 failed, 37 skipped across 1,971 suites. Against the clean `6e39c15` worktree (6,687 passed across 1,966 suites), the 11 failing files and the 2 failing tests are identical by name. The 5 extra suites and 17 extra passing tests all come from this branch's static contract test, and no test that passes at base fails here.
 - **Build:** `npm run build` passes.
-- **PostgreSQL 17.6 CI on the pushed head:** dispatched after the push; the result is added in the follow-up record commit.
+- **PostgreSQL 17.6 CI on the Batch 3 head:** run 41362691717, conclusion success, on head `c54ec678a9f6f6842b73672900d7a1414f13f7ca` (GitHub's job record). The server reported `PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1)`. The v3 runner refused `…12` before sale facts, on v2 call-reader drift and on replay, then applied it. It ran the calls and identity suite (48 assertions, 2 refusal checks, 3 mutation controls) and the journey suite (55 assertions, 1 refusal check, 3 mutation controls, and the BC1 and BC2 savepoint blocks). It ended with "All Reports v3 contract, registry, seal and refusal proofs passed." and had no error lines. Artifact `reports-backend-evidence-41362691717` (sha256 `414395b3…`). The connector returns at most the last 5,000 of the job's 5,899 log lines, so the checkout lines and the Reports RPC suite's output at the top were not read. Both of those steps succeeded, and the `…12` and new-suite labels in the log exist only from this commit on.
 
 **Known follow-ups (not claimed as done).**
 - The journey history reads are organization-wide in this batch. D3's index-bounded phase-2 reads are a performance follow-up before the performance gate.
