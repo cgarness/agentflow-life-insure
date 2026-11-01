@@ -240,3 +240,31 @@ describe("Reports v3 foundation", () => {
     expect(registry.filter((r) => r.cohort_30d).map((r) => r.id)).toEqual([12, 18, 19]);
   });
 });
+
+describe("Reports v3 sale facts", () => {
+  const saleFacts = readdirSync(join(ROOT, MIGRATIONS)).find((n) => n.endsWith("_reports_v3_sale_facts.sql"));
+  const sql = stripSqlComments(read(`${MIGRATIONS}/${saleFacts}`));
+
+  it("creates exactly the five sale-fact helpers, with invoker rights", () => {
+    expect(createdFunctions(sql).map((f) => `${f.name}(${f.types.join(",")})`).sort()).toEqual([
+      "private.report_v3_production(uuid,uuid[],date,date,timestamp with time zone)",
+      "private.report_v3_production_kpis(jsonb)",
+      "private.report_v3_sale_facts(uuid,uuid[],date,date)",
+      "private.report_v3_sale_premium(public.wins,numeric)",
+      "private.report_v3_stored_without_sale(uuid)",
+    ]);
+    expect(sql).not.toMatch(/SECURITY\s+DEFINER/i);
+  });
+
+  it("takes every monthly premium from the shared choke point, with no second premium formula", () => {
+    expect(sql.match(/private\.performance_sale_monthly\(p_win, p_client\)/g)).toHaveLength(1);
+    expect(sql).not.toMatch(/performance_monthly\(\s*p_/);
+    expect(sql.match(/private\.report_v3_sale_premium\(w, c\.premium\)/g)).toHaveLength(1);
+  });
+
+  it("pins the live premium choke point it delegates to", () => {
+    for (const pin of ["7e7063317a34f37d90faf14914b98827", "deb0d3330a432cd4324ea422856d67a0", "51e06b46a13c3a8eec4d672bec158376"]) {
+      expect(sql).toContain(`'${pin}'`);
+    }
+  });
+});

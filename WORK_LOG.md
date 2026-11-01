@@ -1,5 +1,75 @@
 # AgentFlow Work Log
 
+## 2026-11-01 — Reports V2 PKG-A Batch 2: sale facts; branch pushed; PostgreSQL 17.6 CI green; appendices added (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
+
+**Status.** Chris authorized:
+- normal pushes of this branch;
+- one manual dispatch of the isolated Reports backend verification workflow;
+- the appendix documentation addition.
+
+Nothing else was done: no PR, merge, push to `main`, production read or write, migration application, release-runner stage, deploy promotion or settings change.
+
+**Push and CI for Batches 0 and 1.**
+- **Pre-push automation check.** Only `s1-plan-verify.yml` runs on push, and only for `main`. Every other workflow runs on `pull_request` or `workflow_dispatch`. Supabase production deploys act on `main`, and Supabase preview databases need a PR. Vercel builds an access-protected preview, which is permitted.
+- **Push.** `e1dde84` and `5efc7c9` were pushed with a normal push. The remote head was `5efc7c9fc074020e4a26d6a13fd040e14e72d2db`.
+- **CI.** `reports-backend.yml` was dispatched on the branch as run 41354339631, conclusion success, on head `5efc7c9…`.
+  - It used the `postgres:17.6` image; the server reported `PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1)`.
+  - The v3 runner's output (job log lines 1787–3155) ends with "All Reports v3 contract, registry, seal and refusal proofs passed." It has no error lines, and it ran the same 64 refusal checks and 4 mutation controls as the local run.
+  - Artifact `reports-backend-evidence-41354339631` (sha256 `eea68e2c…`) holds `reports-v3-results.txt`.
+  - This session's proxy blocks the log and artifact download hosts, so the log was read through the GitHub connector.
+
+**Documentation addition (`b395d49`).**
+- `docs/plans/2026-10-31-reports-v2/appendix/` now holds D1–D6 and the test, backend-action and ruling indexes. They were scanned first: no credentials, personal data, record ids or production extracts.
+- Appendix wording is aligned with the builders-only rule.
+- Plan §2.6 lists the implemented helpers.
+- ★1 and ★4 stay pending, the AGENT_RULES texts stay proposed, and the agency-only fallback is marked not approved.
+
+**Batch 2: what changed.**
+- **Sale-facts migration** (`20261101000011_reports_v3_sale_facts.sql`, placeholder version, class C, **not applied**). It creates five sealed private helpers:
+  - the PKG-B premium stub: the value comes only from `performance_sale_monthly`, and source and state are classified;
+  - sale facts, with the plan §2.6 columns;
+  - the stored-without-sale count;
+  - production: totals, by_agent and production_by_date at an as_of, with the agency-only disclosures null below unfiltered agency scope;
+  - the KPI 1–4 envelopes, built through the foundation builders.
+
+  Its preflight refuses replay, requires the foundation, and pins the live premium choke point: source `7e706331…` and `deb0d333…`, definition `51e06b46…`. The harness-built functions match all three. It also checks every dependency column.
+- **Harness.**
+  - `reports_v3_dependencies.sql`: production DDL for the October `wins` columns and `private.policy_identities`.
+  - The premium functions, extracted verbatim from `20261005161623`.
+  - `reports_v3_fixtures.sql`: synthetic organizations O1–O4 and a 17-sale premium and credit matrix.
+  - New fixture steps: an ordering refusal, a drift refusal and a replay refusal.
+- **Tests.**
+  - `reports_v3_sale_facts.sql`: the contract, credit, the premium matrix, rollups, exact values, the KPI 1–4 status matrix, and 3 mutation controls.
+  - The static test now also checks for exactly five helpers, a single premium source and the live pins.
+- **Decision.** D2's KPI 1–4 envelopes are built through the foundation builders, not the validator directly. This keeps one BC4 evaluation, and the static test enforces it.
+
+**Files touched.**
+- Batch 2:
+  - `supabase/migrations/20261101000011_reports_v3_sale_facts.sql`
+  - `supabase/tests/reports_v3_sale_facts.sql`
+  - `supabase/tests/reports_v3_dependencies.sql`
+  - `supabase/tests/reports_v3_fixtures.sql`
+  - `scripts/reports_v3_fixture.py`
+  - `src/lib/__tests__/reportsV3Contracts.test.ts`
+  - `WORK_LOG.md`
+- Documentation addition: `docs/plans/2026-10-31-reports-v2/appendix/` (9 files), `docs/plans/2026-10-31-reports-v2/implementation_plan.md`, `implementation_plan.md`.
+
+**Migrations and deploys.** None. Disposable local synthetic databases only, with placeholder versions.
+
+**Verification** (local, base `6e39c15`):
+- **Failing first:** without `…11`, the sale-facts suite stops at `report_v3_sale_facts(...) does not exist`.
+- **SQL suites:** the v3 suite passes on PG 16.15, with 7 mutation controls in all. The integrity and RPC suites pass.
+- **Static test:** 14/14.
+- **TypeScript:** root `npx tsc --noEmit` passes. The app typecheck gives 80 errors whose identities match base, line for line.
+- **ESLint and Reports Vitest:** scoped ESLint is clean. Reports Vitest: 27 files, 417 passed, 1 pre-existing skip.
+- **Full Vitest:** still running when this commit was made; the result is added in the follow-up record commit.
+- **Build:** `npm run build` passes.
+- **PostgreSQL 17.6 CI on the Batch 2 head:** dispatched after the push; the result is added in the follow-up record commit.
+
+**Next.** PKG-A Batch 3: `…12` call and journey helpers, with the BC1/BC2 cases. The exact files are listed first.
+
+**Still open.** A named reviewer for ★1/★4. Placeholder versions get renumbered before any backend merge. The PKG-A production packet comes later and needs separate approval.
+
 ## 2026-11-01 — Reports V2 PKG-A Batch 1: v3 contract foundation, harness and contract tests (branch `claude/great-goodall-911azc`; committed locally; NOT pushed, merged, applied or deployed)
 
 **Status:** Branch-only build under Chris's 2026-11-01 conditional approval (plan revision 2.1, `docs/plans/2026-10-31-reports-v2/implementation_plan.md`; root pointer entry of the same date). No push, PR, migration application, production read or write, deploy or settings change.

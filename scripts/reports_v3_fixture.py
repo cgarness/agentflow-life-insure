@@ -32,6 +32,25 @@ V2_STATE = [
 ]
 
 
+PERFORMANCE_CONTRACT = 'supabase/migrations/20261005161623_performance_reporting_contract.sql'
+
+
+def verbatim_line(path, prefix):
+    """The single line of a migration that starts with prefix (for its REVOKE statements)."""
+    lines = [l for l in v2.read(path).splitlines() if l.startswith(prefix)]
+    assert len(lines) == 1, prefix
+    return lines[0]
+
+
+def premium_choke_point():
+    """private.performance_monthly and private.performance_sale_monthly, verbatim, with their REVOKEs."""
+    parts = []
+    for name in ['performance_monthly(', 'performance_sale_monthly(']:
+        parts.append(v2.block(PERFORMANCE_CONTRACT, 'CREATE FUNCTION private.' + name))
+        parts.append(verbatim_line(PERFORMANCE_CONTRACT, 'REVOKE ALL ON FUNCTION private.' + name))
+    return '\n'.join(parts)
+
+
 def release_enable_check():
     """The highest-version release-enable migration must be byte-equal to supabase/ops/reports_v3_enable.sql."""
     files = sorted((ROOT / 'supabase/migrations').glob('*_reports_v3_release_enable*.sql'))
@@ -57,8 +76,13 @@ def steps():
 
     yield 'v3 controls', v2.read('supabase/tests/reports_v3_controls.sql')
     yield 'v2 state is sealed before v3', 'SELECT rt.assert_sealed_v3(true, false);'
+    yield 'v3 dependency schema', v2.read('supabase/tests/reports_v3_dependencies.sql')
+    yield 'verbatim premium choke point (20261005161623)', premium_choke_point()
+    yield 'v3 synthetic fixtures', v2.read('supabase/tests/reports_v3_fixtures.sql')
 
     foundation = v2.migration('reports_v3_foundation')
+    sale_facts = v2.migration('reports_v3_sale_facts')
+    yield 'sale facts refuse to run before the foundation', v2.refused(sale_facts, 'Reports v3 sale facts: the foundation')
     yield 'foundation refuses closure-helper drift', v2.refused(
         'ALTER FUNCTION private.report_meta(text,uuid,text,text,date,date,timestamptz,timestamptz) SECURITY DEFINER;' + foundation,
         'Reports v3 foundation: v2 or closure preimage drift')
@@ -68,7 +92,13 @@ def steps():
     yield '20261101000010_reports_v3_foundation', foundation
     yield 'foundation replay refuses', v2.refused(foundation, 'Reports v3 foundation: refusing replay')
     yield 'v3 contract', v2.read('supabase/tests/reports_v3_contract.sql')
-    yield 'v2 surface unchanged after the foundation', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
+    yield 'sale facts refuse premium choke-point drift', v2.refused(
+        'ALTER FUNCTION private.performance_sale_monthly(public.wins,numeric) SECURITY DEFINER;' + sale_facts,
+        'Reports v3 sale facts: premium choke point drift')
+    yield '20261101000011_reports_v3_sale_facts', sale_facts
+    yield 'sale facts replay refuses', v2.refused(sale_facts, 'Reports v3 sale facts: refusing replay')
+    yield 'v3 sale facts', v2.read('supabase/tests/reports_v3_sale_facts.sql')
+    yield 'v2 surface unchanged after the v3 helpers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
 
 
 if __name__ == '__main__':
