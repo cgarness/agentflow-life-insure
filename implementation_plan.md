@@ -1,3 +1,45 @@
+## 2026-11-01 — Reports V2 continuation: push authorized, appendix documentation approved, PKG-A Batch 2 (sale facts) (nothing applied, merged or deployed)
+
+**Authorization (Chris, 2026-11-01, follow-up message):**
+- Normal pushes of `claude/great-goodall-911azc`: Batch 0 (`e1dde84`), Batch 1 (`5efc7c9`), and checkpoint pushes of the documentation addition and Batch 2. No PR, merge, push to `main` or other branch.
+- A manual dispatch of `reports-backend.yml` (isolated synthetic verification) on this branch. **Not** `reports-release.yml`, any release runner, migration repair or hosted database mutation.
+- The appendix documentation addition below.
+- **Not approved:** either privacy option for ★1/★4, the proposed agency-only fallback, or any production migration, RLS change, data repair, release-runner stage, deploy promotion or settings change.
+
+**Pre-push automation check:**
+- Only one workflow runs on push (`s1-plan-verify.yml`), and only for `main`. Every other workflow runs on `pull_request` or `workflow_dispatch`.
+- Supabase production deploys act on `main`, and Supabase preview databases need a PR.
+- Vercel builds an access-protected preview for the branch, which is permitted.
+
+**Documentation addition. Files:**
+1. `docs/plans/2026-10-31-reports-v2/appendix/D1.md` … `D6.md` (6 files, create): the reconciled revision 2.1 section designs
+2. `docs/plans/2026-10-31-reports-v2/appendix/tests.md` (create): test index
+3. `docs/plans/2026-10-31-reports-v2/appendix/backend_actions.md` (create): backend-action index
+4. `docs/plans/2026-10-31-reports-v2/appendix/lead_rulings.md` (create): ruling index RL-1–RL-50
+5. `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (modify): the §2.6 helper inventory matches the implemented foundation, and the appendix index matches what the repository holds
+6. `implementation_plan.md` (this entry; existing entries untouched)
+
+Not included: revision 1 arbitration, critic and verifier history, the reconciliation log, the structured JSON sources, caches, credentials, personal data and production extracts.
+
+**Batch 2 (PKG-A …11 sale facts). Files:**
+1. `supabase/migrations/20261101000011_reports_v3_sale_facts.sql` (create; class C; placeholder version, **not applied**)
+2. `supabase/tests/reports_v3_sale_facts.sql` (create)
+3. `supabase/tests/reports_v3_dependencies.sql` (create)
+4. `supabase/tests/reports_v3_fixtures.sql` (create)
+5. `scripts/reports_v3_fixture.py` (modify)
+6. `src/lib/__tests__/reportsV3Contracts.test.ts` (modify)
+7. `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (the helper-inventory update, shared with the documentation addition)
+8. `WORK_LOG.md` (newest-first entry)
+
+**Order:** the PostgreSQL 17.6 run on `5efc7c9` must pass before any sale-facts code that depends on the foundation is written. A foundation regression is fixed first.
+
+**Checks:**
+- `npx tsc --noEmit` and the application-project typecheck, with error identities compared against `6e39c15`;
+- the SQL suites, relevant Vitest, scoped ESLint and `npm run build`;
+- the 17.6 CI run on the pushed head.
+
+---
+
 ## 2026-11-01 — APPROVED BRANCH BUILD, WITH BINDING CONDITIONS (nothing applied, pushed, merged or deployed): Reports V2 (PKG-A, B, C, D, F)
 
 **Plan:** `docs/plans/2026-10-31-reports-v2/implementation_plan.md`, revision 2.1. Revision 2.1 is revision 2 plus Chris's 2026-11-01 branch-work review.

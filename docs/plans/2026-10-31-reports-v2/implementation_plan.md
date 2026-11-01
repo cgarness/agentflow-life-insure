@@ -436,8 +436,11 @@ All helpers are in `private`, SECURITY INVOKER, `search_path = pg_catalog, pg_te
 |---|---|---|
 | `report_v3_envelope(p_reader text, p_scope text, p_requested_scope text, p_filter_agent uuid, p_time_zone text, p_time_zone_source text, p_start_date date, p_end_date date, p_start_at timestamptz, p_end_at timestamptz) RETURNS jsonb` | …10 | meta, markers, basis flags |
 | `report_v3_metric(p_id int, p_status text, p_value numeric, p_numerator numeric, p_denominator numeric, p_coverage jsonb, p_maturity jsonb, p_reason text, p_detail jsonb) RETURNS jsonb IMMUTABLE`; `report_v3_ratio` / `report_v3_rate(p_id int, p_num numeric, p_den numeric, p_coverage jsonb DEFAULT NULL, p_maturity jsonb DEFAULT NULL, p_reason text DEFAULT NULL, p_detail jsonb DEFAULT NULL)` | …10 | enforces §2.2; P0001 on violation; value unrounded (scale ≤ 6) |
-| `report_v3_kpi_ids(p_reader text) RETURNS int[]`; `report_v3_reason_codes() RETURNS text[]`; `report_v3_metric_registry() RETURNS jsonb`; `report_v3_basis_flags() RETURNS jsonb` | …10 | registries; stub flags `{contract_version: '3.0.0', corrections: 'not_installed', sale_call_links: 'not_installed', appointment_evidence: 'not_installed'}` |
-| `report_v3_sold_window(p_start date, p_end date, p_agency_today date) RETURNS TABLE(sold_from date, sold_until date)` | …10 | half-open `(p_start, least(p_end, p_agency_today) + 1)` |
+| `report_v3_kpi_ids(p_reader text) RETURNS int[]`; `report_v3_reason_codes() RETURNS text[]`; `report_v3_metric_registry() RETURNS jsonb`; `report_v3_basis_flags() RETURNS jsonb` | …10 | registries; stub flags `{contract_version: '3.0.0', corrections: 'not_installed', sale_call_links: 'not_installed', appointment_evidence: 'not_installed'}`. The metric registry encodes each §2.4 row with fixed values (unit, kind, eligible population, credit, date basis, display, csv) that `src/lib/reports-kpi-registry.ts` mirrors exactly; an unknown reader raises P0001 |
+| `report_v3_sold_window(p_start date, p_end date, p_agency_today date) RETURNS TABLE(sold_from date, sold_until date)` | …10 | half-open `(p_start, least(p_end, p_agency_today) + 1)`; raises 22023 if any date is NULL |
+| `report_v3_evaluate(p_id int, p_config text, p_n_known numeric, p_d_known numeric, p_coverage jsonb) RETURNS jsonb IMMUTABLE` | …10 | Internal (D1, Batch 1). The §2.2 status truth table in one place; unknown parts come from `coverage.reasons` through each KPI's side map (N, D, ND, W) |
+| `report_v3_total(p_id int, p_value numeric, p_coverage jsonb DEFAULT NULL, p_reason text DEFAULT NULL, p_detail jsonb DEFAULT NULL)`; `report_v3_median(p_id int, p_value numeric, p_members numeric, p_coverage jsonb DEFAULT NULL, p_reason text DEFAULT NULL, p_detail jsonb DEFAULT NULL)` | …10 | Internal builders (D1, Batch 1) for counts and sums, and for medians. With `report_v3_ratio` and `report_v3_rate` they are the only way readers build envelopes; `p_reason` accepts only an applicable config code |
+| `report_v3_reason_kind(p_code text) RETURNS text`; `report_v3_kpi_codes() RETURNS jsonb` | …10 | Internal registries (D1, Batch 1): the kind of each code by registry position, and each KPI's config, zero and coverage codes with the coverage side |
 | `report_v3_sale_premium(p_win public.wins, p_client numeric) RETURNS TABLE(monthly numeric, premium_source text, premium_state text, revision int)` | …11 | PKG-B stub; delegates to `performance_sale_monthly` |
 | `report_v3_sale_facts(p_org uuid, p_agents uuid[], p_sold_from date, p_sold_until date)` | …11 | NULL bound = unbounded; returns `win_id, policy_id, buyer_id, seller_id, sold_date, created_at, recorded_at, event_time_source, monthly_premium, premium_source, premium_state ∈ {known, missing, invalid}, correction_revision`; **callers filter `recorded_at <= as_of`** |
 | `report_v3_production`, `report_v3_production_kpis`, `report_v3_stored_without_sale` | …11 | internal to D2 |
@@ -881,7 +884,7 @@ Chris's message of 2026-11-01 approved **branch-only** implementation of PKG-A, 
 | ★8 | Production release route | Decided | Protected runner, with exact approval and verification of each production package |
 | ★9 | Calls made on other screens | Decided | A separate reviewed alignment scope. The temporary basis disclosure stays. AP-correction consistency and the documented refresh behavior remain in this project |
 
-**Proposed fallback if ★1 or ★4 is declined** (for Chris's decision; not implemented unless chosen):
+**Proposed fallback if ★1 or ★4 is declined** (for Chris's decision; **not approved** and not implemented):
 - ★1 declined: option (c). KPIs 12, 14, 18, 19, 21 and 38 return `journey_scope_restricted` at personal and team scope. Agency scope is unchanged.
 - ★4 declined: phone numbers are never read. Below agency scope the journey KPIs follow option (c), so unrelated unresolved calls cannot affect scoped results (BC1). At agency scope, unresolved calls become a window-level `history_incomplete` condition for 19, 21 and 38.
 
@@ -1747,21 +1750,15 @@ Base for comparison: `6e39c15`, or the exact base of each package branch. Pre-ex
 
 ## Appendices
 
-These files are in the `appendix/` folder of the plan package (revision 2.1). **They were edited to agree with §2–§13**, and revision 2.1 applied BC1–BC5 to D1, D3, D4 and D6; `appendix/reconciliation_log.md` lists every change. The revision 1 appendices were delivered with the earlier package and are not build input.
-
-**Not yet in the repository.** `docs/plans/2026-10-31-reports-v2/appendix/` is not on the reviewed file list, so committing the appendices needs a bounded change request and Chris's approval. Until then the repository holds this plan only, and the package is the reference copy.
+**In the repository** (`docs/plans/2026-10-31-reports-v2/appendix/`, added 2026-11-01 under Chris's documentation approval). These are the current implementation references. They agree with §2–§13, and revision 2.1 applied BC1–BC5 to D1, D3, D4 and D6.
 
 | File | Contents |
 |---|---|
-| `D1.md` … `D6.md` | Section designs (revision 2): D1 contract, security, ops and release; D2 production and AP corrections (PKG-B); D3 calls, identity, journeys and PKG-C; D4 Sales Appointments and PKG-D; D5 Regional performance and map provenance; D6 the one-page frontend (PKG-F) |
-| `tests.md` | Every test case (name, file, kind, package, covers) |
-| `backend_actions.md` | Per-section backend actions with gates (§9 is the merged order) |
-| `reconciliation_log.md` | What changed in each appendix for R01–R11 and X1–X19; every open issue raised during reconciliation, with the lead ruling (RL-1–RL-50) that settled it |
-| `lead_rulings.md` | The 50 lead rulings applied to the contract and every appendix |
-| `structured/D1.json` … `D6.json` | Machine-readable files, tests, backend actions and metric rows per section (the source of §7, §8, `tests.md` and `backend_actions.md`) |
-| `A_arbitration.md` | Revision 1 arbitration R1–R23: history only, **not build input**. Revision 2 replaced its R1, R2, R3, R4, R8, R11, R12, R17, R18 and R21 content |
-| `verifier.json`, `critics_summary.md` | Revision 1 cross-section verifier output (X1–X19) and critic passes, as history |
-| `review/review_R01_R11.md` | The owner review items this revision answers (condensed copy) |
-| `implementation_plan.md` | This plan, as written to `docs/plans/2026-10-31-reports-v2/implementation_plan.md` after the 2026-11-01 approval |
-| `root_implementation_plan_entry.md` | The dated pointer entry prepended to the root `implementation_plan.md` on 2026-11-01 |
+| `D1.md` … `D6.md` | Section designs: D1 contract, security, ops and release; D2 production and AP corrections (PKG-B); D3 calls, identity, journeys and PKG-C; D4 Sales Appointments and PKG-D; D5 Regional performance and map provenance; D6 the one-page frontend (PKG-F) |
+| `tests.md` | Test index: every test case (name, file, kind, package, covers) |
+| `backend_actions.md` | Backend-action index: per-section backend actions with gates (§9 is the merged order) |
+| `lead_rulings.md` | Ruling index: the 50 lead rulings (RL-1–RL-50) applied to the contract and every appendix |
 
+**Plan package only** (history, not build input, not committed): `reconciliation_log.md`, the structured JSON sources of §7, §8 and the indexes, revision 1 arbitration (`A_arbitration.md`), and the verifier and critic outputs (`verifier.json`, `critics_summary.md`). Where history conflicts with revision 2.1, revision 2.1 governs.
+
+★1 and ★4 remain pending, and every AGENT_RULES text in §6 remains proposed. Adding these documents approves neither privacy option nor the proposed agency-only fallback in §5.1.
