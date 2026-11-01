@@ -427,6 +427,10 @@ SELECT rt.eq('KPI 34: only calls not linked to a lead',
   rt.svr(private.report_v3_ratio(34, 0, 0, rt.cov(0, 0, 0, '{"unlinked_calls_excluded":5}'))), 'unavailable|unlinked_calls_excluded|null');
 SELECT rt.eq('KPI 34: partial', rt.svr(private.report_v3_ratio(34, 6, 4, rt.cov(7, 6, 1, '{"attempt_unverified":1,"unlinked_calls_excluded":2}'))),
   'partial|attempt_unverified|1.5');
+SELECT rt.eq('KPI 34: unverified lead-stage rows only (they could add lead identities; BC4)',
+  rt.svr(private.report_v3_ratio(34, 0, 0, rt.cov(3, 0, 3, '{"attempt_unverified":3}'))), 'unavailable|attempt_unverified|null');
+SELECT rt.eq('KPI 34 codes', private.report_v3_kpi_codes() -> '34',
+  '{"config":[],"zero":["no_lead_calls"],"coverage":{"attempt_unverified":"ND","unlinked_calls_excluded":"D"}}'::jsonb);
 SELECT rt.eq('KPI 14: one buyer, 4 days', rt.svr(private.report_v3_median(14, 4, 1)), 'available|-|4');
 SELECT rt.eq('KPI 14: no first-time buyers', rt.svr(private.report_v3_median(14, NULL, 0)), 'unavailable|no_first_time_buyers|null');
 SELECT rt.eq('KPI 14: receipts unknown', rt.svr(private.report_v3_median(14, NULL, 0, rt.cov(2, 0, 2, '{"lead_receipt_unknown":2}'))),

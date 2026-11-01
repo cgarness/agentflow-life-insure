@@ -268,3 +268,37 @@ describe("Reports v3 sale facts", () => {
     }
   });
 });
+
+describe("Reports v3 call and journey helpers", () => {
+  const callJourney = readdirSync(join(ROOT, MIGRATIONS)).find((n) => n.endsWith("_reports_v3_call_journey_helpers.sql"));
+  const sql = stripSqlComments(read(`${MIGRATIONS}/${callJourney}`));
+  const body = (name: string) => {
+    const start = sql.indexOf(`CREATE FUNCTION private.${name}(`);
+    return sql.slice(start, sql.indexOf("$$;", sql.indexOf("AS $$", start)));
+  };
+
+  it("creates exactly the fourteen call and journey helpers, with invoker rights", () => {
+    expect(createdFunctions(sql).map((f) => f.name).sort()).toEqual([
+      "private.report_v3_call_counts", "private.report_v3_call_facts", "private.report_v3_call_kpis",
+      "private.report_v3_client_identity_key", "private.report_v3_contact_identity", "private.report_v3_contact_predicate",
+      "private.report_v3_first_sales", "private.report_v3_identity_numbers", "private.report_v3_identity_receipts",
+      "private.report_v3_journey_facts", "private.report_v3_journey_kpis", "private.report_v3_journey_members",
+      "private.report_v3_local_day_start", "private.report_v3_sale_call_links",
+    ]);
+    expect(sql).not.toMatch(/SECURITY\s+DEFINER/i);
+  });
+
+  it("never resolves an identity from a phone number (numbers are exclusion evidence only)", () => {
+    expect(body("report_v3_contact_identity")).not.toMatch(/phone/i);
+    expect(body("report_v3_client_identity_key")).not.toMatch(/phone/i);
+    expect(body("report_v3_first_sales")).not.toMatch(/phone/i);
+    // Numbers are compared only inside the journey gates, member by member.
+    for (const m of body("report_v3_journey_members").matchAll(/n\.phone_last10 = c\.phone_last10/g)) expect(m.index).toBeGreaterThan(0);
+    expect(body("report_v3_journey_facts")).not.toMatch(/phone_last10 =/);
+  });
+
+  it("keeps the v2 call reader as the single source of call rows and the stub link reader empty", () => {
+    expect(body("report_v3_call_facts")).toMatch(/private\.report_call_facts\(p_org, p_start, p_end, NULL\)/);
+    expect(body("report_v3_sale_call_links")).toMatch(/WHERE false/);
+  });
+});

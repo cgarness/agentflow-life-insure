@@ -1,5 +1,92 @@
 # AgentFlow Work Log
 
+## 2026-11-01 — Reports V2 PKG-A Batch 3: call and journey helpers (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
+
+**Status.** Built under Chris's Batch 3 message and the existing branch approval. Normal checkpoint pushes and one isolated `reports-backend.yml` dispatch on the pushed head are authorized; nothing else is. ★1 and ★4 remain pending: the journey history gates are the **proposed design**, implemented and tested only in isolation. No privacy acceptance, reviewer or agency-only fallback is recorded or enabled. No telephony, `TwilioContext`, call-initiation or duration-writer change.
+
+**What changed.**
+- **Call and journey migration** (`20261101000012_reports_v3_call_journey_helpers.sql`, placeholder version, class C, **not applied**). It creates 14 sealed private helpers.
+  - **Call facts** wrap the pinned v2 `report_call_facts`, so the row set and carried columns match v2 exactly. They add three evidence classes:
+    - **attempt:** a pre-admission legacy row, or an admitted row. Genuine failed, busy and no-answer attempts stay calls.
+    - **non_attempt:** an admission the server refused. It is proven and disclosed.
+    - **unverified:** no admission row. It counts as unknown evidence, never as zero activity.
+
+    They also add the contacted and answered-inbound flags, identity resolution and the credited agent.
+  - **Contact predicate:** No Answer is tested first, then duration > 45 s (exactly 45 does not pass), then a qualifying disposition. Inbound journey contacts never enter outbound totals.
+  - **Supporting helpers:** the single identity resolver (D3 rules 1–8, same-organization lookups only), lead receipts from five sources, a person's current numbers, first sales, and the PKG-A sale-call link stub (no rows).
+  - **Journey members and facts** apply the metric-specific gates:
+    - KPI 14 uses receipt and sale gates only.
+    - KPIs 19 and 21 include prospects who never buy and exclude prior buyers.
+    - 21 counts any possibly related call and an unverified linked call; 19 counts only calls that could have qualified as a contact.
+    - 1 Call Close is Yes, No or Unclassified, and missing or uncertain evidence is never No.
+    - A phone number only rules relatedness out for one member. It never links or attributes anything, and no key, number or id leaves the facts.
+  - **KPI assemblers:** call counts plus the KPI 5–11 and 34 envelopes, and the KPI 14, 19, 21 and 38 envelopes, all built only through the foundation builders. KPI 38 reports `sale_call_link_not_captured` until PKG-C.
+- **Foundation fix** (`…10`, branch-only, never applied). KPI 34's `attempt_unverified` now counts on both sides (`ND`), so unverified lead-stage rows block `no_lead_calls`, as D3 §3.3 requires. The contract suite gained the matching cases. I added both files to the Batch 3 list before editing them.
+- **Harness.**
+  - Production-named dependency stubs for the October call and journey columns and tables.
+  - `public.phone_last10` extracted verbatim from `20260823222528`.
+  - A synthetic call and journey organization with scenarios S1–S14, a numberless call, classification calls and resolution calls.
+  - Ordering, drift and replay refusals for `…12`.
+- **Tests.**
+  - `reports_v3_calls_identity.sql`: 48 assertions, 2 refusal checks and 3 mutation controls.
+  - `reports_v3_journey.sql`: 55 assertions, BC1 and BC2 savepoint blocks, and 3 mutation controls.
+  - The static test adds `…12` checks: the 14 helpers, numbers never resolving identities, and the v2 call reader as the single row source.
+- **Plan.** §2.6 now lists the four internal helpers.
+
+**Required cases covered.**
+- **Call classes:** attempt, non-attempt and unverified stay separate; failed attempts remain calls; unverified rows stay unknown; legacy rows follow the retained rule; raw call records are unchanged (fingerprint).
+- **Contacted:** No Answer is excluded first; 45 s does not qualify; 46 s or a qualifying disposition does; inbound evidence never enters outbound totals.
+- **BC1:**
+  - Adding a numberless unresolved call, a call to an unrelated number, and an out-of-scope person's phone change leaves the personal and team envelopes byte-identical.
+  - Organization-wide uncertainty (numberless calls) appears only at agency scope.
+  - An in-scope person's own phone change affects only that person.
+- **BC2:**
+  - A receipt on October 1 and a first sale on October 5 give KPI 14 = 4 days with no call recorded.
+  - A non-buyer stays in KPI 19's denominator.
+  - An earlier confirmed No Answer attempt still allows a 1 Call Close Yes.
+  - A missing link, or a link to a non-contact call, is Unclassified and never No.
+  - A number-matched call stays unresolved and is never attributed.
+  - Agency results stay partial while numberless calls exist (no match is not proof of complete history).
+- **BC4:**
+  - Complete zero activity over 2 policies gives 0. Zero policies give no ratio. Unverified-only evidence is unavailable, never 0.
+  - KPI 19 for a non-buyer cohort is 0.0 % available with maturity complete.
+  - Status and maturity are separate: the same partial value shows maturity complete at one as_of and in progress at an earlier one.
+
+**Files touched.**
+- Created:
+  - `supabase/migrations/20261101000012_reports_v3_call_journey_helpers.sql`
+  - `supabase/tests/reports_v3_calls_identity.sql`
+  - `supabase/tests/reports_v3_journey.sql`
+  - `supabase/tests/reports_v3_journey_fixtures.sql`
+- Modified:
+  - `supabase/tests/reports_v3_dependencies.sql`
+  - `scripts/reports_v3_fixture.py`
+  - `src/lib/__tests__/reportsV3Contracts.test.ts`
+  - `supabase/migrations/20261101000010_reports_v3_foundation.sql`
+  - `supabase/tests/reports_v3_contract.sql`
+  - `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+  - `implementation_plan.md`
+  - `WORK_LOG.md`
+
+**Migrations and deploys.** None. Disposable local synthetic databases only, with placeholder versions.
+
+**Verification** (local, base `6e39c15`):
+- **Failing first:** without `…12`, both new suites stop at the missing functions.
+- **SQL suites:** the v3 suite passes on PG 16.15. The existing integrity and RPC suites also pass.
+- **Static test:** 17/17.
+- **TypeScript:** root `npx tsc --noEmit` passes. The app typecheck gives 80 errors whose identities match base, line for line.
+- **ESLint and Reports Vitest:** scoped ESLint is clean. Reports Vitest: 27 files, 420 passed, 1 pre-existing skip.
+- **Full Vitest:** still running when this commit was made; the result is added in the follow-up record commit.
+- **Build:** `npm run build` passes.
+- **PostgreSQL 17.6 CI on the pushed head:** dispatched after the push; the result is added in the follow-up record commit.
+
+**Known follow-ups (not claimed as done).**
+- The journey history reads are organization-wide in this batch. D3's index-bounded phase-2 reads are a performance follow-up before the performance gate.
+- D3 §3.3's KPI 19 maturity text still says "members = assessable members". The contract (rule 7, whole group) governs and is what is implemented; the D3 wording needs a documentation fix.
+- KPIs 24 and 25 (talk time, dialer time) are assembled with the readers in `…15`.
+
+**Next.** PKG-A Batch 4: `…13` appointment-facts stub and `…14` state helpers. The exact files are listed first.
+
 ## 2026-11-01 — Reports V2 PKG-A Batch 2: sale facts; branch pushed; PostgreSQL 17.6 CI green; appendices added (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
 
 **Status.** Chris authorized:

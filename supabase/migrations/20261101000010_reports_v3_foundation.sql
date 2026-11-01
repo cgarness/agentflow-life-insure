@@ -180,7 +180,7 @@ AS $$
        "coverage":{"attempt_unverified":"D","history_incomplete":"D","lead_receipt_unknown":"D"}},
  "24":{"config":[],"zero":[],"coverage":{}},
  "25":{"config":[],"zero":[],"coverage":{}},
- "34":{"config":[],"zero":["no_lead_calls"],"coverage":{"attempt_unverified":"N","unlinked_calls_excluded":"D"}},
+ "34":{"config":[],"zero":["no_lead_calls"],"coverage":{"attempt_unverified":"ND","unlinked_calls_excluded":"D"}},
  "38":{"config":["sale_call_link_not_captured","journey_scope_restricted"],"zero":["no_first_time_buyers"],
        "coverage":{"history_incomplete":"D","sale_call_link_missing":"D"}}
 }$codes$::jsonb;

@@ -1,3 +1,39 @@
+## 2026-11-01 — Reports V2 PKG-A Batch 3: call and journey helpers (…12) (branch `claude/great-goodall-911azc`; nothing applied, merged or deployed)
+
+**Authorization:** Chris's 2026-11-01 Batch 3 message, under the existing branch-implementation approval.
+- **Authorized:** normal checkpoint pushes to `claude/great-goodall-911azc`, and manual dispatch of `reports-backend.yml` (isolated synthetic verification) on the pushed implementation head.
+- **Not authorized:** force push, PR, push to `main`, merge, production SQL, migration application, release-runner execution, migration repair, deploy promotion or settings change.
+- **Still pending:** ★1 and ★4. Only the proposed design is implemented and tested, in isolation. No privacy acceptance, reviewer or agency-only fallback is recorded or enabled.
+
+**Base:** the branch head `0cf0db1`. `main` is still `6e39c15`, and no open PR overlaps.
+
+**Batch 3 files** (all on the reviewed PKG-A list):
+1. `supabase/migrations/20261101000012_reports_v3_call_journey_helpers.sql` (create; class C; placeholder version, **not applied**)
+2. `supabase/tests/reports_v3_calls_identity.sql` (create): call classification, contacted classification, identity resolution, call KPIs (BC4)
+3. `supabase/tests/reports_v3_journey.sql` (create): journey facts, the BC1 privacy cases, the BC2 history gates, KPIs 14, 19, 21 and 38
+4. `supabase/tests/reports_v3_journey_fixtures.sql` (create): synthetic call and journey organization
+5. `supabase/tests/reports_v3_dependencies.sql` (modify): the October call and journey columns and tables, with production names
+6. `scripts/reports_v3_fixture.py` (modify): verbatim `public.phone_last10`, the new suites, and the ordering, drift and replay refusals for `…12`
+7. `src/lib/__tests__/reportsV3Contracts.test.ts` (modify): static checks for `…12`
+8. `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (modify): §2.6 helper inventory for the internal helpers `…12` adds
+9. `implementation_plan.md` (this entry)
+10. `WORK_LOG.md` (newest-first entry)
+11. `supabase/migrations/20261101000010_reports_v3_foundation.sql` (modify; added during the batch, before editing): KPI 34's `attempt_unverified` counts on both sides (`ND`), so unverified lead-stage rows block `no_lead_calls` as D3 §3.3 requires (BC4). The file is branch-only and has never been applied.
+12. `supabase/tests/reports_v3_contract.sql` (modify; added during the batch): the KPI 34 code map and the unverified-only case
+
+No change is needed to `scripts/run_reports_v3_tests.sh`; the suites run through the fixture builder.
+
+**Checks:**
+- failing-first runs and mutation controls;
+- the v3, integrity and RPC SQL suites;
+- the static test, scoped ESLint and `npm run build`;
+- `npx tsc --noEmit` and the application typecheck, with error identities compared against `6e39c15`;
+- PostgreSQL 17.6 CI on the pushed head, with the checked-out SHA and the new suites confirmed in the log.
+
+No telephony, `TwilioContext`, call-initiation or duration-writer change.
+
+---
+
 ## 2026-11-01 — Reports V2 continuation: push authorized, appendix documentation approved, PKG-A Batch 2 (sale facts) (nothing applied, merged or deployed)
 
 **Authorization (Chris, 2026-11-01, follow-up message):**
