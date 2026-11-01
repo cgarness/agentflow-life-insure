@@ -1,3 +1,77 @@
+## 2026-11-01 — APPROVED BRANCH BUILD, WITH BINDING CONDITIONS (nothing applied, pushed, merged or deployed): Reports V2 (PKG-A, B, C, D, F)
+
+**Plan:** `docs/plans/2026-10-31-reports-v2/implementation_plan.md`, revision 2.1. Revision 2.1 is revision 2 plus Chris's 2026-11-01 branch-work review.
+
+**Approval (Chris, 2026-11-01):**
+- Branch-only implementation of PKG-A, B, C, D and F from revision 2's reviewed file list.
+- PKG-A uses `claude/great-goodall-911azc`. Per-package branches `claude/great-goodall-911azc-pkg-b`, `-pkg-c`, `-pkg-d` and `-pkg-f` are approved for B, C, D and F. Shared files have explicit owners, and a parallel branch never overwrites another package's changes.
+- This is **not** blanket approval of the plan's defaults or of any AGENT_RULES text, and it grants **no production authority**.
+
+**Not approved:**
+- production SQL or data mutation, migration application, protected-runner execution, production repair, RLS change, push to `main`, merge, deploy or settings change;
+- any push or draft PR (each needs separate authorization).
+
+Local isolated synthetic test databases are permitted. A new path, a wider exception or an additional backend action needs a bounded change request and Chris's explicit approval first.
+
+**Binding conditions** (each added as a test first and resolved in the affected package; plan §5.2, §3.1, §10.1a):
+- **BC1.** Unrelated out-of-scope uncertainty never changes personal or team results: numberless unresolved calls, and unresolved activity elsewhere after an in-scope person's phone change. Global unknown-history diagnostics appear only at authorized, unfiltered agency scope. No privacy sign-off is claimed.
+- **BC2.** History gates are metric-specific:
+  - a valid receipt and first sale support Days to first sale without a recorded call;
+  - prospects without a sale stay in first-contact metrics;
+  - a confirmed unanswered attempt does not invalidate a verified 1 Call Close;
+  - phone checks never link identities, and no match is not proof of complete history.
+- **BC3.** KPIs 12 and 16–18 credit the recorded assignee at occurrence start. When it is unknown, the item counts in agency totals only and no individual gets credit; the creator fallback is removed. KPI 15 keeps setter credit.
+- **BC4.** Status comes from each KPI's own numerator and denominator evidence:
+  - complete zero calls over 2 policies is 0 calls per policy;
+  - positive calls over 0 policies is unavailable;
+  - unknown numerator evidence never becomes 0;
+  - maturity metadata is kept;
+  - SQL, Zod, UI and CSV assert the same cases.
+- **BC5.** PKG-D tests appointment create, update and delete sequences with both capture and gap writes failing, including create-then-delete with no current row. Each case shows its durable detecting source, or the stated unobservable limit. No silent tracking expansion.
+
+**Decisions:**
+- ★2: observed-to-date value, compact In progress status, details on demand.
+- ★3: exclude unverified rows from Calls made with truthful Partial coverage. Exclude proven non-attempts. Keep raw records and genuine failed attempts.
+- ★5: historical premium corrections by Admin and Super Admin, in their own organization only.
+- ★6: IN-A with exact same-org, contact and actor validation. The selected call is frozen with the sale submission and cleared on sign-out or organization change. The latest call is never substituted, and TwilioContext is unchanged.
+- ★7: no partial public release by default.
+- ★8: protected runner.
+- ★9: other screens' Calls made alignment is a separate scope. AP consistency stays in scope.
+- ★1 and ★4 are **pending**. Only a clearly marked proposed design is built, in isolation, with BC1/BC2 applied. No security reviewer has been appointed, and no disclosure is recorded as accepted.
+
+**Base:** `main` `6e39c15`, refreshed 2026-11-01. The newest open PR was last updated 2026-10-23 (#486, already in PKG-B's coordination step). No open PR overlaps the Reports V2 files.
+
+**Batch 0 (this entry):** records the conditions before implementation. Files:
+1. `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (create: revision 2.1)
+2. `implementation_plan.md` (this pointer entry; existing entries untouched)
+
+**Batch 1 (next; PKG-A foundation and harness, failing tests first). Files:**
+1. `supabase/tests/reports_v3_contract.sql` (create): §2.2 envelope rules, the BC4 truth-table cases, registries, seal
+2. `supabase/tests/reports_v3_controls.sql` (create): v3 seal and pin helpers for the harness
+3. `scripts/reports_v3_fixture.py` (create): disposable database from verbatim dependencies; migrations found by unique suffix
+4. `scripts/run_reports_v3_tests.sh` (create): loopback-only runner that refuses non-loopback hosts and platform roles
+5. `src/lib/__tests__/reportsV3Contracts.test.ts` (create): static SQL checks (search_path, REVOKE ALL per function, the §2.8 file → class map and GRANT parser)
+6. `supabase/migrations/20261101000010_reports_v3_foundation.sql` (create; class C, no GRANT; placeholder version, **not applied** anywhere except the local synthetic database)
+7. `.github/workflows/reports-backend.yml` (modify): v3 paths and the v3 runner step
+8. `WORK_LOG.md` (newest-first entry)
+
+Later PKG-A batches, each with its exact file list stated before editing:
+- …11 to …14 (sale facts, call and journey helpers including the BC1/BC2 cases, appointment stub, state helpers);
+- …15 and …16 (the nine readers and the index, with the security, S14a/S14b and negative suites);
+- the ops scripts, …17, rollbacks, release runner and rehearsal;
+- the frontend contract files.
+
+Then the PKG-A production review packet, and a stop for Chris's separate approval.
+
+**Checks for each batch:**
+- `npx tsc --noEmit` and `npx tsc -p tsconfig.app.json --noEmit` (compared with the base);
+- the SQL suites on a disposable loopback PostgreSQL (PG 16.15 locally; PG 17.6 in CI on the exact head remains the gate);
+- the relevant Vitest files, scoped ESLint and `npm run build`.
+
+Each batch ends with a context snapshot covering changes, decisions, files, checks, migrations and deploys (none), blockers and the next step.
+
+---
+
 ## 2026-10-30 — APPROVED BRANCH BUILD: Starter SMS & Email Templates V1.1 (ChatGPT continuation)
 
 **Approval:** Chris asked ChatGPT to pick up Claude's existing plan and finish the task. This authorizes surgical branch implementation and tests only. **Not approved:** production data changes, migrations, merge, live release, or outbound sends.
