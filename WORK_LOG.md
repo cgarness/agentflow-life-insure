@@ -1,5 +1,63 @@
 # AgentFlow Work Log
 
+## 2026-11-01 — Reports V2 PKG-A Batch 1: v3 contract foundation, harness and contract tests (branch `claude/great-goodall-911azc`; committed locally; NOT pushed, merged, applied or deployed)
+
+**Status:** Branch-only build under Chris's 2026-11-01 conditional approval (plan revision 2.1, `docs/plans/2026-10-31-reports-v2/implementation_plan.md`; root pointer entry of the same date). No push, PR, migration application, production read or write, deploy or settings change.
+
+**What changed:**
+- **Foundation migration** (`20261101000010_reports_v3_foundation.sql`, placeholder version, privilege class C, **not applied**). It creates 14 sealed private helpers:
+  - the 29-code reason registry and the kind of each code;
+  - the 23-row metric registry;
+  - each KPI's applicable codes, with the side each coverage code's unknown items sit on;
+  - KPI ids per reader;
+  - the 3.0.0 basis-flags stub;
+  - the half-open Sold Date window;
+  - the payload-meta envelope (`report_meta` verbatim, plus v3 markers);
+  - the envelope validator, the BC4 evaluator, and four builders (ratio, rate, total, median).
+
+  Its preflight pins the 15 v2 readers and the 12 shared helpers, and refuses replay. The 12 helper fingerprints match the production prefixes recorded in discovery. Postconditions check helper metadata and that no client role or PUBLIC can execute a helper.
+- **BC4 in code.** Status comes only from the evaluator, in the order config → zero → coverage → partial → available, on each KPI's own numerator and denominator evidence. The validator independently refuses:
+  - unknown numerator evidence shown as 0;
+  - a zero code while the deciding side has unknown items;
+  - a cohort with members but no maturity block.
+
+  A static test stops any other v3 file from building envelopes directly.
+- **Harness.**
+  - `scripts/reports_v3_fixture.py` builds the production-equivalent v2 state from the verbatim v2 fixture steps, plus production's default function privileges in `public`.
+  - `scripts/run_reports_v3_tests.sh` runs on loopback only and refuses hosted platform roles.
+- **Tests.**
+  - `supabase/tests/reports_v3_controls.sql`: a five-role effective-privilege seal, including a PUBLIC-only role and an inheriting member of authenticated.
+  - `supabase/tests/reports_v3_contract.sql`: the registries; the envelope; every validator rule, including the P0001 SQLSTATE; the 11 required BC4 cases plus about 40 further truth-table rows; precision; an empty window that raises nothing; created-sealed checks; and 4 mutation controls.
+  - `src/lib/__tests__/reportsV3Contracts.test.ts`: the file → class map, a GRANT parser, a REVOKE check for every created function, the search_path check, and the builders-only rule.
+- **CI.** `.github/workflows/reports-backend.yml` runs the v3 runner on PG 17.6: two path entries, one step line and one artifact line.
+
+**Files touched:**
+- `supabase/migrations/20261101000010_reports_v3_foundation.sql`
+- `supabase/tests/reports_v3_controls.sql`
+- `supabase/tests/reports_v3_contract.sql`
+- `scripts/reports_v3_fixture.py`
+- `scripts/run_reports_v3_tests.sh`
+- `src/lib/__tests__/reportsV3Contracts.test.ts`
+- `.github/workflows/reports-backend.yml`
+- `WORK_LOG.md`
+
+**Migrations/deploys:** None. Disposable local synthetic databases only.
+
+**Verification** (local, base `6e39c15`):
+- **Failing first:** without the foundation, the contract suite stops at `private.report_v3_reason_codes() does not exist`.
+- **SQL suites:** `run_reports_v3_tests.sh` passes on PG 16.15. `run_reports_integrity_tests.sh` and `run_reports_rpc_tests.sh` pass. PG 17.6 CI has not run, because no push is authorized.
+- **Static test:** 11/11. It fails when one REVOKE is removed (checked, then the file was restored).
+- **TypeScript:** root `npx tsc --noEmit` passes. `npx tsc -p tsconfig.app.json --noEmit` gives the same 80 errors as base, compared line by line.
+- **ESLint and Reports Vitest:** scoped ESLint is clean. Reports Vitest: 27 files, 414 passed, 1 pre-existing conditional skip.
+- **Full Vitest:** 6,698 passed, 2 failed, 37 skipped across 1,969 suites. The 11 failing files are the 11 known at base, outside Reports; this batch changed no application module.
+- **Build:** `npm run build` passes.
+
+**Remaining gates and next step:**
+- PKG-A Batch 2: `…11` sale facts with the dependency stubs and the v3 fixtures. Its exact file list is stated before editing, and it adds the five internal helpers to plan §2.6.
+- Push authorization.
+- A bounded change request for the appendix paths.
+- A named reviewer for ★1/★4 before any PKG-A production approval.
+
 ## 2026-10-30 — Prebuilt SMS and Email Templates V1.1 branch build (NOT merged, seeded or deployed)
 
 **Status:** Branch-only implementation in `claude/sharp-johnson-2ojnub`, continuing Claude's plan using the source ZIP previously supplied in ChatGPT. **Production database seed is NOT approved or run.** No schema/RLS, Twilio/Edge Function, workflow-executor, dialing, Vercel or frontend production changes.

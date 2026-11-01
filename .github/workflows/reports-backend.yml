@@ -10,6 +10,8 @@ on:
       - 'scripts/run_reports_rpc_tests.sh'
       - 'scripts/run_reports_integrity_tests.sh'
       - 'scripts/reports_integrity_fixture.py'
+      - 'scripts/run_reports_v3_tests.sh'
+      - 'scripts/reports_v3_fixture.py'
       - 'scripts/tests/reports-visual/**'
       - 'src/pages/Reports.tsx'
       - 'src/components/reports/**'
@@ -56,6 +58,7 @@ jobs:
           set -o pipefail
           bash scripts/run_reports_rpc_tests.sh 2>&1 | tee reports-backend-results.txt
           bash scripts/run_reports_integrity_tests.sh 2>&1 | tee reports-integrity-results.txt
+          bash scripts/run_reports_v3_tests.sh 2>&1 | tee reports-v3-results.txt
           bash scripts/run_profile_rpc_tests.sh 2>&1 | tee reports-profile-regression-results.txt
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -100,6 +103,7 @@ jobs:
             reports-backend-results.txt
             reports-profile-regression-results.txt
             reports-integrity-results.txt
+            reports-v3-results.txt
             reports-integrity-payloads.json
             reports-browser-results.txt
             ${{ runner.temp }}/reports-visual-evidence
