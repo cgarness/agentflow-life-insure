@@ -4,7 +4,7 @@
 
 **Status.** Chris authorized:
 - normal pushes of this branch;
-- one manual dispatch of the isolated Reports backend verification workflow;
+- manual dispatches of the isolated Reports backend verification workflow (`reports-backend.yml`) on this branch: one per pushed head;
 - the appendix documentation addition.
 
 Nothing else was done: no PR, merge, push to `main`, production read or write, migration application, release-runner stage, deploy promotion or settings change.
@@ -62,9 +62,9 @@ Nothing else was done: no PR, merge, push to `main`, production read or write, m
 - **Static test:** 14/14.
 - **TypeScript:** root `npx tsc --noEmit` passes. The app typecheck gives 80 errors whose identities match base, line for line.
 - **ESLint and Reports Vitest:** scoped ESLint is clean. Reports Vitest: 27 files, 417 passed, 1 pre-existing skip.
-- **Full Vitest:** still running when this commit was made; the result is added in the follow-up record commit.
+- **Full Vitest:** 6,701 passed, 2 failed, 37 skipped across 1,970 suites. Against a clean `6e39c15` worktree (6,687 passed across 1,966 suites), the 11 failing files and the 2 failing tests are identical by name. The 4 extra suites and 14 extra passing tests are this branch's new tests.
 - **Build:** `npm run build` passes.
-- **PostgreSQL 17.6 CI on the Batch 2 head:** dispatched after the push; the result is added in the follow-up record commit.
+- **PostgreSQL 17.6 CI on the Batch 2 head:** run 41356530257, conclusion success, on head `83e3d4e479103352c4b48e0eb7f1990be27647d5`. The server reported `PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1)`. The v3 runner applied `…11`, ran the sale-facts suite (2 refusal checks and 3 mutation controls) and ended with "All Reports v3 contract, registry, seal and refusal proofs passed." It had no error lines. Artifact `reports-backend-evidence-41356530257` (sha256 `b594ca8b…`). The connector returns at most the last 5,000 of the job's 5,176 log lines, so the image-pull lines at the top were not read this time; the server version line and the container's own startup lines show 17.6.
 
 **Next.** PKG-A Batch 3: `…12` call and journey helpers, with the BC1/BC2 cases. The exact files are listed first.
 
