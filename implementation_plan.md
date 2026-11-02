@@ -1,3 +1,102 @@
+## 2026-11-02 — Reports V2 PKG-A Batch 7: Phase E (evidence and acceptance), Phase A (SQL only) and the KPI 24 pre-release amendment (branch `claude/great-goodall-911azc`; nothing applied, merged, enabled or deployed)
+
+**Authorization:** Chris's Batch 7 message of 2026-11-02 approves branch-only implementation of Phase E, Phase A and the KPI 24 pre-release amendment from the Batch 7 proposal. **Phase B is not authorized.**
+- **Base:** reviewed checkpoint `f8078c9ce5350a6d638d2a75268bf53372324e90`; `main` `6e39c15`. At the start of this batch, the branch and its remote were at `f8078c9`, `main` was unchanged, and the newest open PR was still #486 (2026-10-23). No conflicting work. `AGENT_RULES.md`, `VISION.md`, the Batch 6 Work Log entry and both plans were re-read; none changed since the proposal.
+- **Allowed actions:**
+  - normal checkpoint pushes to this branch;
+  - manual `reports-backend.yml` dispatches, each after the push-automation check;
+  - database commands only on isolated synthetic loopback and CI databases.
+- **Not allowed:** PR, push to `main`, force push, merge, hosted database mutation, applied-migration edit, production grant or enablement, release-runner execution, deployment promotion and settings change. Existing automatic access-protected previews stay permitted.
+- **Must not change:** `AGENT_RULES.md`, v2 bodies or privileges, telephony, TwilioContext, the duration writers and their guards.
+- **Anything outside this list waits for Chris's explicit approval.**
+- **Still pending:** ★1 and ★4; E1–E6 acceptance; the campaign-copy fallback security review; the named reviewer; the PKG-A production approval. No agency-only fallback.
+
+**Authorized files** (the approved subset of proposal §8, expanded to individual paths):
+- **Phase E, evidence and verification:**
+  1. `scripts/reports_v3_reference.py` (create): builds the frozen reference schema from `4236b8a3f8389d22c6cdf2c3e96815899cb92cd1`.
+  2. `supabase/tests/reference/reports_v3_reference_manifest.json` (create): the pinned SHA, source hashes, renaming rule, the reference-only cast repair, the expected generated hash, and the case inventory with each case's expected outcome type.
+  3. `supabase/tests/reports_v3_differential.sql` (create): same-snapshot comparisons.
+  4. `scripts/run_reports_v3_differential.sh` (create): loopback-only runner; evidence goes outside the repository.
+  5. `scripts/run_reports_v3_perf_acceptance.sh` (create): loopback-only acceptance runner.
+  6. `scripts/reports_v3_perf_verdict.py` (create): verdict validation and the two-run aggregation.
+  7. `supabase/tests/reports_v3_performance.sql` (modify).
+  8. `scripts/reports_v3_fixture.py` (modify).
+  9. `.github/workflows/reports-backend.yml` (modify).
+  10. `src/lib/__tests__/reportsV3Contracts.test.ts` (modify).
+- **Phase A, SQL changes and their tests:**
+  11. `supabase/migrations/20261101000012_reports_v3_call_journey_helpers.sql` (modify; unpublished placeholder).
+  12. `supabase/migrations/20261101000014_reports_v3_state_helpers.sql` (modify; unpublished).
+  13. `supabase/migrations/20261101000015_reports_v3_readers.sql` (modify; unpublished; also KPI 24).
+  14. `supabase/tests/reports_v3_journey.sql` (modify).
+  15. `supabase/tests/reports_v3_calls_identity.sql` (modify).
+  16. `supabase/tests/reports_v3_call_readers.sql` (modify; also KPI 24).
+  17. `supabase/tests/reports_v3_state_breakdown.sql` (modify).
+  18. `supabase/tests/reports_v3_negative.sql` (modify; also KPI 24).
+  19. `supabase/tests/reports_v3_security.sql` (modify).
+  20. `supabase/tests/reports_v3_contract.sql` (modify).
+- **KPI 24 contract documentation:**
+  21. `docs/plans/2026-10-31-reports-v2/appendix/D1.md`.
+  22. `docs/plans/2026-10-31-reports-v2/appendix/D3.md`.
+  23. `docs/plans/2026-10-31-reports-v2/appendix/D6.md`: the planned PKG-F schema, text and export requirements, in documentation only.
+  24. `docs/plans/2026-10-31-reports-v2/appendix/tests.md`.
+  25. `docs/plans/2026-10-31-reports-v2/implementation_plan.md`.
+- **Other:**
+  26. `.gitignore` (modify): narrow entries for the named generated outputs only — `/reports-integrity-payloads.json`, `/reports-backend-results.txt`, `/reports-integrity-results.txt`, `/reports-v3-results.txt`, `/reports-profile-regression-results.txt`, `/reports-browser-results.txt`.
+  27. `docs/plans/2026-10-31-reports-v2/appendix/D5.md` (modify; state notes).
+  28. `implementation_plan.md` (this entry).
+  29. `WORK_LOG.md` (newest-first entry).
+
+**Excluded: Phase B.**
+- No maintained identity table, maintenance trigger, repair or verify function, or stored/live mode branch.
+- None of the Phase B files: `20261101000017_reports_v3_identity_pointers.sql`, `reports_v3_identity_pointers.sql`, `reports_v3_identity_concurrency.sh`.
+- `…17` stays the release-enable placeholder; it is not repurposed or renumbered, and `backend_actions.md` is not touched.
+- A performance miss after Phase A does not authorize Phase B.
+
+**Phase E conditions:**
+- **Differential:**
+  - It preserves the pinned SHA, source hashes, mechanical renaming, same-snapshot comparison with array order kept, and the documented reference-only UUID cast repair.
+  - Every case has a pinned expected outcome type. A matching error never stands in for an expected payload.
+  - Independent expectations and mutation controls stay; no expected value comes from the new code.
+  - Payloads and bulk logs stay outside the repository; artifacts are sanitized and carry a reproducibility manifest.
+- **Acceptance:**
+  - **Environment:** PostgreSQL 17.6, with the pinned image and the runner's CPU, memory, settings and details recorded. Required fixture sizes. The complete 147-combination matrix.
+  - **Measurement:** 20 measured samples after warm-up; the 2 s and 4 s p95 targets; the unchanged 8 s request timeout.
+  - **Two independent runs on the same SHA,** and both must pass.
+  - **Failures:** a missing case or sample, an unexpected error, or any timeout fails acceptance, including a warm-up or restart-round timeout.
+  - **Restart evidence** is labelled first-after-restart unless a genuinely cold cache state is established.
+  - **Enforcement:** `REPORTS_V3_PERF_ENFORCE=1` on the acceptance path. Diagnostic or report-only runs never satisfy acceptance.
+  - **Controls:** negative controls prove that the job detects failures. Cleanup, seal verification and evidence upload also run on failure.
+  - **When it runs:** functional and differential checks run on PRs and manual dispatch. The two-run acceptance runs only when explicitly selected on a manual dispatch.
+  - **CI allowance:** bounded; no database-timeout change.
+  - **Reporting:** a functional-only or skipped acceptance job is never presented as a performance pass.
+
+**Phase A conditions:**
+- One area at a time, each measured, with instrumented EXPLAIN runs kept separate from latency samples. Estimates are hypotheses until measured.
+- Unchanged: bound parameters, organization isolation, the frozen metric definitions, agent credit, current-state identity semantics and BC1–BC5.
+- No shortened lookback and no history narrowed to the viewer.
+- The disposition-join rewrite must be proven to keep v2 matching, precedence and row cardinality, including the duplicate-name cases the schema allows.
+- No first-contact cache, persisted reporting cache, table, trigger, index or new data-capture path.
+
+**KPI 24 conditions (pre-release amendment to 3.0.0).**
+- **No shipped v3 consumer exists, which is the precondition for amending in place:**
+  - `main` has no v3 file;
+  - no `src`, Edge Function or script outside the PKG-A tests calls a v3 reader;
+  - no v3 object has been applied anywhere.
+
+  If that changes, stop for the versioning decision.
+- **The rules:**
+  - `inconsistent` counts non-conflicting `terminal_non_answer` attempt rows with a recorded duration above 0.
+  - `provider_confirmed` needs a recorded duration: `provider`, or `terminal_non_answer` with a recorded duration of 0.
+  - A missing (NULL) duration never increments `provider_confirmed`. When the row is not conflicting, it counts as `unknown`.
+  - Unchanged: conflict precedence, canonical talk-time totals, KPI 25, and every stored duration and writer.
+- **Assertions:** the six existing cases, a NULL duration, empty windows, per-agent output and scope totals.
+- **Differential:** it allows only the approved KPI 24 quality differences, key by key, against independently derived row counts. It never drops the quality object and never relies only on a sum of two categories.
+- **Docs:** the contract, the planned PKG-F schema, text and export requirements, and the tests change together. PKG-F implementation does not start.
+
+**Stop:** after Phase E, Phase A and KPI 24, for review, even if performance still misses. The report gives the measured remaining cost before any further architecture is proposed.
+
+---
+
 ## 2026-11-02 — Reports V2 PKG-A Batch 6: performance and correctness hardening (branch `claude/great-goodall-911azc`; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's Batch 6 message, under the 2026-11-01 branch-implementation approval for PKG-A's reviewed file list (plan §8, D1 §9).
