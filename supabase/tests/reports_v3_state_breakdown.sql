@@ -206,6 +206,29 @@ SELECT rt.eq('a NULL organization or no keys resolves nothing',
   (SELECT count(*) FROM private.report_v3_identity_states(NULL, ARRAY[rt.skey('lead', 'SL1')]))
   + (SELECT count(*) FROM private.report_v3_identity_states(rt.v3('ST'), NULL))
   + (SELECT count(*) FROM private.report_v3_identity_states(rt.v3('ST'), '{}')), 0::bigint);
+-- Batch 7 typed inputs: the reader passes lead and client ids to report_v3_identity_states_by_id, which the key form
+-- reads after parsing; both give every identity its hand-computed state, and NULL and repeated ids add nothing.
+SELECT rt.eq('typed inputs: the same states as the keys, one row per (kind, id)',
+  (SELECT string_agg(s.identity_kind || ':' || s.identity_id || '=' || concat_ws('|', coalesce(s.state_code, '-'),
+                     coalesce(s.reason, '-'), coalesce(s.basis, '-'), coalesce(s.last_state_change_at::text, '-')),
+                     ' ' ORDER BY s.identity_kind || ':' || s.identity_id)
+     FROM private.report_v3_identity_states_by_id(rt.v3('ST'),
+            (SELECT array_agg(substr(k.key, 6)::uuid) || ARRAY[NULL::uuid] || array_agg(substr(k.key, 6)::uuid)
+               FROM st_keys k WHERE k.key LIKE 'lead:%'),
+            (SELECT array_agg(substr(k.key, 8)::uuid) || ARRAY[NULL::uuid] FROM st_keys k WHERE k.key LIKE 'client:%')) s),
+  (SELECT string_agg(s.identity_key || '=' || concat_ws('|', coalesce(s.state_code, '-'), coalesce(s.reason, '-'),
+                     coalesce(s.basis, '-'), coalesce(s.last_state_change_at::text, '-')), ' ' ORDER BY s.identity_key)
+     FROM private.report_v3_identity_states(rt.v3('ST'), (SELECT array_agg(key) FROM st_keys)) s));
+SELECT rt.eq('typed inputs: a NULL organization or no ids resolves nothing',
+  (SELECT count(*) FROM private.report_v3_identity_states_by_id(NULL, ARRAY[rt.v3('SL1')], NULL))
+  + (SELECT count(*) FROM private.report_v3_identity_states_by_id(rt.v3('ST'), NULL, NULL))
+  + (SELECT count(*) FROM private.report_v3_identity_states_by_id(rt.v3('ST'), '{}', ARRAY[NULL::uuid])), 0::bigint);
+SELECT rt.eq('typed resolver metadata: plpgsql, stable, parallel restricted, invoker, pinned search_path',
+  (SELECT concat_ws('|', l.lanname, p.provolatile::text, p.proparallel::text, p.prosecdef::text, array_to_string(p.proconfig, ';'),
+                    pg_get_function_identity_arguments(p.oid))
+     FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+    WHERE p.oid = 'private.report_v3_identity_states_by_id(uuid,uuid[],uuid[])'::regprocedure),
+  'plpgsql|s|r|false|search_path=pg_catalog, pg_temp|p_org uuid, p_lead_ids uuid[], p_client_ids uuid[]');
 SELECT rt.eq('the last recorded state change: same-org state edits of the identity''s own records',
   (SELECT array_agg(coalesce(to_char(s.last_state_change_at AT TIME ZONE 'UTC', 'MM-DD HH24:MI'), '-') ORDER BY s.identity_key)
      FROM private.report_v3_identity_states(rt.v3('ST'), ARRAY[rt.skey('lead', 'SL1'), rt.skey('lead', 'SL2'), rt.skey('lead', 'SL16'),
@@ -299,20 +322,20 @@ SELECT rt.reject_mutation('private.report_v3_state_classify(text)',
   'btrim(coalesce(p_raw, ''''), '' '' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))', 'btrim(coalesce(p_raw, ''''))',
   $probe$SELECT rt.eq('mutated pre-trim', rt.cls('ny' || chr(9)), 'NY|-')$probe$,
   'mutated pre-trim FAIL');
-SELECT rt.reject_mutation('private.report_v3_identity_states(uuid,text[])',
+SELECT rt.reject_mutation('private.report_v3_identity_states_by_id(uuid,uuid[],uuid[])',
   'x.a_reason IS DISTINCT FROM ''missing_state'')',
   'x.a_reason IS DISTINCT FROM ''missing_state'' AND x.a_reason IS DISTINCT FROM ''invalid_state'')',
   $probe$SELECT rt.eq('mutated invalid fallback', rt.sstate('ST', rt.skey('lead', 'SL5')), '-|invalid_state|current_record')$probe$,
   'mutated invalid fallback FAIL');
-SELECT rt.reject_mutation('private.report_v3_identity_states(uuid,text[])',
+SELECT rt.reject_mutation('private.report_v3_identity_states_by_id(uuid,uuid[],uuid[])',
   'THEN greatest(r.a_code, r.b_code) ELSE c.copy_max END AS code_max', 'THEN least(r.a_code, r.b_code) ELSE c.copy_min END AS code_max',
   $probe$SELECT rt.eq('mutated conflict', rt.sstate('ST', rt.skey('lead', 'SL3')), '-|source_conflict|current_record')$probe$,
   'mutated conflict FAIL');
-SELECT rt.reject_mutation('private.report_v3_identity_states(uuid,text[])',
+SELECT rt.reject_mutation('private.report_v3_identity_states_by_id(uuid,uuid[],uuid[])',
   'cl.id = ca.campaign_lead_id AND cl.organization_id = $1', 'cl.id = ca.campaign_lead_id',
   $probe$SELECT rt.eq('mutated cross-tenant membership', rt.sstate('ST', rt.skey('lead', 'SL20')), '-|missing_state|-')$probe$,
   'mutated cross-tenant membership FAIL');
-SELECT rt.reject_mutation('private.report_v3_identity_states(uuid,text[])',
+SELECT rt.reject_mutation('private.report_v3_identity_states_by_id(uuid,uuid[],uuid[])',
   'ca.organization_id = $1', 'true',
   $probe$SELECT rt.eq('mutated cross-tenant call', rt.sstate('ST', rt.skey('lead', 'SL20')), '-|missing_state|-')$probe$,
   'mutated cross-tenant call FAIL');

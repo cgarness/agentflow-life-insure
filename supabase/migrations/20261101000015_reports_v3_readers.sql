@@ -55,7 +55,8 @@ BEGIN
      OR to_regprocedure('private.report_v3_journey_facts_by(uuid,uuid[],boolean,text,timestamptz,timestamptz,date,date,timestamptz)') IS NULL
      OR to_regprocedure('private.report_v3_call_kpis(jsonb,numeric)') IS NULL
      OR to_regprocedure('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz)') IS NULL
-     OR to_regprocedure('private.report_v3_identity_states(uuid,text[])') IS NULL THEN
+     OR to_regprocedure('private.report_v3_identity_states(uuid,text[])') IS NULL
+     OR to_regprocedure('private.report_v3_identity_states_by_id(uuid,uuid[],uuid[])') IS NULL THEN
     RAISE EXCEPTION 'Reports v3 readers: the helpers (…10 to …14) must be applied first';
   END IF;
   -- The 15 v2 pins and the 12 closure helpers, re-verified as in …10 (D1 §3.10).
@@ -897,26 +898,35 @@ BEGIN
   ),
   -- @call-pointers end
   pol_f AS MATERIALIZED (
+    -- Each sale's buyer as its D3 identity, typed: report_v3_client_identity_key's rule (the same-org client's root
+    -- lead when it has one, else the client itself; a sale's buyer is never a recruit).
     SELECT s.recorded_at, s.monthly_premium, s.premium_state, s.buyer_id,
-           private.report_v3_client_identity_key($1, s.buyer_id) AS identity_key
+           CASE WHEN bc.id IS NOT NULL THEN 'lead' ELSE 'client' END AS identity_kind,
+           CASE WHEN bc.id IS NOT NULL THEN bc.lead_id ELSE s.buyer_id END AS identity_uuid
       FROM private.report_v3_sale_facts($1, $4, $5, $6) s
+      LEFT JOIN public.clients bc ON bc.id = s.buyer_id AND bc.organization_id = $1 AND bc.lead_id IS NOT NULL
      WHERE s.recorded_at <= $7
   ), ist AS MATERIALIZED (
-    SELECT * FROM private.report_v3_identity_states($1, ARRAY(
-      SELECT x.identity_kind || ':' || x.identity_uuid FROM ic x WHERE x.identity_kind IN ('lead', 'client')
-      UNION SELECT x.identity_kind || ':' || x.identity_uuid FROM im x WHERE x.identity_kind IN ('lead', 'client')
-      UNION SELECT p.identity_key FROM pol_f p WHERE p.identity_key LIKE 'lead:%' OR p.identity_key LIKE 'client:%'))
+    -- The window's linked identities and the buyers, as typed ids (no text key is built or parsed).
+    SELECT * FROM private.report_v3_identity_states_by_id($1,
+      ARRAY(SELECT x.identity_uuid FROM ic x WHERE x.identity_kind = 'lead'
+            UNION SELECT x.identity_uuid FROM im x WHERE x.identity_kind = 'lead'
+            UNION SELECT p.identity_uuid FROM pol_f p WHERE p.identity_kind = 'lead'),
+      ARRAY(SELECT x.identity_uuid FROM ic x WHERE x.identity_kind = 'client'
+            UNION SELECT p.identity_uuid FROM pol_f p WHERE p.identity_kind = 'client' AND p.identity_uuid IS NOT NULL))
   ), sp_c AS MATERIALIZED (   -- each contact pointer once: its identity kind and that identity's state
-    SELECT p.id, p.identity_kind, i.identity_key AS state_key, i.state_code, i.reason, i.basis, i.last_state_change_at
+    SELECT p.id, p.identity_kind, i.identity_id IS NOT NULL AS has_state, i.state_code, i.reason, i.basis,
+           i.last_state_change_at
       FROM ic p
-      -- One row per key (report_v3_identity_states), declared to the planner so the states are hashed.
-      LEFT JOIN (SELECT DISTINCT ON (u.identity_key) u.* FROM ist u) i
-             ON p.identity_kind IN ('lead', 'client') AND i.identity_key = p.identity_kind || ':' || p.identity_uuid
+      -- One row per identity (report_v3_identity_states_by_id), declared to the planner so the states are hashed.
+      LEFT JOIN (SELECT DISTINCT ON (u.identity_kind, u.identity_id) u.* FROM ist u) i
+             ON p.identity_kind IN ('lead', 'client') AND i.identity_kind = p.identity_kind AND i.identity_id = p.identity_uuid
   ), sp_m AS MATERIALIZED (   -- each campaign-membership pointer once, likewise
-    SELECT p.id, p.identity_kind, i.identity_key AS state_key, i.state_code, i.reason, i.basis, i.last_state_change_at
+    SELECT p.id, p.identity_kind, i.identity_id IS NOT NULL AS has_state, i.state_code, i.reason, i.basis,
+           i.last_state_change_at
       FROM im p
-      LEFT JOIN (SELECT DISTINCT ON (u.identity_key) u.* FROM ist u) i
-             ON p.identity_kind IN ('lead', 'client') AND i.identity_key = p.identity_kind || ':' || p.identity_uuid
+      LEFT JOIN (SELECT DISTINCT ON (u.identity_kind, u.identity_id) u.* FROM ist u) i
+             ON p.identity_kind IN ('lead', 'client') AND i.identity_kind = p.identity_kind AND i.identity_id = p.identity_uuid
   ), pg AS (
     -- In-scope rows grouped by pointer before any state is attached. A row is later than its identity's last state
     -- change when the pointer's identity has a current-record state whose last change follows the row.
@@ -946,14 +956,14 @@ BEGIN
       FROM (SELECT z.attempt_class, z.is_contacted, z.n,
                    CASE WHEN z.recruit THEN NULL ELSE z.state_code END AS state_code,
                    CASE WHEN z.recruit THEN 'non_prospect_contact'
-                        WHEN z.state_key IS NULL THEN 'unresolved_identity' ELSE z.reason END AS reason,
+                        WHEN NOT z.has_state THEN 'unresolved_identity' ELSE z.reason END AS reason,
                    CASE WHEN NOT z.recruit AND z.state_code IS NOT NULL THEN z.basis END AS basis,
                    NOT z.recruit AND z.basis IS NOT DISTINCT FROM 'current_record' AND z.state_code IS NOT NULL
                      AND z.before_change AS changed_after
               FROM (SELECT g.attempt_class, g.is_contacted, g.n, g.before_change,
                            g.recruit_contact OR coalesce(CASE WHEN g.by_contact THEN xc.identity_kind ELSE xm.identity_kind END
                                                          = 'recruit', false) AS recruit,
-                           CASE WHEN g.by_contact THEN xc.state_key ELSE xm.state_key END AS state_key,
+                           coalesce(CASE WHEN g.by_contact THEN xc.has_state ELSE xm.has_state END, false) AS has_state,
                            CASE WHEN g.by_contact THEN xc.state_code ELSE xm.state_code END AS state_code,
                            CASE WHEN g.by_contact THEN xc.reason ELSE xm.reason END AS reason,
                            CASE WHEN g.by_contact THEN xc.basis ELSE xm.basis END AS basis
@@ -967,14 +977,12 @@ BEGIN
            sum(g.b_current) AS b_current, sum(g.b_copy) AS b_copy, sum(g.changed_after) AS changed_after
       FROM call_g g WHERE g.attempt_class = 'attempt' GROUP BY 1, 2
   ), pol_rows AS (
-    SELECT p.monthly_premium, p.premium_state,
-           CASE WHEN p.identity_key LIKE 'recruit:%' THEN NULL ELSE i.state_code END AS state_code,
-           CASE WHEN p.identity_key LIKE 'recruit:%' THEN 'non_prospect_contact'
-                WHEN i.identity_key IS NULL THEN 'unresolved_identity' ELSE i.reason END AS reason,
-           CASE WHEN p.identity_key NOT LIKE 'recruit:%' AND i.state_code IS NOT NULL THEN i.basis END AS basis,
-           coalesce(p.identity_key NOT LIKE 'recruit:%' AND i.basis = 'current_record' AND i.state_code IS NOT NULL
-                    AND i.last_state_change_at > p.recorded_at, false) AS changed_after
-      FROM pol_f p LEFT JOIN ist i ON i.identity_key = p.identity_key
+    SELECT p.monthly_premium, p.premium_state, i.state_code,
+           CASE WHEN i.identity_id IS NULL THEN 'unresolved_identity' ELSE i.reason END AS reason,
+           CASE WHEN i.state_code IS NOT NULL THEN i.basis END AS basis,
+           coalesce(i.basis = 'current_record' AND i.state_code IS NOT NULL AND i.last_state_change_at > p.recorded_at, false)
+             AS changed_after
+      FROM pol_f p LEFT JOIN ist i ON i.identity_kind = p.identity_kind AND i.identity_id = p.identity_uuid
   ), pol_g AS (
     SELECT p.state_code, p.reason, count(*) AS policy_count,
            count(*) FILTER (WHERE p.premium_state = 'known') AS known_count,
