@@ -80,8 +80,9 @@ CREATE FUNCTION rt.dx_with_kpi24_quality(p jsonb, q jsonb) RETURNS jsonb LANGUAG
 -- amended summary must emit, derived from the baseline's quality object and from row counts of the baseline's own
 -- call facts (rtref.report_v3_call_facts) and public.calls, for the scope and window the shared v2 helpers resolve.
 --   inconsistent            new: non-conflicting terminal_non_answer attempt rows with a recorded duration > 0
---   provider_confirmed      minus those rows, and minus non-conflicting provider or terminal_non_answer rows with no
---                           recorded duration (a missing duration is not a recorded zero)
+--   provider_confirmed      minus those rows, minus non-conflicting provider or terminal_non_answer rows with no
+--                           recorded duration (a missing duration is not a recorded zero), and minus non-conflicting
+--                           terminal_non_answer rows recorded below 0 (confirmed only at exactly 0; the writer refuses <0)
 --   unknown                 plus non-conflicting rows with no recorded duration that were not already legacy_unknown
 --   estimated, conflicting, duplicates_excluded: unchanged.
 -- Without the approval the baseline object is returned unchanged, so any difference is a mismatch.
@@ -98,6 +99,9 @@ BEGIN
   SELECT count(*) FILTER (WHERE NOT f.duration_conflict AND f.duration_source = 'terminal_non_answer' AND c.duration > 0) AS inconsistent,
          count(*) FILTER (WHERE NOT f.duration_conflict AND c.duration IS NULL
                             AND f.duration_source IN ('provider', 'terminal_non_answer')) AS confirmed_without_duration,
+         -- A non-answer is confirmed only at a recorded 0: a negative recorded value (the writer refuses one) is neither.
+         count(*) FILTER (WHERE NOT f.duration_conflict AND f.duration_source = 'terminal_non_answer' AND c.duration < 0)
+           AS negative_non_answer,
          count(*) FILTER (WHERE NOT f.duration_conflict AND c.duration IS NULL
                             AND f.duration_source IS DISTINCT FROM 'legacy_unknown') AS unknown_added
     INTO d
@@ -106,7 +110,8 @@ BEGIN
    WHERE f.is_attempt AND (a.agent_ids IS NULL OR f.placing_agent_id = ANY (a.agent_ids));
   RETURN p_ref || jsonb_build_object(
     'inconsistent', d.inconsistent,
-    'provider_confirmed', (p_ref ->> 'provider_confirmed')::bigint - d.inconsistent - d.confirmed_without_duration,
+    'provider_confirmed', (p_ref ->> 'provider_confirmed')::bigint - d.inconsistent - d.confirmed_without_duration
+                          - d.negative_non_answer,
     'unknown', (p_ref ->> 'unknown')::bigint + d.unknown_added);
 END $$;
 

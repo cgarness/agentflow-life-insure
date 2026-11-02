@@ -144,8 +144,10 @@ $$;
 
 -- Per credited agent: report_v3_call_counts' exact keys (one scan instead of one per agent) and the KPI 24
 -- talk-time parts. Talk time is the canonical duration of attempt rows; its quality is disclosed, never
--- upgraded: estimated = elapsed_estimate, unknown = legacy_unknown, conflicting = duration_conflict,
--- provider_confirmed = provider or terminal_non_answer evidence with no conflict.
+-- upgraded (pre-release amendment kpi24-quality-a1): estimated = elapsed_estimate; unknown = legacy_unknown, or a
+-- missing recorded duration on a non-conflicting row; conflicting = duration_conflict; inconsistent = a
+-- non-conflicting terminal_non_answer row with a recorded duration above 0; provider_confirmed = a non-conflicting
+-- row with a recorded duration that is provider, or terminal_non_answer with a recorded duration of exactly 0.
 CREATE FUNCTION private.report_v3_agent_call_stats(p_org uuid, p_agents uuid[], p_start timestamptz, p_end timestamptz)
 RETURNS TABLE (agent_id uuid, counts jsonb, talk jsonb)
 LANGUAGE sql
@@ -153,7 +155,9 @@ STABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
   WITH f AS MATERIALIZED (
-    SELECT x.* FROM private.report_v3_call_facts(p_org, p_start, p_end) x
+    SELECT x.*, c.duration AS raw_duration
+      FROM private.report_v3_call_facts(p_org, p_start, p_end) x
+      JOIN public.calls c ON c.id = x.call_id AND c.organization_id = p_org
      WHERE x.direction_class = 'outbound' AND (p_agents IS NULL OR x.credited_agent_id = ANY (p_agents))
   ), dup AS (
     SELECT c.agent_id, count(*) AS n
@@ -178,10 +182,14 @@ AS $$
            count(*) FILTER (WHERE f.attempt_class = 'unverified' AND (f.is_lead_stage OR f.identity_key IS NULL)) AS lead_unverified,
            coalesce(sum(f.duration_seconds) FILTER (WHERE f.is_attempt), 0) AS seconds,
            count(*) FILTER (WHERE f.is_attempt AND f.duration_source = 'elapsed_estimate') AS estimated,
-           count(*) FILTER (WHERE f.is_attempt AND f.duration_source = 'legacy_unknown') AS unknown,
+           count(*) FILTER (WHERE f.is_attempt AND (f.duration_source = 'legacy_unknown'
+                                                     OR (f.raw_duration IS NULL AND NOT f.duration_conflict))) AS unknown,
            count(*) FILTER (WHERE f.is_attempt AND f.duration_conflict) AS conflicting,
-           count(*) FILTER (WHERE f.is_attempt AND f.duration_source IN ('provider', 'terminal_non_answer')
-                                  AND NOT f.duration_conflict) AS provider_confirmed
+           count(*) FILTER (WHERE f.is_attempt AND NOT f.duration_conflict AND f.duration_source = 'terminal_non_answer'
+                                  AND f.raw_duration > 0) AS inconsistent,
+           count(*) FILTER (WHERE f.is_attempt AND NOT f.duration_conflict AND f.raw_duration IS NOT NULL
+                                  AND (f.duration_source = 'provider'
+                                       OR (f.duration_source = 'terminal_non_answer' AND f.raw_duration = 0))) AS provider_confirmed
       FROM f GROUP BY f.credited_agent_id
   )
   SELECT coalesce(g.agent_id, dup.agent_id),
@@ -195,8 +203,8 @@ AS $$
            'lead_unverified', coalesce(g.lead_unverified, 0)),
          jsonb_build_object(
            'seconds', coalesce(g.seconds, 0), 'estimated', coalesce(g.estimated, 0), 'unknown', coalesce(g.unknown, 0),
-           'conflicting', coalesce(g.conflicting, 0), 'provider_confirmed', coalesce(g.provider_confirmed, 0),
-           'duplicates_excluded', coalesce(dup.n, 0))
+           'conflicting', coalesce(g.conflicting, 0), 'inconsistent', coalesce(g.inconsistent, 0),
+           'provider_confirmed', coalesce(g.provider_confirmed, 0), 'duplicates_excluded', coalesce(dup.n, 0))
     FROM g
     FULL JOIN dup ON coalesce(dup.agent_id, '00000000-0000-0000-0000-000000000000'::uuid)
                    = coalesce(g.agent_id, '00000000-0000-0000-0000-000000000000'::uuid);
@@ -506,6 +514,7 @@ BEGIN
            count(*) FILTER (WHERE y.att AND y.estimated) AS estimated,
            count(*) FILTER (WHERE y.att AND y.unknown) AS unknown,
            count(*) FILTER (WHERE y.att AND y.conflicting) AS conflicting,
+           count(*) FILTER (WHERE y.att AND y.inconsistent) AS inconsistent,
            count(*) FILTER (WHERE y.att AND y.provider_confirmed) AS provider_confirmed
       FROM (SELECT x.placing_agent_id AS agent_id, CASE x.identity_kind WHEN 'lead' THEN 1 WHEN 'client' THEN 2 WHEN 'recruit' THEN 3 END
                      AS kind_code, x.identity_uuid,
@@ -513,9 +522,17 @@ BEGIN
                    x.attempt_class = 'unverified' AS unv, x.is_contacted AS con,
                    coalesce(x.identity_kind = 'recruit', false) AS recruit, coalesce(x.identity_kind IN ('lead', 'client'), false) AS linked,
                    x.identity_kind IS NULL AS unresolved, coalesce(x.is_lead_stage, false) AS lead_stage, x.duration_seconds,
-                   x.duration_source = 'elapsed_estimate' AS estimated, x.duration_source = 'legacy_unknown' AS unknown,
+                   -- KPI 24 quality (pre-release amendment kpi24-quality-a1): a missing duration is unknown unless the row is
+                   -- conflicting, and is never provider-confirmed (a recorded zero is not missing); a no-answer result with
+                   -- recorded seconds is inconsistent. The value keeps every canonical duration as recorded.
+                   x.duration_source = 'elapsed_estimate' AS estimated,
+                   x.duration_source = 'legacy_unknown' OR (x.raw_duration IS NULL AND NOT x.duration_conflict) AS unknown,
                    x.duration_conflict AS conflicting,
-                   x.duration_source IN ('provider', 'terminal_non_answer') AND NOT x.duration_conflict AS provider_confirmed
+                   NOT x.duration_conflict AND x.raw_duration IS NOT NULL
+                     AND (x.duration_source = 'provider' OR (x.duration_source = 'terminal_non_answer' AND x.raw_duration = 0))
+                     AS provider_confirmed,
+                   coalesce(NOT x.duration_conflict AND x.duration_source = 'terminal_non_answer' AND x.raw_duration > 0, false)
+                     AS inconsistent
               FROM cx x
              WHERE $4::uuid[] IS NULL OR x.placing_agent_id = ANY ($4)) y
      GROUP BY GROUPING SETS ((y.agent_id), ())
@@ -559,8 +576,8 @@ BEGIN
                    'lead_unverified', coalesce(g.lead_unverified, 0)),
                  'talk', jsonb_build_object(
                    'seconds', coalesce(g.seconds, 0), 'estimated', coalesce(g.estimated, 0), 'unknown', coalesce(g.unknown, 0),
-                   'conflicting', coalesce(g.conflicting, 0), 'provider_confirmed', coalesce(g.provider_confirmed, 0),
-                   'duplicates_excluded', coalesce(d.n, 0))))
+                   'conflicting', coalesce(g.conflicting, 0), 'inconsistent', coalesce(g.inconsistent, 0),
+                   'provider_confirmed', coalesce(g.provider_confirmed, 0), 'duplicates_excluded', coalesce(d.n, 0))))
                  FROM ag g
                  FULL JOIN dup d ON coalesce(d.agent_id, '00000000-0000-0000-0000-000000000000'::uuid)
                                   = coalesce(g.agent_id, '00000000-0000-0000-0000-000000000000'::uuid)), '[]'::jsonb))
@@ -588,6 +605,7 @@ BEGIN
              'estimated', (SELECT coalesce(sum((s.talk ->> 'estimated')::bigint), 0) FROM stats s),
              'unknown', (SELECT coalesce(sum((s.talk ->> 'unknown')::bigint), 0) FROM stats s),
              'conflicting', (SELECT coalesce(sum((s.talk ->> 'conflicting')::bigint), 0) FROM stats s),
+             'inconsistent', (SELECT coalesce(sum((s.talk ->> 'inconsistent')::bigint), 0) FROM stats s),
              'provider_confirmed', (SELECT coalesce(sum((s.talk ->> 'provider_confirmed')::bigint), 0) FROM stats s),
              'duplicates_excluded', v_counts -> 'duplicates_excluded') AS talk_quality,
            (SELECT coalesce(sum(x.session_seconds), 0) FROM sess x) AS session_seconds,

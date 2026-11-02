@@ -625,6 +625,6 @@ describe("Reports v3 performance acceptance and differential evidence", () => {
     expect(manifest.case_inventory.expected_totals).toEqual({ cases: 2136, payload: 1428, refusal: 708 });
     expect(manifest.case_inventory.retained_totals).toEqual({ state_resolver: 55, journey: 180, journey_by_agent: 120 });
     expect(manifest.case_inventory.scale_cases).toHaveLength(19);
-    expect(manifest.approved_differences).toEqual([]);
+    expect(manifest.approved_differences).toEqual(["kpi24-quality-a1"]);
   });
 });

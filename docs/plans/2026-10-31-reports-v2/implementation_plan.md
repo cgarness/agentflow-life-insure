@@ -392,7 +392,7 @@ There is one registry. SQL `private.report_v3_metric_registry()` (in …10) and 
 | 2 | `quality.unattributed_policies` | agency scope only |
 | 2 | `stored_without_sale` | agency scope only |
 | 5 | `call_population` | `{attempts, non_attempts, unverified, duplicates_excluded}` |
-| 24 | `quality` | `{estimated, unknown, conflicting, provider_confirmed, duplicates_excluded}` |
+| 24 | `quality` | `{estimated, unknown, conflicting, inconsistent, provider_confirmed, duplicates_excluded}` (amendment `kpi24-quality-a1`) |
 | 25 | `quality` | `{stale_capped, late_ended}` |
 | 16, 17 | `due_outcomes` | `{due, resolved, unresolved}` |
 | 12, 18 | `attribution` | `{members, resolved, unresolved}` |

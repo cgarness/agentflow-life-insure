@@ -31,7 +31,7 @@
     "to": "ck.lead_id = CASE WHEN r.identity_key LIKE 'lead:%' THEN substr(r.identity_key, 6)::uuid END"
   },
   "generated_sha256": "2398fc364480f62911eb5101b1dcd2f7f832b74ec5d49549c3765a8c3272c233",
-  "approved_differences": [],
+  "approved_differences": ["kpi24-quality-a1"],
   "case_inventory": {
     "personas": [
       {
