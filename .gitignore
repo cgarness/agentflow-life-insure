@@ -44,3 +44,11 @@ tmp/onboarding-email-previews/
 /private/commission-grids/
 **/ffl_comp_rates*.csv
 **/*.comp_reference_grid.json
+
+# Reports verification outputs written to the repository root by the reports runners and CI (never committed)
+/reports-integrity-payloads.json
+/reports-backend-results.txt
+/reports-integrity-results.txt
+/reports-v3-results.txt
+/reports-profile-regression-results.txt
+/reports-browser-results.txt

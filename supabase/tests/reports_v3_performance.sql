@@ -1,21 +1,28 @@
 -- =====================================================================================================
--- Reports v3 performance proofs (Batch 6; plan D1 §9, A2). Disposable synthetic PostgreSQL only, through
--- scripts/run_reports_v3_tests.sh: no production project, credentials or data.
+-- Reports v3 performance evidence and acceptance (Batch 6 gate; Batch 7 acceptance; plan D1 §3.11, A2). Disposable
+-- synthetic PostgreSQL only: no production project, credentials or data. Run by scripts/run_reports_v3_perf_acceptance.sh
+-- stage by stage (setup, measure, restart, explain, finish), or, for quick local diagnostics only, embedded in
+-- scripts/run_reports_v3_tests.sh (setup, measure, explain, finish; no restart round).
 --
--- One synthetic organization at the required size (500,000 calls, 5,000 clients, 10,000 policy objects; every
--- value derived from hashes of row keys, so the fixture is deterministic) is measured through the public reader
--- paths exactly as a signed-in user calls them: role authenticated, the user's JWT claims, the sealed reader.
--- EXECUTE is granted to authenticated only for the measurement and revoked afterwards; the seal is then
--- re-asserted. Every sample is its own statement under production's 8 s statement_timeout and production's
--- session planner settings (jit off, work_mem 5MB, hash_mem_multiplier 2, one parallel worker per gather,
--- random_page_cost 1.1, effective_cache_size 1536MB); nothing is relaxed to obtain a pass.
+-- One synthetic organization at the required size (500,000 calls, 5,000 clients, 10,000 policy objects with one sale
+-- each, 10,000 appointments; every value derived from hashes of row keys, so the fixture is deterministic) is measured
+-- through the public reader paths exactly as a signed-in user calls them: role authenticated, the user's JWT claims,
+-- the sealed reader. EXECUTE is granted to authenticated only while measuring and revoked afterwards; the seal is then
+-- re-asserted. Every sample is its own statement under production's 8 s statement_timeout and production's session
+-- planner settings (jit off, work_mem 5MB, hash_mem_multiplier 2, one parallel worker per gather, random_page_cost
+-- 1.1, effective_cache_size 1536MB); nothing is relaxed to obtain a pass.
 --
--- Matrix: scope reader x {personal, team, agency}; every other reader x {agency 1, 30 and 366 days, team 366,
--- personal 366, agency 366 filtered to one agent}. One warm-up round, then :perf_samples measured rounds,
--- interleaved. p95 is the nearest-rank 95th percentile of the measured samples. Targets: p95 <= 2 s (scope,
--- summary, state, sales appointments, the four call readers) and <= 4 s (journey); every sample within the 8 s
--- budget. EXPLAIN (ANALYZE, BUFFERS) evidence of each reader's 366-day agency path is logged by auto_explain.
--- The verdict table is printed; :perf_enforce makes any miss fail the run.
+-- Matrix (147 combinations): the scope reader at personal, team and agency scope; every other reader at 1, 30 and
+-- 366 days x personal, team and agency scope x no filter or the one-agent filter. Per combination: one warm-up round
+-- (sample 0), :perf_samples measured rounds interleaved (samples 1..N), and, in acceptance runs, one
+-- first-after-restart round (sample -1) after the runner restarts PostgreSQL. p95 is the nearest-rank 95th percentile
+-- of the measured samples. Targets: p95 <= 2 s (scope, summary, state, sales appointments, the four call readers) and
+-- <= 4 s (journey). A missing sample, any timeout (warm-up and restart included) or a p95 over target fails the
+-- combination; any other error fails the run.
+--
+-- Modes (:perf_mode): acceptance (PostgreSQL 17.6, all 147 combinations, at least 20 samples, enforcement and the
+-- restart round, or the run is not acceptance-eligible), diagnostic (report-only, never acceptance evidence) and
+-- negative-control (the scope reader slowed by 2.2 s in this disposable database: the gate must fail).
 -- =====================================================================================================
 SET LOCAL statement_timeout = '0';
 CREATE FUNCTION rt.perf_hash(k text, n integer) RETURNS integer LANGUAGE sql IMMUTABLE AS $$
@@ -257,27 +264,35 @@ SELECT m.org, rt.perf_agent(6), 'perf-sheet', 1, 'perf-receipt-' || l.n, 'import
        rt.perf_ts(l.day_off, 30000)
   FROM rt.perf_leads l, rt.perf_meta m WHERE l.n BETWEEN 45001 AND 48000 AND NOT l.deleted;
 
+
 -- -----------------------------------------------------------------------------------------------------
--- Measurement harness: combinations, samples, one measured call, the report and the gate.
+-- Measurement harness: combinations, the run's plan, samples, one measured call, verdicts, controls and the gate.
 -- -----------------------------------------------------------------------------------------------------
 CREATE TABLE rt.perf_combos (ord serial, reader text, combo text, persona integer, days integer, filter_agent integer,
                              scope text, target_ms integer, sql text, PRIMARY KEY (reader, combo));
+-- Personas: 7 (an agent; personal scope), 1 (the team leader whose downline includes agent 7; team scope) and 0 (the
+-- admin; agency scope). The one-agent filter is agent 7 at every scope.
 INSERT INTO rt.perf_combos (reader, combo, persona, days, filter_agent, scope, target_ms)
 SELECT 'scope', v.combo, v.persona, NULL, NULL, v.scope, 2000
   FROM (VALUES ('personal', 7, 'personal'), ('team', 1, 'team'), ('agency', 0, 'agency')) v(combo, persona, scope);
 INSERT INTO rt.perf_combos (reader, combo, persona, days, filter_agent, scope, target_ms)
-SELECT r.reader, v.combo, v.persona, v.days, v.filter_agent, v.scope, CASE WHEN r.reader = 'journey' THEN 4000 ELSE 2000 END
-  FROM (VALUES ('summary'), ('state_breakdown'), ('sales_appointments'), ('call_volume'), ('disposition_breakdown'),
-               ('campaign_calls'), ('lead_source_calls'), ('journey')) r(reader)
- CROSS JOIN (VALUES ('agency-1', 0, 1, NULL::integer, 'agency'), ('agency-30', 0, 30, NULL, 'agency'),
-                    ('agency-366', 0, 366, NULL, 'agency'), ('team-366', 1, 366, NULL, 'team'),
-                    ('personal-366', 7, 366, NULL, 'personal'), ('agency-366-one-agent', 0, 366, 7, 'agency'))
-       v(combo, persona, days, filter_agent, scope);
+SELECT r.reader, s.scope || '-' || d.days || CASE WHEN f.agent IS NOT NULL THEN '-one-agent' ELSE '' END, s.persona, d.days,
+       f.agent, s.scope, CASE WHEN r.reader = 'journey' THEN 4000 ELSE 2000 END
+  FROM (VALUES (1, 'summary'), (2, 'state_breakdown'), (3, 'sales_appointments'), (4, 'call_volume'), (5, 'disposition_breakdown'),
+               (6, 'campaign_calls'), (7, 'lead_source_calls'), (8, 'journey')) r(r_ord, reader)
+ CROSS JOIN (VALUES (1), (30), (366)) d(days)
+ CROSS JOIN (VALUES (1, 'personal', 7), (2, 'team', 1), (3, 'agency', 0)) s(s_ord, scope, persona)
+ CROSS JOIN (VALUES (NULL::integer), (7)) f(agent)
+ ORDER BY r.r_ord, d.days, s.s_ord, f.agent NULLS FIRST;
 UPDATE rt.perf_combos c SET sql = CASE WHEN c.reader = 'scope' THEN format('SELECT public.get_report_scope_v3(%L)', c.scope)
   ELSE format('SELECT public.get_report_%s_v3(%L::date, %L::date, %L::uuid, %L)', c.reader, m.end_date - (c.days - 1), m.end_date,
               CASE WHEN c.filter_agent IS NOT NULL THEN rt.perf_agent(c.filter_agent) END, c.scope) END
   FROM rt.perf_meta m;
+-- The combinations this run measures, and how the run was prepared.
+CREATE TABLE rt.perf_plan (reader text, combo text, PRIMARY KEY (reader, combo), FOREIGN KEY (reader, combo) REFERENCES rt.perf_combos);
+CREATE TABLE rt.perf_run (mode text NOT NULL, injected_delay_ms integer, prepared_at timestamptz NOT NULL DEFAULT clock_timestamp());
 
+-- Sample -1 is the first-after-restart round, 0 the warm-up, 1..N the measured rounds.
 CREATE TABLE rt.perf_samples (reader text, combo text, sample integer, ms numeric, completed boolean, payload_bytes integer,
                               PRIMARY KEY (reader, combo, sample));
 
@@ -304,7 +319,7 @@ BEGIN
   INSERT INTO rt.perf_samples VALUES (p_reader, p_combo, p_sample, round(ms, 1), done, length(v::text));
 END $$;
 
--- The same call once more, for the logged EXPLAIN (ANALYZE, BUFFERS) evidence (not a sample).
+-- The same call once more, for the logged EXPLAIN (ANALYZE, BUFFERS) evidence (never a sample).
 CREATE FUNCTION rt.perf_explain(p_reader text, p_combo text) RETURNS text LANGUAGE plpgsql AS $$
 DECLARE c rt.perf_combos; v jsonb;
 BEGIN
@@ -316,33 +331,128 @@ BEGIN
   RETURN p_reader || '/' || p_combo || ': ' || length(v::text) || ' bytes';
 END $$;
 
--- Nearest-rank p95 of the measured samples (sample 0 is the warm-up), with the budget and target verdicts.
-CREATE VIEW rt.perf_results AS
-SELECT c.ord, c.reader, c.combo, c.target_ms, count(*) AS samples,
-       min(s.ms) AS min_ms, percentile_disc(0.5) WITHIN GROUP (ORDER BY s.ms) AS median_ms,
-       (array_agg(s.ms ORDER BY s.ms))[ceil(0.95 * count(*))::int] AS p95_ms, max(s.ms) AS max_ms,
-       bool_and(s.completed) AS within_budget,
-       bool_and(s.completed) AND (array_agg(s.ms ORDER BY s.ms))[ceil(0.95 * count(*))::int] <= c.target_ms AS meets_target
-  FROM rt.perf_combos c JOIN rt.perf_samples s ON s.reader = c.reader AND s.combo = c.combo AND s.sample > 0
- GROUP BY c.ord, c.reader, c.combo, c.target_ms;
-
-CREATE FUNCTION rt.perf_gate(p_samples integer, p_enforce boolean) RETURNS text LANGUAGE plpgsql AS $$
-DECLARE n int; miss int; over int; incomplete int; msg text;
+-- The run's plan. acceptance and diagnostic: every combination. negative-control: the three scope combinations, with
+-- the scope reader slowed by 2.2 s in this disposable database, so their p95 must miss the 2 s target.
+CREATE FUNCTION rt.perf_prepare(p_mode text) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE def text;
 BEGIN
-  SELECT count(*), count(*) FILTER (WHERE NOT meets_target), count(*) FILTER (WHERE NOT within_budget),
-         count(*) FILTER (WHERE samples <> p_samples)
-    INTO n, miss, over, incomplete FROM rt.perf_results;
-  IF n <> (SELECT count(*) FROM rt.perf_combos) OR incomplete > 0 THEN
-    RAISE EXCEPTION 'performance gate: % of % combinations measured, % with a sample count other than %',
-      n, (SELECT count(*) FROM rt.perf_combos), incomplete, p_samples;
+  IF p_mode NOT IN ('acceptance', 'diagnostic', 'negative-control') THEN
+    RAISE EXCEPTION 'performance: unknown mode %', p_mode;
   END IF;
-  msg := format('performance gate: %s of %s combinations meet their p95 target; %s exceed the 8 s budget in a sample%s',
-                n - miss, n, over, CASE WHEN miss > 0 THEN ' (misses: ' || (SELECT string_agg(reader || '/' || combo, ', ' ORDER BY ord)
-                                                                     FROM rt.perf_results WHERE NOT meets_target) || ')' ELSE '' END);
-  IF p_enforce AND miss > 0 THEN
+  IF EXISTS (SELECT 1 FROM rt.perf_run) THEN
+    RAISE EXCEPTION 'performance: this database was already prepared for a run';
+  END IF;
+  INSERT INTO rt.perf_plan SELECT c.reader, c.combo FROM rt.perf_combos c WHERE p_mode <> 'negative-control' OR c.reader = 'scope';
+  IF p_mode = 'negative-control' THEN
+    def := pg_get_functiondef('public.get_report_scope_v3(text)'::regprocedure);
+    IF position('SELECT * INTO a FROM private.report_access_v2(p_requested_scope, NULL);' IN def) = 0 THEN
+      RAISE EXCEPTION 'performance negative control: the scope reader injection point is missing';
+    END IF;
+    EXECUTE replace(def, 'SELECT * INTO a FROM private.report_access_v2(p_requested_scope, NULL);',
+                    'PERFORM pg_sleep(2.2); SELECT * INTO a FROM private.report_access_v2(p_requested_scope, NULL);');
+  END IF;
+  INSERT INTO rt.perf_run (mode, injected_delay_ms) VALUES (p_mode, CASE WHEN p_mode = 'negative-control' THEN 2200 END);
+  RETURN p_mode || ': ' || (SELECT count(*) FROM rt.perf_plan) || ' planned combinations';
+END $$;
+
+-- Every planned combination's samples and statistics; the warm-up and the restart round are reported, never counted
+-- in the p95.
+CREATE VIEW rt.perf_results AS
+SELECT c.ord, c.reader, c.combo, c.scope, c.days AS window_days, c.filter_agent, c.target_ms,
+       count(s.ms) FILTER (WHERE s.sample > 0) AS samples,
+       min(s.ms) FILTER (WHERE s.sample > 0) AS min_ms,
+       percentile_disc(0.5) WITHIN GROUP (ORDER BY s.ms) FILTER (WHERE s.sample > 0) AS median_ms,
+       (array_agg(s.ms ORDER BY s.ms) FILTER (WHERE s.sample > 0))[ceil(0.95 * count(s.ms) FILTER (WHERE s.sample > 0))::int] AS p95_ms,
+       max(s.ms) FILTER (WHERE s.sample > 0) AS max_ms,
+       count(*) FILTER (WHERE s.sample > 0 AND NOT s.completed) AS timeouts,
+       max(s.ms) FILTER (WHERE s.sample = 0) AS warmup_ms, bool_and(s.completed) FILTER (WHERE s.sample = 0) AS warmup_completed,
+       max(s.ms) FILTER (WHERE s.sample = -1) AS restart_ms, bool_and(s.completed) FILTER (WHERE s.sample = -1) AS restart_completed
+  FROM rt.perf_plan p
+  JOIN rt.perf_combos c ON c.reader = p.reader AND c.combo = p.combo
+  LEFT JOIN rt.perf_samples s ON s.reader = c.reader AND s.combo = c.combo
+ GROUP BY c.ord, c.reader, c.combo, c.scope, c.days, c.filter_agent, c.target_ms;
+
+-- Each planned combination's verdict, with the first reason it fails.
+CREATE FUNCTION rt.perf_verdicts(p_samples integer, p_restart boolean)
+RETURNS TABLE (ord integer, reader text, combo text, scope text, window_days integer, filter_agent integer, target_ms integer,
+               samples bigint, min_ms numeric, median_ms numeric, p95_ms numeric, max_ms numeric, timeouts bigint, warmup_ms numeric,
+               warmup_completed boolean, restart_ms numeric, restart_completed boolean, verdict text, reason text)
+LANGUAGE sql AS $$
+  SELECT r.ord, r.reader, r.combo, r.scope, r.window_days, r.filter_agent, r.target_ms, r.samples, r.min_ms, r.median_ms, r.p95_ms,
+         r.max_ms, r.timeouts, r.warmup_ms, r.warmup_completed, r.restart_ms, r.restart_completed,
+         CASE WHEN x.reason IS NULL THEN 'PASS' ELSE 'FAIL' END, x.reason
+    FROM rt.perf_results r
+   CROSS JOIN LATERAL (SELECT CASE
+           WHEN r.samples <> p_samples THEN 'missing samples (' || r.samples || ' of ' || p_samples || ')'
+           WHEN r.warmup_ms IS NULL THEN 'warm-up missing'
+           WHEN NOT r.warmup_completed THEN 'warm-up timeout'
+           WHEN p_restart AND r.restart_ms IS NULL THEN 'restart round missing'
+           WHEN p_restart AND NOT r.restart_completed THEN 'first-after-restart timeout'
+           WHEN r.timeouts > 0 THEN r.timeouts || ' measured timeout(s)'
+           WHEN r.p95_ms > r.target_ms THEN 'p95 over target'
+         END AS reason) x;
+$$;
+
+-- Acceptance evidence only from an enforced acceptance run on PostgreSQL 17.6 over all 147 combinations with at least
+-- 20 measured samples and the restart round. A diagnostic or report-only run is never eligible.
+CREATE FUNCTION rt.perf_acceptance_eligible(p_samples integer, p_mode text, p_enforce boolean, p_restart boolean)
+RETURNS boolean LANGUAGE sql AS $$
+  SELECT p_mode = 'acceptance' AND p_enforce AND p_restart AND p_samples >= 20
+     AND current_setting('server_version_num')::integer = 170006
+     AND (SELECT count(*) FROM rt.perf_combos) = 147
+     AND (SELECT count(*) FROM rt.perf_plan) = 147
+     AND (SELECT count(*) FROM rt.perf_run WHERE mode = 'acceptance' AND injected_delay_ms IS NULL) = 1;
+$$;
+
+CREATE FUNCTION rt.perf_gate(p_samples integer, p_mode text, p_enforce boolean, p_restart boolean) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE planned int; n int; miss int; over int; msg text; eligible boolean;
+BEGIN
+  SELECT count(*) INTO planned FROM rt.perf_plan;
+  SELECT count(*), count(*) FILTER (WHERE v.verdict <> 'PASS'),
+         count(*) FILTER (WHERE v.timeouts > 0 OR NOT v.warmup_completed OR (p_restart AND NOT v.restart_completed))
+    INTO n, miss, over FROM rt.perf_verdicts(p_samples, p_restart) v;
+  IF planned = 0 OR n <> planned THEN
+    RAISE EXCEPTION 'performance gate: % of % planned combinations measured', n, planned;
+  END IF;
+  eligible := rt.perf_acceptance_eligible(p_samples, p_mode, p_enforce, p_restart);
+  msg := format('%s: %s of %s combinations meet their p95 target; %s with a timeout%s%s',
+                CASE WHEN eligible THEN 'performance gate (ACCEPTANCE)'
+                     WHEN p_mode = 'acceptance' THEN 'performance gate (acceptance mode, NOT acceptance-eligible)'
+                     WHEN p_mode = 'negative-control' THEN 'performance gate (NEGATIVE CONTROL: the scope reader is slowed, this run must fail)'
+                     ELSE 'performance gate (DIAGNOSTIC, ' || CASE WHEN p_enforce THEN 'enforced' ELSE 'report-only' END
+                          || ', never acceptance evidence)' END,
+                n - miss, n, over,
+                CASE WHEN miss > 0 THEN ' (misses: ' || (SELECT string_agg(v.reader || '/' || v.combo || ' [' || v.reason || ']', ', ' ORDER BY v.ord)
+                                                         FROM rt.perf_verdicts(p_samples, p_restart) v WHERE v.verdict <> 'PASS') || ')' ELSE '' END,
+                CASE WHEN p_mode = 'acceptance' AND NOT eligible THEN ' (not acceptance-eligible: PostgreSQL 17.6, all 147 combinations, '
+                     || 'at least 20 samples, enforcement and the restart round are all required)' ELSE '' END);
+  IF p_enforce AND (miss > 0 OR (p_mode = 'acceptance' AND NOT eligible)) THEN
     RAISE EXCEPTION '%', msg;
   END IF;
   RETURN msg;
+END $$;
+
+-- SQL-level controls: the gate itself bites. Each runs on a synthetic one- or two-combination plan inside a
+-- rolled-back subtransaction (the real plan and samples are untouched) and must fail for its own reason.
+CREATE TABLE rt.perf_controls (control text PRIMARY KEY, outcome text NOT NULL);
+CREATE FUNCTION rt.perf_control(p_control text, p_setup text, p_message text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE base text := 'DELETE FROM rt.perf_samples; DELETE FROM rt.perf_plan; '
+  || 'INSERT INTO rt.perf_plan VALUES (''scope'', ''agency''); '
+  || 'INSERT INTO rt.perf_samples SELECT ''scope'', ''agency'', s, 100, true, 1 FROM generate_series(-1, 20) s; ';
+BEGIN
+  IF p_message IS NULL THEN
+    -- The positive control: the synthetic plan passes an enforced gate.
+    BEGIN
+      EXECUTE base || p_setup || ' SELECT rt.perf_gate(20, ''diagnostic'', true, true);';
+      RAISE EXCEPTION 'performance control passed';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM <> 'performance control passed' THEN RAISE EXCEPTION 'performance control %: unexpected failure: %', p_control, SQLERRM; END IF;
+    END;
+  ELSE
+    PERFORM rt.expect_sql_failure(base || p_setup || ' SELECT rt.perf_gate(20, ''diagnostic'', true, true);', p_message);
+  END IF;
+  INSERT INTO rt.perf_controls VALUES (p_control, CASE WHEN p_message IS NULL THEN 'passed an enforced gate'
+                                                      ELSE 'failed the enforced gate: ' || p_message END);
 END $$;
 
 ANALYZE public.organizations, public.company_settings, public.profiles, public.role_permissions, public.campaigns,
@@ -352,26 +462,43 @@ ANALYZE public.organizations, public.company_settings, public.profiles, public.r
         public.contact_history_events, public.import_history, private.google_sheets_receipts;
 
 -- The fixture at the required size, and the environment the numbers come from.
-SELECT rt.eq('performance fixture: 500,000 calls, 5,000 clients and 10,000 policy objects in one organization',
-  (SELECT concat_ws('|', (SELECT count(*) FROM public.calls WHERE organization_id = m.org),
-                         (SELECT count(*) FROM public.clients WHERE organization_id = m.org),
-                         (SELECT count(*) FROM private.policy_identities WHERE organization_id = m.org),
-                         (SELECT count(*) FROM public.wins WHERE organization_id = m.org)) FROM rt.perf_meta m),
-  '500000|5000|10000|10000');
-SELECT 'performance fixture' AS evidence, version() AS server,
-       (SELECT count(*) FROM public.calls WHERE organization_id = m.org) AS calls,
-       (SELECT count(*) FROM public.leads WHERE organization_id = m.org) AS leads,
-       (SELECT count(*) FROM public.campaign_leads WHERE organization_id = m.org) AS memberships,
-       (SELECT count(*) FROM public.clients WHERE organization_id = m.org) AS clients,
-       (SELECT count(*) FROM private.policy_identities WHERE organization_id = m.org) AS policy_objects,
-       (SELECT count(*) FROM public.wins WHERE organization_id = m.org) AS sale_events,
-       (SELECT count(*) FROM public.contact_history_events WHERE organization_id = m.org) AS history_events,
-       (SELECT count(*) FROM public.dialer_sessions WHERE organization_id = m.org) AS sessions,
-       current_setting('shared_buffers') AS shared_buffers
-  FROM rt.perf_meta m;
+CREATE FUNCTION rt.perf_fixture() RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_build_object(
+    'calls', (SELECT count(*) FROM public.calls WHERE organization_id = m.org),
+    'clients', (SELECT count(*) FROM public.clients WHERE organization_id = m.org),
+    'policy_objects', (SELECT count(*) FROM private.policy_identities WHERE organization_id = m.org),
+    'sale_events', (SELECT count(*) FROM public.wins WHERE organization_id = m.org),
+    'buyers', (SELECT count(DISTINCT contact_id) FROM public.wins WHERE organization_id = m.org),
+    'appointments', (SELECT count(*) FROM public.appointments WHERE organization_id = m.org),
+    'leads', (SELECT count(*) FROM public.leads WHERE organization_id = m.org),
+    'memberships', (SELECT count(*) FROM public.campaign_leads WHERE organization_id = m.org),
+    'history_events', (SELECT count(*) FROM public.contact_history_events WHERE organization_id = m.org),
+    'sessions', (SELECT count(*) FROM public.dialer_sessions WHERE organization_id = m.org))
+    FROM rt.perf_meta m;
+$$;
+SELECT rt.eq('performance fixture: 500,000 calls, 5,000 clients, 10,000 policy objects, 10,000 sale events (5,000 buyers) and 10,000 appointments',
+  (SELECT concat_ws('|', f ->> 'calls', f ->> 'clients', f ->> 'policy_objects', f ->> 'sale_events', f ->> 'buyers', f ->> 'appointments')
+     FROM rt.perf_fixture() f),
+  '500000|5000|10000|10000|5000|10000');
+SELECT rt.eq('performance matrix: 147 combinations', (SELECT count(*) FROM rt.perf_combos), 147::bigint);
+SELECT 'performance fixture' AS evidence, version() AS server, rt.perf_fixture() AS sizes, current_setting('shared_buffers') AS shared_buffers;
 
 -- @@performance-measure@@
--- Each statement below autocommits: one sample per statement, under the production session settings.
+-- One warm-up round, then :perf_samples measured rounds, interleaved over the run's plan. Each sample autocommits as
+-- its own statement under the production session settings and the 8 s statement_timeout.
+\if :{?perf_samples}
+\else
+\set perf_samples 5
+\endif
+\if :{?perf_mode}
+\else
+\set perf_mode diagnostic
+\endif
+\if :{?perf_enforce}
+\else
+\set perf_enforce false
+\endif
+SELECT rt.perf_prepare(:'perf_mode') AS performance_run;
 SET jit = off;
 SET work_mem = '5MB';
 SET hash_mem_multiplier = 2;
@@ -383,21 +510,59 @@ SELECT rt.v3_reader_grants(true);
 SET statement_timeout = '8s';
 \o /dev/null
 SELECT format('SELECT rt.perf_measure(%L, %L, %s);', c.reader, c.combo, s.n)
-  FROM rt.perf_combos c CROSS JOIN generate_series(0, :perf_samples) AS s(n)
+  FROM rt.perf_plan p JOIN rt.perf_combos c ON c.reader = p.reader AND c.combo = p.combo
+ CROSS JOIN generate_series(0, :perf_samples) AS s(n)
  ORDER BY s.n, c.ord \gexec
 \o
 RESET statement_timeout;
+SELECT rt.v3_reader_grants(false);
+RESET jit; RESET work_mem; RESET hash_mem_multiplier; RESET max_parallel_workers_per_gather; RESET max_parallel_workers;
+RESET random_page_cost; RESET effective_cache_size;
 SELECT 'performance parameters' AS evidence, :perf_samples AS samples_per_combination, 1 AS warm_up_rounds,
-       (SELECT count(*) FROM rt.perf_combos) AS combinations, 'nearest-rank p95 of the measured samples' AS statistic,
-       '8s' AS statement_timeout, 'jit off, work_mem 5MB, hash_mem_multiplier 2, max_parallel_workers_per_gather 1, '
+       (SELECT count(*) FROM rt.perf_plan) AS planned_combinations, :'perf_mode' AS mode,
+       'nearest-rank p95 of the measured samples' AS statistic, '8s' AS statement_timeout,
+       'jit off, work_mem 5MB, hash_mem_multiplier 2, max_parallel_workers_per_gather 1, '
        || 'max_parallel_workers 2, random_page_cost 1.1, effective_cache_size 1536MB' AS session_settings;
-SELECT reader, combo, samples, min_ms, median_ms, p95_ms, max_ms, target_ms, within_budget,
-       CASE WHEN meets_target THEN 'PASS' ELSE 'FAIL' END AS verdict
-  FROM rt.perf_results ORDER BY ord;
--- EXPLAIN (ANALYZE, BUFFERS) of each reader's 366-day agency path (agency scope for the scope reader): every
--- statement of at least 100 ms, nested ones included, is logged with its plan. Evidence only, not a sample:
--- instrumented timing is slower, so this step does not run under the samples' statement_timeout. Bound parameter
--- values are not logged: an identity-key array alone runs to megabytes.
+
+-- @@performance-restart@@
+-- After the runner restarts PostgreSQL: shared buffers are empty, but the operating system's page cache may still
+-- hold the data files, so this round is first-after-restart evidence, not a cold-cache measurement. One sample per
+-- planned combination (sample -1), each its own statement under the same settings and timeout.
+SET jit = off;
+SET work_mem = '5MB';
+SET hash_mem_multiplier = 2;
+SET max_parallel_workers_per_gather = 1;
+SET max_parallel_workers = 2;
+SET random_page_cost = 1.1;
+SET effective_cache_size = '1536MB';
+SELECT rt.v3_reader_grants(true);
+SET statement_timeout = '8s';
+\o /dev/null
+SELECT format('SELECT rt.perf_measure(%L, %L, -1);', c.reader, c.combo)
+  FROM rt.perf_plan p JOIN rt.perf_combos c ON c.reader = p.reader AND c.combo = p.combo
+ ORDER BY c.ord \gexec
+\o
+RESET statement_timeout;
+SELECT rt.v3_reader_grants(false);
+RESET jit; RESET work_mem; RESET hash_mem_multiplier; RESET max_parallel_workers_per_gather; RESET max_parallel_workers;
+RESET random_page_cost; RESET effective_cache_size;
+SELECT 'first-after-restart round' AS evidence, count(*) AS samples, count(*) FILTER (WHERE NOT completed) AS timeouts
+  FROM rt.perf_samples WHERE sample = -1;
+
+-- @@performance-explain@@
+-- EXPLAIN (ANALYZE, BUFFERS) of each reader's 366-day agency path (agency scope for the scope reader) and of every
+-- combination that failed: every statement of at least 100 ms, nested ones included, with its plan. Evidence only,
+-- never a sample: instrumented timing is slower, so this step runs without the samples' statement_timeout. Bound
+-- parameter values are not logged (an identity-key array alone runs to megabytes), and the plans go to this session's
+-- client only (the runner writes them to their own file), not to the server log.
+\if :{?perf_samples}
+\else
+\set perf_samples 5
+\endif
+\if :{?perf_restart}
+\else
+\set perf_restart false
+\endif
 LOAD 'auto_explain';
 SET auto_explain.log_min_duration = '100ms';
 SET auto_explain.log_analyze = on;
@@ -406,20 +571,111 @@ SET auto_explain.log_timing = on;
 SET auto_explain.log_nested_statements = on;
 SET auto_explain.log_format = 'text';
 SET auto_explain.log_parameter_max_length = 0;
--- The plans go to this session's client only, not the server log (a CI service log would carry a second copy).
 SET log_min_messages = fatal;
 SET client_min_messages = log;
+SET jit = off;
+SET work_mem = '5MB';
+SET hash_mem_multiplier = 2;
+SET max_parallel_workers_per_gather = 1;
+SET max_parallel_workers = 2;
+SET random_page_cost = 1.1;
+SET effective_cache_size = '1536MB';
+SELECT rt.v3_reader_grants(true);
 SELECT format('SELECT rt.perf_explain(%L, %L);', c.reader, c.combo)
-  FROM rt.perf_combos c WHERE c.combo IN ('agency-366', 'agency') ORDER BY c.ord \gexec
+  FROM rt.perf_plan p JOIN rt.perf_combos c ON c.reader = p.reader AND c.combo = p.combo
+ WHERE c.combo IN ('agency-366', 'agency')
+    OR (c.reader, c.combo) IN (SELECT v.reader, v.combo FROM rt.perf_verdicts(:perf_samples, :perf_restart) v WHERE v.verdict <> 'PASS')
+ ORDER BY c.ord \gexec
 SET client_min_messages = notice;
 SET auto_explain.log_min_duration = -1;
 RESET log_min_messages;
 SELECT rt.v3_reader_grants(false);
 RESET jit; RESET work_mem; RESET hash_mem_multiplier; RESET max_parallel_workers_per_gather; RESET max_parallel_workers;
 RESET random_page_cost; RESET effective_cache_size;
--- The temporary grants are gone and the creation-migration seal holds again.
+
+-- @@performance-finish@@
+-- The temporary grants are gone and the creation-migration seal holds; the gate's own controls; the verdicts (written
+-- before the gate can raise); then the gate.
+\if :{?perf_samples}
+\else
+\set perf_samples 5
+\endif
+\if :{?perf_mode}
+\else
+\set perf_mode diagnostic
+\endif
+\if :{?perf_enforce}
+\else
+\set perf_enforce false
+\endif
+\if :{?perf_restart}
+\else
+\set perf_restart false
+\endif
+\if :{?perf_verdicts}
+\else
+\set perf_verdicts /dev/null
+\endif
+SELECT rt.v3_reader_grants(false);
 SELECT rt.assert_sealed_v3(true, false);
--- The verdicts once more, after the plans, so that they end the evidence.
-SELECT reader, combo, samples, p95_ms, target_ms, within_budget, CASE WHEN meets_target THEN 'PASS' ELSE 'FAIL' END AS verdict
-  FROM rt.perf_results ORDER BY ord;
-SELECT rt.perf_gate(:perf_samples, :perf_enforce);
+SELECT rt.perf_control('passing synthetic plan', '', NULL);
+SELECT rt.perf_control('p95 over target', 'UPDATE rt.perf_samples SET ms = 2500 WHERE sample > 0;', 'p95 over target');
+SELECT rt.perf_control('missing measured sample', 'DELETE FROM rt.perf_samples WHERE sample = 7;', 'missing samples (19 of 20)');
+SELECT rt.perf_control('measured timeout', 'UPDATE rt.perf_samples SET completed = false WHERE sample = 3;', '1 measured timeout(s)');
+SELECT rt.perf_control('warm-up timeout', 'UPDATE rt.perf_samples SET completed = false WHERE sample = 0;', 'warm-up timeout');
+SELECT rt.perf_control('first-after-restart timeout', 'UPDATE rt.perf_samples SET completed = false WHERE sample = -1;',
+                       'first-after-restart timeout');
+SELECT rt.perf_control('missing combination', 'INSERT INTO rt.perf_plan VALUES (''scope'', ''team'');', 'missing samples (0 of 20)');
+SELECT rt.perf_control('missing warm-up', 'DELETE FROM rt.perf_samples WHERE sample = 0;', 'warm-up missing');
+SELECT rt.perf_control('missing restart round', 'DELETE FROM rt.perf_samples WHERE sample = -1;', 'restart round missing');
+-- An unexpected reader error is never recorded as a sample: it fails the run.
+SELECT rt.expect_sql_failure(
+  'SELECT rt.v3_reader_grants(true); '
+  || replace(pg_get_functiondef('public.get_report_scope_v3(text)'::regprocedure), 'SELECT * INTO a FROM private.report_access_v2(p_requested_scope, NULL);',
+             'RAISE EXCEPTION ''planted reader error''; SELECT * INTO a FROM private.report_access_v2(p_requested_scope, NULL);')
+  || '; SELECT rt.perf_measure(''scope'', ''agency'', 99);', 'planted reader error');
+INSERT INTO rt.perf_controls VALUES ('unexpected reader error', 'failed the run: planted reader error');
+SELECT rt.eq('performance controls: no control left a sample behind',
+  (SELECT count(*) FROM rt.perf_samples WHERE sample = 99), 0::bigint);
+SELECT rt.eq('performance controls: a diagnostic, report-only, short, restart-less or non-17.6 run is never acceptance-eligible',
+  rt.perf_acceptance_eligible(20, 'diagnostic', true, true) OR rt.perf_acceptance_eligible(20, 'acceptance', false, true)
+  OR rt.perf_acceptance_eligible(19, 'acceptance', true, true) OR rt.perf_acceptance_eligible(20, 'acceptance', true, false)
+  OR (current_setting('server_version_num')::integer <> 170006 AND rt.perf_acceptance_eligible(20, 'acceptance', true, true)), false);
+INSERT INTO rt.perf_controls VALUES ('acceptance eligibility', 'diagnostic, report-only, short, restart-less and non-17.6 runs are not eligible');
+SELECT rt.assert_sealed_v3(true, false);
+\pset tuples_only on
+\pset format unaligned
+\o :perf_verdicts
+SELECT jsonb_pretty(jsonb_build_object(
+  'schema', 'reports-v3-performance-verdict/1',
+  'mode', :'perf_mode',
+  'acceptance_eligible', rt.perf_acceptance_eligible(:perf_samples, :'perf_mode', :perf_enforce, :perf_restart),
+  'enforce', :perf_enforce,
+  'server', jsonb_build_object('version', version(), 'server_version_num', current_setting('server_version_num')::integer,
+                               'shared_buffers', current_setting('shared_buffers'), 'max_connections', current_setting('max_connections')),
+  'session_settings', jsonb_build_object('jit', 'off', 'work_mem', '5MB', 'hash_mem_multiplier', 2, 'max_parallel_workers_per_gather', 1,
+                                         'max_parallel_workers', 2, 'random_page_cost', 1.1, 'effective_cache_size', '1536MB'),
+  'statement_timeout', '8s',
+  'fixture', rt.perf_fixture(),
+  'parameters', jsonb_build_object('samples', :perf_samples, 'warm_up_rounds', 1,
+                                   'restart_round', CASE WHEN :perf_restart THEN 'first-after-restart' ELSE 'not run' END,
+                                   'statistic', 'nearest-rank p95 of the measured samples',
+                                   'planned_combinations', (SELECT count(*) FROM rt.perf_plan),
+                                   'injected_delay_ms', (SELECT injected_delay_ms FROM rt.perf_run)),
+  'combinations', (SELECT jsonb_agg(to_jsonb(v) - 'ord' ORDER BY v.ord) FROM rt.perf_verdicts(:perf_samples, :perf_restart) v),
+  'totals', (SELECT jsonb_build_object('combinations', count(*), 'pass', count(*) FILTER (WHERE v.verdict = 'PASS'),
+                                       'fail', count(*) FILTER (WHERE v.verdict <> 'PASS'),
+                                       'with_timeout', count(*) FILTER (WHERE v.timeouts > 0 OR NOT v.warmup_completed
+                                                                          OR (:perf_restart AND NOT v.restart_completed)))
+               FROM rt.perf_verdicts(:perf_samples, :perf_restart) v),
+  'controls', (SELECT jsonb_object_agg(control, outcome) FROM rt.perf_controls),
+  'seal', 'verified',
+  'verdict', CASE WHEN (SELECT count(*) FILTER (WHERE v.verdict <> 'PASS') FROM rt.perf_verdicts(:perf_samples, :perf_restart) v) = 0
+                   AND (:'perf_mode' <> 'acceptance' OR rt.perf_acceptance_eligible(:perf_samples, :'perf_mode', :perf_enforce, :perf_restart))
+                  THEN 'PASS' ELSE 'FAIL' END));
+\o
+\pset tuples_only off
+\pset format aligned
+SELECT reader, combo, samples, p95_ms, target_ms, warmup_ms, restart_ms, verdict, reason
+  FROM rt.perf_verdicts(:perf_samples, :perf_restart) ORDER BY ord;
+SELECT rt.perf_gate(:perf_samples, :'perf_mode', :perf_enforce, :perf_restart);

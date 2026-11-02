@@ -5,7 +5,7 @@ correction and its release enable, built by the same verbatim extraction as repo
 then applies the PKG-A v3 migrations, found by their unique suffixes, and runs the v3 suites.
 """
 from pathlib import Path
-import importlib.util, json, os, sys
+import importlib.util, json, os, re, sys
 
 sys.dont_write_bytecode = True  # loading the v2 fixture must not leave __pycache__ in the repository
 ROOT = Path(__file__).resolve().parents[1]
@@ -221,19 +221,41 @@ def steps():
     yield 'v3 negative controls', v2.read('supabase/tests/reports_v3_negative.sql')
     yield 'v3 reader contract', contract_readers
     yield 'v2 surface unchanged after the v3 readers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
-    # Performance proofs at the required scale (REPORTS_V3_PERF=0 skips them for quick local iteration only). Each
-    # sample is its own statement, so the measurement step runs outside a transaction block.
+    # Performance at the required scale, embedded for quick local diagnostics only: always mode diagnostic (report-only,
+    # never acceptance evidence) and no restart round. Acceptance runs through scripts/run_reports_v3_perf_acceptance.sh.
+    # REPORTS_V3_PERF=0 skips it (the CI functional job). Each sample is its own statement, so the measurement step runs
+    # outside a transaction block.
     if os.environ.get('REPORTS_V3_PERF', '1') != '0':
         samples = int(os.environ.get('REPORTS_V3_PERF_SAMPLES', '5'))
         assert 3 <= samples <= 100, 'REPORTS_V3_PERF_SAMPLES must be between 3 and 100'
         enforce = 'true' if os.environ.get('REPORTS_V3_PERF_ENFORCE') == '1' else 'false'
-        setup, measure = v2.read('supabase/tests/reports_v3_performance.sql').split('-- @@performance-measure@@')
-        yield 'v3 performance fixture (500,000 calls, 5,000 clients, 10,000 policy objects)', setup
-        yield 'v3 performance measurement', no_transaction(
-            '\\set perf_samples ' + str(samples) + '\n\\set perf_enforce ' + enforce + '\n' + measure)
+        yield 'v3 performance fixture (500,000 calls, 5,000 clients, 10,000 policy objects)', performance_part('setup')
+        yield 'v3 performance measurement (diagnostic, report-only)', no_transaction(
+            '\\set perf_samples ' + str(samples) + '\n\\set perf_mode diagnostic\n\\set perf_enforce ' + enforce
+            + '\n\\set perf_restart false\n'
+            + performance_part('measure') + performance_part('explain') + performance_part('finish'))
+
+
+def performance_part(name):
+    """One stage of reports_v3_performance.sql, split at its '-- @@performance-<stage>@@' markers ('setup' is the part
+    before the first marker). The differential and acceptance runners run the stages as separate psql invocations."""
+    text = v2.read('supabase/tests/reports_v3_performance.sql')
+    pieces = re.split(r'^-- @@performance-([a-z-]+)@@$', text, flags=re.M)
+    parts = {'setup': pieces[0]}
+    for i in range(1, len(pieces), 2):
+        assert pieces[i] not in parts, 'duplicate performance marker: ' + pieces[i]
+        parts[pieces[i]] = pieces[i + 1]
+    assert name in parts, 'no performance stage named ' + name
+    return parts[name]
 
 
 if __name__ == '__main__':
+    if '--part' in sys.argv:
+        # One performance stage only, for a database that already holds the functional suites.
+        stage = sys.argv[sys.argv.index('--part') + 1]
+        sql = performance_part(stage)
+        print('\\echo v3 performance ' + stage + '\n' + ('BEGIN;\n' + sql + '\nCOMMIT;\n' if stage == 'setup' else sql))
+        sys.exit(0)
     data = list(steps())
     if '--json' in sys.argv:
         print(json.dumps([[label, sql[1] if isinstance(sql, tuple) else sql, not isinstance(sql, tuple)] for label, sql in data]))

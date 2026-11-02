@@ -554,3 +554,70 @@ describe("Reports v3 calls index", () => {
     );
   });
 });
+
+describe("Reports v3 performance acceptance and differential evidence", () => {
+  const workflow = read(".github/workflows/reports-backend.yml");
+  const perf = read("supabase/tests/reports_v3_performance.sql");
+  const manifest = JSON.parse(read("supabase/tests/reference/reports_v3_reference_manifest.json"));
+  const job = (name: string) => {
+    const start = workflow.indexOf(`\n  ${name}:\n`);
+    expect(start, name).toBeGreaterThan(0);
+    const next = workflow.slice(start + 1).search(/\n {2}[a-z][a-z0-9-]*:\n/);
+    return next < 0 ? workflow.slice(start) : workflow.slice(start, start + 1 + next);
+  };
+  const dispatchOnly = "if: github.event_name == 'workflow_dispatch' && inputs.performance_acceptance";
+
+  it("measures no performance in the functional job; the two-run acceptance runs only when a manual dispatch selects it", () => {
+    expect(job("postgres")).toContain("REPORTS_V3_PERF=0 bash scripts/run_reports_v3_tests.sh");
+    expect(job("perf-acceptance")).toContain(dispatchOnly);
+    expect(job("perf-negative-control")).toContain(dispatchOnly);
+    expect(job("perf-verdict")).toContain("if: always() && github.event_name == 'workflow_dispatch' && inputs.performance_acceptance");
+    expect(job("differential")).not.toContain("inputs.performance_acceptance");
+  });
+
+  it("runs acceptance twice on PostgreSQL 17.6 with 20 samples, the restart round and enforcement; both runs must pass", () => {
+    const a = job("perf-acceptance");
+    expect(a).toContain("image: postgres:17.6");
+    expect(a).toContain("matrix:\n        run: [1, 2]");
+    expect(a).toContain("REPORTS_V3_PERF_MODE: acceptance");
+    expect(a).toContain("REPORTS_V3_PERF_SAMPLES: '20'");
+    expect(a).toContain("REPORTS_V3_PERF_ENFORCE: '1'");
+    expect(a).toContain("REPORTS_V3_RESTART_CMD: docker restart ${{ job.services.postgres.id }}");
+    expect(a).toContain("timeout-minutes: 150\n");
+    expect(job("perf-verdict")).toContain('aggregate --sha "$GITHUB_SHA"');
+  });
+
+  it("proves detection with a negative control and uploads every run's evidence even on failure", () => {
+    const n = job("perf-negative-control");
+    expect(n).toContain("REPORTS_V3_PERF_MODE: negative-control");
+    expect(n).toContain("if bash scripts/run_reports_v3_perf_acceptance.sh; then echo '::error::the negative control did not fail'; exit 1; fi");
+    expect(job("perf-verdict")).toContain("reports_v3_perf_verdict.py negative-control");
+    for (const name of ["differential", "perf-acceptance", "perf-negative-control", "perf-verdict"]) {
+      expect(job(name), name).toMatch(/upload-artifact@[0-9a-f]{40}\n {8}if: always\(\)/);
+    }
+  });
+
+  it("keeps the 2 s and 4 s targets, the unchanged 8 s timeout and the 147-combination matrix", () => {
+    expect(perf.match(/SET statement_timeout = '8s';/g)?.length).toBe(2);
+    expect(perf).not.toMatch(/statement_timeout\s*=\s*'(?!8s'|0')/);
+    expect(perf).toContain("CASE WHEN r.reader = 'journey' THEN 4000 ELSE 2000 END");
+    expect(perf).toContain("current_setting('server_version_num')::integer = 170006");
+    expect(perf).toContain("(SELECT count(*) FROM rt.perf_combos) = 147");
+    expect(perf).toContain("p_samples >= 20");
+  });
+
+  it("pins the differential reference: the reviewed baseline, its sources, the one reference-only repair and the case inventory", () => {
+    expect(manifest.baseline_commit).toBe("4236b8a3f8389d22c6cdf2c3e96815899cb92cd1");
+    expect(manifest.sources.map((s: { path: string }) => s.path)).toEqual([
+      "supabase/migrations/20261101000011_reports_v3_sale_facts.sql",
+      "supabase/migrations/20261101000012_reports_v3_call_journey_helpers.sql",
+      "supabase/migrations/20261101000014_reports_v3_state_helpers.sql",
+      "supabase/migrations/20261101000015_reports_v3_readers.sql",
+    ]);
+    expect(manifest.reference_only_repair.from).toBe("ck.lead_id = substr(r.identity_key, 6)::uuid");
+    expect(manifest.case_inventory.expected_totals).toEqual({ cases: 2136, payload: 1428, refusal: 708 });
+    expect(manifest.case_inventory.retained_totals).toEqual({ state_resolver: 55, journey: 180, journey_by_agent: 120 });
+    expect(manifest.case_inventory.scale_cases).toHaveLength(19);
+    expect(manifest.approved_differences).toEqual([]);
+  });
+});
