@@ -1,5 +1,187 @@
 # AgentFlow Work Log
 
+## 2026-11-02 — Reports V2 PKG-A Batch 7: Phase E (evidence and acceptance), Phase A (SQL performance) and the KPI 24 pre-release amendment; performance acceptance NOT passed (branch `claude/great-goodall-911azc`; NOT merged, applied, enabled or deployed)
+
+**Status.**
+- **Authority:** Chris's Batch 7 message: Phase E, Phase A and the KPI 24 pre-release amendment, branch-only. **Phase B is not authorized**, and nothing of it was built: no maintained identity table, trigger, repair function or stored/live mode.
+- **Sealed:** every reader and helper is still created sealed. Grants exist only inside the disposable measurement databases, and the seal is re-asserted after every run.
+- **Performance acceptance is NOT passed.** CI run 41541165337 on `66663f4` (PostgreSQL 17.6, 147 combinations × 20 samples, enforced):
+  - run 1 (Intel Xeon 6973P-C): 147 of 147;
+  - run 2 (AMD EPYC 7763): 144 of 147. The misses are summary agency-366 (p95 2,770.9 ms against 2,000), state agency-366 (2,752.9 against 2,000) and journey agency-366 (4,426.8 against 4,000);
+  - both runs must pass, so the verdict is FAIL. Run 1's pass is not acceptance evidence on its own.
+- **Stopped for review**, as the approval requires: no further architecture is proposed here, and the measured remaining cost is below.
+- **Still pending:** ★1 and ★4; E1–E6 acceptance, including the campaign-copy fallback's security review; the named reviewer; the PKG-A production approval. No agency-only fallback exists.
+- **Not touched:** applied migrations, `AGENT_RULES.md`, v2 bodies and privileges, telephony, `TwilioContext`, the duration writers and their guards, and the `…17` placeholder.
+
+**Commits** (all pushed; no force push).
+| Commit | Change |
+|---|---|
+| `d099277` | Batch 7 plan entry (the first edit) |
+| `2d9702c` | Phase E: committed differential harness and enforceable two-run performance acceptance |
+| `6cb3571` | Phase A, shared block: keyed disposition joins and exact-value direction classes (all 8 copies) |
+| `62d498e` | Phase A, journey: typed narrow history, numbers normalized once, PARALLEL RESTRICTED helpers |
+| `3f961e2` | Phase A, state: typed resolution inputs and narrower intermediates |
+| `3dd8f87` | Static-test follow-up for `3f961e2` (see "Process slip") |
+| `a2a7982` | Phase A, summary: one per-agent grouping |
+| `66663f4` | KPI 24 pre-release amendment `kpi24-quality-a1`. CI tested this commit. |
+
+**Phase E** (`2d9702c`).
+- **Differential** (`scripts/run_reports_v3_differential.sh`, `supabase/tests/reports_v3_differential.sql`). It compares the code under test with the reviewed baseline `4236b8a`:
+  - the baseline is generated mechanically into `rtref` by `scripts/reports_v3_reference.py`, with the one documented reference-only UUID cast repair. Every source blob, source hash and the generated hash are pinned in `supabase/tests/reference/reports_v3_reference_manifest.json`;
+  - both sides run in one REPEATABLE READ snapshot, with the same `now()`, role and claims. jsonb equality keeps array order;
+  - every case comes from the pinned inventory with its expected outcome type: 2,136 reader cases, 1,428 payloads and 708 refusals. A matching error never stands in for a payload;
+  - three planted self-controls bite;
+  - retained comparisons: the resolver (55 adversarial cases and a 9,957-key scale sample), the journey (180 sets and 120 by_agent rows), call facts against pinned v2 and the baseline on 457,311 rows, and 19 scale reader cases;
+  - the evidence is sanitized (outcomes and sha256 only) and written outside the tree, with a manifest.
+- **Acceptance** (`scripts/run_reports_v3_perf_acceptance.sh`, staged `reports_v3_performance.sql`, `scripts/reports_v3_perf_verdict.py`):
+  - 147 combinations; one warm-up round, 20 measured rounds and a first-after-restart round; nearest-rank p95 on the unchanged 2 s and 4 s targets; the unchanged 8 s statement timeout;
+  - missing samples, timeouts (warm-up and restart included) and unexpected errors fail;
+  - only an enforced PostgreSQL 17.6 run with every requirement is acceptance-eligible. Diagnostic runs never are;
+  - gate controls, a negative-control mode, seal verification, and evidence on failure;
+  - two runs of one SHA are aggregated, with no best-of.
+- **Workflow:** the functional job measures nothing. The differential runs on PRs and dispatch. The two-run acceptance, the negative control and the verdict run only when a manual dispatch selects them.
+
+**Phase A** (SQL only, one area at a time). Each change has a same-session interleaved A/B and a clean differential.
+- Unless stated otherwise, A/B figures are median ms of 5 samples after warm-up, on local PostgreSQL 16.15 with production session settings and the 500,000-call fixture.
+
+1. **Shared call-row block** (`6cb3571`).
+   - Dispositions: one organization-scoped `NOT MATERIALIZED` set, joined by id when the call has one (no name fallback), else by `lower(name)`, which `dispositions_org_lower_name_unique` makes unique.
+     - A materialized version broke call volume's parallel plan (1,262 → 2,108 ms) and was replaced.
+   - Direction: the exact lower-case values are matched before `lower()`.
+   - Tests: v2 matching and precedence, row cardinality, and the whitespace and other-organization variants the schema allows; direction classes. A planted error fails them.
+   - A/B, original → keyed → keyed + direction:
+
+     | Reader / window | Original | Keyed | Keyed + direction |
+     |---|---|---|---|
+     | Summary, agency-366 | 3,520 | 3,428 | 2,997 |
+     | State, agency-366 | 2,981 | 3,006 | 2,800 |
+     | Call volume | 1,219 | 1,191 | 779 |
+     | Dispositions | 1,409 | 1,389 | 1,209 |
+     | Campaign | 1,123 | 1,046 | 859 |
+     | Lead source | 598 | 565 | 503 |
+     | Journey, agency-1 | 4,094 | 4,051 | 3,259 |
+     | Journey, agency-366 | 6,977 | 6,663 | 6,293 |
+     | Journey, personal-366 | 4,187 | 4,217 | 3,420 |
+2. **Journey** (`62d498e`).
+   - The history pass keeps narrow rows. Each identity is a (uuid, kind) pair; its `identity_key` is NULL exactly when the kind or the uuid is. The text key is built only for member identities.
+   - `identity_numbers` normalizes each number once.
+   - The five helpers the statement calls are PARALLEL RESTRICTED. They are read-only and use no subtransaction, and they run in the leader. Their default PARALLEL UNSAFE had made the whole statement serial. A test pins the marking, and D3 records it for PKG-C's stub replacement.
+   - A/B for typed rows: agency-1 3,207 → 2,924; agency-366 5,958 → 5,235; personal-366 3,398 → 2,901; team-366 4,736 → 4,140.
+   - A/B for restricted helpers, on top: agency-1 3,007 → 2,011; agency-366 5,361 → 4,507; personal-366 3,164 → 2,108; team-366 4,509 → 3,486.
+3. **State** (`3f961e2`).
+   - The rules run in the new `report_v3_identity_states_by_id(org, lead ids, client ids)`. The key form parses its keys exactly as before and reads it.
+   - The reader passes typed ids and joins pointers and policies to states on (kind, uuid). No text identity key is built, parsed or compared on its path.
+   - The ids are deduplicated before the statement. A DISTINCT inside it had cost the hash joins.
+   - A/B, median (p95): agency-366 2,791 (3,281) → 2,562 (2,681); team-366 1,255 → 1,131; personal-366 475 → 450.
+4. **Summary** (`a2a7982`).
+   - One `GROUPING SETS ((agent), ())` grouping replaces the identity-level sort.
+   - `reached` is the distinct lead ids plus the distinct client ids. `lead_identities` is the distinct lead ids. The scope's own grouping set counts its identities once.
+   - A/B for the whole reader, median (p95): agency-366 2,786 (2,949) → 2,408 (2,516); agency-30 602 → 571; team-366 878 → 821.
+
+- **Measured and not adopted:**
+  - a per-disposition "no answer" precomputation: within noise;
+  - outbound-only summary rows: no gain;
+  - a fenced per-row flag projection: slower;
+  - PARALLEL RESTRICTED state-statement helpers: no agency-366 gain, and `report_v3_sale_facts` (`…11`) is outside this batch's files.
+- **Not done (a settings decision):** with lower planner parallel costs, set for one session as a diagnostic only, the summary's call statement takes a parallel plan, about 1.9 s → 1.4 s locally.
+
+**KPI 24 pre-release amendment** (`66663f4`).
+- **Precondition.** It amends 3.0.0 in place because no v3 consumer has shipped. All three conditions were checked on 2026-11-02:
+  - `main` (`6e39c15`) has no v3 file;
+  - nothing outside the PKG-A tests calls a v3 reader;
+  - the hosted migration history ends at 20261029200000 (a read-only listing).
+- **Rules, over attempt rows:**
+  - `inconsistent` (new) is a non-conflicting `terminal_non_answer` row recorded above 0 s;
+  - `provider_confirmed` needs a recorded duration: `provider`, or `terminal_non_answer` at exactly 0;
+  - a missing duration never counts as `provider_confirmed`. It counts as `unknown` unless the row is conflicting. A recorded zero is not a missing duration;
+  - unchanged: the value, conflict precedence, KPI 25, and every stored duration and writer.
+- **Tests:**
+  - the six cases;
+  - a missing-duration day and a recorded provider zero;
+  - per-agent output, through each agent's summary and through `report_v3_agent_call_stats`;
+  - scope totals: the agency figure is the sum of its agents', and by_agent values sum to the value;
+  - the empty window;
+  - October's agency quality, against an independent count of its rows: estimate 1, legacy 4 (one with a missing duration), provider 3, conflicting 1, and one non-answer recorded at 20 s;
+  - two negative controls.
+- **Differential.** It admits only `kpi24-quality-a1`, key by key, against counts from the baseline's own call rows. The rest of every summary payload must equal the baseline.
+- **Docs:** D1 §3.5, D3, D6 (planned PKG-F schema keys and the coverage and CSV Note text), `tests.md`, and the main plan's key table. PKG-F is not started.
+
+**Correctness comparisons** (differential against `4236b8a`, no mismatch in any run).
+- **Local** (PostgreSQL 16.15), after every change:
+  - fixtures: 1,428 payloads, 708 refusals, journey 180, by_agent 120, resolver 55;
+  - scale: 19 readers, journey 1, call facts 2, resolver 1.
+- **CI** run 41541165337 (PostgreSQL 17.6, `66663f4`): the same counts. Approved differences: `kpi24-quality-a1`. Run time: 36 m 37 s, against the job's 45-minute limit.
+
+**Performance evidence (CI, PostgreSQL 17.6, p95 ms).**
+| Combination | Before: run 41517981836 on `2d9702c`, both runs AMD EPYC 7763 | After, run 1: Intel Xeon 6973P-C | After, run 2: AMD EPYC 7763 |
+|---|---|---|---|
+| summary agency-366 (2,000) | 3,859.6 / 3,721.0 | 1,988.7 | 2,770.9 |
+| state agency-366 (2,000) | 3,543.2 / 3,339.5 | 1,853.1 | 2,752.9 |
+| journey agency-366 (4,000) | 7,480.3 / 7,266.5 | 3,098.2 | 4,426.8 |
+| journey team-366 (4,000) | 6,253.6 / 6,053.8 | 2,239.1 | 3,108.1 |
+| journey agency-30 (4,000) | 5,165.3 / 5,032.1 | 1,914.3 | 2,671.1 |
+| journey personal-1 (4,000) | 4,399.5 / 4,223.2 | 1,476.2 | 2,014.6 |
+| combinations passing | 127 / 127 | 147 | 144 |
+
+- On the same AMD EPYC 7763 runner class as the baseline, the 20 misses fell to 3. Run 2 was slower than run 1 almost everywhere: the median ratio per reader is 1.30–1.72.
+- Local timings of the final code (PostgreSQL 16.15, 7 samples, median / p95):
+
+  | Reader / window | Median | p95 |
+  |---|---|---|
+  | Journey, agency-366 | 4,162 | 4,374 |
+  | Journey, team-366 | 3,281 | 3,311 |
+  | Journey, agency-1 | 1,869 | 1,950 |
+  | Summary, agency-366 | 2,282 | 2,311 |
+  | State, agency-366 | 2,288 | 2,509 |
+
+**Measured remaining cost** (local instrumented plans of the final code, agency-366; timings overlap). No further architecture is proposed here.
+- **Journey** (about 4.2 s; 4.4 s p95 on the AMD runner):
+  - the one pass over the whole history, about 1.6 s wall, run in parallel. Each process builds its own resolution of the 85,360 contact pointers (about 0.5 s);
+  - the candidates' ordered linked history, 398,275 rows: about 0.7 s;
+  - member numbers 0.5 s, receipts 0.3 s, and gates, links and output about 0.8 s.
+- **Summary** (about 2.3 s):
+  - the call statement, about 1.9 s:
+    - the base call pass (scan, disposition and admission joins): about 0.9 s;
+    - resolving and attaching the window's 82,812 contact and 16,376 membership pointers: about 0.9 s;
+    - the sort and grouping: about 0.5 s;
+  - production about 0.3 s; sessions and payload about 0.2 s.
+- **State** (about 2.3 s):
+  - pointer resolution about 0.5 s;
+  - sale facts about 0.3 s;
+  - the typed resolver about 0.5 s;
+  - the per-call pass about 1.4 s: base pass 0.6 s, pointer grouping 0.24 s, state attachment 0.3 s.
+- **The common floor** is the per-request resolution of every call pointer in the window (or, for the journey, the history) and the base pass over about 457,000 calls.
+
+**Tests.**
+- **Local:**
+  - every functional v3 suite after every change;
+  - the CI-equivalent backend suites, all pass: `run_reports_rpc_tests`, `run_reports_integrity_tests`, `run_reports_v3_tests`, `run_profile_rpc_tests`;
+  - static contract tests: 40 of 40;
+  - `npx tsc --noEmit`: exit 0;
+  - `npx tsc -p tsconfig.app.json --noEmit`: exit 2, with 222 lines of pre-existing errors, identical to the `6e39c15` baseline. There are no new errors;
+  - scoped ESLint: 0;
+  - `npm run build`: pass;
+  - full Vitest: 11 failing files and 2 failing tests, identical to the `6e39c15` baseline. Branch totals: 6,766 tests, 6,727 passed.
+- **CI run 41541165337:**
+  - functional and real-page jobs: pass;
+  - differential: pass;
+  - negative control: failed as planted;
+  - acceptance: run 1 pass, run 2 fail;
+  - verdict: FAIL.
+- **Database security:** the seal and helper-shape assertions, the security suite and the integrity privacy and mutation proofs pass in the isolated databases. No hosted change was made, so the advisors were not run.
+
+**Process slip.** `3f961e2` was pushed while two static contract assertions still described the old two-helper `…14`: a pipe to `tail` hid vitest's exit code. `3dd8f87` fixed them. No force push.
+
+**Migration and deployment state.**
+- Nothing is applied to any hosted database; the history still ends at 20261029200000.
+- No PR, no merge, no push to `main`, no grant or enablement, no release runner, no deploy.
+- The branch's access-protected Vercel preview is the only automatic artifact.
+
+**Next steps (Chris's decisions).**
+- Performance acceptance is not passed. Any further performance work, Phase B included, needs a separate decision. Phase B's proposal must first resolve the questions listed in the Batch 7 approval.
+- The CI differential job used 36.6 of its 45 minutes. A bounded timeout increase may be worth approving before it grows.
+- Still open: ★1, ★4, E1–E6, the campaign-copy fallback review, the named reviewer and the PKG-A production approval.
+
 ## 2026-11-02 — Reports V2 PKG-A Batch 6: performance and correctness hardening; the performance gate is built and NOT passed (branch `claude/great-goodall-911azc`; NOT merged, applied, enabled or deployed)
 
 **Status.**

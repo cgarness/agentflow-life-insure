@@ -95,6 +95,29 @@
 
 **Stop:** after Phase E, Phase A and KPI 24, for review, even if performance still misses. The report gives the measured remaining cost before any further architecture is proposed.
 
+**Outcome (2026-11-02, recorded after implementation).**
+- **Phase E, as planned** (`2d9702c`). The committed differential against `4236b8a` and the enforceable two-run acceptance (147 combinations × 20 samples, PostgreSQL 17.6).
+- **Phase A, as planned**: one area at a time, each with a same-session A/B and a clean differential:
+  - the shared call-row block: keyed disposition joins and repeated direction tests (`6cb3571`);
+  - journey candidate and history restructuring (`62d498e`);
+  - typed state-resolution inputs (`3f961e2`, `3dd8f87`);
+  - summary aggregation (`a2a7982`).
+- **Different from the proposal:**
+  - **Journey.** The largest gain came from marking the five helpers its statement calls PARALLEL RESTRICTED. Their default PARALLEL UNSAFE made the whole statement serial.
+  - **Journey history.** The history is still resolved in one pass, now with narrow typed rows: unresolved activity needs every pointer, and over long windows nearly every identity is a candidate.
+- **Measured and not adopted:**
+  - a "no answer" precomputation;
+  - outbound-only summary rows;
+  - a fenced flag projection;
+  - PARALLEL RESTRICTED state helpers.
+- **Not done:** planner cost settings that would give the summary a parallel plan. That is a settings decision outside this approval.
+- **KPI 24, as approved** (`66663f4`). A recorded zero is distinct from a missing duration. The amendment amends 3.0.0 in place; the no-shipped-consumer precondition was checked first.
+- **Result:** performance acceptance is **not passed**. CI run 41541165337 on `66663f4`:
+  - run 1: 147 of 147;
+  - run 2: 144 of 147. It misses summary, state and journey at agency-366.
+
+  The measured remaining cost and the details are in `WORK_LOG.md`. Stopped for review.
+
 ---
 
 ## 2026-11-02 — Reports V2 PKG-A Batch 6: performance and correctness hardening (branch `claude/great-goodall-911azc`; nothing applied, merged, enabled or deployed)
