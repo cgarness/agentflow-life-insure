@@ -5,7 +5,7 @@ correction and its release enable, built by the same verbatim extraction as repo
 then applies the PKG-A v3 migrations, found by their unique suffixes, and runs the v3 suites.
 """
 from pathlib import Path
-import importlib.util, json, sys
+import importlib.util, json, os, sys
 
 sys.dont_write_bytecode = True  # loading the v2 fixture must not leave __pycache__ in the repository
 ROOT = Path(__file__).resolve().parents[1]
@@ -221,6 +221,16 @@ def steps():
     yield 'v3 negative controls', v2.read('supabase/tests/reports_v3_negative.sql')
     yield 'v3 reader contract', contract_readers
     yield 'v2 surface unchanged after the v3 readers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
+    # Performance proofs at the required scale (REPORTS_V3_PERF=0 skips them for quick local iteration only). Each
+    # sample is its own statement, so the measurement step runs outside a transaction block.
+    if os.environ.get('REPORTS_V3_PERF', '1') != '0':
+        samples = int(os.environ.get('REPORTS_V3_PERF_SAMPLES', '5'))
+        assert 3 <= samples <= 100, 'REPORTS_V3_PERF_SAMPLES must be between 3 and 100'
+        enforce = 'true' if os.environ.get('REPORTS_V3_PERF_ENFORCE') == '1' else 'false'
+        setup, measure = v2.read('supabase/tests/reports_v3_performance.sql').split('-- @@performance-measure@@')
+        yield 'v3 performance fixture (500,000 calls, 5,000 clients, 10,000 policy objects)', setup
+        yield 'v3 performance measurement', no_transaction(
+            '\\set perf_samples ' + str(samples) + '\n\\set perf_enforce ' + enforce + '\n' + measure)
 
 
 if __name__ == '__main__':

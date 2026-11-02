@@ -756,8 +756,23 @@ BEGIN
              CASE WHEN cx.identity_key IS NULL THEN cx.phone_last10 END AS phone_last10
         FROM cx) y
      WHERE y.is_linked OR y.is_unresolved
+  ), fs AS MATERIALIZED (
+    SELECT * FROM private.report_v3_first_sales($1, $11)
+  ), buyers AS (
+    SELECT s.* FROM fs s
+     WHERE s.first_sold_date >= $9 AND s.first_sold_date < $10
+       AND ($5::uuid[] IS NULL OR s.first_seller_id = ANY ($5))
+  ), cands AS MATERIALIZED (
+    -- Candidate identities first: a member's first journey contact is in the window and credited in scope, so it has
+    -- an in-window journey contact credited in scope; a buyer is a candidate as such. Each candidate's history below
+    -- is then its whole same-org history: every agent, every date before as_of.
+    SELECT h.identity_key FROM hist h
+     WHERE h.is_linked AND h.is_journey_contact AND h.created_at >= $7 AND h.created_at < $8
+       AND ($5::uuid[] IS NULL OR h.credited_agent_id = ANY ($5))
+    UNION
+    SELECT b.identity_key FROM buyers b
   ), lw AS MATERIALIZED (
-    -- Each linked identity's calls in (created_at, call_id) order, read once: its first journey contact (the first
+    -- Each candidate's linked calls in (created_at, call_id) order, read once: its first journey contact (the first
     -- row that is one), the attempts before that row, its first linked call and its first unverified attempt.
     SELECT l.identity_key, l.call_id, l.created_at, l.credited_agent_id, l.direction_class, l.is_journey_contact,
            l.is_journey_contact AND NOT coalesce(bool_or(l.is_journey_contact) OVER w, false) AS is_first_contact,
@@ -765,11 +780,9 @@ BEGIN
            min(l.created_at) OVER p AS first_at,
            min(l.created_at) FILTER (WHERE l.attempt_class = 'unverified') OVER p AS first_unverified_at
       FROM hist l
-     WHERE l.is_linked
+     WHERE l.is_linked AND l.identity_key IN (SELECT c.identity_key FROM cands c)
     WINDOW p AS (PARTITION BY l.identity_key COLLATE "C"),
            w AS (p ORDER BY l.created_at, l.call_id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
-  ), fs AS MATERIALIZED (
-    SELECT * FROM private.report_v3_first_sales($1, $11)
   ), fc AS (
     SELECT f.identity_key, f.call_id AS anchor_call_id, f.created_at AS anchor_at,
            (f.created_at AT TIME ZONE $6)::date AS anchor_date, f.credited_agent_id, f.direction_class, f.attempts_before,
@@ -778,10 +791,6 @@ BEGIN
      WHERE f.is_first_contact AND f.created_at >= $7 AND f.created_at < $8
        AND ($5::uuid[] IS NULL OR f.credited_agent_id = ANY ($5))
        AND (s.first_sold_date IS NULL OR s.first_sold_date >= (f.created_at AT TIME ZONE $6)::date)
-  ), buyers AS (
-    SELECT s.* FROM fs s
-     WHERE s.first_sold_date >= $9 AND s.first_sold_date < $10
-       AND ($5::uuid[] IS NULL OR s.first_seller_id = ANY ($5))
   ), keyinfo AS MATERIALIZED (
     -- A lead identity's converted client is unique (uq_clients_lead_id).
     SELECT k.identity_key, k.root_lead_id,

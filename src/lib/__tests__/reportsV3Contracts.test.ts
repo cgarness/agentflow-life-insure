@@ -273,19 +273,25 @@ describe("Reports v3 sale facts", () => {
 
 describe("Reports v3 call and journey helpers", () => {
   const callJourney = readdirSync(join(ROOT, MIGRATIONS)).find((n) => n.endsWith("_reports_v3_call_journey_helpers.sql"));
-  const sql = stripSqlComments(read(`${MIGRATIONS}/${callJourney}`));
+  const raw = read(`${MIGRATIONS}/${callJourney}`);
+  const sql = stripSqlComments(raw);
   const body = (name: string) => {
     const start = sql.indexOf(`CREATE FUNCTION private.${name}(`);
     return sql.slice(start, sql.indexOf("$$;", sql.indexOf("AS $$", start)));
   };
+  const rawBody = (name: string) => {
+    const start = raw.indexOf(`CREATE FUNCTION private.${name}(`);
+    return raw.slice(start, raw.indexOf("$$;", raw.indexOf("AS $$", start)));
+  };
 
-  it("creates exactly the fourteen call and journey helpers, with invoker rights", () => {
+  it("creates exactly the eighteen call and journey helpers, with invoker rights", () => {
     expect(createdFunctions(sql).map((f) => f.name).sort()).toEqual([
-      "private.report_v3_call_counts", "private.report_v3_call_facts", "private.report_v3_call_kpis",
-      "private.report_v3_client_identity_key", "private.report_v3_contact_identity", "private.report_v3_contact_predicate",
-      "private.report_v3_first_sales", "private.report_v3_identity_numbers", "private.report_v3_identity_receipts",
-      "private.report_v3_journey_facts", "private.report_v3_journey_kpis", "private.report_v3_journey_members",
-      "private.report_v3_local_day_start", "private.report_v3_sale_call_links",
+      "private.report_v3_attempt_kpis", "private.report_v3_call_counts", "private.report_v3_call_facts",
+      "private.report_v3_call_kpis", "private.report_v3_client_identity_key", "private.report_v3_contact_identity",
+      "private.report_v3_contact_predicate", "private.report_v3_duplicates_excluded", "private.report_v3_first_sales",
+      "private.report_v3_identity_numbers", "private.report_v3_identity_receipts", "private.report_v3_journey_facts",
+      "private.report_v3_journey_facts_by", "private.report_v3_journey_kpis", "private.report_v3_journey_members",
+      "private.report_v3_journey_rows", "private.report_v3_local_day_start", "private.report_v3_sale_call_links",
     ]);
     expect(sql).not.toMatch(/SECURITY\s+DEFINER/i);
   });
@@ -294,13 +300,19 @@ describe("Reports v3 call and journey helpers", () => {
     expect(body("report_v3_contact_identity")).not.toMatch(/phone/i);
     expect(body("report_v3_client_identity_key")).not.toMatch(/phone/i);
     expect(body("report_v3_first_sales")).not.toMatch(/phone/i);
-    // Numbers are compared only inside the journey gates, member by member.
-    for (const m of body("report_v3_journey_members").matchAll(/n\.phone_last10 = c\.phone_last10/g)) expect(m.index).toBeGreaterThan(0);
-    expect(body("report_v3_journey_facts")).not.toMatch(/phone_last10 =/);
+    // Numbers are compared only inside the journey gates (each member's own numbers), never in the counts.
+    expect(body("report_v3_journey_rows").match(/n\.phone_last10 = c\.phone_last10/g)).toHaveLength(1);
+    for (const name of ["report_v3_journey_members", "report_v3_journey_facts_by", "report_v3_journey_facts"]) {
+      expect(body(name), name).not.toMatch(/phone_last10 =/);
+    }
   });
 
-  it("keeps the v2 call reader as the single source of call rows and the stub link reader empty", () => {
-    expect(body("report_v3_call_facts")).toMatch(/private\.report_call_facts\(p_org, p_start, p_end, NULL\)/);
+  it("takes call rows only from the shared call-row block (the calls suite proves it equals the pinned v2 rows)", () => {
+    expect(body("report_v3_call_facts")).not.toContain("private.report_call_facts(");
+    expect(rawBody("report_v3_call_facts")).toContain("-- @call-rows begin:");
+    expect(rawBody("report_v3_journey_rows")).toContain("-- @call-rows begin:");
+    expect(body("report_v3_journey_members")).toContain("private.report_v3_journey_rows(");
+    expect(body("report_v3_journey_facts")).toContain("private.report_v3_journey_facts_by(");
     expect(body("report_v3_sale_call_links")).toMatch(/WHERE false/);
   });
 });
@@ -361,7 +373,7 @@ describe("Reports v3 state helpers", () => {
       "private.report_v3_state_classify(text)",
     ]);
     expect(body("report_v3_state_classify")).toMatch(/LANGUAGE sql\s+IMMUTABLE\s+PARALLEL SAFE\s/);
-    expect(body("report_v3_identity_states")).toMatch(/LANGUAGE sql\s+STABLE\s/);
+    expect(body("report_v3_identity_states")).toMatch(/LANGUAGE plpgsql\s+STABLE\s/);
     expect(sql).not.toMatch(/SECURITY\s+DEFINER/i);
   });
 
@@ -388,14 +400,19 @@ describe("Reports v3 state helpers", () => {
   it("never reads a phone number and pins every table it reads to the caller's organization", () => {
     expect(sql).not.toMatch(/phone/i);
     const resolver = body("report_v3_identity_states");
-    const reads = [...resolver.matchAll(/(?:FROM|JOIN)\s+(?:public|private)\.[a-z_]+\s+([a-z]+)\b/g)];
+    const reads = [...resolver.matchAll(/(?:FROM|JOIN)\s+(?:public|private)\.[a-z_]+\s+([a-z][a-z0-9_]*)\b/g)];
     expect(reads.length).toBe(9);
     for (const m of reads) {
       const rest = resolver.slice(m.index! + m[0].length);
       const end = rest.search(/\bJOIN\b|\bUNION\b|\bGROUP BY\b|\)\s*,/);
       const clause = end < 0 ? rest : rest.slice(0, end);
-      expect(clause, `${m[0]} is not pinned to p_org`).toMatch(new RegExp(`(?<![a-z_.])${m[1]}\\.organization_id = p_org`));
+      expect(clause, `${m[0]} is not pinned to the organization`).toMatch(new RegExp(`(?<![a-z_.])${m[1]}\\.organization_id = \\$1(?![0-9])`));
     }
+    // Every table is read by the second statement, whose $1 is bound to p_org.
+    const statements = [...resolver.matchAll(/EXECUTE \$q\$([\s\S]*?)\$q\$ (?:INTO [a-z_, ]+ )?USING ([a-z_, ]+);/g)];
+    expect(statements).toHaveLength(2);
+    expect(statements[0][1]).not.toMatch(/(?:FROM|JOIN)\s+(?:public|private)\./);
+    expect(statements[1][2].trim()).toMatch(/^p_org, /);
   });
 
   it("builds the private lineage index transactionally and changes no RLS setting or policy", () => {
@@ -409,10 +426,15 @@ describe("Reports v3 state helpers", () => {
 
 describe("Reports v3 readers", () => {
   const readersFile = readdirSync(join(ROOT, MIGRATIONS)).find((n) => n.endsWith("_reports_v3_readers.sql"));
-  const sql = stripSqlComments(read(`${MIGRATIONS}/${readersFile}`));
+  const readersRaw = read(`${MIGRATIONS}/${readersFile}`);
+  const sql = stripSqlComments(readersRaw);
   const body = (name: string) => {
     const start = sql.indexOf(`CREATE FUNCTION ${name}(`);
     return sql.slice(start, sql.indexOf("$$;", sql.indexOf("AS $$", start)));
+  };
+  const rawReader = (name: string) => {
+    const start = readersRaw.indexOf(`CREATE FUNCTION ${name}(`);
+    return readersRaw.slice(start, readersRaw.indexOf("END $$;", start));
   };
   const WINDOWED = [
     "summary", "journey", "sales_appointments", "state_breakdown",
@@ -457,15 +479,20 @@ describe("Reports v3 readers", () => {
     for (const r of CALL_READERS) {
       const b = body(`public.get_report_${r}_v3`);
       expect(b, r).not.toMatch(/polic|premium|leads_dialed|contacted_leads|converted|attribution_unavailable|contact_rate_pct|round\(/i);
-      expect(b, r).toContain("private.report_v3_call_facts(a.org_id, w.start_at, w.end_at)");
+      expect(rawReader(`public.get_report_${r}_v3`), r).toContain("-- @call-rows begin:");
       expect(b, r).not.toContain("private.report_call_facts(");
-      expect(b, r).toContain("private.report_v3_call_counts(a.org_id, a.agent_ids, w.start_at, w.end_at)");
+      expect(b, r).toContain("$q$ INTO v_body USING a.org_id, w.start_at, w.end_at, a.agent_ids");
+      expect(b, r).toContain("private.report_v3_duplicates_excluded(a.org_id, a.agent_ids, w.start_at, w.end_at)");
     }
   });
 
   it("names campaigns only through report_visible_campaigns", () => {
+    // The shared call-row block joins campaigns for the campaign id only, never a name or type.
+    const callRows = /  -- @call-rows begin:[\s\S]*?  -- @call-rows end\n/;
+    const block = readersRaw.match(callRows)![0];
+    expect(stripSqlComments(block)).not.toMatch(/\b(?:cmp|k)\.(?:name|type)\b/);
     for (const r of WINDOWED) {
-      const b = body(`public.get_report_${r}_v3`);
+      const b = stripSqlComments(rawReader(`public.get_report_${r}_v3`).replace(callRows, ""));
       if (b.includes("public.campaigns")) {
         expect(b, r).toContain("private.report_visible_campaigns(a.org_id)");
         expect(b, r).toMatch(/campaign_class = 'visible'/);
@@ -478,6 +505,42 @@ describe("Reports v3 readers", () => {
     const preflight = sql.slice(0, sql.indexOf("CREATE FUNCTION"));
     expect(preflight.match(/\('(?:public|private)\.[a-z0-9_]+\([^)]*\)', '[0-9a-f]{32}'/g)).toHaveLength(27);
     expect(preflight).toMatch(/refusing replay/);
+  });
+});
+
+describe("Reports v3 shared call blocks and planned statements", () => {
+  const files = readdirSync(join(ROOT, MIGRATIONS))
+    .filter((n) => /_reports_v3_(call_journey_helpers|state_helpers|readers)\.sql$/.test(n))
+    .map((n) => read(`${MIGRATIONS}/${n}`));
+  const regions = (marker: string) =>
+    files.flatMap((f) => [...f.matchAll(new RegExp(`  -- @${marker} begin:[\\s\\S]*?  -- @${marker} end\\n`, "g"))].map((m) => m[0]));
+
+  it("copies each shared block byte for byte wherever it appears", () => {
+    // call-rows: call facts, journey rows, summary, state and the four call readers; pointers: call facts, journey
+    // rows, summary and state; per-call identity: call facts, journey rows and summary.
+    for (const [marker, n] of [["call-rows", 8], ["call-pointers", 4], ["call-identity", 3]] as const) {
+      const found = regions(marker);
+      expect(found, marker).toHaveLength(n);
+      for (const r of found) expect(r, marker).toBe(found[0]);
+    }
+  });
+
+  it("runs every dynamic statement as constant text with bound parameters, never as built SQL", () => {
+    let statements = 0;
+    for (const f of files) {
+      const code = stripSqlComments(f);
+      // A PL/pgSQL EXECUTE statement starts its line (optionally after RETURN QUERY).
+      for (const m of code.matchAll(/(?:^|\n)[ \t]*(?:RETURN QUERY[ \t]+)?EXECUTE\b/g)) {
+        const next = code.slice(m.index! + m[0].length).trimStart();
+        expect(next.startsWith("$q$"), next.slice(0, 40)).toBe(true);
+        const close = next.indexOf("$q$", 3);
+        expect(next.slice(close + 3).trimStart(), next.slice(0, 40)).toMatch(/^(?:INTO [a-z_, ]+ )?USING /);
+        statements += 1;
+      }
+    }
+    // Call facts, receipts, numbers and journey rows (…12); the resolver's two (…14); summary, state and the four
+    // call readers (…15).
+    expect(statements).toBe(12);
   });
 });
 

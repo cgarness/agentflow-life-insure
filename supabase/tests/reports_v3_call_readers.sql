@@ -200,6 +200,58 @@ SELECT rt.eq('empty window: KPIs 5, 24 and 25 are available 0 with zero quality'
             rt.kpi(rt.v3r('ADM1', 'summary', NULL, NULL, '2026-07-01', '2026-07-01'), 25, 'detail')),
   '0 0 0 "available" {"quality": {"unknown": 0, "estimated": 0, "conflicting": 0, "provider_confirmed": 0, "duplicates_excluded": 0}} '
   || '{"quality": {"late_ended": 0, "stale_capped": 0}}');
+-- KPI 24 talk-time quality, one evidence state per attempt (Batch 6 review). The states are those
+-- public.record_call_duration_evidence (20261005161632) can store, read here without changing the writer or its
+-- guard (private.guard_call_reporting_fields: only postgres and service_role write duration fields):
+--   K24_1 provider 120 s           provider evidence accepted (no earlier provider value)            measured talk
+--   K24_2 terminal_non_answer 0 s  terminal evidence accepted while the duration is NULL or 0        known zero
+--   K24_3 elapsed_estimate 90 s    estimate accepted over legacy/estimate when larger               estimated
+--   K24_4 legacy_unknown 40 s      never upgraded by the writer                                     unknown
+--   K24_5 provider 100 s conflict  differing provider evidence sets duration_conflict, keeps value  conflicting
+--   K24_6 terminal_non_answer 25 s terminal evidence with a positive candidate is also accepted     inconsistent
+-- Talk time is the canonical duration of attempt rows; quality is disclosed, never upgraded. K24_6 is the
+-- inconsistent case: today it is counted provider_confirmed and its 25 s are in the value (the Batch 6 proposal,
+-- not applied, would disclose it as inconsistent instead).
+INSERT INTO rt.v3_ids VALUES ('O24', 'c3f24000-0000-0000-0000-000000000001'), ('ADM24', 'c3f24000-0000-0000-0000-000000000002'),
+                             ('A24', 'c3f24000-0000-0000-0000-000000000003');
+INSERT INTO rt.v3_ids SELECT 'K24_' || n, ('c3f24000-0000-0000-0000-0000000001' || lpad(n::text, 2, '0'))::uuid FROM generate_series(1, 6) n;
+INSERT INTO public.organizations VALUES (rt.v3('O24'), 'V3 Talk Quality Agency');
+INSERT INTO public.company_settings (company_name, timezone, organization_id) VALUES ('V3 Talk Quality Agency', 'America/Los_Angeles', rt.v3('O24'));
+INSERT INTO public.profiles (id, organization_id, first_name, last_name, email, role, status, upline_id) VALUES
+  (rt.v3('ADM24'), rt.v3('O24'), 'Vee', 'Talk Admin', 'adm24@v3.invalid', 'Admin', 'Active', NULL),
+  (rt.v3('A24'), rt.v3('O24'), 'Vee', 'Talk Agent', 'a24@v3.invalid', 'Agent', 'Active', NULL);
+INSERT INTO public.role_permissions (organization_id, role, permissions)
+VALUES (rt.v3('O24'), 'Agent', rt.perm(true, true, false, 'own', true, true, true, 'team'));
+INSERT INTO public.calls (id, organization_id, agent_id, direction, contact_phone, created_at, duration, disposition_name, status,
+                          dialer_admission_required, duration_source, duration_conflict)
+SELECT rt.v3(k.name), rt.v3('O24'), rt.v3('A24'), 'outbound', '702-555-0240', k.at::timestamptz, k.dur, k.disp, 'completed', false,
+       k.src, k.conflict
+  FROM (VALUES ('K24_1', '2026-06-15 16:00+00', 120, 'Interested', 'provider', false),
+               ('K24_2', '2026-06-15 16:10+00', 0, 'No Answer', 'terminal_non_answer', false),
+               ('K24_3', '2026-06-15 16:20+00', 90, 'Interested', 'elapsed_estimate', false),
+               ('K24_4', '2026-06-15 16:30+00', 40, 'Interested', 'legacy_unknown', false),
+               ('K24_5', '2026-06-15 16:40+00', 100, 'Interested', 'provider', true),
+               ('K24_6', '2026-06-15 16:50+00', 25, 'No Answer', 'terminal_non_answer', false))
+       AS k(name, at, dur, disp, src, conflict);
+CREATE FUNCTION rt.k24(p_who text, p_scope text) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT rt.v3_call(rt.v3(p_who), rt.v3('O24'),
+                    format('SELECT public.get_report_summary_v3(%L::date, %L::date, NULL::uuid, %L)', '2026-06-15', '2026-06-15', p_scope));
+$$;
+SELECT rt.eq('KPI 24 six cases: the value is every attempt''s canonical duration (120+0+90+40+100+25 s)',
+  rt.kpi(rt.k24('ADM24', 'agency'), 24) || ' ' || rt.kpi(rt.k24('ADM24', 'agency'), 24, 'status'), '375 "available"');
+SELECT rt.eq('KPI 24 six cases: quality as recorded today (provider, the 0 s non-answer and the 25 s non-answer are confirmed)',
+  rt.kpi(rt.k24('ADM24', 'agency'), 24, 'detail'),
+  '{"quality": {"unknown": 1, "estimated": 1, "conflicting": 1, "provider_confirmed": 3, "duplicates_excluded": 0}}');
+SELECT rt.eq('KPI 24 six cases: a provider-backed known zero adds 0 s, measured provider talk adds its seconds, a conflict keeps its value',
+  (SELECT string_agg(concat_ws(':', i.name, f.duration_seconds, f.duration_source, f.duration_conflict::text, f.is_attempt::text), ' '
+                     ORDER BY i.name COLLATE "C")
+     FROM private.report_v3_call_facts(rt.v3('O24'), '2026-06-15 07:00+00', '2026-06-16 07:00+00') f
+     JOIN rt.v3_ids i ON i.id = f.call_id),
+  'K24_1:120:provider:false:true K24_2:0:terminal_non_answer:false:true K24_3:90:elapsed_estimate:false:true '
+  || 'K24_4:40:legacy_unknown:false:true K24_5:100:provider:true:true K24_6:25:terminal_non_answer:false:true');
+SELECT rt.eq('KPI 24 six cases: the agent''s own summary carries the same value; KPI 25 is unaffected (no sessions: 0)',
+  rt.kpi(rt.k24('A24', 'personal'), 24) || ' ' || rt.kpi(rt.k24('A24', 'personal'), 25), '375 0');
+
 SELECT rt.eq('window edges: RC0 at Oct 1 00:00 PDT counts in October; RC0B at Nov 1 00:00 PDT counts on Nov 1',
   rt.kpi(rt.v3r('A2', 'summary'), 5) || ' ' || rt.kpi(rt.v3r('A2', 'summary', NULL, NULL, '2026-11-01', '2026-11-01'), 5), '3 1');
 

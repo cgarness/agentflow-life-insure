@@ -111,6 +111,7 @@ Any optimization that cannot keep every payload byte-identical stops and is repo
 19. `docs/plans/2026-10-31-reports-v2/appendix/D1.md` and `D3.md` (modify; precise clarifications only, for example that the call readers no longer read through `report_v3_call_facts`)
 20. `implementation_plan.md` (this entry)
 21. `WORK_LOG.md` (newest-first entry)
+22. `docs/plans/2026-10-31-reports-v2/appendix/D2.md` and `D5.md` (modify; added 2026-11-02 before either was touched, precise clarifications only): D2 shows the premium stub's SQL body, now PL/pgSQL with the same result; D5 states that the identity-state resolver is `LANGUAGE sql`, now PL/pgSQL with constant dynamic statements.
 
 Files are touched only as the work needs them. No change is planned to `scripts/run_reports_v3_tests.sh` or `.github/workflows/reports-backend.yml`.
 
