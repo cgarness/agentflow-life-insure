@@ -6,8 +6,8 @@
 - **Authority:** Chris's Batch 6 message, under the 2026-11-01 branch-implementation approval for PKG-A's reviewed file list. Normal checkpoint pushes and manual `reports-backend.yml` dispatches are authorized; nothing else is.
 - **Sealed:** every reader and helper is still created sealed. The harness grants EXECUTE to `authenticated` only inside the disposable database, for the measurement, then revokes it and re-asserts the seal.
 - **Not release-ready.** The performance gate is not passed in either environment (below):
-  - locally (PostgreSQL 16.15, 20 samples), summary and state miss at 366-day agency scope and journey misses at every combination;
-  - on PostgreSQL 17.6 CI (5 samples), summary, state and journey miss at 366-day agency scope.
+  - locally (PostgreSQL 16.15, 20 samples), 43 of 51: summary and state miss at 366-day agency scope, and journey misses at every combination;
+  - on PostgreSQL 17.6 CI at the final head (run 41408083919, 5 samples), 43 of 51 with the same misses. An earlier run of the same code on a faster runner gave 48 of 51.
   - The release suite, the recovery proofs and the security review are also still open.
 - **Still pending:** ★1 and ★4; E1–E6 acceptance, including the campaign-copy fallback's security review; the named reviewer; the PKG-A production approval. No agency-only fallback exists.
 - **Not touched:** applied migrations, `AGENT_RULES.md`, telephony, the duration writer and its guard, v2 bodies and privileges, the runner and the workflow.
@@ -74,7 +74,22 @@
 
   - Journey at 366-day agency: median 6,910, max 8,010. One of its 20 samples reached the 8 s budget (a `statement_timeout`), so that combination also fails the budget.
   - Scope reader values are the personal, team and agency combinations.
-- **After: PostgreSQL 17.6 CI evidence run.** Run 41405559061 on `f098b62` (a GitHub-hosted runner), the same suite with its default 5 measured rounds after one warm-up round. With 5 samples, the nearest-rank p95 is each combination's slowest sample. Verdict: **48 of 51 combinations meet their target**, and no sample exceeded the 8 s budget. p95 in ms, as printed:
+- **After: PostgreSQL 17.6 CI, final head.** Run 41408083919 on `08b8534` (a GitHub-hosted runner), the same suite with its default 5 measured rounds after one warm-up round. With 5 samples, the nearest-rank p95 is each combination's slowest sample. Verdict: **43 of 51 combinations meet their target**, with the same misses as locally. No sample exceeded the 8 s budget. p95 in ms, as printed:
+
+  | Reader (target) | agency 1 d | agency 30 d | agency 366 d | team 366 d | personal 366 d | agency 366 d, one agent |
+  |---|---|---|---|---|---|---|
+  | Scope (2,000) | — | — | 15.3 | 18.3 | 12.4 | — |
+  | Summary (2,000) | 242.7 | 701.2 | **3,725.7** | 1,060.2 | 300.7 | 296.3 |
+  | State (2,000) | 209.4 | 877.0 | **3,440.4** | 1,476.4 | 504.7 | 512.6 |
+  | Sales appointments (2,000) | 18.1 | 17.8 | 18.0 | 15.9 | 15.7 | 15.4 |
+  | Call volume (2,000) | 71.3 | 250.5 | 1,360.6 | 597.5 | 196.8 | 207.5 |
+  | Dispositions (2,000) | 145.8 | 348.2 | 1,504.9 | 484.0 | 223.3 | 227.3 |
+  | Campaign calls (2,000) | 132.4 | 247.3 | 1,240.5 | 454.9 | 205.8 | 182.4 |
+  | Lead-source calls (2,000) | 67.4 | 176.1 | 683.4 | 326.8 | 123.4 | 121.2 |
+  | Journey (4,000) | **4,445.9** | **5,077.1** | **7,618.2** | **6,203.0** | **4,531.6** | **4,518.7** |
+
+  - Journey at 366-day agency scope reached 7,618.2 ms, 4.8% below the 8 s budget.
+- **Same code on a faster runner.** Run 41405559061 on `f098b62` (identical migrations and suite): **48 of 51**. Summary, state and journey missed only at 366-day agency scope. p95 in ms, as printed:
 
   | Reader (target) | agency 1 d | agency 30 d | agency 366 d | team 366 d | personal 366 d | agency 366 d, one agent |
   |---|---|---|---|---|---|---|
@@ -88,13 +103,17 @@
   | Lead-source calls (2,000) | 47.0 | 145.1 | 534.0 | 237.4 | 106.7 | 102.7 |
   | Journey (4,000) | 2,999.5 | 3,465.3 | **4,996.0** | 3,936.8 | 2,891.9 | 2,966.1 |
 
-  - The runner is faster than the local cluster, but both miss on the same heavy paths.
-  - Journey at 366-day team scope passes by 63 ms. Five samples leave little margin either way.
+  - **The two runners differ widely on identical code.** The slower one took:
+    - 47–58% longer for every journey combination;
+    - 51% and 40% longer for summary and state at 366-day agency scope;
+    - 48% longer for step 4: 9 min 1 s against 6 min 6 s.
+  - Journey at 366-day team scope passed by 63 ms on the faster runner and took 6,203.0 ms on the slower one, so one 5-sample CI run cannot settle a marginal combination.
+  - In all three runs (local and both CI runs), summary, state and journey miss at 366-day agency scope.
   - Neither environment is production hardware.
 - **Evidence locations:**
   - The verdict table, the parameters row and the fixture row (sizes, server version, `shared_buffers`) are printed by the suite.
   - The local run printed 32 `auto_explain` plans (EXPLAIN ANALYZE with BUFFERS, nested statements of 100 ms or more) for the summary, state, four call readers and journey on their 366-day agency paths. Scope and sales appointments finish in under 25 ms, so none of their statements reaches the 100 ms logging threshold.
-  - In CI, all of this is in `reports-v3-results.txt` in the run's `reports-backend-evidence-<run id>` artifact. For the final code, that is run 41405559061's artifact (below).
+  - In CI, all of this is in `reports-v3-results.txt` in the run's `reports-backend-evidence-<run id>` artifact. For the final head, that is run 41408083919's artifact. Run 41405559061's artifact holds the same code's faster run (both below).
 - **What remains in the slow paths:**
   - **Summary and state at 366-day agency** resolve about 58,000 identities, and their states, from about 457,000 calls on every request. The call rows alone cost about 0.7 s with identities.
   - **Journey** resolves the whole history of about 500,000 calls on every request; about 4 s is that pass.
@@ -126,7 +145,7 @@
 - **Committed by mistake, then removed.** `9b46456` also committed `reports-integrity-payloads.json`.
   - What it is: the synthetic payload file that `scripts/run_reports_integrity_tests.sh` writes to the repository root (63 KB, synthetic organization only, no production data).
   - It is not on the file list and is absent from the reviewed head and from `main`.
-  - A later commit removes it without rewriting history.
+  - `08b8534` removes it without rewriting history.
   - CI overwrites the file in its own workspace before the browser check, so no run used the committed copy.
 
 **Migrations and deploys.** None. Disposable local and CI synthetic databases only, with placeholder versions. No grant outside the harness, no enable, no PR, merge or deploy.
@@ -178,11 +197,24 @@
       - No ERROR falls in the v3 suites or the measurement, whose controls are caught inside their own subtransactions.
       - Its 90 FATAL lines are all `role "root" does not exist`, from the `pg_isready` health check every 5 s.
     - Artifact `reports-backend-evidence-41405559061`: id 13123871630, 2,266,878 bytes, 71 files, sha256 `382f49ef9a89eb380f8d0c7ca0c1dfc81d873161833f7698b85cb2850149ab08`, expires 2026-11-16.
+  - **The fourth run, on the final head, is green.** Run 41408083919, conclusion success, on `08b8534452fc2fe09d5cce8cd05c284a306a87b8`. Its code is identical to `f098b62`; that commit only removes the stray payload file and updates docs.
+    - Step 4 ran 07:43:23–07:52:24; the job finished at 07:54:06. A log reader used the last 5,000 log lines.
+    - The service reported `starting PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1)`.
+    - The gate line: "43 of 51 combinations meet their p95 target; 0 exceed the 8 s budget in a sample (misses: summary/agency-366, state_breakdown/agency-366, journey/agency-1, journey/agency-30, journey/agency-366, journey/team-366, journey/personal-366, journey/agency-366-one-agent)".
+    - Then come "All Reports v3 contract, registry, seal and refusal proofs passed." and the profile suite's "ALL PROFILE RPC PROOFS PASSED".
+    - The server log's 25 ERROR lines are the same 25 deliberate controls as in the third run, with the same messages:
+      - 24 from `run_reports_rpc_tests.sh`, between 07:43:43 and 07:45:06;
+      - the profile suite's control, at 07:52:24.
+    - No ERROR falls in the v3 suites or the measurement.
+    - Its 128 FATAL lines are all the health check's `role "root" does not exist`. There is no `##[error]` line.
+    - The longest log line is 1,381 characters. No parameter is dumped.
+    - Artifact `reports-backend-evidence-41408083919`: id 13124323941, 2,270,726 bytes, 71 files, sha256 `789eabc2dabdd59e3aa671a9d5538719383a7db5402a48626bac8d8841221ff9`, expires 2026-11-16.
 
 **Open PKG-A requirements (not claimed as passed).**
 - **Performance gate: not passed in either environment.**
   - Local PostgreSQL 16.15, 20 samples: 43 of 51. Summary and state miss at 366-day agency scope, and journey misses everywhere. One journey sample at 366-day agency reached the 8 s budget.
-  - PostgreSQL 17.6 CI, 5 samples: 48 of 51. Summary, state and journey miss at 366-day agency scope; journey at 366-day team scope passes by 63 ms. No sample reached the budget.
+  - PostgreSQL 17.6 CI at the final head, 5 samples: 43 of 51, with the same misses. Journey at 366-day agency scope is 7,618 ms, 4.8% below the 8 s budget.
+  - A faster runner gave 48 of 51 on the same code. No CI sample reached the budget.
   - D1 §3.11 names the remedy: a separately approved maintained identity table. It has not been requested or started. No index, table, cache or timeout change was made.
   - Bounded options to decide between:
     - (a) the maintained call-to-identity table (D1's remedy);
