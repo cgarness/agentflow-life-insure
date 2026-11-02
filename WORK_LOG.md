@@ -1,6 +1,6 @@
 # AgentFlow Work Log
 
-## 2026-11-02 — Reports V2 PKG-A Batch 5: the nine v3 readers and the calls index (branch `claude/great-goodall-911azc`; NOT merged, applied, enabled or deployed)
+## 2026-11-02 — Reports V2 PKG-A Batch 5: the nine v3 readers and the calls index; branch pushed; PostgreSQL 17.6 CI green after a test-only collation fix (branch `claude/great-goodall-911azc`; NOT merged, applied, enabled or deployed)
 
 **Status.**
 - **Authority:** built under Chris's Batch 5 message and the existing branch approval. Normal checkpoint pushes and manual `reports-backend.yml` dispatches for isolated synthetic verification are authorized; nothing else is.
@@ -102,12 +102,38 @@
 - **ESLint and Reports Vitest:** scoped ESLint is clean. Reports Vitest: 27 files, 436 passed, 1 pre-existing skip.
 - **Full Vitest:** 6,720 passed, 2 failed, 37 skipped across 1,975 suites. Against the clean `6e39c15` worktree (6,687 passed across 1,966 suites), the 11 failing files and the 2 failing tests are identical by name. The 33 extra passing tests all come from this branch's static contract test, and no test that passes at base fails here.
 - **Build:** `npm run build` passes.
-- **PostgreSQL 17.6 CI on the pushed head:** dispatched after the push; the result is added in the follow-up record commit.
+- **PostgreSQL 17.6 CI.**
+  - **The first run failed on a test-ordering defect, not a reader defect.** Run 41374560449 on `3e9998e636a85c144e6bc8d91b3e0f1c77936f90` stopped at V5 in `reports_v3_call_readers.sql`: `got [Facebook:3:1:2 (No source):1:1:1 Referral:4:3:2 Web:0:0:2 | not linked 2] want [(No source):1:1:1 Facebook:3:1:2 Referral:4:3:2 Web:0:0:2 | not linked 2]`.
+    - The CI cluster's locale is en_US.utf8, which ignores punctuation at the first comparison level. So the test's own `string_agg … ORDER BY lead_source` put "(No source)" after "Facebook", while the expectation had been written on the C.UTF-8 local cluster. Every value matched; only the order inside the test's string differed.
+    - Before the stop, that run passed the RPC and integrity suites. In the v3 runner it passed every refusal and apply step through `…15` and `…16`, the index checks, and the appointment and state suites. The call-reader, security, negative-control and reader-contract suites, and the profile suite, did not run.
+    - Artifact `reports-backend-evidence-41374560449` (sha256 `af900355…`).
+  - **Fix, tests only (`eb6fde0`).** Every text-valued ORDER BY in the Batch 5 test code now uses `COLLATE "C"`: 20 places across the call-reader, security, contract, state and appointment suites. The readers are unchanged; they keep v2's `lower(name)` ordering under the database collation.
+    - Reproduced first in a disposable ICU `en-US-u-ka-shifted` database, which also ignores punctuation: the same V5 message as CI.
+    - After the fix, the whole v3 runner passes there, and on the C.UTF-8 runner, with output identical to the pre-push run apart from temp-file names.
+  - **The second run is green.** Run 41376387202, conclusion success, on head `eb6fde0d2e89c580552267dad2f24ebc554ebc13` (GitHub's job record). Every step passed, including the browser check.
+    - The job's only database, the service container, reported `starting PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1)`.
+    - The connector returns the last 5,000 of the job's 7,185 log lines. The window starts at the v3 runner's line 401, so its first 400 lines (its own version line, the harness, the v2 migrations and the original fixtures) fall before the window, as do the checkout and the RPC and integrity suites' output. All of those steps succeeded.
+    - From line 401 to "All Reports v3 contract, registry, seal and refusal proofs passed." the CI output equals the local run line for line, apart from two temp-file names.
+    - Every Batch 5 step label appears exactly once:
+      - the `…15` refusals, apply and replay refusal;
+      - "v3 readers are created sealed";
+      - the index steps and "index definition and validity";
+      - the appointment, state, call-reader, security, negative-control and reader-contract suites;
+      - "v2 surface unchanged after the v3 readers".
+    - The counts equal the local run: 419 assertions, 32 mutation controls, 97 refusal checks, 14 seal checks and 1 index check. The v3 output has no ERROR or FAIL line.
+    - **Expected errors stay separate.** The service-container log holds 25 ERROR entries, all server-side records of other suites' deliberate controls.
+      - 24 come from the RPC and integrity suites, between 02:12:15.940 and 02:13:12.488. Examples: "T3 contacted FAIL: got [5] want [4]" and "reports preflight: report objects already exist; refusing replay".
+      - 1 is the profile suite's negative control at 02:13:50.557: "NEGATIVE CONTROL FIRED: an annualized total was detected".
+      - None falls inside the v3 output (02:13:38.857 to 02:13:50.107 in the window). There is no `##[error]` annotation.
+    - Artifact `reports-backend-evidence-41376387202` (sha256 `2698f658…`).
 
 **Open PKG-A requirements (not claimed as passed).**
 - **Performance gate:** the 500k/5k/10k gate with EXPLAIN evidence (`reports_v3_performance.sql`) is not built or passed.
 - **Journey optimization:** before the gate, the journey query must be narrowed to window-bounded candidate identities while keeping every earlier event its first-contact and first-sale classification needs. The journey reader currently recomputes journey facts once per by_agent row.
-- **Release suite:** `reports_v3_release.sql`, with the ops enable and disable scripts, and S15 in the enabled, disabled and rolled-back states.
+- **Release suite and the remaining PKG-A files:** `reports_v3_release.sql`, the ops enable and disable scripts with the `…17` class E enable, the R5 rollback files for `…15` and `…16`, and S15 in the enabled, disabled and rolled-back states.
+- **Runner index stage (A7, environment approval):** the runner must run `…16` outside a transaction with `lock_timeout 2s` and then refuse an invalid index.
+  - Only the harness performs that post-check today (`rt.v3_index_check`). On its own, the file's `IF NOT EXISTS` keeps any leftover with the same name, as the harness steps show.
+  - Proposed for the release batch: the runner should also require the exact definition, as the harness does. D1 names only `indisvalid`.
 - **Security review:** the named §2.9 security review of the actual reader SQL.
 
 **Next.** Stop for review. No enable or release work.
