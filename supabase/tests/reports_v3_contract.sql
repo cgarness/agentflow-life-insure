@@ -542,7 +542,7 @@ SELECT rt.reject_mutation('private.report_v3_ratio(integer,numeric,numeric,jsonb
 -- =====================================================================================================
 SELECT rt.eq('reader metric ids: summary, journey and sales appointments in registry order; none elsewhere; together the 23 KPIs',
   concat_ws(' | ',
-    (SELECT string_agg(r || '=' || coalesce((SELECT string_agg(e ->> 'id', ',' ORDER BY o) FROM jsonb_array_elements(rt.v3r('ADM1', r) -> 'metrics') WITH ORDINALITY x(e, o)), '-'), ' ' ORDER BY r)
+    (SELECT string_agg(r || '=' || coalesce((SELECT string_agg(e ->> 'id', ',' ORDER BY o) FROM jsonb_array_elements(rt.v3r('ADM1', r) -> 'metrics') WITH ORDINALITY x(e, o)), '-'), ' ' ORDER BY r COLLATE "C")
        FROM unnest(ARRAY['summary', 'journey', 'sales_appointments', 'state_breakdown', 'call_volume', 'disposition_breakdown', 'campaign_calls', 'lead_source_calls']) r),
     (SELECT count(DISTINCT (e ->> 'id')::int) FROM unnest(ARRAY['summary', 'journey', 'sales_appointments']) r, jsonb_array_elements(rt.v3r('ADM1', r) -> 'metrics') e)),
   'call_volume=- campaign_calls=- disposition_breakdown=- journey=14,19,21,38 lead_source_calls=- sales_appointments=12,15,16,17,18 '
@@ -551,7 +551,7 @@ SELECT rt.eq('every envelope in every reader payload (agency, team, personal; to
   (SELECT count(*) FROM unnest(ARRAY['ADM1', 'TL1', 'A1']) w, unnest(ARRAY['summary', 'journey', 'sales_appointments']) r,
           LATERAL (SELECT m FROM jsonb_path_query(rt.v3r(w, r), 'strict $.metrics[*]') m
                    UNION ALL SELECT m FROM jsonb_path_query(rt.v3r(w, r), 'strict $.by_agent[*].metrics[*]') m) e(x)
-    WHERE (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(x) k)
+    WHERE (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(x) k)
             IS DISTINCT FROM ARRAY['coverage', 'denominator', 'detail', 'id', 'maturity', 'numerator', 'reason', 'status', 'value']
        OR x ->> 'status' NOT IN ('available', 'partial', 'unavailable')
        OR (x ->> 'reason' IS NOT NULL AND NOT (x ->> 'reason') = ANY (private.report_v3_reason_codes()))

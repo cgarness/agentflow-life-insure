@@ -164,7 +164,7 @@ SELECT rt.eq('the credit map: 12, 16, 17, 18 assigned agent at the appointment t
 SELECT rt.eq('the roster follows the resolved scope: personal, team, agency filter',
   concat_ws(' | ',
     (SELECT string_agg(e ->> 'name', ',') FROM jsonb_array_elements(rt.v3r('A1', 'sales_appointments') -> 'by_agent') e),
-    (SELECT string_agg(e ->> 'name', ',' ORDER BY e ->> 'name') FROM jsonb_array_elements(rt.v3r('TL1', 'sales_appointments') -> 'by_agent') e),
+    (SELECT string_agg(e ->> 'name', ',' ORDER BY e ->> 'name' COLLATE "C") FROM jsonb_array_elements(rt.v3r('TL1', 'sales_appointments') -> 'by_agent') e),
     (SELECT string_agg(e ->> 'name', ',') FROM jsonb_array_elements(rt.v3r('ADM1', 'sales_appointments', NULL, 'A3') -> 'by_agent') e)),
   'Vee Agent One | Vee Agent One,Vee Agent Two,Vee Leader | Vee Agent Three');
 SELECT rt.eq('reader meta: no policy basis, appointment evidence not installed, contract 3.0.0',

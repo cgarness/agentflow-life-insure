@@ -370,18 +370,18 @@ CREATE FUNCTION rt.st_rows(p jsonb) RETURNS text LANGUAGE sql AS $$
 $$;
 
 SELECT rt.eq('reader shape: 51 sorted jurisdictions (AK, HI, DC zero), 6 unmapped reasons in order, no envelopes',
-  (SELECT count(*) || ':' || bool_and(j ->> 'state' = (SELECT array_agg(c ORDER BY c) FROM unnest(ARRAY(SELECT code FROM st_jurisdictions)) c)[o])
+  (SELECT count(*) || ':' || bool_and(j ->> 'state' = (SELECT array_agg(c ORDER BY c COLLATE "C") FROM unnest(ARRAY(SELECT code FROM st_jurisdictions)) c)[o])
      FROM jsonb_array_elements(rt.st('ADM1') -> 'jurisdictions') WITH ORDINALITY x(j, o))
-  || ' | ' || (SELECT string_agg(j ->> 'calls_made' || '/' || (j ->> 'policies_sold'), ',' ORDER BY j ->> 'state')
+  || ' | ' || (SELECT string_agg(j ->> 'calls_made' || '/' || (j ->> 'policies_sold'), ',' ORDER BY j ->> 'state' COLLATE "C")
                  FROM jsonb_array_elements(rt.st('ADM1') -> 'jurisdictions') j WHERE j ->> 'state' IN ('AK', 'HI', 'DC'))
   || ' | ' || (SELECT string_agg(r ->> 'reason', ',' ORDER BY o) FROM jsonb_array_elements(rt.st('ADM1') #> '{unmapped,reasons}') WITH ORDINALITY x(r, o))
   || ' | ' || (rt.st('ADM1') -> 'metrics')::text,
   '51:true | 0/0,0/0,0/0 | missing_state,invalid_state,unresolved_identity,source_conflict,unsupported_geography,non_prospect_contact | []');
 SELECT rt.eq('reader meta: reader, contract 3.0.0, basis, policy_basis keys, state_basis; no top-level time_zone or period',
   concat_ws(' | ', rt.st('A1') ->> 'reader', rt.st('A1') ->> 'contract_version', rt.st('A1') #>> '{basis,corrections}',
-            (SELECT string_agg(k, ',' ORDER BY k) FROM jsonb_object_keys(rt.st('A1') -> 'policy_basis') k),
+            (SELECT string_agg(k, ',' ORDER BY k COLLATE "C") FROM jsonb_object_keys(rt.st('A1') -> 'policy_basis') k),
             (rt.st('A1') -> 'state_basis')::text, (rt.st('A1') ? 'time_zone')::text, (rt.st('A1') ? 'period')::text,
-            (SELECT string_agg(k, ',' ORDER BY k) FROM jsonb_object_keys(rt.st('A1') -> 'call_population') k)),
+            (SELECT string_agg(k, ',' ORDER BY k COLLATE "C") FROM jsonb_object_keys(rt.st('A1') -> 'call_population') k)),
   'state_breakdown | 3.0.0 | not_installed | credit,date,premium,source | '
   || '{"version": "state_v1", "priority": ["event_snapshot", "current_record", "campaign_copy"], "classifier": "report_v3_state_classify_v1", '
   || '"normalizer": "public.normalize_us_state", "history_capture_since": "2026-10-03", "campaign_copy_fallback": true, '
@@ -393,7 +393,7 @@ SELECT rt.eq('agency October groups (state:calls:contacted:policies:AP), recorde
   || 'unresolved_identity:1:0:1:300.00 unsupported_geography:0:0:1:603.00 non_prospect_contact:1:0:0:0');
 SELECT rt.eq('basis: OR comes from the campaign copy, the others from the current record',
   (SELECT string_agg(concat_ws(':', j ->> 'state', j #>> '{basis,calls,current_record}', j #>> '{basis,calls,campaign_copy}',
-                               j #>> '{basis,calls,event_snapshot}'), ' ' ORDER BY j ->> 'state')
+                               j #>> '{basis,calls,event_snapshot}'), ' ' ORDER BY j ->> 'state' COLLATE "C")
      FROM jsonb_array_elements(rt.st('ADM1') -> 'jurisdictions') j WHERE (j ->> 'calls_made')::int > 0),
   'AZ:1:0:0 CA:3:0:0 NV:3:0:0 OR:0:1:0');
 SELECT rt.eq('reconciliation at agency, team, personal and filter scope: Σ51 + Σ6 = totals = KPIs 5, 6, 2, 1; AP to the cent',

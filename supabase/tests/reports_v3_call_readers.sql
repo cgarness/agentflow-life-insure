@@ -65,7 +65,7 @@ SELECT rt.eq('V1 a genuine failed attempt stays counted (RC4: no outcome, 0 s, n
 -- V9: v2 is unchanged, and v2 calls_made − v3 KPI 5 = non_attempts + unverified (2 = 1 + 1).
 -- -----------------------------------------------------------------------------------------------------
 SELECT rt.eq('V9 v2 readers keep their pinned bodies',
-  (SELECT string_agg(p.proname || ':' || md5(p.prosrc), ' ' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  (SELECT string_agg(p.proname || ':' || md5(p.prosrc), ' ' ORDER BY p.proname COLLATE "C") FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname = ANY (rt.v2_readers())),
   'get_report_call_summary_v2:23c21fa14b07edaeaa3901e76b243d66 get_report_call_volume_v2:a4a5e82f36e124fa8ee9d581229ef455 '
   || 'get_report_campaign_performance_v2:8d8bee228b2bed67076e2547f506264d get_report_disposition_breakdown_v2:ae4611201b9add696bfd92f4576fdd7b '
@@ -80,12 +80,12 @@ SELECT rt.eq('V9 v2 calls_made − v3 KPI 5 = non_attempts + unverified',
 -- payloads with exact rate parts.
 -- -----------------------------------------------------------------------------------------------------
 SELECT rt.eq('V4 Admin sees every campaign: rows, no other campaigns',
-  (SELECT string_agg(e ->> 'name' || '=' || (e ->> 'calls_made'), ', ' ORDER BY e ->> 'name') FROM jsonb_array_elements(rt.v3r('ADM1', 'campaign_calls') -> 'campaigns') e)
+  (SELECT string_agg(e ->> 'name' || '=' || (e ->> 'calls_made'), ', ' ORDER BY e ->> 'name' COLLATE "C") FROM jsonb_array_elements(rt.v3r('ADM1', 'campaign_calls') -> 'campaigns') e)
   || ' | without ' || (rt.v3r('ADM1', 'campaign_calls') #>> '{calls_without_campaign,calls_made}')
   || ' | other ' || (rt.v3r('ADM1', 'campaign_calls') #>> '{other_campaigns,calls_made}'),
   'V3 A1 Personal=2, V3 A3 Personal=1, V3 Team One=4, V3 Team Three=1 | without 2 | other 0');
 SELECT rt.eq('V4 A1: KT3 is hidden and appears only as one Other campaigns call',
-  (SELECT string_agg(e ->> 'name' || '=' || (e ->> 'calls_made'), ', ' ORDER BY e ->> 'name') FROM jsonb_array_elements(rt.v3r('A1', 'campaign_calls') -> 'campaigns') e)
+  (SELECT string_agg(e ->> 'name' || '=' || (e ->> 'calls_made'), ', ' ORDER BY e ->> 'name' COLLATE "C") FROM jsonb_array_elements(rt.v3r('A1', 'campaign_calls') -> 'campaigns') e)
   || ' | other ' || (rt.v3r('A1', 'campaign_calls') -> 'other_campaigns')::text,
   'V3 A1 Personal=2, V3 Team One=1 | other {"calls_made": 1, "contacted_calls": 1, "contact_rate_numerator": 1, "contact_rate_denominator": 1}');
 SELECT rt.eq('V4 no hidden campaign id or name anywhere in A1''s call payloads',
@@ -93,7 +93,7 @@ SELECT rt.eq('V4 no hidden campaign id or name anywhere in A1''s call payloads',
     WHERE rt.v3r('A1', r)::text ~ (rt.v3('KT3') || '|' || rt.v3('KH3') || '|V3 Team Three|V3 A3 Personal')),
   0::bigint);
 SELECT rt.eq('V4 the A1 deep dive lists visible campaigns only, with the hidden call in other_campaigns',
-  (SELECT string_agg(e ->> 'name', ', ' ORDER BY e ->> 'name') FROM jsonb_array_elements(rt.v3r('A1', 'disposition_breakdown') #> '{deep_dive,by_campaign}') e)
+  (SELECT string_agg(e ->> 'name', ', ' ORDER BY e ->> 'name' COLLATE "C") FROM jsonb_array_elements(rt.v3r('A1', 'disposition_breakdown') #> '{deep_dive,by_campaign}') e)
   || ' | ' || (rt.v3r('A1', 'disposition_breakdown') #>> '{deep_dive,other_campaigns,total}'),
   'V3 A1 Personal, V3 Team One | 1');
 SELECT rt.eq('V6 call-only payloads: no policy, premium or v2 lead-funnel field in any call reader',
@@ -113,7 +113,7 @@ SELECT rt.eq('V6 exact contact-rate parts on every campaign and source row',
   0::bigint);
 SELECT rt.eq('V6 the call readers carry v3 meta and no envelopes',
   (SELECT string_agg(r || ':' || (rt.v3r('ADM1', r) ->> 'reader') || ':' || (rt.v3r('ADM1', r) ->> 'basis_version') || ':'
-                     || (rt.v3r('ADM1', r) -> 'metrics')::text, ' ' ORDER BY r)
+                     || (rt.v3r('ADM1', r) -> 'metrics')::text, ' ' ORDER BY r COLLATE "C")
      FROM unnest(ARRAY['call_volume', 'disposition_breakdown', 'campaign_calls', 'lead_source_calls']) r),
   'call_volume:call_volume:reports_v3:[] campaign_calls:campaign_calls:reports_v3:[] '
   || 'disposition_breakdown:disposition_breakdown:reports_v3:[] lead_source_calls:lead_source_calls:reports_v3:[]');
@@ -123,12 +123,12 @@ SELECT rt.eq('V6 the call readers carry v3 meta and no envelopes',
 -- currently assigned in scope).
 -- -----------------------------------------------------------------------------------------------------
 SELECT rt.eq('V5 agency sources: calls, contacted and New leads; RC4 and the recruit call are not linked',
-  (SELECT string_agg(concat_ws(':', e ->> 'lead_source', e ->> 'calls_made', e ->> 'contacted_calls', e ->> 'new_leads'), ' ' ORDER BY e ->> 'lead_source')
+  (SELECT string_agg(concat_ws(':', e ->> 'lead_source', e ->> 'calls_made', e ->> 'contacted_calls', e ->> 'new_leads'), ' ' ORDER BY e ->> 'lead_source' COLLATE "C")
      FROM jsonb_array_elements(rt.v3r('ADM1', 'lead_source_calls') -> 'sources') e)
   || ' | not linked ' || (rt.v3r('ADM1', 'lead_source_calls') #>> '{not_linked,calls_made}'),
   '(No source):1:1:1 Facebook:3:1:2 Referral:4:3:2 Web:0:0:2 | not linked 2');
 SELECT rt.eq('V5 A1: New leads count only leads assigned to A1',
-  (SELECT string_agg(concat_ws(':', e ->> 'lead_source', e ->> 'calls_made', e ->> 'new_leads'), ' ' ORDER BY e ->> 'lead_source')
+  (SELECT string_agg(concat_ws(':', e ->> 'lead_source', e ->> 'calls_made', e ->> 'new_leads'), ' ' ORDER BY e ->> 'lead_source' COLLATE "C")
      FROM jsonb_array_elements(rt.v3r('A1', 'lead_source_calls') -> 'sources') e),
   '(No source):1:0 Facebook:3:2 Web:0:1');
 SELECT rt.eq('V5 repeated memberships never multiply calls (RL1 is in KP1 and KT12: 3 calls, not 6)',
@@ -156,7 +156,7 @@ SELECT rt.eq('V7 by_date keeps every agency date (31 in October) and inbound row
   || ' A2 ' || (rt.v3r('A2', 'call_volume') ->> 'inbound_calls') || ' A1 ' || (rt.v3r('A1', 'call_volume') ->> 'inbound_calls'),
   '31 inbound 2 A2 1 A1 0');
 SELECT rt.eq('V8 dispositions: no outcome is key none, named No outcome recorded',
-  (SELECT string_agg(concat_ws(':', e ->> 'key', e ->> 'name', e ->> 'calls'), ' | ' ORDER BY e ->> 'name')
+  (SELECT string_agg(concat_ws(':', e ->> 'key', e ->> 'name', e ->> 'calls'), ' | ' ORDER BY e ->> 'name' COLLATE "C")
      FROM jsonb_array_elements(rt.v3r('ADM1', 'disposition_breakdown') -> 'by_disposition') e
     WHERE e ->> 'key' = 'none' OR e ->> 'name' IN ('No Answer', 'Interested')),
   'c3a71000-0000-0000-0000-000000000002:Interested:3 | c3a71000-0000-0000-0000-000000000001:No Answer:4 | none:No outcome recorded:1');
@@ -183,7 +183,7 @@ SELECT rt.eq('KPI 25 agency: 9000 (A1 overlap union) + 10800 (A2 clipped + stale
   '30600 {"quality": {"late_ended": 1, "stale_capped": 1}}');
 SELECT rt.eq('KPIs 24 and 25 per agent, and by_agent rows sum to the totals',
   (SELECT string_agg(concat_ws(':', e ->> 'name', (SELECT m ->> 'value' FROM jsonb_array_elements(e -> 'metrics') m WHERE (m ->> 'id')::int = 24),
-                               (SELECT m ->> 'value' FROM jsonb_array_elements(e -> 'metrics') m WHERE (m ->> 'id')::int = 25)), ' ' ORDER BY e ->> 'name')
+                               (SELECT m ->> 'value' FROM jsonb_array_elements(e -> 'metrics') m WHERE (m ->> 'id')::int = 25)), ' ' ORDER BY e ->> 'name' COLLATE "C")
      FROM jsonb_array_elements(rt.v3r('ADM1', 'summary') -> 'by_agent') e),
   'Vee Admin:0:0 Vee Agent One:175:9000 Vee Agent Three:150:10800 Vee Agent Two:400:10800 Vee Leader:0:0');
 SELECT rt.eq('KPIs 24 and 25 on the spring-forward day: 100 s talk, 7200 s in the dialer (2 real hours)',

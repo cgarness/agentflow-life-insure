@@ -149,7 +149,7 @@ SELECT rt.eq('S13 no unattributed bucket below agency scope',
             rt.kpi(rt.v3r('A1', 'summary'), 1, 'detail')::jsonb #>> '{unattributed_annual_premium}',
             rt.kpi(rt.v3r('TL1', 'summary'), 2, 'detail')::jsonb #>> '{stored_without_sale}'), '');
 SELECT rt.eq('S13 by_agent stays within scope for every reader that has rows',
-  (SELECT string_agg(r || '=' || (SELECT string_agg(x ->> 'name', ',' ORDER BY x ->> 'name') FROM jsonb_array_elements(rt.v3r('TL1', r) -> 'by_agent') x), ' ' ORDER BY r)
+  (SELECT string_agg(r || '=' || (SELECT string_agg(x ->> 'name', ',' ORDER BY x ->> 'name' COLLATE "C") FROM jsonb_array_elements(rt.v3r('TL1', r) -> 'by_agent') x), ' ' ORDER BY r COLLATE "C")
      FROM unnest(ARRAY['journey', 'sales_appointments', 'summary']) r),
   'journey=Vee Agent One,Vee Agent Two,Vee Leader sales_appointments=Vee Agent One,Vee Agent Two,Vee Leader '
   || 'summary=Vee Agent One,Vee Agent Two,Vee Leader');
@@ -207,7 +207,7 @@ INSERT INTO public.contact_history_events (organization_id, contact_id, contact_
                                            actor_id, changed_fields, recorded_at)
 VALUES (rt.v3('O1'), rt.v3('RL1'), 'lead', 'leads', rt.v3('RL1'), 'updated', 'agent', rt.v3('A3'), '{state}', '2026-10-20 18:00+00');
 SELECT rt.eq('S14b E4: A1''s three RL1 calls move from CA to TX, flagged as changed after the call',
-  (SELECT string_agg(concat_ws(':', j ->> 'state', j ->> 'calls_made', j #>> '{basis,calls_changed_after_event}'), ' ' ORDER BY j ->> 'state')
+  (SELECT string_agg(concat_ws(':', j ->> 'state', j ->> 'calls_made', j #>> '{basis,calls_changed_after_event}'), ' ' ORDER BY j ->> 'state' COLLATE "C")
      FROM jsonb_array_elements(rt.v3r('A1', 'state_breakdown') -> 'jurisdictions') j WHERE (j ->> 'calls_made')::int > 0),
   'OR:1:0 TX:3:3');
 SELECT rt.eq('S14b E4 changes nothing else in A1''s state payload, and no other reader',
