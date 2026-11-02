@@ -53,7 +53,32 @@
 - **Journey at scale:** personal scope, 30-day window. 58 member rows are identical in both directions and the facts are equal; the gates seen were none, hand_entered_client, phone_changed, possibly_related_unlinked_call and receipt_contradicted. The old path takes 34 s for the members and 44 s for the facts; the new one takes 7 s and 6 s.
 - **The suites' own expectations are unchanged:** every journey (BC1–BC5), state, call, sale, security and negative assertion written for Batch 5 passes on the new bodies. The controls whose target text moved were retargeted to the same defect: 4 resolver, 3 journey, 2 call-facts and 2 reader controls.
 
-**Performance results.** Pending in this entry: the local 20-sample run (PostgreSQL 16.15) and the PostgreSQL 17.6 CI run are being recorded next; nothing here claims a pass.
+**Performance results.**
+- **Before Batch 6** (single runs on the reviewed head, with a scratch cast fix): every call-based reader timed out (over 8 s) at 366 days, at any scope. Journey timed out at every window, 1 day included. State timed out from 30 days.
+- **After: local evidence run.** PostgreSQL 16.15 (the local cluster; CI is the 17.6 evidence), the gate suite exactly as CI runs it with `REPORTS_V3_PERF_SAMPLES=20`: one warm-up round, then 20 measured rounds interleaved over 51 combinations, under production's session settings and the 8 s `statement_timeout`. Verdict: **43 of 51 combinations meet their target.** p95 in ms:
+
+  | Reader (target) | agency 1 d | agency 30 d | agency 366 d | team 366 d | personal 366 d | agency 366 d, one agent |
+  |---|---|---|---|---|---|---|
+  | Scope (2,000) | — | — | 9.3 | 9.8 | 9.5 | — |
+  | Summary (2,000) | 265 | 789 | **3,625** | 1,121 | 311 | 313 |
+  | State (2,000) | 256 | 998 | **3,217** | 1,545 | 583 | 612 |
+  | Sales appointments (2,000) | 19 | 17 | 18 | 15 | 13 | 12 |
+  | Call volume (2,000) | 58 | 276 | 1,447 | 647 | 190 | 188 |
+  | Dispositions (2,000) | 185 | 424 | 1,542 | 522 | 249 | 240 |
+  | Campaign calls (2,000) | 143 | 324 | 1,177 | 486 | 199 | 210 |
+  | Lead-source calls (2,000) | 84 | 213 | 678 | 371 | 134 | 127 |
+  | Journey (4,000) | **4,495** | **5,243** | **7,736** | **5,975** | **4,398** | **4,376** |
+
+  - Journey at 366-day agency: median 6,910, max 8,010. One of its 20 samples reached the 8 s budget (a `statement_timeout`), so that combination also fails the budget.
+  - Scope reader values are the personal, team and agency combinations.
+- **Evidence locations:**
+  - The verdict table, the parameters row and the fixture row (sizes, server version, `shared_buffers`) are printed by the suite.
+  - The local run printed 32 `auto_explain` plans (EXPLAIN ANALYZE with BUFFERS, nested statements of 100 ms or more) for the summary, state, four call readers and journey on their 366-day agency paths. Scope and sales appointments finish in under 25 ms, so none of their statements reaches the 100 ms logging threshold.
+  - In CI, all of this is in `reports-v3-results.txt` in the run's `reports-backend-evidence-<run id>` artifact.
+- **What remains in the slow paths:**
+  - **Summary and state at 366-day agency** resolve about 58,000 identities, and their states, from about 457,000 calls on every request. The call rows alone cost about 0.7 s with identities.
+  - **Journey** resolves the whole history of about 500,000 calls on every request; about 4 s is that pass.
+  - No index applies to this work: it is CPU-bound per-request resolution.
 
 **KPI 24 talk-time quality** (inspected, not changed: `record_call_duration_evidence` and `guard_call_reporting_fields`, `20261005161632`).
 - **The six cases** (new organization O24, 2026-06-15): value 375 s = 120 + 0 + 90 + 40 + 100 + 25, with quality `{unknown 1, estimated 1, conflicting 1, provider_confirmed 3, duplicates_excluded 0}`.
@@ -81,8 +106,25 @@
 
 **Migrations and deploys.** None. Disposable local and CI synthetic databases only, with placeholder versions. No grant outside the harness, no enable, no PR, merge or deploy.
 
-**Verification.** Pending in this entry until the runs above complete. Recorded so far:
-- local: every functional v3 suite passes; RPC, integrity and profile suites pass; static test 35/35; root `npx tsc --noEmit` passes; app typecheck 80 errors identical to base; scoped ESLint clean; full Vitest 6,722 passed, 2 failed, 37 skipped, failing identities identical to base `6e39c15`; `npm run build` passes.
+**Verification** (local, base `6e39c15`, head `9b46456`):
+- **v3 runner** (PostgreSQL 16.15, with the gate at 20 samples) passes.
+  - Counts: 424 assertions (Batch 5: 419; +4 KPI 24, +1 fixture size), 32 mutation controls, 97 refusal checks, 15 seal checks (+1, after the measurement) and 1 index check.
+  - No ERROR line; the only FAIL text is the 8 verdict cells.
+  - The temporary grants are revoked and `rt.assert_sealed_v3(true, false)` holds afterwards.
+- **Other SQL suites:** the RPC, integrity and profile suites pass.
+- **Extra comparisons beyond the suites:**
+  - the journey on its suite's organization J: 180 of 180 facts and member sets equal (744 member rows) over agency, each agent and a pair, 6 windows and 5 as_of values including maturity boundaries;
+  - all 120 by_agent rows from the one-read rollup equal the frozen per-agent computation (48 with members, 72 from the empty group);
+  - at scale, `report_v3_call_facts` equals the pinned v2 `report_call_facts` on all 457,311 rows of the 366-day window and every carried column.
+- **Static test:** 35/35.
+- **TypeScript:** root `npx tsc --noEmit` passes. The app typecheck's 80 errors are identical, line for line, to base and Batch 5.
+- **ESLint and build:** scoped ESLint is clean; `npm run build` passes.
+- **Full Vitest:** 6,722 passed, 2 failed, 37 skipped across 1,976 suites. Against the clean `6e39c15` base (6,687 passed across 1,966 suites), the 11 failing files and the 2 failing tests are identical by name. The 35 extra passing tests are this branch's static contract test.
+- **Pre-push automation check:**
+  - Only `s1-plan-verify.yml` runs on push, and only for `main`.
+  - Every other workflow runs on `pull_request` or `workflow_dispatch`.
+  - Vercel builds an access-protected branch preview, which is permitted.
+- **PostgreSQL 17.6 CI:** run 41398958478 on `9b46456d388134370f34e1b1022b143da53899fb` (dispatched 06:17 UTC) is still in progress at this commit; its result will be recorded here.
 
 **Open PKG-A requirements (not claimed as passed).**
 - **Performance gate:** summary and state at 366-day agency scope, and journey everywhere, miss their targets. The journey at 366-day agency and team scope runs about 6–7 s, within the 8 s budget on this hardware but not with margin.
