@@ -1,3 +1,42 @@
+## 2026-11-02 — Reports V2 PKG-A Batch 5: the nine v3 readers (…15) and the calls index (…16) (branch `claude/great-goodall-911azc`; nothing applied, merged, enabled or deployed)
+
+**Authorization:** Chris's Batch 5 message, under the existing branch-implementation approval.
+- **Authorized:** normal checkpoint pushes to `claude/great-goodall-911azc`, and manual `reports-backend.yml` dispatches for isolated synthetic verification, subject to the pre-push automation check.
+- **Not authorized:** execution grants or any enable step, PR, force push, push to `main`, merge, hosted database mutation, production migration, migration repair, release-runner execution, deployment promotion, settings change, telephony change.
+- **Still pending:** ★1 and ★4. The linked-history behavior (E1–E6, including the campaign-copy fallback behind E4) stays a proposed branch implementation, not an accepted disclosure. No agency-only fallback is implemented. The AGENT_RULES amendments remain proposed.
+
+**Base:** the branch head `fca7b3e`. `main` is still `6e39c15`. The newest open PR (#486) was last updated 2026-10-23, and no open PR overlaps the Reports V2 files.
+
+**Batch 5 files** (all on the reviewed PKG-A list, plan §8 and D1 §9):
+1. `supabase/migrations/20261101000015_reports_v3_readers.sql` (create; class C; placeholder version, **not applied**): the nine public readers, created sealed with no grant, plus private helpers internal to D1's readers
+2. `supabase/migrations/20261101000016_reports_v3_calls_campaign_lead_index.sql` (create; class C; placeholder version, **not applied**): the single `CREATE INDEX CONCURRENTLY IF NOT EXISTS` statement
+3. `supabase/tests/reports_v3_security.sql` (create): the sealed state, metadata, the 42501/22023/55000 order, scope boundaries, cross-organization isolation, privacy scans, S14a with the BC1 additions, S14b (E4, E6) and the privilege matrix in the created state
+4. `supabase/tests/reports_v3_call_readers.sql` (create): V1–V9 and the cross-reader reconciliation
+5. `supabase/tests/reports_v3_negative.sql` (create): mutation controls (removed narrowing, other-agent rows, unavailable as 0, v2 policy fields in a call reader, non-attempt or unverified counted, duplicate-producing joins, hidden-campaign leak, pre-rounding)
+6. `supabase/tests/reports_v3_fixtures.sql` (modify): reader fixtures for O1 and O2 (role permissions, visible and hidden campaigns, leads with sources, states and assignments, repeated memberships, dispositions, calls of every class including inbound and DST-day rows, admissions, a reviewed duplicate, sessions, client states)
+7. `supabase/tests/reports_v3_contract.sql` (modify): a reader-level contract section, run after `…15`
+8. `supabase/tests/reports_v3_state_breakdown.sql` (modify): the state reader cases (D5 §8)
+9. `supabase/tests/reports_v3_appointment_facts.sql` (modify): the sales appointments reader cases
+10. `scripts/reports_v3_fixture.py` (modify): non-transactional steps for the concurrent index, the `…15`/`…16` steps and refusals, the index definition and validity checks, the suite order, and the contract file's reader section
+11. `src/lib/__tests__/reportsV3Contracts.test.ts` (modify): static checks for `…15` and `…16`
+12. `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (modify): §2.6 rows for the internal reader helpers, and the open PKG-A release items in §9.1 (performance gate with EXPLAIN evidence, journey optimization)
+13. `docs/plans/2026-10-31-reports-v2/appendix/D3.md` (modify): the exact KPI 24 and 25 quality definitions
+14. `implementation_plan.md` (this entry)
+15. `WORK_LOG.md` (newest-first entry)
+
+No change is needed to `scripts/run_reports_v3_tests.sh` or `.github/workflows/reports-backend.yml`. Not in this batch: `reports_v3_performance.sql` (the scale gate) and `reports_v3_release.sql` (it needs the enable and disable scripts); both stay open for PKG-A.
+
+**Checks:**
+- failing-first runs and negative controls, with expected refusals kept distinct from unexpected failures;
+- the v3, integrity, RPC and profile SQL suites;
+- the static test, scoped ESLint, the relevant Vitest files and `npm run build`;
+- `npx tsc --noEmit` and the application typecheck, with error identities compared against `6e39c15`;
+- PostgreSQL 17.6 CI on the pushed head, with the checked-out SHA, the new reader and index steps and the new suites confirmed in the log.
+
+No telephony, `TwilioContext`, call-initiation or duration-writer change.
+
+---
+
 ## 2026-11-02 — Reports V2 PKG-A Batch 4: appointment-facts stub (…13) and state helpers (…14) (branch `claude/great-goodall-911azc`; nothing applied, merged or deployed)
 
 **Authorization:** Chris's Batch 4 message, under the existing branch-implementation approval.

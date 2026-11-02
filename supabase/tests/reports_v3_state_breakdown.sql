@@ -1,7 +1,8 @@
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
 -- =====================================================================================================
 -- Reports v3 regional state suite (plan D5 §8). Disposable synthetic databases only, through
--- scripts/run_reports_v3_tests.sh. PKG-A Batch 4 covers the …14 helpers: the classifier and the
--- identity-state resolver. Batch 5 adds the get_report_state_breakdown_v3 reader cases to this file.
+-- scripts/run_reports_v3_tests.sh. Sections 1–6 cover the …14 helpers (the classifier and the identity-state
+-- resolver); section 7 covers the get_report_state_breakdown_v3 reader (…15), on O1 (reports_v3_fixtures.sql).
 --
 -- Synthetic organization ST ('V3 State Agency') and another tenant SX. Agents SA1, SA2 (ST) and SXA (SX).
 -- Expected resolution (state | reason | basis), each computed by hand from the rows below:
@@ -315,3 +316,134 @@ SELECT rt.reject_mutation('private.report_v3_identity_states(uuid,text[])',
   'ca.organization_id = p_org', 'true',
   $probe$SELECT rt.eq('mutated cross-tenant call', rt.sstate('ST', rt.skey('lead', 'SL20')), '-|missing_state|-')$probe$,
   'mutated cross-tenant call FAIL');
+
+-- -----------------------------------------------------------------------------------------------------
+-- 7. The state reader (D5 §3.4–§3.7). It splits KPIs 5, 6, 2 and 1 by each identity's current recorded
+--    state (never event-time residence). O1 October anchors: calls CA 3, NV 3, AZ 1, OR 1 (RL4 blank: its
+--    KT3 membership copy), unresolved 1 (RC4), recruit 1 (RC10); policies CA 3, TX 2, FL 2, NV 1, AZ 1, and
+--    unmapped invalid (W4, C4 'XX'), unsupported (W5, C5 'PR'), missing (W7, C7 blank), unresolved (W10, deleted
+--    client). W16 (CA, recorded 2026-11-20) joins once its recorded time has passed.
+-- -----------------------------------------------------------------------------------------------------
+CREATE FUNCTION rt.st(p_who text, p_scope text DEFAULT NULL, p_agent text DEFAULT NULL, p_start date DEFAULT '2026-10-01',
+                      p_end date DEFAULT '2026-10-31') RETURNS jsonb LANGUAGE sql AS $$
+  SELECT rt.v3r(p_who, 'state_breakdown', p_scope, p_agent, p_start, p_end);
+$$;
+-- 'ok', or every reconciliation that failed: Σ51 + Σ6 = totals = the summary KPIs, AP to the cent, modes and
+-- call_population equal to KPI 5, 6, 2 and 1 of the same window and scope.
+CREATE FUNCTION rt.st_recon(p_who text, p_scope text DEFAULT NULL, p_agent text DEFAULT NULL, p_start date DEFAULT '2026-10-01',
+                            p_end date DEFAULT '2026-10-31') RETURNS text LANGUAGE plpgsql AS $$
+DECLARE st jsonb := rt.st(p_who, p_scope, p_agent, p_start, p_end);
+        su jsonb := rt.v3r(p_who, 'summary', p_scope, p_agent, p_start, p_end);
+        bad text[] := '{}';
+        k text;
+BEGIN
+  FOREACH k IN ARRAY ARRAY['calls_made', 'contacted_calls', 'policies_sold'] LOOP
+    IF rt.jsum(st, '$.jurisdictions[*].' || k) + rt.jsum(st, '$.unmapped.reasons[*].' || k) <> (st #>> ARRAY['totals', k])::numeric
+       OR rt.jsum(st, '$.unmapped.reasons[*].' || k) <> (st #>> ARRAY['unmapped', k])::numeric THEN
+      bad := bad || k;
+    END IF;
+  END LOOP;
+  IF rt.jsum(st, '$.jurisdictions[*].premium.annual_premium ? (@ != null)') + rt.jsum(st, '$.unmapped.reasons[*].premium.annual_premium ? (@ != null)')
+     <> coalesce((st #>> '{totals,premium,annual_premium}')::numeric, 0) THEN bad := bad || 'ap_sum'::text; END IF;
+  IF (st #>> '{totals,calls_made}') IS DISTINCT FROM rt.kpi(su, 5) THEN bad := bad || 'kpi5'::text; END IF;
+  IF (st #>> '{totals,contacted_calls}') IS DISTINCT FROM rt.kpi(su, 6) THEN bad := bad || 'kpi6'::text; END IF;
+  IF (st #>> '{totals,policies_sold}') IS DISTINCT FROM rt.kpi(su, 2) THEN bad := bad || 'kpi2'::text; END IF;
+  IF (st #>> '{totals,premium,annual_premium}')::numeric IS DISTINCT FROM (CASE WHEN rt.kpi(su, 1) = 'null' THEN NULL ELSE rt.kpi(su, 1)::numeric END)
+     AND NOT ((st #>> '{totals,policies_sold}')::int = 0 AND rt.kpi(su, 1)::numeric = 0) THEN bad := bad || 'kpi1'::text; END IF;
+  IF st #> '{modes,calls_made}' IS DISTINCT FROM jsonb_build_object('metric_id', 5, 'status', rt.kpi(su, 5, 'status')::jsonb, 'reason', rt.kpi(su, 5, 'reason')::jsonb)
+     OR st #> '{modes,contacted_calls}' IS DISTINCT FROM jsonb_build_object('metric_id', 6, 'status', rt.kpi(su, 6, 'status')::jsonb, 'reason', rt.kpi(su, 6, 'reason')::jsonb)
+     OR st #> '{modes,policies_sold}' IS DISTINCT FROM jsonb_build_object('metric_id', 2, 'status', rt.kpi(su, 2, 'status')::jsonb, 'reason', rt.kpi(su, 2, 'reason')::jsonb)
+     OR st #> '{modes,ap}' IS DISTINCT FROM jsonb_build_object('metric_id', 1, 'status', rt.kpi(su, 1, 'status')::jsonb, 'reason', rt.kpi(su, 1, 'reason')::jsonb) THEN
+    bad := bad || 'modes'::text;
+  END IF;
+  IF st -> 'call_population' IS DISTINCT FROM rt.kpi(su, 5, 'detail')::jsonb -> 'call_population' THEN bad := bad || 'population'::text; END IF;
+  RETURN CASE WHEN cardinality(bad) = 0 THEN 'ok' ELSE array_to_string(bad, ',') END;
+END $$;
+CREATE FUNCTION rt.st_rows(p jsonb) RETURNS text LANGUAGE sql AS $$
+  SELECT string_agg(concat_ws(':', x.k, x.v ->> 'calls_made', x.v ->> 'contacted_calls', x.v ->> 'policies_sold',
+                              coalesce(x.v #>> '{premium,annual_premium}', 'null')), ' ' ORDER BY x.o)
+    FROM (SELECT j ->> 'state' AS k, j AS v, o FROM jsonb_array_elements(p -> 'jurisdictions') WITH ORDINALITY y(j, o)
+           WHERE (j ->> 'calls_made')::int + (j ->> 'policies_sold')::int > 0
+          UNION ALL
+          SELECT r ->> 'reason', r, 100 + o FROM jsonb_array_elements(p #> '{unmapped,reasons}') WITH ORDINALITY y(r, o)
+           WHERE (r ->> 'calls_made')::int + (r ->> 'policies_sold')::int > 0) x;
+$$;
+
+SELECT rt.eq('reader shape: 51 sorted jurisdictions (AK, HI, DC zero), 6 unmapped reasons in order, no envelopes',
+  (SELECT count(*) || ':' || bool_and(j ->> 'state' = (SELECT array_agg(c ORDER BY c) FROM unnest(ARRAY(SELECT code FROM st_jurisdictions)) c)[o])
+     FROM jsonb_array_elements(rt.st('ADM1') -> 'jurisdictions') WITH ORDINALITY x(j, o))
+  || ' | ' || (SELECT string_agg(j ->> 'calls_made' || '/' || (j ->> 'policies_sold'), ',' ORDER BY j ->> 'state')
+                 FROM jsonb_array_elements(rt.st('ADM1') -> 'jurisdictions') j WHERE j ->> 'state' IN ('AK', 'HI', 'DC'))
+  || ' | ' || (SELECT string_agg(r ->> 'reason', ',' ORDER BY o) FROM jsonb_array_elements(rt.st('ADM1') #> '{unmapped,reasons}') WITH ORDINALITY x(r, o))
+  || ' | ' || (rt.st('ADM1') -> 'metrics')::text,
+  '51:true | 0/0,0/0,0/0 | missing_state,invalid_state,unresolved_identity,source_conflict,unsupported_geography,non_prospect_contact | []');
+SELECT rt.eq('reader meta: reader, contract 3.0.0, basis, policy_basis keys, state_basis; no top-level time_zone or period',
+  concat_ws(' | ', rt.st('A1') ->> 'reader', rt.st('A1') ->> 'contract_version', rt.st('A1') #>> '{basis,corrections}',
+            (SELECT string_agg(k, ',' ORDER BY k) FROM jsonb_object_keys(rt.st('A1') -> 'policy_basis') k),
+            (rt.st('A1') -> 'state_basis')::text, (rt.st('A1') ? 'time_zone')::text, (rt.st('A1') ? 'period')::text,
+            (SELECT string_agg(k, ',' ORDER BY k) FROM jsonb_object_keys(rt.st('A1') -> 'call_population') k)),
+  'state_breakdown | 3.0.0 | not_installed | credit,date,premium,source | '
+  || '{"version": "state_v1", "priority": ["event_snapshot", "current_record", "campaign_copy"], "classifier": "report_v3_state_classify_v1", '
+  || '"normalizer": "public.normalize_us_state", "history_capture_since": "2026-10-03", "campaign_copy_fallback": true, '
+  || '"event_snapshot_available": false} | false | false | attempts,duplicates_excluded,non_attempts,unverified');
+SELECT rt.eq('agency October groups (state:calls:contacted:policies:AP), recorded state only',
+  rt.st_rows(rt.st('ADM1')),
+  CASE WHEN now() >= '2026-11-20 00:00+00' THEN 'AZ:1:1:1:null CA:3:1:4:2068.08 ' ELSE 'AZ:1:1:1:null CA:3:1:3:1348.08 ' END
+  || 'FL:0:0:2:360.00 NV:3:2:1:966.00 OR:1:1:0:0 TX:0:0:2:480.00 missing_state:0:0:1:null invalid_state:0:0:1:null '
+  || 'unresolved_identity:1:0:1:300.00 unsupported_geography:0:0:1:603.00 non_prospect_contact:1:0:0:0');
+SELECT rt.eq('basis: OR comes from the campaign copy, the others from the current record',
+  (SELECT string_agg(concat_ws(':', j ->> 'state', j #>> '{basis,calls,current_record}', j #>> '{basis,calls,campaign_copy}',
+                               j #>> '{basis,calls,event_snapshot}'), ' ' ORDER BY j ->> 'state')
+     FROM jsonb_array_elements(rt.st('ADM1') -> 'jurisdictions') j WHERE (j ->> 'calls_made')::int > 0),
+  'AZ:1:0:0 CA:3:0:0 NV:3:0:0 OR:0:1:0');
+SELECT rt.eq('reconciliation at agency, team, personal and filter scope: Σ51 + Σ6 = totals = KPIs 5, 6, 2, 1; AP to the cent',
+  concat_ws(' ', rt.st_recon('ADM1'), rt.st_recon('TL1'), rt.st_recon('A1'), rt.st_recon('A2'), rt.st_recon('A3'),
+            rt.st_recon('ADM1', NULL, 'A2'), rt.st_recon('TL1', 'team', 'A1'), rt.st_recon('ADM1', NULL, NULL, '2026-07-01', '2026-07-01'),
+            rt.st_recon('A1', NULL, NULL, '2026-03-08', '2026-03-08')),
+  'ok ok ok ok ok ok ok ok ok');
+SELECT rt.eq('premium matrix (RL-11) through the reader''s AP mode',
+  concat_ws(' | ',
+    (rt.st('A1') #>> '{modes,ap,status}') || '/' || coalesce(rt.st('A1') #>> '{modes,ap,reason}', '-'),
+    (rt.st('A2') #>> '{modes,ap,status}') || '/' || (rt.st('A2') #>> '{modes,ap,reason}'),
+    (rt.st('A3') #>> '{modes,ap,status}') || '/' || (rt.st('A3') #>> '{modes,ap,reason}'),
+    (rt.st('A2', NULL, NULL, '2026-10-03', '2026-10-03') #>> '{modes,ap,status}') || '/' || (rt.st('A2', NULL, NULL, '2026-10-03', '2026-10-03') #>> '{modes,ap,reason}')
+      || '/' || coalesce(rt.st('A2', NULL, NULL, '2026-10-03', '2026-10-03') #>> '{totals,premium,annual_premium}', 'null'),
+    (rt.st('A2', NULL, NULL, '2026-10-04', '2026-10-04') #>> '{modes,ap,status}') || '/' || (rt.st('A2', NULL, NULL, '2026-10-04', '2026-10-04') #>> '{modes,ap,reason}'),
+    (rt.st('A2', NULL, NULL, '2026-10-03', '2026-10-04') #>> '{modes,ap,status}') || '/' || (rt.st('A2', NULL, NULL, '2026-10-03', '2026-10-04') #>> '{modes,ap,reason}'),
+    (rt.st('A2', NULL, NULL, '2026-10-01', '2026-10-01') #>> '{modes,ap,status}') || '/' || (rt.st('A2', NULL, NULL, '2026-10-01', '2026-10-01') #>> '{totals,premium,annual_premium}')),
+  'available/- | partial/premium_invalid | partial/premium_missing | unavailable/premium_not_entered/null | unavailable/premium_invalid | '
+  || 'unavailable/premium_invalid | available/0');
+SELECT rt.eq('unverified calls: agency partial, A1 on Oct 7 unavailable (no attempts), A2 available',
+  concat_ws(' ', rt.st('ADM1') #>> '{modes,calls_made,status}', rt.st('ADM1') #>> '{modes,calls_made,reason}',
+            rt.st('A1', NULL, NULL, '2026-10-07', '2026-10-07') #>> '{modes,calls_made,status}',
+            rt.st('A1', NULL, NULL, '2026-10-07', '2026-10-07') #>> '{totals,calls_made}', rt.st('A2') #>> '{modes,calls_made,status}'),
+  'partial attempt_unverified unavailable 0 available');
+SELECT rt.eq('an identity''s state is the same in any window (RL1''s March calls are CA too)',
+  rt.st_rows(rt.st('A1', NULL, NULL, '2026-03-08', '2026-03-08')), 'CA:2:1:0:0');
+SELECT rt.eq('a future Sold Date counts once its date arrives (W15, Nov 1, FL)',
+  rt.st_rows(rt.st('A2', NULL, NULL, '2026-11-01', '2026-11-01')), 'FL:0:0:1:180.00 NV:1:0:0:0');
+SELECT rt.eq('the state payload carries no prospect, client or call identity and no phone number',
+  (SELECT count(*) FROM unnest(ARRAY['ADM1', 'TL1', 'A1']) w WHERE rt.st(w)::text ~ ('c3a73000|c3a75000|c3c00000|c3a72000|555-0')), 0::bigint);
+SAVEPOINT st_reader;
+-- Cardinality: two A1 calls on client C1 (two policies, W1 and W17) add two CA calls and no policy.
+INSERT INTO public.calls (id, organization_id, agent_id, direction, contact_id, contact_type, contact_phone, created_at, duration, status)
+SELECT gen_random_uuid(), rt.v3('O1'), rt.v3('A1'), 'outbound', rt.v3('C1'), 'client', '702-555-0141', '2026-10-15 16:00+00'::timestamptz + n * interval '1 hour',
+       30, 'completed' FROM generate_series(1, 2) n;
+-- A source conflict: RL3 (NV) gains a converted client record in CA.
+INSERT INTO public.clients (id, organization_id, lead_id, phone, state) VALUES (gen_random_uuid(), rt.v3('O1'), rt.v3('RL3'), '702-555-0103', 'CA');
+-- A recorded state change of RL1 after its first call.
+INSERT INTO public.contact_history_events (organization_id, contact_id, contact_type, source_table, source_id, action, actor_kind,
+                                           changed_fields, recorded_at)
+VALUES (rt.v3('O1'), rt.v3('RL1'), 'lead', 'leads', rt.v3('RL1'), 'updated', 'agent', '{state}', '2026-10-05 16:30+00');
+SELECT rt.eq('cardinality, conflict and drift: CA +2 calls (policies unchanged), RL3''s calls become source_conflict, RC1 changed after its call',
+  rt.st_rows(rt.st('ADM1')) || ' | CA changed after ' || (SELECT j #>> '{basis,calls_changed_after_event}' FROM jsonb_array_elements(rt.st('ADM1') -> 'jurisdictions') j WHERE j ->> 'state' = 'CA')
+  || ' | ' || rt.st_recon('ADM1'),
+  CASE WHEN now() >= '2026-11-20 00:00+00' THEN 'AZ:1:1:1:null CA:5:1:4:2068.08 ' ELSE 'AZ:1:1:1:null CA:5:1:3:1348.08 ' END
+  || 'FL:0:0:2:360.00 NV:0:0:1:966.00 OR:1:1:0:0 TX:0:0:2:480.00 missing_state:0:0:1:null invalid_state:0:0:1:null '
+  || 'unresolved_identity:1:0:1:300.00 source_conflict:3:2:0:0 unsupported_geography:0:0:1:603.00 non_prospect_contact:1:0:0:0 | CA changed after 1 | ok');
+ROLLBACK TO SAVEPOINT st_reader;
+SELECT rt.eq('no state reader raises on an empty, open or spring-forward window',
+  (SELECT count(*) FROM (VALUES ('2026-07-01'::date, '2026-07-01'::date), ((now() AT TIME ZONE 'America/Los_Angeles')::date, (now() AT TIME ZONE 'America/Los_Angeles')::date),
+                                ('2026-03-08', '2026-03-08')) v(a, b)
+    WHERE rt.st('ADM1', NULL, NULL, v.a, v.b) ->> 'reader' = 'state_breakdown'), 3::bigint);
+SELECT rt.assert_sealed_v3(true, false);

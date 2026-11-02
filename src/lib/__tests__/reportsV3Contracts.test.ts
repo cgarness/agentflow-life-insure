@@ -406,3 +406,88 @@ describe("Reports v3 state helpers", () => {
     expect(sql).not.toMatch(/ROW LEVEL SECURITY|\bPOLICY\b/i);
   });
 });
+
+describe("Reports v3 readers", () => {
+  const readersFile = readdirSync(join(ROOT, MIGRATIONS)).find((n) => n.endsWith("_reports_v3_readers.sql"));
+  const sql = stripSqlComments(read(`${MIGRATIONS}/${readersFile}`));
+  const body = (name: string) => {
+    const start = sql.indexOf(`CREATE FUNCTION ${name}(`);
+    return sql.slice(start, sql.indexOf("$$;", sql.indexOf("AS $$", start)));
+  };
+  const WINDOWED = [
+    "summary", "journey", "sales_appointments", "state_breakdown",
+    "call_volume", "disposition_breakdown", "campaign_calls", "lead_source_calls",
+  ];
+  const CALL_READERS = ["call_volume", "disposition_breakdown", "campaign_calls", "lead_source_calls"];
+
+  it("creates exactly the nine public readers and five private helpers", () => {
+    expect(createdFunctions(sql).map((f) => `${f.name}(${f.types.join(",")})`).sort()).toEqual([
+      "private.report_v3_agent_call_stats(uuid,uuid[],timestamp with time zone,timestamp with time zone)",
+      "private.report_v3_credit_map(text)",
+      "private.report_v3_roster(uuid,uuid[],uuid,uuid[])",
+      "private.report_v3_session_quality(uuid,timestamp with time zone,timestamp with time zone,uuid[])",
+      "private.report_v3_summary_metrics(jsonb,jsonb,numeric,jsonb,numeric,jsonb)",
+      "public.get_report_scope_v3(text)",
+      ...WINDOWED.map((r) => `public.get_report_${r}_v3(date,date,uuid,text)`),
+    ].sort());
+  });
+
+  it("makes every reader a stable plpgsql definer that takes no organization, time zone or as_of", () => {
+    for (const fn of createdFunctions(sql).filter((f) => f.name.startsWith("public."))) {
+      expect(fn.header, fn.name).toMatch(/LANGUAGE plpgsql\s+STABLE\s+SECURITY DEFINER\s+SET search_path = pg_catalog, pg_temp/);
+      expect(fn.header, fn.name).not.toMatch(/p_org|p_organization|p_time_zone|p_as_of/);
+    }
+  });
+
+  it("resolves access on the server before the window, and builds meta through the v3 envelope", () => {
+    const scope = body("public.get_report_scope_v3");
+    expect(scope).toContain("private.report_access_v2(p_requested_scope, NULL)");
+    expect(scope).not.toContain("private.report_window(");
+    for (const r of WINDOWED) {
+      const b = body(`public.get_report_${r}_v3`);
+      const access = b.indexOf("private.report_access_v2(p_requested_scope, p_agent_id)");
+      const window = b.indexOf("private.report_window(a.org_id, p_start_date, p_end_date)");
+      expect(access, r).toBeGreaterThan(0);
+      expect(window, r).toBeGreaterThan(access);
+      expect(b.indexOf(`private.report_v3_envelope('${r}'`), r).toBeGreaterThan(window);
+    }
+  });
+
+  it("keeps the call readers call-only, on the v3 attempt population", () => {
+    for (const r of CALL_READERS) {
+      const b = body(`public.get_report_${r}_v3`);
+      expect(b, r).not.toMatch(/polic|premium|leads_dialed|contacted_leads|converted|attribution_unavailable|contact_rate_pct|round\(/i);
+      expect(b, r).toContain("private.report_v3_call_facts(a.org_id, w.start_at, w.end_at)");
+      expect(b, r).not.toContain("private.report_call_facts(");
+      expect(b, r).toContain("private.report_v3_call_counts(a.org_id, a.agent_ids, w.start_at, w.end_at)");
+    }
+  });
+
+  it("names campaigns only through report_visible_campaigns", () => {
+    for (const r of WINDOWED) {
+      const b = body(`public.get_report_${r}_v3`);
+      if (b.includes("public.campaigns")) {
+        expect(b, r).toContain("private.report_visible_campaigns(a.org_id)");
+        expect(b, r).toMatch(/campaign_class = 'visible'/);
+      }
+    }
+  });
+
+  it("passes now() to the appointment stub and re-verifies the 27 v2 and closure pins first", () => {
+    expect(body("public.get_report_sales_appointments_v3")).toMatch(/report_v3_appointment_facts\([^;]*w\.time_zone, now\(\)\)/);
+    const preflight = sql.slice(0, sql.indexOf("CREATE FUNCTION"));
+    expect(preflight.match(/\('(?:public|private)\.[a-z0-9_]+\([^)]*\)', '[0-9a-f]{32}'/g)).toHaveLength(27);
+    expect(preflight).toMatch(/refusing replay/);
+  });
+});
+
+describe("Reports v3 calls index", () => {
+  const indexFile = readdirSync(join(ROOT, MIGRATIONS)).find((n) => n.endsWith("_reports_v3_calls_campaign_lead_index.sql"));
+  const sql = stripSqlComments(read(`${MIGRATIONS}/${indexFile}`)).trim();
+
+  it("holds exactly the one concurrent index statement, outside any transaction control", () => {
+    expect(sql).toBe(
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS report_v3_calls_org_campaign_lead ON public.calls(organization_id, campaign_lead_id, created_at);",
+    );
+  });
+});

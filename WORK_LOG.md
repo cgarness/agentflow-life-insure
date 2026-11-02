@@ -1,5 +1,117 @@
 # AgentFlow Work Log
 
+## 2026-11-02 — Reports V2 PKG-A Batch 5: the nine v3 readers and the calls index (branch `claude/great-goodall-911azc`; NOT merged, applied, enabled or deployed)
+
+**Status.**
+- **Authority:** built under Chris's Batch 5 message and the existing branch approval. Normal checkpoint pushes and manual `reports-backend.yml` dispatches for isolated synthetic verification are authorized; nothing else is.
+- **Sealed:** every reader is created sealed. No execution grant and no enable step exists; the class E enable (`…17`) stays a later, separately approved step.
+- **Still pending:** ★1 and ★4. The linked-history effects E1–E6, including E4's campaign-copy fallback, are a proposed branch implementation, not accepted disclosures. No agency-only fallback is implemented. The AGENT_RULES amendments remain proposed.
+- **Not touched:** no PKG-D evidence, category or outcome write, and no telephony, `TwilioContext`, call-initiation or duration-writer change.
+
+**What changed.**
+- **Readers** (`20261101000015_reports_v3_readers.sql`, placeholder version, class C, **not applied**).
+  - **Form:** nine public readers, each `plpgsql STABLE SECURITY DEFINER`, owned by postgres, with `search_path` pinned. None takes an organization, time zone or as_of argument.
+  - **Order:** each windowed reader resolves access first through the unchanged `report_access_v2` (42501; NULL never widens; an agent filter only narrows), then the window (22023, then 55000), then computes.
+  - **Readers:**
+    - *Summary:* KPIs 1–11, 24, 25 and 34, by_agent, `production_by_date` and `call_population`.
+    - *Journey:* KPIs 14, 19, 21 and 38 (the proposed option (a), BC1 and BC2 applied).
+    - *Sales appointments:* over the `…13` stub, so every KPI is truthfully `unavailable/evidence_not_captured`.
+    - *State:* D5's recorded-state split over `…14`: 51 jurisdictions, 6 unmapped reasons, totals and modes.
+    - *Call readers:* call volume, dispositions, campaign calls and lead-source calls, ported from v2 onto the attempt population.
+  - **Call readers:** call-only payloads with exact rate parts. Hidden campaigns appear only in the "Other campaigns" counts. They include "Calls without a campaign" and "Not linked to a current lead" rows.
+  - **Internal helpers (5):** the by_agent roster (the v2 rule), the credit map, per-agent call counts with `report_v3_call_counts`' exact keys, KPI 25 quality, and the ordered summary envelopes. Envelopes are built only through the foundation builders.
+  - **Guards:** the preflight refuses replay and re-verifies the 15 v2 and 12 closure pins. The postcondition proves owner, security, volatility, search_path and arguments, and that no client EXECUTE was added anywhere.
+- **Talk time and dialer time (KPIs 24, 25).**
+  - KPI 24 is the canonical duration of attempt rows. Its quality is disclosed and never upgraded: estimated, unknown, conflicting, provider_confirmed, duplicates_excluded.
+  - KPI 25 is the pinned session interval: window clipping, the 3-minute heartbeat cap, same-agent overlap union, and the owner-preserved late-ended rule. Its quality counts are `stale_capped` and `late_ended`.
+  - D3 now records the exact definitions.
+- **Calls index** (`20261101000016_reports_v3_calls_campaign_lead_index.sql`, placeholder version, **not applied**). The file holds exactly one statement: `CREATE INDEX CONCURRENTLY IF NOT EXISTS report_v3_calls_org_campaign_lead ON public.calls(organization_id, campaign_lead_id, created_at)`.
+  - The harness runs it the way the runner will: outside a transaction, with `lock_timeout` 2 s, then an exact-definition and `indisvalid`/`indisready` post-check.
+  - A leftover index with another definition, or an invalid one, is refused rather than silently kept.
+- **Harness.**
+  - O1 reader fixtures: role permissions; visible and hidden campaigns; leads with sources, states and assignments; a lead in two campaigns; dispositions.
+  - Calls of every class: a window-start and a window-end call, inbound calls, a recruit call, a reviewed duplicate, and DST-day calls.
+  - Admissions, sessions (overlap, edge-clipped, stale, late-ended, DST day) and buyer states.
+  - Grant-confined call helpers: the EXECUTE grant to authenticated never outlives one call.
+  - Non-transactional fixture steps for the concurrent index.
+- **Plan.** §2.6 lists the reader helpers. §9.1 now records the open PKG-A release items.
+
+**Required cases covered.**
+- **Public boundary:**
+  - Readers stay sealed for anon, authenticated, service_role, a PUBLIC-only role and a member of authenticated, both by `has_function_privilege` and by direct execution (42501).
+  - Scope: personal, team and agency scope; authorized and unauthorized agent filters; another organization's agent.
+  - Errors come in order: 42501 before 22023 before 55000.
+  - Cross-organization isolation: changes in another organization leave every O1 payload byte-identical.
+  - Privacy scans: no other agent, hidden campaign, prospect, client, call or recruit id, phone number, row timestamp, or unattributed bucket below agency scope.
+  - S14a with the BC1 additions is byte-identical. S14b covers E4 (a state change regroups calls with changed-after flags) and E6 (a reassignment changes New leads), plus a negative fixture.
+- **Reconciliation:**
+  - In one REPEATABLE READ snapshot at agency, team, personal and agent-filter scope, Calls made = Σ heatmap = Σ by_date = Σ by_hour = Σ by_weekday = Σ dispositions = Σ duration buckets = Σ campaign rows (including both extra rows) = Σ lead-source rows (including Not linked) = the regional total. Contacted calls reconciles the same way.
+  - `call_population` is one block across seven views.
+  - v2 `calls_made` − KPI 5 = non-attempts + unverified.
+  - Regional mapped plus unmapped policies and AP equal KPIs 2 and 1, to the cent.
+  - A lead in two campaigns and a buyer with two policies multiply nothing.
+  - KPI 7 deduplicates identities rather than summing agent rows.
+- **KPIs 24 and 25:** cases cover an empty window, missing quality, both window edges, a session clipped at both edges, and the 2026-03-08 spring-forward day.
+- **Appointment and regional readers:**
+  - The appointment reader stays `evidence_not_captured`, and appointments in the window move nothing.
+  - The regional reader is tested on missing and invalid premiums (the RL-11 matrix), unverified calls, unresolved identities, recruit calls, a source conflict, a campaign copy and a future Sold Date.
+- **Index:** exact definition and validity; a missing index, a leftover with another definition and an invalid leftover are each refused.
+- **Negative controls (11):**
+  - narrowing removed from three readers;
+  - roster widened;
+  - unknown premium emitted as 0;
+  - stub evidence emitted as 0;
+  - a v2 policy field leaked into a call reader;
+  - non-attempts counted;
+  - a membership join that multiplies calls;
+  - a hidden campaign leaked;
+  - AP pre-rounded.
+
+  An anon grant also breaks the seal check.
+
+**Files touched.**
+- Created:
+  - `supabase/migrations/20261101000015_reports_v3_readers.sql`
+  - `supabase/migrations/20261101000016_reports_v3_calls_campaign_lead_index.sql`
+  - `supabase/tests/reports_v3_security.sql`
+  - `supabase/tests/reports_v3_call_readers.sql`
+  - `supabase/tests/reports_v3_negative.sql`
+- Modified:
+  - `supabase/tests/reports_v3_fixtures.sql`
+  - `supabase/tests/reports_v3_contract.sql`
+  - `supabase/tests/reports_v3_state_breakdown.sql`
+  - `supabase/tests/reports_v3_appointment_facts.sql`
+  - `scripts/reports_v3_fixture.py`
+  - `src/lib/__tests__/reportsV3Contracts.test.ts`
+  - `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+  - `docs/plans/2026-10-31-reports-v2/appendix/D3.md`
+  - `implementation_plan.md`
+  - `WORK_LOG.md`
+
+**Migrations and deploys.** None. Disposable local synthetic databases only, with placeholder versions. No grant, enable, PR, merge or deploy.
+
+**Verification** (local, base `6e39c15`):
+- **Failing first:** with `…15` and `…16` left out, each new suite stops at the missing reader (security fails S1–S3: 42883 instead of 42501), and the index check reports the index missing.
+- **SQL suites:** the v3 suite passes on PG 16.15.
+  - New assertions: appointment 29, state 40, call readers 38, security 29, reader contract 7.
+  - Controls: 11 new negative controls, plus 7 new refusal and index steps.
+  - Whole runner: 419 assertions, 32 mutation controls, 97 refusal checks, no error lines.
+  - The integrity, RPC and profile suites also pass.
+- **Static test:** 33/33.
+- **TypeScript:** root `npx tsc --noEmit` passes. The app typecheck gives 80 errors whose identities match base, line for line.
+- **ESLint and Reports Vitest:** scoped ESLint is clean. Reports Vitest: 27 files, 436 passed, 1 pre-existing skip.
+- **Full Vitest:** 6,720 passed, 2 failed, 37 skipped across 1,975 suites. Against the clean `6e39c15` worktree (6,687 passed across 1,966 suites), the 11 failing files and the 2 failing tests are identical by name. The 33 extra passing tests all come from this branch's static contract test, and no test that passes at base fails here.
+- **Build:** `npm run build` passes.
+- **PostgreSQL 17.6 CI on the pushed head:** dispatched after the push; the result is added in the follow-up record commit.
+
+**Open PKG-A requirements (not claimed as passed).**
+- **Performance gate:** the 500k/5k/10k gate with EXPLAIN evidence (`reports_v3_performance.sql`) is not built or passed.
+- **Journey optimization:** before the gate, the journey query must be narrowed to window-bounded candidate identities while keeping every earlier event its first-contact and first-sale classification needs. The journey reader currently recomputes journey facts once per by_agent row.
+- **Release suite:** `reports_v3_release.sql`, with the ops enable and disable scripts, and S15 in the enabled, disabled and rolled-back states.
+- **Security review:** the named §2.9 security review of the actual reader SQL.
+
+**Next.** Stop for review. No enable or release work.
+
 ## 2026-11-02 — Reports V2 PKG-A Batch 4: appointment-facts stub and state helpers; branch pushed; PostgreSQL 17.6 CI green (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
 
 **Status.**

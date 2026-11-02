@@ -1,0 +1,224 @@
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+-- =====================================================================================================
+-- Reports v3 call readers (plan D3 §3.7, §7 V1–V9; D1 §3.6). Disposable synthetic databases only, through
+-- scripts/run_reports_v3_tests.sh. One REPEATABLE READ transaction, so every reader sees one snapshot and one
+-- now(). Fixtures: O1 in reports_v3_fixtures.sql (October 2026, America/Los_Angeles). Readers are exercised
+-- through rt.v3_call, whose EXECUTE grant never outlives the call.
+-- Hand-computed October anchors (attempt rows): agency 10 (RC0, RC1–RC4, RC7–RC10, RC13), contacted 5;
+-- team TL1 8; A1 5 (contacted 2); A2 3; A3 2. Excluded: RC5 non-attempt, RC6 unverified, RC14 duplicate,
+-- RC11/RC12 inbound, RC0B (Nov 1 00:00 PDT, the window's end instant).
+-- =====================================================================================================
+
+-- Every Calls made and Contacted total of one scope, from all six readers that carry calls.
+CREATE FUNCTION rt.v3_recon(p_who text, p_scope text DEFAULT NULL, p_agent text DEFAULT NULL,
+                            p_start date DEFAULT '2026-10-01', p_end date DEFAULT '2026-10-31') RETURNS text LANGUAGE plpgsql AS $$
+DECLARE s jsonb; v jsonb; d jsonb; c jsonb; l jsonb; st jsonb;
+BEGIN
+  s := rt.v3r(p_who, 'summary', p_scope, p_agent, p_start, p_end);
+  v := rt.v3r(p_who, 'call_volume', p_scope, p_agent, p_start, p_end);
+  d := rt.v3r(p_who, 'disposition_breakdown', p_scope, p_agent, p_start, p_end);
+  c := rt.v3r(p_who, 'campaign_calls', p_scope, p_agent, p_start, p_end);
+  l := rt.v3r(p_who, 'lead_source_calls', p_scope, p_agent, p_start, p_end);
+  st := rt.v3r(p_who, 'state_breakdown', p_scope, p_agent, p_start, p_end);
+  RETURN concat_ws('|', 'calls', rt.kpi(s, 5), rt.jsum(v, '$.heatmap[*].calls_made'), rt.jsum(v, '$.by_date[*].calls_made'),
+           rt.jsum(v, '$.by_hour[*].calls_made'), rt.jsum(v, '$.by_weekday[*].calls_made'), rt.jsum(d, '$.by_disposition[*].calls'),
+           rt.jsum(d, '$.duration_buckets[*].calls'), rt.jsum(c, '$.campaigns[*].calls_made') + (c #>> '{calls_without_campaign,calls_made}')::numeric
+             + (c #>> '{other_campaigns,calls_made}')::numeric,
+           rt.jsum(l, '$.sources[*].calls_made') + (l #>> '{not_linked,calls_made}')::numeric, st #> '{totals,calls_made}',
+           'contacted', rt.kpi(s, 6), rt.jsum(v, '$.heatmap[*].contacted'), rt.jsum(v, '$.by_date[*].contacted'),
+           rt.jsum(c, '$.campaigns[*].contacted_calls') + (c #>> '{calls_without_campaign,contacted_calls}')::numeric
+             + (c #>> '{other_campaigns,contacted_calls}')::numeric,
+           rt.jsum(l, '$.sources[*].contacted_calls') + (l #>> '{not_linked,contacted_calls}')::numeric, st #> '{totals,contacted_calls}',
+           'population', (SELECT count(DISTINCT x) FROM unnest(ARRAY[rt.kpi(s, 5, 'detail')::jsonb -> 'call_population', s -> 'call_population',
+             v -> 'call_population', d -> 'call_population', c -> 'call_population', l -> 'call_population', st -> 'call_population']) x));
+END $$;
+
+-- -----------------------------------------------------------------------------------------------------
+-- V1, V2, V3: attempt rows only; every call surface reconciles to KPI 5 and KPI 6 at every scope, in one
+-- snapshot; call_population is one block across the summary, the four call readers and the state reader.
+-- -----------------------------------------------------------------------------------------------------
+SELECT rt.eq('V2 agency: every call total = KPI 5 = 10, every contacted total = KPI 6 = 5, one call_population',
+  rt.v3_recon('ADM1'), 'calls|10|10|10|10|10|10|10|10|10|10|contacted|5|5|5|5|5|5|population|1');
+SELECT rt.eq('V2 team (TL1): 8 calls, 4 contacted', rt.v3_recon('TL1'), 'calls|8|8|8|8|8|8|8|8|8|8|contacted|4|4|4|4|4|4|population|1');
+SELECT rt.eq('V2 personal (A1): 5 calls, 2 contacted', rt.v3_recon('A1'), 'calls|5|5|5|5|5|5|5|5|5|5|contacted|2|2|2|2|2|2|population|1');
+SELECT rt.eq('V2 agent filter (ADM1 on A2): 3 calls, 2 contacted', rt.v3_recon('ADM1', NULL, 'A2'),
+  'calls|3|3|3|3|3|3|3|3|3|3|contacted|2|2|2|2|2|2|population|1');
+SELECT rt.eq('V2 team filter (TL1 on A1): 5 calls', rt.v3_recon('TL1', 'team', 'A1'), 'calls|5|5|5|5|5|5|5|5|5|5|contacted|2|2|2|2|2|2|population|1');
+SELECT rt.eq('V2 empty window: every total 0', rt.v3_recon('ADM1', NULL, NULL, '2026-07-01', '2026-07-01'),
+  'calls|0|0|0|0|0|0|0|0|0|0|contacted|0|0|0|0|0|0|population|1');
+SELECT rt.eq('V3 agency call_population', rt.v3r('ADM1', 'call_volume') -> 'call_population',
+  '{"attempts": 10, "non_attempts": 1, "unverified": 1, "duplicates_excluded": 1}'::jsonb);
+SELECT rt.eq('V3 Partial cue follows unverified rows: agency and A1 partial, A2 available',
+  concat_ws(' ', rt.kpi(rt.v3r('ADM1', 'summary'), 5, 'status'), rt.kpi(rt.v3r('A1', 'summary'), 5, 'status'),
+            rt.kpi(rt.v3r('A2', 'summary'), 5, 'status')), '"partial" "partial" "available"');
+SELECT rt.eq('V3 unverified only (A1 on Oct 7): KPI 5 unavailable/attempt_unverified, never 0',
+  rt.kpi(rt.v3r('A1', 'summary', NULL, NULL, '2026-10-07', '2026-10-07'), 5, 'status') || ' '
+  || rt.kpi(rt.v3r('A1', 'summary', NULL, NULL, '2026-10-07', '2026-10-07'), 5, 'reason') || ' '
+  || rt.kpi(rt.v3r('A1', 'summary', NULL, NULL, '2026-10-07', '2026-10-07'), 5, 'value'),
+  '"unavailable" "attempt_unverified" null');
+SELECT rt.eq('V1 a genuine failed attempt stays counted (RC4: no outcome, 0 s, no campaign, no lead)',
+  concat_ws(' ', (SELECT e -> 'calls' FROM jsonb_array_elements(rt.v3r('A1', 'disposition_breakdown') -> 'by_disposition') e WHERE e ->> 'key' = 'none'),
+            rt.v3r('A1', 'campaign_calls') #> '{calls_without_campaign,calls_made}', rt.v3r('A1', 'lead_source_calls') #> '{not_linked,calls_made}'),
+  '1 1 1');
+
+-- -----------------------------------------------------------------------------------------------------
+-- V9: v2 is unchanged, and v2 calls_made − v3 KPI 5 = non_attempts + unverified (2 = 1 + 1).
+-- -----------------------------------------------------------------------------------------------------
+SELECT rt.eq('V9 v2 readers keep their pinned bodies',
+  (SELECT string_agg(p.proname || ':' || md5(p.prosrc), ' ' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = ANY (rt.v2_readers())),
+  'get_report_call_summary_v2:23c21fa14b07edaeaa3901e76b243d66 get_report_call_volume_v2:a4a5e82f36e124fa8ee9d581229ef455 '
+  || 'get_report_campaign_performance_v2:8d8bee228b2bed67076e2547f506264d get_report_disposition_breakdown_v2:ae4611201b9add696bfd92f4576fdd7b '
+  || 'get_report_lead_source_performance_v2:8d85fff93300966502964b500eb46166 get_report_scope_v2:26a2d64831975668a492dfda2e369aac');
+SELECT rt.eq('V9 v2 calls_made − v3 KPI 5 = non_attempts + unverified',
+  (rt.call(rt.v3('ADM1'), rt.v3('O1'), $q$SELECT public.get_report_call_summary_v2('2026-10-01', '2026-10-31', NULL, 'agency')$q$) #>> '{totals,calls_made}')::int
+    - rt.kpi(rt.v3r('ADM1', 'summary'), 5)::int,
+  1 + 1);
+
+-- -----------------------------------------------------------------------------------------------------
+-- V4: hidden campaigns contribute only through "Other campaigns" (no id, name or type); V6 call-only
+-- payloads with exact rate parts.
+-- -----------------------------------------------------------------------------------------------------
+SELECT rt.eq('V4 Admin sees every campaign: rows, no other campaigns',
+  (SELECT string_agg(e ->> 'name' || '=' || (e ->> 'calls_made'), ', ' ORDER BY e ->> 'name') FROM jsonb_array_elements(rt.v3r('ADM1', 'campaign_calls') -> 'campaigns') e)
+  || ' | without ' || (rt.v3r('ADM1', 'campaign_calls') #>> '{calls_without_campaign,calls_made}')
+  || ' | other ' || (rt.v3r('ADM1', 'campaign_calls') #>> '{other_campaigns,calls_made}'),
+  'V3 A1 Personal=2, V3 A3 Personal=1, V3 Team One=4, V3 Team Three=1 | without 2 | other 0');
+SELECT rt.eq('V4 A1: KT3 is hidden and appears only as one Other campaigns call',
+  (SELECT string_agg(e ->> 'name' || '=' || (e ->> 'calls_made'), ', ' ORDER BY e ->> 'name') FROM jsonb_array_elements(rt.v3r('A1', 'campaign_calls') -> 'campaigns') e)
+  || ' | other ' || (rt.v3r('A1', 'campaign_calls') -> 'other_campaigns')::text,
+  'V3 A1 Personal=2, V3 Team One=1 | other {"calls_made": 1, "contacted_calls": 1, "contact_rate_numerator": 1, "contact_rate_denominator": 1}');
+SELECT rt.eq('V4 no hidden campaign id or name anywhere in A1''s call payloads',
+  (SELECT count(*) FROM unnest(ARRAY['call_volume', 'disposition_breakdown', 'campaign_calls', 'lead_source_calls']) r
+    WHERE rt.v3r('A1', r)::text ~ (rt.v3('KT3') || '|' || rt.v3('KH3') || '|V3 Team Three|V3 A3 Personal')),
+  0::bigint);
+SELECT rt.eq('V4 the A1 deep dive lists visible campaigns only, with the hidden call in other_campaigns',
+  (SELECT string_agg(e ->> 'name', ', ' ORDER BY e ->> 'name') FROM jsonb_array_elements(rt.v3r('A1', 'disposition_breakdown') #> '{deep_dive,by_campaign}') e)
+  || ' | ' || (rt.v3r('A1', 'disposition_breakdown') #>> '{deep_dive,other_campaigns,total}'),
+  'V3 A1 Personal, V3 Team One | 1');
+SELECT rt.eq('V6 call-only payloads: no policy, premium or v2 lead-funnel field in any call reader',
+  (SELECT count(*) FROM unnest(ARRAY['call_volume', 'disposition_breakdown', 'campaign_calls', 'lead_source_calls']) r,
+          jsonb_path_query(rt.v3r('ADM1', r), 'strict $.**') v
+    WHERE jsonb_typeof(v) = 'object'
+      AND EXISTS (SELECT 1 FROM jsonb_object_keys(v) k WHERE k ~ '(polic|premium|attribution_unavailable|leads_dialed|contacted_leads|converted|contact_rate_pct|avg_)')),
+  0::bigint);
+SELECT rt.eq('V6 exact contact-rate parts on every campaign and source row',
+  (SELECT count(*) FROM (SELECT e FROM jsonb_array_elements(rt.v3r('ADM1', 'campaign_calls') -> 'campaigns') e
+                         UNION ALL SELECT rt.v3r('ADM1', 'campaign_calls') -> 'calls_without_campaign'
+                         UNION ALL SELECT rt.v3r('ADM1', 'campaign_calls') -> 'other_campaigns'
+                         UNION ALL SELECT e FROM jsonb_array_elements(rt.v3r('ADM1', 'lead_source_calls') -> 'sources') e
+                         UNION ALL SELECT rt.v3r('ADM1', 'lead_source_calls') -> 'not_linked') x(e)
+    WHERE e -> 'contact_rate_numerator' IS DISTINCT FROM e -> 'contacted_calls'
+       OR e -> 'contact_rate_denominator' IS DISTINCT FROM e -> 'calls_made'),
+  0::bigint);
+SELECT rt.eq('V6 the call readers carry v3 meta and no envelopes',
+  (SELECT string_agg(r || ':' || (rt.v3r('ADM1', r) ->> 'reader') || ':' || (rt.v3r('ADM1', r) ->> 'basis_version') || ':'
+                     || (rt.v3r('ADM1', r) -> 'metrics')::text, ' ' ORDER BY r)
+     FROM unnest(ARRAY['call_volume', 'disposition_breakdown', 'campaign_calls', 'lead_source_calls']) r),
+  'call_volume:call_volume:reports_v3:[] campaign_calls:campaign_calls:reports_v3:[] '
+  || 'disposition_breakdown:disposition_breakdown:reports_v3:[] lead_source_calls:lead_source_calls:reports_v3:[]');
+
+-- -----------------------------------------------------------------------------------------------------
+-- V5: lead sources and "Not linked to a current lead"; New leads by the v2 rule (created in the window,
+-- currently assigned in scope).
+-- -----------------------------------------------------------------------------------------------------
+SELECT rt.eq('V5 agency sources: calls, contacted and New leads; RC4 and the recruit call are not linked',
+  (SELECT string_agg(concat_ws(':', e ->> 'lead_source', e ->> 'calls_made', e ->> 'contacted_calls', e ->> 'new_leads'), ' ' ORDER BY e ->> 'lead_source')
+     FROM jsonb_array_elements(rt.v3r('ADM1', 'lead_source_calls') -> 'sources') e)
+  || ' | not linked ' || (rt.v3r('ADM1', 'lead_source_calls') #>> '{not_linked,calls_made}'),
+  '(No source):1:1:1 Facebook:3:1:2 Referral:4:3:2 Web:0:0:2 | not linked 2');
+SELECT rt.eq('V5 A1: New leads count only leads assigned to A1',
+  (SELECT string_agg(concat_ws(':', e ->> 'lead_source', e ->> 'calls_made', e ->> 'new_leads'), ' ' ORDER BY e ->> 'lead_source')
+     FROM jsonb_array_elements(rt.v3r('A1', 'lead_source_calls') -> 'sources') e),
+  '(No source):1:0 Facebook:3:2 Web:0:1');
+SELECT rt.eq('V5 repeated memberships never multiply calls (RL1 is in KP1 and KT12: 3 calls, not 6)',
+  (SELECT e -> 'calls_made' FROM jsonb_array_elements(rt.v3r('ADM1', 'lead_source_calls') -> 'sources') e WHERE e ->> 'lead_source' = 'Facebook'),
+  '3'::jsonb);
+
+-- -----------------------------------------------------------------------------------------------------
+-- V7: the heatmap is 168 Sunday-first cells in the agency zone; the spring-forward day has 23 hours.
+-- V8: disposition key 'none', the five buckets, a scoped deep dive.
+-- -----------------------------------------------------------------------------------------------------
+SELECT rt.eq('V7 168 cells, Sunday-first, hour-ordered',
+  (SELECT count(*) || ':' || bool_and((e ->> 'dow')::int * 24 + (e ->> 'hour')::int = o - 1)
+     FROM jsonb_array_elements(rt.v3r('ADM1', 'call_volume') -> 'heatmap') WITH ORDINALITY x(e, o)), '168:true');
+SELECT rt.eq('V7 agency-zone cells: Mon 09 (RC1, RC13), Thu 00 (RC0 at the window start), Thu 15 (RC7, RC8)',
+  (SELECT string_agg(concat_ws(':', e ->> 'dow', e ->> 'hour', e ->> 'calls_made', e ->> 'contacted'), ' ' ORDER BY (e ->> 'dow')::int, (e ->> 'hour')::int)
+     FROM jsonb_array_elements(rt.v3r('ADM1', 'call_volume') -> 'heatmap') e WHERE (e ->> 'calls_made')::int > 0),
+  '1:9:2:1 1:10:1:0 2:9:1:1 2:11:1:0 4:0:1:0 4:15:2:2 5:9:1:1 5:10:1:0');
+SELECT rt.eq('V7 spring-forward day 2026-03-08: one date, RC15 at 01:59 PST and RC16 at 03:00 PDT, no 02:00 hour',
+  (SELECT string_agg(concat_ws(':', e ->> 'dow', e ->> 'hour', e ->> 'calls_made'), ' ' ORDER BY (e ->> 'hour')::int)
+     FROM jsonb_array_elements(rt.v3r('A1', 'call_volume', NULL, NULL, '2026-03-08', '2026-03-08') -> 'heatmap') e WHERE (e ->> 'calls_made')::int > 0)
+  || ' | ' || jsonb_array_length(rt.v3r('A1', 'call_volume', NULL, NULL, '2026-03-08', '2026-03-08') -> 'by_date'),
+  '0:1:1 0:3:1 | 1');
+SELECT rt.eq('V7 by_date keeps every agency date (31 in October) and inbound rows apart',
+  jsonb_array_length(rt.v3r('ADM1', 'call_volume') -> 'by_date') || ' inbound ' || (rt.v3r('ADM1', 'call_volume') ->> 'inbound_calls')
+  || ' A2 ' || (rt.v3r('A2', 'call_volume') ->> 'inbound_calls') || ' A1 ' || (rt.v3r('A1', 'call_volume') ->> 'inbound_calls'),
+  '31 inbound 2 A2 1 A1 0');
+SELECT rt.eq('V8 dispositions: no outcome is key none, named No outcome recorded',
+  (SELECT string_agg(concat_ws(':', e ->> 'key', e ->> 'name', e ->> 'calls'), ' | ' ORDER BY e ->> 'name')
+     FROM jsonb_array_elements(rt.v3r('ADM1', 'disposition_breakdown') -> 'by_disposition') e
+    WHERE e ->> 'key' = 'none' OR e ->> 'name' IN ('No Answer', 'Interested')),
+  'c3a71000-0000-0000-0000-000000000002:Interested:3 | c3a71000-0000-0000-0000-000000000001:No Answer:4 | none:No outcome recorded:1');
+SELECT rt.eq('V8 the five duration buckets hold every attempt row exactly once',
+  (SELECT string_agg(e ->> 'range' || '=' || (e ->> 'calls'), ' ' ORDER BY o) FROM jsonb_array_elements(rt.v3r('ADM1', 'disposition_breakdown') -> 'duration_buckets') WITH ORDINALITY x(e, o)),
+  '0-30s=3 30s-1m=3 1-2m=2 2-5m=1 5m+=1');
+SELECT rt.eq('V8 the deep dive is scoped: A1 sees only A1 and no unattributed bucket; agency has one',
+  (SELECT string_agg(e ->> 'agent_id', ',') FROM jsonb_array_elements(rt.v3r('A1', 'disposition_breakdown') #> '{deep_dive,by_agent}') e)
+  || ' | ' || coalesce(rt.v3r('A1', 'disposition_breakdown') #>> '{deep_dive,unattributed}', 'null')
+  || ' | ' || (rt.v3r('ADM1', 'disposition_breakdown') #>> '{deep_dive,unattributed,total}'),
+  rt.v3('A1') || ' | null | 0');
+
+-- -----------------------------------------------------------------------------------------------------
+-- KPI 24 (talk time) and KPI 25 (time in dialer): canonical durations of attempt rows with their quality
+-- disclosed, never upgraded; clipped session intervals with the heartbeat cap, the preserved late-ended rule
+-- and same-agent overlap union.
+-- -----------------------------------------------------------------------------------------------------
+SELECT rt.eq('KPI 24 agency: 725 s over attempt rows; quality counts as recorded',
+  rt.kpi(rt.v3r('ADM1', 'summary'), 24) || ' ' || rt.kpi(rt.v3r('ADM1', 'summary'), 24, 'status') || ' '
+  || rt.kpi(rt.v3r('ADM1', 'summary'), 24, 'detail'),
+  '725 "available" {"quality": {"unknown": 4, "estimated": 1, "conflicting": 1, "provider_confirmed": 4, "duplicates_excluded": 1}}');
+SELECT rt.eq('KPI 25 agency: 9000 (A1 overlap union) + 10800 (A2 clipped + stale cap) + 10800 (A3 late-ended)',
+  rt.kpi(rt.v3r('ADM1', 'summary'), 25) || ' ' || rt.kpi(rt.v3r('ADM1', 'summary'), 25, 'detail'),
+  '30600 {"quality": {"late_ended": 1, "stale_capped": 1}}');
+SELECT rt.eq('KPIs 24 and 25 per agent, and by_agent rows sum to the totals',
+  (SELECT string_agg(concat_ws(':', e ->> 'name', (SELECT m ->> 'value' FROM jsonb_array_elements(e -> 'metrics') m WHERE (m ->> 'id')::int = 24),
+                               (SELECT m ->> 'value' FROM jsonb_array_elements(e -> 'metrics') m WHERE (m ->> 'id')::int = 25)), ' ' ORDER BY e ->> 'name')
+     FROM jsonb_array_elements(rt.v3r('ADM1', 'summary') -> 'by_agent') e),
+  'Vee Admin:0:0 Vee Agent One:175:9000 Vee Agent Three:150:10800 Vee Agent Two:400:10800 Vee Leader:0:0');
+SELECT rt.eq('KPIs 24 and 25 on the spring-forward day: 100 s talk, 7200 s in the dialer (2 real hours)',
+  rt.kpi(rt.v3r('A1', 'summary', NULL, NULL, '2026-03-08', '2026-03-08'), 24) || ' '
+  || rt.kpi(rt.v3r('A1', 'summary', NULL, NULL, '2026-03-08', '2026-03-08'), 25), '100 7200');
+SELECT rt.eq('KPI 25 clips at both window edges (RS2A: 28800 s on Sep 30, 7200 s in October)',
+  rt.kpi(rt.v3r('A2', 'summary', NULL, NULL, '2026-09-30', '2026-09-30'), 25), '28800');
+SELECT rt.eq('empty window: KPIs 5, 24 and 25 are available 0 with zero quality',
+  concat_ws(' ', rt.kpi(rt.v3r('ADM1', 'summary', NULL, NULL, '2026-07-01', '2026-07-01'), 5),
+            rt.kpi(rt.v3r('ADM1', 'summary', NULL, NULL, '2026-07-01', '2026-07-01'), 24),
+            rt.kpi(rt.v3r('ADM1', 'summary', NULL, NULL, '2026-07-01', '2026-07-01'), 25),
+            rt.kpi(rt.v3r('ADM1', 'summary', NULL, NULL, '2026-07-01', '2026-07-01'), 24, 'status'),
+            rt.kpi(rt.v3r('ADM1', 'summary', NULL, NULL, '2026-07-01', '2026-07-01'), 24, 'detail'),
+            rt.kpi(rt.v3r('ADM1', 'summary', NULL, NULL, '2026-07-01', '2026-07-01'), 25, 'detail')),
+  '0 0 0 "available" {"quality": {"unknown": 0, "estimated": 0, "conflicting": 0, "provider_confirmed": 0, "duplicates_excluded": 0}} '
+  || '{"quality": {"late_ended": 0, "stale_capped": 0}}');
+SELECT rt.eq('window edges: RC0 at Oct 1 00:00 PDT counts in October; RC0B at Nov 1 00:00 PDT counts on Nov 1',
+  rt.kpi(rt.v3r('A2', 'summary'), 5) || ' ' || rt.kpi(rt.v3r('A2', 'summary', NULL, NULL, '2026-11-01', '2026-11-01'), 5), '3 1');
+
+-- -----------------------------------------------------------------------------------------------------
+-- Scope totals deduplicate identities: a second agent reaching RL1 adds a by_agent reach, not a total one.
+-- -----------------------------------------------------------------------------------------------------
+SAVEPOINT dedup;
+INSERT INTO public.calls (id, organization_id, agent_id, direction, contact_id, contact_type, contact_phone, campaign_id,
+                          campaign_lead_id, created_at, duration, disposition_id, disposition_name, status)
+VALUES (gen_random_uuid(), rt.v3('O1'), rt.v3('A2'), 'outbound', rt.v3('RL1'), 'lead', '702-555-0101', rt.v3('KT12'), rt.v3('RM2'),
+        '2026-10-14 16:00+00', 80, rt.v3('RD_INT'), 'Interested', 'completed');
+SELECT rt.eq('KPI 7 total stays 4 while the by_agent rows sum to 5',
+  rt.kpi(rt.v3r('ADM1', 'summary'), 7) || ' ' || (SELECT sum((SELECT (m ->> 'value')::int FROM jsonb_array_elements(e -> 'metrics') m WHERE (m ->> 'id')::int = 7))
+                                                    FROM jsonb_array_elements(rt.v3r('ADM1', 'summary') -> 'by_agent') e),
+  '4 5');
+ROLLBACK TO SAVEPOINT dedup;
+SELECT rt.eq('by_agent per-agent call counts equal report_v3_call_counts for that agent alone',
+  (SELECT count(*) FROM private.report_v3_agent_call_stats(rt.v3('O1'), NULL, '2026-10-01 07:00+00', '2026-11-01 07:00+00') s
+    WHERE s.agent_id IS NOT NULL
+      AND s.counts IS DISTINCT FROM private.report_v3_call_counts(rt.v3('O1'), ARRAY[s.agent_id], '2026-10-01 07:00+00', '2026-11-01 07:00+00')),
+  0::bigint);
+SELECT rt.assert_sealed_v3(true, false);

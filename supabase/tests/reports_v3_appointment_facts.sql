@@ -147,3 +147,36 @@ SELECT rt.reject_mutation('private.report_v3_appointment_facts(uuid,uuid[],uuid[
   'private.report_v3_rate(17, 0, 0, NULL, NULL, ''evidence_not_captured''),', '',
   $probe$SELECT rt.eq('mutated registry order', rt.appt_ids(rt.appt(NULL)), private.report_v3_kpi_ids('sales_appointments'))$probe$,
   'mutated registry order FAIL');
+
+-- -----------------------------------------------------------------------------------------------------
+-- 7. The sales appointments reader (…15) over the stub: truthful unavailable/evidence_not_captured envelopes,
+--    by_agent = the server-resolved roster with names, statuses and the per-KPI credit map. No appointment
+--    evidence, category or outcome is read or written (PKG-D).
+-- -----------------------------------------------------------------------------------------------------
+SELECT rt.eq('reader metrics are the stub''s five envelopes', rt.v3r('ADM1', 'sales_appointments') -> 'metrics', (SELECT metrics FROM appt_expected));
+SELECT rt.eq('agency roster: the Active profiles, by name, each with the credit map and the same five envelopes',
+  (SELECT string_agg(concat_ws(':', e ->> 'name', e ->> 'status', (e -> 'metrics' = (SELECT metrics FROM appt_expected))::text), ', ' ORDER BY o)
+     FROM jsonb_array_elements(rt.v3r('ADM1', 'sales_appointments') -> 'by_agent') WITH ORDINALITY x(e, o)),
+  'Vee Admin:Active:true, Vee Agent One:Active:true, Vee Agent Three:Active:true, Vee Agent Two:Active:true, Vee Leader:Active:true');
+SELECT rt.eq('the credit map: 12, 16, 17, 18 assigned agent at the appointment time; 15 setter',
+  (SELECT DISTINCT e -> 'credit' FROM jsonb_array_elements(rt.v3r('ADM1', 'sales_appointments') -> 'by_agent') e),
+  '{"12": "assigned_agent_at_start", "15": "setter", "16": "assigned_agent_at_start", "17": "assigned_agent_at_start", "18": "assigned_agent_at_start"}'::jsonb);
+SELECT rt.eq('the roster follows the resolved scope: personal, team, agency filter',
+  concat_ws(' | ',
+    (SELECT string_agg(e ->> 'name', ',') FROM jsonb_array_elements(rt.v3r('A1', 'sales_appointments') -> 'by_agent') e),
+    (SELECT string_agg(e ->> 'name', ',' ORDER BY e ->> 'name') FROM jsonb_array_elements(rt.v3r('TL1', 'sales_appointments') -> 'by_agent') e),
+    (SELECT string_agg(e ->> 'name', ',') FROM jsonb_array_elements(rt.v3r('ADM1', 'sales_appointments', NULL, 'A3') -> 'by_agent') e)),
+  'Vee Agent One | Vee Agent One,Vee Agent Two,Vee Leader | Vee Agent Three');
+SELECT rt.eq('reader meta: no policy basis, appointment evidence not installed, contract 3.0.0',
+  concat_ws(' ', rt.v3r('A1', 'sales_appointments') ->> 'reader', (rt.v3r('A1', 'sales_appointments') ? 'policy_basis')::text,
+            rt.v3r('A1', 'sales_appointments') #>> '{basis,appointment_evidence}', rt.v3r('A1', 'sales_appointments') ->> 'contract_version'),
+  'sales_appointments false not_installed 3.0.0');
+CREATE TEMP TABLE appt_reader_before AS SELECT rt.v3r('ADM1', 'sales_appointments') AS agency, rt.v3r('A1', 'sales_appointments') AS personal;
+SAVEPOINT appt_reader;
+INSERT INTO public.appointments (id, title, type, status, created_by, user_id, created_at, organization_id)
+VALUES (gen_random_uuid(), 'Sales review', 'Sales Call', 'Completed', rt.v3('A1'), rt.v3('A1'), '2026-10-12 18:00+00', rt.v3('O1')),
+       (gen_random_uuid(), 'Sales review', 'Sales Call', 'Scheduled', rt.v3('A3'), rt.v3('A3'), '2026-10-13 18:00+00', rt.v3('O1'));
+SELECT rt.eq('appointments in the window move no KPI before PKG-D: the payloads are byte-identical',
+  (SELECT agency = rt.v3r('ADM1', 'sales_appointments') AND personal = rt.v3r('A1', 'sales_appointments') FROM appt_reader_before), true);
+ROLLBACK TO SAVEPOINT appt_reader;
+SELECT rt.assert_sealed_v3(true, false);

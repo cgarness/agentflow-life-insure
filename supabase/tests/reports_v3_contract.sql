@@ -534,3 +534,55 @@ SELECT rt.reject_mutation('private.report_v3_ratio(integer,numeric,numeric,jsonb
   $probe$SELECT rt.eq('mutated maturity', private.report_v3_ratio(12, 4, 0, rt.cov(4, 0, 4, '{"attribution_unresolved":4}'),
     rt.mat(4, 1, 0, 3, 0)) -> 'maturity', rt.mat(4, 1, 0, 3, 0))$probe$,
   'reports v3 metric 12: a cohort with members needs its maturity block');
+
+-- @readers
+-- =====================================================================================================
+-- Reader contract (plan D1 §11, contract cases that need the readers). This section runs as its own step
+-- after …15 and …16 (scripts/reports_v3_fixture.py splits this file at the marker above).
+-- =====================================================================================================
+SELECT rt.eq('reader metric ids: summary, journey and sales appointments in registry order; none elsewhere; together the 23 KPIs',
+  concat_ws(' | ',
+    (SELECT string_agg(r || '=' || coalesce((SELECT string_agg(e ->> 'id', ',' ORDER BY o) FROM jsonb_array_elements(rt.v3r('ADM1', r) -> 'metrics') WITH ORDINALITY x(e, o)), '-'), ' ' ORDER BY r)
+       FROM unnest(ARRAY['summary', 'journey', 'sales_appointments', 'state_breakdown', 'call_volume', 'disposition_breakdown', 'campaign_calls', 'lead_source_calls']) r),
+    (SELECT count(DISTINCT (e ->> 'id')::int) FROM unnest(ARRAY['summary', 'journey', 'sales_appointments']) r, jsonb_array_elements(rt.v3r('ADM1', r) -> 'metrics') e)),
+  'call_volume=- campaign_calls=- disposition_breakdown=- journey=14,19,21,38 lead_source_calls=- sales_appointments=12,15,16,17,18 '
+  || 'state_breakdown=- summary=1,2,3,4,5,6,7,8,9,10,11,24,25,34 | 23');
+SELECT rt.eq('every envelope in every reader payload (agency, team, personal; totals and by_agent rows) has the nine keys and a registry reason',
+  (SELECT count(*) FROM unnest(ARRAY['ADM1', 'TL1', 'A1']) w, unnest(ARRAY['summary', 'journey', 'sales_appointments']) r,
+          LATERAL (SELECT m FROM jsonb_path_query(rt.v3r(w, r), 'strict $.metrics[*]') m
+                   UNION ALL SELECT m FROM jsonb_path_query(rt.v3r(w, r), 'strict $.by_agent[*].metrics[*]') m) e(x)
+    WHERE (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(x) k)
+            IS DISTINCT FROM ARRAY['coverage', 'denominator', 'detail', 'id', 'maturity', 'numerator', 'reason', 'status', 'value']
+       OR x ->> 'status' NOT IN ('available', 'partial', 'unavailable')
+       OR (x ->> 'reason' IS NOT NULL AND NOT (x ->> 'reason') = ANY (private.report_v3_reason_codes()))
+       OR x ->> 'reason' = 'panel_not_loaded'),
+  0::bigint);
+SELECT rt.eq('no reader raises on an empty, open, spring-forward or uncertain window (unresolved identities, unverified calls)',
+  (SELECT count(*) FROM unnest(ARRAY['ADM1', 'A1']) w,
+          unnest(ARRAY['summary', 'journey', 'sales_appointments', 'state_breakdown', 'call_volume', 'disposition_breakdown', 'campaign_calls', 'lead_source_calls']) r,
+          (VALUES ('2026-07-01'::date, '2026-07-01'::date), ((now() AT TIME ZONE 'America/Los_Angeles')::date, (now() AT TIME ZONE 'America/Los_Angeles')::date),
+                  ('2026-03-08', '2026-03-08'), ('2026-10-01', '2026-10-31')) v(a, b)
+    WHERE rt.v3_err(rt.v3(w), rt.v3('O1'), format('SELECT public.get_report_%s_v3(%L, %L)', r, v.a, v.b)) = 'OK'),
+  64::bigint);
+SELECT rt.eq('KPI 2 = dated, identified sales in the sold window recorded by now (agency, October)',
+  rt.kpi(rt.v3r('ADM1', 'summary'), 2)::bigint,
+  (SELECT count(*) FROM public.wins w WHERE w.organization_id = rt.v3('O1') AND w.policy_id IS NOT NULL
+      AND w.sold_date >= '2026-10-01' AND w.sold_date < '2026-11-01' AND coalesce(w.recorded_at, w.created_at) <= now()));
+SELECT rt.eq('values are unrounded beyond scale 6, from exact numerators and denominators (no reader pre-rounds)',
+  (SELECT count(*) FROM unnest(ARRAY['ADM1', 'A2']) w, jsonb_array_elements(rt.v3r(w, 'summary') -> 'metrics') e
+     JOIN jsonb_array_elements(private.report_v3_metric_registry()) g ON (g ->> 'id')::int = (e ->> 'id')::int
+    WHERE e ->> 'value' IS NOT NULL AND g ->> 'kind' IN ('ratio', 'rate')
+      AND (e ->> 'value')::numeric <> round(CASE g ->> 'kind' WHEN 'rate' THEN 100 ELSE 1 END * (e ->> 'numerator')::numeric / (e ->> 'denominator')::numeric, 6)),
+  0::bigint);
+SELECT rt.eq('the daily production series sums to KPIs 2 and 1 to the cent',
+  (SELECT rt.jsum(s, '$.production_by_date[*].policies_sold') || ' ' || rt.jsum(s, '$.production_by_date[*].annual_premium')
+          || ' ' || jsonb_array_length(s -> 'production_by_date') FROM (SELECT rt.v3r('ADM1', 'summary') AS s) x),
+  (SELECT rt.kpi(s, 2) || ' ' || round(rt.kpi(s, 1)::numeric, 2) || ' 31' FROM (SELECT rt.v3r('ADM1', 'summary') AS s) x));
+SELECT rt.eq('every by_agent credit map has a key for each metric in its row, from the registry',
+  (SELECT count(*) FROM unnest(ARRAY['summary', 'journey', 'sales_appointments']) r, jsonb_array_elements(rt.v3r('ADM1', r) -> 'by_agent') b
+    WHERE (SELECT array_agg(k ORDER BY k::int) FROM jsonb_object_keys(b -> 'credit') k)
+            IS DISTINCT FROM (SELECT array_agg(m ->> 'id' ORDER BY (m ->> 'id')::int) FROM jsonb_array_elements(b -> 'metrics') m)
+       OR EXISTS (SELECT 1 FROM jsonb_each_text(b -> 'credit') c JOIN jsonb_array_elements(private.report_v3_metric_registry()) g
+                   ON g ->> 'id' = c.key WHERE g ->> 'credit' <> c.value)),
+  0::bigint);
+SELECT rt.assert_sealed_v3(true, false);

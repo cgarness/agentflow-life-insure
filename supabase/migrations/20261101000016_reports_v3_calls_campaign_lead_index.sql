@@ -1,0 +1,15 @@
+-- =====================================================================================================
+-- Reports V2, PKG-A file 7 of 8: the calls index for identity-keyed campaign-membership lookups (plan §2.7;
+-- D1 §3.10–§3.11; D3 §3.5).
+--
+-- PLACEHOLDER VERSION. Renumbered above the then-current production head, order kept, in a
+-- filename-only commit before the PKG-A backend merge. Branch work only: not applied to production.
+--
+-- Privilege class C (plan §2.8): one index, no function, no privilege statement. This file holds exactly one
+-- statement. CREATE INDEX CONCURRENTLY cannot run inside a transaction block, so the release runner executes
+-- it on its own (stage apply-index-concurrently, never `psql --single-transaction`), after
+-- `SET lock_timeout = '2s'`, and then requires the exact definition with pg_index.indisvalid and indisready.
+-- IF NOT EXISTS would silently keep a pre-existing index of this name, so that post-check is what refuses an
+-- invalid leftover or a different definition; it never drops or rebuilds an index on its own.
+-- =====================================================================================================
+CREATE INDEX CONCURRENTLY IF NOT EXISTS report_v3_calls_org_campaign_lead ON public.calls(organization_id, campaign_lead_id, created_at);

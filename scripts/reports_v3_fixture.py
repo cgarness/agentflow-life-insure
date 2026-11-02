@@ -82,6 +82,20 @@ def normalizer_drift(alteration):
         + alteration + "); END $drift$;")
 
 
+def reader_contract():
+    """The reader section of reports_v3_contract.sql: it runs after …15, while the rest runs right after …10."""
+    text = v2.read('supabase/tests/reports_v3_contract.sql')
+    marker = '-- @readers'
+    assert text.count(marker) == 1, marker
+    head, tail = text.split(marker)
+    return head, tail
+
+
+def no_transaction(sql):
+    """A step psql runs outside BEGIN/COMMIT (CREATE INDEX CONCURRENTLY cannot run in a transaction block)."""
+    return ('NO TRANSACTION', sql)
+
+
 def release_enable_check():
     """The highest-version release-enable migration must be byte-equal to supabase/ops/reports_v3_enable.sql."""
     files = sorted((ROOT / 'supabase/migrations').glob('*_reports_v3_release_enable*.sql'))
@@ -120,6 +134,9 @@ def steps():
     call_journey = v2.migration('reports_v3_call_journey_helpers')
     appointment_stub = v2.migration('reports_v3_appointment_facts_stub')
     state_helpers = v2.migration('reports_v3_state_helpers')
+    readers = v2.migration('reports_v3_readers')
+    calls_index = v2.migration('reports_v3_calls_campaign_lead_index')
+    contract_head, contract_readers = reader_contract()
     yield 'sale facts refuse to run before the foundation', v2.refused(sale_facts, 'Reports v3 sale facts: the foundation')
     yield 'foundation refuses closure-helper drift', v2.refused(
         'ALTER FUNCTION private.report_meta(text,uuid,text,text,date,date,timestamptz,timestamptz) SECURITY DEFINER;' + foundation,
@@ -130,7 +147,7 @@ def steps():
     yield '20261101000010_reports_v3_foundation', foundation
     yield 'foundation replay refuses', v2.refused(foundation, 'Reports v3 foundation: refusing replay')
     yield 'call journey refuses to run before sale facts', v2.refused(call_journey, 'Reports v3 call journey: the foundation')
-    yield 'v3 contract', v2.read('supabase/tests/reports_v3_contract.sql')
+    yield 'v3 contract', contract_head
     yield 'sale facts refuse premium choke-point drift', v2.refused(
         'ALTER FUNCTION private.performance_sale_monthly(public.wins,numeric) SECURITY DEFINER;' + sale_facts,
         'Reports v3 sale facts: premium choke point drift')
@@ -158,7 +175,6 @@ def steps():
         'Reports v3 appointment stub: contract drift')
     yield '20261101000013_reports_v3_appointment_facts_stub', appointment_stub
     yield 'appointment stub replay refuses', v2.refused(appointment_stub, 'Reports v3 appointment stub: refusing replay')
-    yield 'v3 appointment facts', v2.read('supabase/tests/reports_v3_appointment_facts.sql')
     for label, alteration in [
             ('a changed body', "'WHEN ''texas''               THEN ''TX''', 'WHEN ''texas''               THEN ''OK'''"),
             ('a volatile normalizer', 'ALTER FUNCTION public.normalize_us_state(text) VOLATILE;'),
@@ -169,16 +185,51 @@ def steps():
     yield 'state helpers refuse a missing state column', v2.refused(
         'ALTER TABLE public.campaign_leads DROP COLUMN state;' + state_helpers,
         'Reports v3 state helpers: dependency column missing: public.campaign_leads.state')
+    yield 'readers refuse to run before the state helpers', v2.refused(readers, 'Reports v3 readers: the helpers (…10 to …14)')
     yield '20261101000014_reports_v3_state_helpers', state_helpers
     yield 'state helpers replay refuses', v2.refused(state_helpers, 'Reports v3 state helpers: refusing replay')
-    yield 'v3 state helpers', v2.read('supabase/tests/reports_v3_state_breakdown.sql')
-    yield 'v2 surface unchanged after the v3 helpers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
+    yield 'readers refuse v2 reader drift', v2.refused(
+        'ALTER FUNCTION public.get_report_call_volume_v2(date,date,uuid,text) SET search_path = public;' + readers,
+        'Reports v3 readers: v2 or closure preimage drift: public.get_report_call_volume_v2')
+    yield 'readers refuse closure-helper drift', v2.refused(
+        'ALTER FUNCTION private.report_visible_campaigns(uuid) SECURITY DEFINER;' + readers,
+        'Reports v3 readers: v2 or closure preimage drift: private.report_visible_campaigns')
+    yield '20261101000015_reports_v3_readers', readers
+    yield 'readers replay refuses', v2.refused(readers, 'Reports v3 readers: refusing replay')
+    yield 'v3 readers are created sealed', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false); SELECT rt.assert_v3_helper_shape();'
+    # The concurrent index, run as the release runner will: outside a transaction, lock_timeout 2s, then the
+    # exact-definition and validity post-check. A leftover of the same name is never silently accepted.
+    run_index = "SET lock_timeout = '2s';\n" + calls_index + "\nRESET lock_timeout;"
+    yield 'index check refuses a missing index', "SELECT rt.expect_sql_failure('SELECT rt.v3_index_check()', 'report_v3_calls_org_campaign_lead is missing');"
+    yield 'index leftover with another definition', no_transaction(
+        'CREATE INDEX report_v3_calls_org_campaign_lead ON public.calls (organization_id);')
+    yield 'index file keeps the leftover (IF NOT EXISTS)', no_transaction(run_index)
+    yield 'index check refuses the other definition', "SELECT rt.expect_sql_failure('SELECT rt.v3_index_check()', 'report_v3_calls_org_campaign_lead definition mismatch');"
+    yield 'index leftover removed', no_transaction('DROP INDEX public.report_v3_calls_org_campaign_lead;')
+    yield 'invalid index leftover', no_transaction(
+        'CREATE INDEX report_v3_calls_org_campaign_lead ON public.calls (organization_id, campaign_lead_id, created_at);\n'
+        "UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'public.report_v3_calls_org_campaign_lead'::regclass;")
+    yield 'index file keeps the invalid leftover (IF NOT EXISTS)', no_transaction(run_index)
+    yield 'index check refuses the invalid leftover', "SELECT rt.expect_sql_failure('SELECT rt.v3_index_check()', 'report_v3_calls_org_campaign_lead is not valid');"
+    yield 'invalid index leftover removed', no_transaction('DROP INDEX public.report_v3_calls_org_campaign_lead;')
+    yield '20261101000016_reports_v3_calls_campaign_lead_index', no_transaction(run_index)
+    yield 'index definition and validity', 'SELECT rt.v3_index_check();'
+    yield 'v3 appointment facts', v2.read('supabase/tests/reports_v3_appointment_facts.sql')
+    yield 'v3 state helpers and reader', v2.read('supabase/tests/reports_v3_state_breakdown.sql')
+    yield 'v3 call readers', v2.read('supabase/tests/reports_v3_call_readers.sql')
+    yield 'v3 security', v2.read('supabase/tests/reports_v3_security.sql')
+    yield 'v3 negative controls', v2.read('supabase/tests/reports_v3_negative.sql')
+    yield 'v3 reader contract', contract_readers
+    yield 'v2 surface unchanged after the v3 readers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
 
 
 if __name__ == '__main__':
     data = list(steps())
     if '--json' in sys.argv:
-        print(json.dumps(data))
+        print(json.dumps([[label, sql[1] if isinstance(sql, tuple) else sql, not isinstance(sql, tuple)] for label, sql in data]))
     else:
         for label, sql in data:
-            print('\\echo ' + label + '\nBEGIN;\n' + sql + '\nCOMMIT;\n')
+            if isinstance(sql, tuple):
+                print('\\echo ' + label + '\n' + sql[1] + '\n')
+            else:
+                print('\\echo ' + label + '\nBEGIN;\n' + sql + '\nCOMMIT;\n')
