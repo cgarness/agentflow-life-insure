@@ -305,8 +305,8 @@ BEGIN
   SELECT * INTO sw FROM private.report_v3_sold_window(w.start_date, w.end_date, (v_as_of AT TIME ZONE w.time_zone)::date);
   v_prod := private.report_v3_production(a.org_id, a.agent_ids, sw.sold_from, sw.sold_until, v_as_of);
   -- One pass over the window's calls with identities resolved once per pointer: the scope counts and every agent's
-  -- counts and talk time come from one sort. Scope distinct counts read the identity level, agent distinct counts the
-  -- identity and agent level; nothing is summed across agents. Only outbound rows count (inbound and other rows carry
+  -- counts and talk time come from one grouping (each agent, and the scope as its own set). Distinct identities are
+  -- counted within each group; nothing is summed across agents. Only outbound rows count (inbound and other rows carry
   -- no attempt class); an outbound row's credited agent is its placing agent. $1 org, $2 start, $3 end, $4 agent_ids.
   EXECUTE $q$
   WITH
@@ -482,9 +482,11 @@ BEGIN
       FROM cy
   ),
   -- @call-identity end
-  pa AS (
-    -- Narrow per-call flags first (the sort carries booleans, not text), then one sort serves both the identity and
-    -- identity-and-agent levels; one roll-up below reads them as they stream.
+  roll AS MATERIALIZED (
+    -- Each agent and the scope from one grouping of the narrow per-call flags. The distinct-identity counts (reached,
+    -- lead_identities) count distinct identity ids per kind: a reached identity is a lead or a client, and a lead-stage
+    -- row is always a lead, so the distinct (kind, id) pairs are the distinct ids of each kind. The scope's own row
+    -- (the empty grouping set) counts its identities once: never a sum of agent rows.
     SELECT grouping(y.agent_id) AS g_agent, y.agent_id,
            count(*) FILTER (WHERE y.outbound) AS outbound_rows,
            count(*) FILTER (WHERE y.att) AS attempts,
@@ -494,9 +496,10 @@ BEGIN
            count(*) FILTER (WHERE y.att AND y.con AND NOT y.recruit) AS contacted_eligible,
            count(*) FILTER (WHERE y.att AND y.con AND y.linked) AS contacted_resolved,
            count(*) FILTER (WHERE y.att AND y.con AND y.unresolved) AS contacted_unresolved,
-           coalesce(bool_or(y.att AND y.con AND y.linked), false) AS reached,
+           count(DISTINCT y.identity_uuid) FILTER (WHERE y.att AND y.con AND y.kind_code = 1)
+             + count(DISTINCT y.identity_uuid) FILTER (WHERE y.att AND y.con AND y.kind_code = 2) AS reached,
            count(*) FILTER (WHERE y.att AND y.lead_stage) AS lead_stage_attempts,
-           coalesce(bool_or(y.att AND y.lead_stage), false) AS lead_identity,
+           count(DISTINCT y.identity_uuid) FILTER (WHERE y.att AND y.lead_stage) AS lead_identities,
            count(*) FILTER (WHERE y.att AND y.unresolved) AS unresolved_attempts,
            count(*) FILTER (WHERE y.unv AND (y.lead_stage OR y.unresolved)) AS lead_unverified,
            coalesce(sum(y.duration_seconds) FILTER (WHERE y.att), 0) AS seconds,
@@ -515,20 +518,7 @@ BEGIN
                    x.duration_source IN ('provider', 'terminal_non_answer') AND NOT x.duration_conflict AS provider_confirmed
               FROM cx x
              WHERE $4::uuid[] IS NULL OR x.placing_agent_id = ANY ($4)) y
-     GROUP BY GROUPING SETS ((y.kind_code, y.identity_uuid, y.agent_id), (y.kind_code, y.identity_uuid))
-  ), roll AS MATERIALIZED (
-    -- Per agent from the identity-and-agent level; the scope from the identity level (distinct identities, never a sum
-    -- of agent rows).
-    SELECT p.g_agent, CASE WHEN p.g_agent = 0 THEN p.agent_id END AS agent_id, sum(p.outbound_rows) AS outbound_rows,
-           sum(p.attempts) AS attempts, sum(p.non_attempts) AS non_attempts, sum(p.unverified) AS unverified,
-           sum(p.contacted) AS contacted, sum(p.contacted_eligible) AS contacted_eligible,
-           sum(p.contacted_resolved) AS contacted_resolved, sum(p.contacted_unresolved) AS contacted_unresolved,
-           count(*) FILTER (WHERE p.reached) AS reached, sum(p.lead_stage_attempts) AS lead_stage_attempts,
-           count(*) FILTER (WHERE p.lead_identity) AS lead_identities, sum(p.unresolved_attempts) AS unresolved_attempts,
-           sum(p.lead_unverified) AS lead_unverified, sum(p.seconds) AS seconds, sum(p.estimated) AS estimated,
-           sum(p.unknown) AS unknown, sum(p.conflicting) AS conflicting, sum(p.provider_confirmed) AS provider_confirmed
-      FROM pa p
-     GROUP BY p.g_agent, CASE WHEN p.g_agent = 0 THEN p.agent_id END
+     GROUP BY GROUPING SETS ((y.agent_id), ())
   ), ag AS (
     SELECT r.* FROM roll r WHERE r.g_agent = 0 AND r.outbound_rows > 0
   ), sc AS (
