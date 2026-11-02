@@ -93,7 +93,7 @@
 **Verification** (local, base `6e39c15`):
 - **Failing first:** with `…15` and `…16` left out, each new suite stops at the missing reader (security fails S1–S3: 42883 instead of 42501), and the index check reports the index missing.
 - **SQL suites:** the v3 suite passes on PG 16.15.
-  - New assertions: appointment 29, state 40, call readers 38, security 29, reader contract 7.
+  - Assertions per suite: appointment 29 (6 new), state 40 (12 new), call readers 38, security 29, reader contract 7, and the negative suite's restore check 1. That is 93 new in all (326 to 419).
   - Controls: 11 new negative controls, plus 7 new refusal and index steps.
   - Whole runner: 419 assertions, 32 mutation controls, 97 refusal checks, no error lines.
   - The integrity, RPC and profile suites also pass.
