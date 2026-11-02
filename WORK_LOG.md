@@ -1,6 +1,6 @@
 # AgentFlow Work Log
 
-## 2026-11-02 — Reports V2 PKG-A Batch 4: appointment-facts stub and state helpers (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
+## 2026-11-02 — Reports V2 PKG-A Batch 4: appointment-facts stub and state helpers; branch pushed; PostgreSQL 17.6 CI green (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
 
 **Status.**
 - **Authority:** built under Chris's Batch 4 message and the existing branch approval. Normal checkpoint pushes and one isolated `reports-backend.yml` dispatch on the pushed head are authorized; nothing else is.
@@ -84,7 +84,14 @@
 - **ESLint and Reports Vitest:** scoped ESLint is clean. Reports Vitest: 27 files, 429 passed, 1 pre-existing skip.
 - **Full Vitest:** 6,713 passed, 2 failed, 37 skipped across 1,973 suites. Against the clean `6e39c15` worktree (6,687 passed across 1,966 suites), the 11 failing files and the 2 failing tests are identical by name. The 26 extra passing tests all come from this branch's static contract test, and no test that passes at base fails here.
 - **Build:** `npm run build` passes.
-- **PostgreSQL 17.6 CI on the pushed head:** dispatched after the push; the result is added in the follow-up record commit.
+- **PostgreSQL 17.6 CI on the Batch 4 head:** run 41367676663, conclusion success, on head `e3a262a171c8de2d487ae5198342d9c1d6fa87db` (GitHub's job record). The server reported `PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1)`.
+  - The v3 runner built the verbatim state normalizer and the state harness (4 assertions).
+  - It refused `…13` before the call and journey helpers, over installed appointment evidence, over registry drift and on replay, then applied it.
+  - It refused `…14` before `…13`, over four kinds of normalizer drift, over a missing state column and on replay, then applied it.
+  - It ran the stub suite (23 assertions, 3 mutation controls) and the state suite (28 assertions, 5 mutation controls), and ended with "All Reports v3 contract, registry, seal and refusal proofs passed."
+  - Across the whole v3 runner the counts equal the local run exactly (326 assertions, 21 mutation controls, 89 refusal checks), with no error lines.
+  - Artifact `reports-backend-evidence-41367676663` (sha256 `d3ba77fb…`).
+  - The connector returns at most the last 5,000 of the job's 6,404 log lines, so the checkout lines and the Reports RPC suite's output at the top were not read. Both of those steps succeeded, and the `…13`, `…14` and new-suite labels in the log exist only from this commit on.
 
 **Known follow-ups (not claimed as done).**
 - The state reader `get_report_state_breakdown_v3` and its cases (cardinality, premium, attempt classes, cross-reader equalities, S14a/S14b) come in Batch 5 with `…15`.
