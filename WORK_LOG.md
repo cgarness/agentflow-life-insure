@@ -124,7 +124,15 @@
   - Only `s1-plan-verify.yml` runs on push, and only for `main`.
   - Every other workflow runs on `pull_request` or `workflow_dispatch`.
   - Vercel builds an access-protected branch preview, which is permitted.
-- **PostgreSQL 17.6 CI:** run 41398958478 on `9b46456d388134370f34e1b1022b143da53899fb` (dispatched 06:17 UTC) is still in progress at this commit; its result will be recorded here.
+- **PostgreSQL 17.6 CI.**
+  - **The first run was cancelled by the job's timeout, after its measurements.** Run 41398958478, on `9b46456d388134370f34e1b1022b143da53899fb`, was read through a log reader using the last 5,000 of 6,640 log lines.
+    - The service reported PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1).
+    - The RPC and integrity suites passed. The functional v3 suites ran 06:20:05–06:20:24, and the 500k fixture loaded in 32 s with the required sizes.
+    - All 306 samples ran in 338 s.
+    - The EXPLAIN step then logged each plan's bound parameters in full. One line held the 57,723-key identity array (2.4 MB), and the job log ends there.
+    - The job was cancelled at 06:47:19, so step 4 never finished and no artifact was uploaded. The window has no ERROR, FATAL or `##[error]` line.
+  - **Fix, test file only (`625b02b`).** `auto_explain.log_parameter_max_length = 0`, and the parameters row and verdict table now print before the plans. Locally the longest log line is 1,352 characters, there is no parameter dump, and the verdicts are unchanged.
+  - **The second run:** run 41403248712 on `625b02ba8af1fd79a5fd5c19c5630fbb3cbcafaa` (dispatched 06:58 UTC) is in progress at this commit; its result will be recorded here.
 
 **Open PKG-A requirements (not claimed as passed).**
 - **Performance gate:** summary and state at 366-day agency scope, and journey everywhere, miss their targets. The journey at 366-day agency and team scope runs about 6–7 s, within the 8 s budget on this hardware but not with margin.
