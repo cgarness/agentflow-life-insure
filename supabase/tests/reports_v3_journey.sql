@@ -182,16 +182,17 @@ SELECT rt.eq('BC2 rollback restores the stub', (SELECT count(*) FROM private.rep
 -- -----------------------------------------------------------------------------------------------------
 SELECT rt.assert_v3_helper_shape();
 SELECT rt.assert_sealed_v3(true, false);
-SELECT rt.reject_mutation('private.report_v3_journey_members(uuid,uuid[],text,timestamp with time zone,timestamp with time zone,date,date,timestamp with time zone)',
-  'WHERE c.created_at < fc.anchor_at AND c.could_qualify) AS related_qualifying',
-  'WHERE c.created_at < fc.anchor_at) AS related_qualifying',
+SELECT rt.reject_mutation('private.report_v3_journey_rows(uuid,uuid[],text,timestamp with time zone,timestamp with time zone,date,date,timestamp with time zone)',
+  'min(c.created_at) FILTER (WHERE c.could_qualify) AS qual_at',
+  'min(c.created_at) AS qual_at',
   $probe$SELECT rt.eq('mutated could-qualify gate', rt.jmember(19, rt.jkey('JL4')), '-|-|true|-|false|-')$probe$,
   'mutated could-qualify gate FAIL');
-SELECT rt.reject_mutation('private.report_v3_journey_members(uuid,uuid[],text,timestamp with time zone,timestamp with time zone,date,date,timestamp with time zone)',
-  'AND (s.first_sold_date IS NULL OR s.first_sold_date >= (f.created_at AT TIME ZONE p_time_zone)::date)', '',
+SELECT rt.reject_mutation('private.report_v3_journey_rows(uuid,uuid[],text,timestamp with time zone,timestamp with time zone,date,date,timestamp with time zone)',
+  'AND (s.first_sold_date IS NULL OR s.first_sold_date >= (f.created_at AT TIME ZONE $6)::date)', '',
   $probe$SELECT rt.eq('mutated prior-buyer rule', rt.jmember(19, rt.jkey('JL13')), NULL::text)$probe$,
   'mutated prior-buyer rule FAIL');
-SELECT rt.reject_mutation('private.report_v3_journey_facts(uuid,uuid[],text,timestamp with time zone,timestamp with time zone,date,date,timestamp with time zone)',
-  'SELECT CASE WHEN p_agents IS NULL THEN (SELECT count(*) FROM unresolved u', 'SELECT CASE WHEN true THEN (SELECT count(*) FROM unresolved u',
+SELECT rt.reject_mutation('private.report_v3_journey_facts_by(uuid,uuid[],boolean,text,timestamp with time zone,timestamp with time zone,date,date,timestamp with time zone)',
+  'CASE WHEN g.g_kind = ''scope'' AND p_agents IS NULL THEN coalesce(a.numberless, 0) END AS numberless',
+  'CASE WHEN g.g_kind = ''scope'' THEN coalesce(a.numberless, 0) END AS numberless',
   $probe$SELECT rt.eq('mutated numberless scope', rt.jkpis(ARRAY[rt.v3('JA1')]), (SELECT k FROM v3_personal))$probe$,
   'mutated numberless scope FAIL');

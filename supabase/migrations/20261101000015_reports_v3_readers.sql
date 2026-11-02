@@ -47,6 +47,7 @@ BEGIN
   IF to_regprocedure('private.report_v3_envelope(text,text,text,uuid,text,text,date,date,timestamptz,timestamptz)') IS NULL
      OR to_regprocedure('private.report_v3_production(uuid,uuid[],date,date,timestamptz)') IS NULL
      OR to_regprocedure('private.report_v3_journey_facts(uuid,uuid[],text,timestamptz,timestamptz,date,date,timestamptz)') IS NULL
+     OR to_regprocedure('private.report_v3_journey_facts_by(uuid,uuid[],boolean,text,timestamptz,timestamptz,date,date,timestamptz)') IS NULL
      OR to_regprocedure('private.report_v3_call_kpis(jsonb,numeric)') IS NULL
      OR to_regprocedure('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz)') IS NULL
      OR to_regprocedure('private.report_v3_identity_states(uuid,text[])') IS NULL THEN
@@ -642,28 +643,33 @@ DECLARE
   sw record;
   v_as_of timestamptz := now();
   v_by_agent jsonb;
+  v_scope_facts jsonb;
 BEGIN
   SELECT * INTO a FROM private.report_access_v2(p_requested_scope, p_agent_id);
   SELECT * INTO w FROM private.report_window(a.org_id, p_start_date, p_end_date);
   SELECT * INTO sw FROM private.report_v3_sold_window(w.start_date, w.end_date, (v_as_of AT TIME ZONE w.time_zone)::date);
 
-  SELECT coalesce(jsonb_agg(jsonb_build_object(
+  -- The scope's journey rows are read once (report_v3_journey_facts_by): the scope's counts and each credited agent's
+  -- come from the same member rows, each group counting only its own; a roster agent with no members reads the
+  -- empty group.
+  WITH f AS MATERIALIZED (
+    SELECT * FROM private.report_v3_journey_facts_by(a.org_id, a.agent_ids, true, w.time_zone, w.start_at, w.end_at,
+                                                     sw.sold_from, sw.sold_until, v_as_of)
+  )
+  SELECT (SELECT x.facts FROM f x WHERE x.grp = 'scope'),
+         coalesce(jsonb_agg(jsonb_build_object(
            'agent_id', r.agent_id, 'name', r.name, 'status', r.status, 'credit', private.report_v3_credit_map('journey'),
-           'metrics', private.report_v3_journey_kpis(private.report_v3_journey_facts(
-             a.org_id, ARRAY[r.agent_id], w.time_zone, w.start_at, w.end_at, sw.sold_from, sw.sold_until, v_as_of)))
-         ORDER BY lower(r.name) NULLS LAST, r.agent_id), '[]'::jsonb)
-    INTO v_by_agent
-    FROM private.report_v3_roster(a.org_id, a.agent_ids, a.filter_agent_id, ARRAY(
-           SELECT DISTINCT m.credited_agent_id
-             FROM private.report_v3_journey_members(a.org_id, a.agent_ids, w.time_zone, w.start_at, w.end_at,
-                                                    sw.sold_from, sw.sold_until, v_as_of) m
-            WHERE m.credited_agent_id IS NOT NULL)) r;
+           'metrics', private.report_v3_journey_kpis(coalesce(fa.facts, (SELECT x.facts FROM f x WHERE x.grp = 'empty'))))
+           ORDER BY lower(r.name) NULLS LAST, r.agent_id), '[]'::jsonb)
+    INTO v_scope_facts, v_by_agent
+    FROM private.report_v3_roster(a.org_id, a.agent_ids, a.filter_agent_id,
+                                  ARRAY(SELECT x.agent_id FROM f x WHERE x.grp = 'agent')) r
+    LEFT JOIN f fa ON fa.grp = 'agent' AND fa.agent_id = r.agent_id;
 
   RETURN private.report_v3_envelope('journey', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
                                     w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
     || jsonb_build_object(
-      'metrics', private.report_v3_journey_kpis(private.report_v3_journey_facts(
-        a.org_id, a.agent_ids, w.time_zone, w.start_at, w.end_at, sw.sold_from, sw.sold_until, v_as_of)),
+      'metrics', private.report_v3_journey_kpis(v_scope_facts),
       'by_agent', v_by_agent);
 END $$;
 

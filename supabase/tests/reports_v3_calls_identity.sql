@@ -50,11 +50,18 @@ SELECT rt.eq('another organization''s client is never resolved', private.report_
 SELECT rt.eq('exactly the v2 report_call_facts row set',
   (SELECT array_agg(f.call_id ORDER BY f.call_id) FROM private.report_v3_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00') f),
   (SELECT array_agg(v.call_id ORDER BY v.call_id) FROM private.report_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00', NULL) v));
-SELECT rt.eq('v2 contacted flag carried unchanged',
+SELECT rt.eq('every carried v2 column unchanged',
   (SELECT count(*) FROM private.report_v3_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00') f
      JOIN private.report_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00', NULL) v ON v.call_id = f.call_id
     WHERE f.is_contacted IS DISTINCT FROM v.is_contacted OR f.disposition_key IS DISTINCT FROM v.disposition_key
-       OR f.lead_source IS DISTINCT FROM v.lead_source OR f.campaign_id IS DISTINCT FROM v.campaign_id), 0::bigint);
+       OR f.lead_source IS DISTINCT FROM v.lead_source OR f.campaign_id IS DISTINCT FROM v.campaign_id
+       OR f.placing_agent_id IS DISTINCT FROM v.agent_id OR f.direction_class IS DISTINCT FROM v.direction_class
+       OR f.created_at IS DISTINCT FROM v.created_at OR f.duration_seconds IS DISTINCT FROM v.duration_seconds
+       OR f.lead_id IS DISTINCT FROM v.lead_id OR f.disposition_name IS DISTINCT FROM v.disposition_name
+       OR f.disposition_color IS DISTINCT FROM v.disposition_color
+       OR f.disp_counts_contacted IS DISTINCT FROM v.disp_counts_contacted OR f.disp_converts IS DISTINCT FROM v.disp_converts
+       OR f.disp_dnc IS DISTINCT FROM v.disp_dnc OR f.disp_callback IS DISTINCT FROM v.disp_callback
+       OR f.disp_appointment IS DISTINCT FROM v.disp_appointment), 0::bigint);
 SELECT rt.eq('admitted attempt', rt.cclass('JC2a'), 'attempt|true|true|false|true');
 SELECT rt.eq('legacy pre-admission row counts under the retained legacy rule', rt.cclass('JC_LEG'), 'attempt|true|false|false|false');
 SELECT rt.eq('a genuine failed attempt remains a call', rt.cclass('JC_FAIL'), 'attempt|true|false|false|false');
@@ -141,11 +148,11 @@ SELECT rt.eq('raw call records are unchanged by every v3 reader', (SELECT md5(st
 -- 5. Negative controls: each guard, edited away, makes a suite assertion fail (then is rolled back).
 -- -----------------------------------------------------------------------------------------------------
 SELECT rt.reject_mutation('private.report_v3_call_facts(uuid,timestamp with time zone,timestamp with time zone)',
-  'ELSE ''unverified'' END AS evidence_class', 'ELSE ''attempt'' END AS evidence_class',
+  'ELSE ''unverified'' END AS attempt_class', 'ELSE ''attempt'' END AS attempt_class',
   $probe$SELECT rt.eq('mutated unverified class', rt.cclass('JC7u'), 'unverified|false|false|false|false')$probe$,
   'mutated unverified class FAIL');
 SELECT rt.reject_mutation('private.report_v3_call_facts(uuid,timestamp with time zone,timestamp with time zone)',
-  'CASE WHEN f.direction_class <> ''outbound'' THEN NULL', 'CASE WHEN false THEN NULL',
+  'CASE WHEN cr.direction_class <> ''outbound'' THEN NULL', 'CASE WHEN false THEN NULL',
   $probe$SELECT rt.eq('mutated inbound attempt', rt.cclass('JC9i'), '-|false|false|true|true')$probe$,
   'mutated inbound attempt FAIL');
 SELECT rt.reject_mutation('private.report_v3_contact_predicate(bigint,text,text,boolean)',

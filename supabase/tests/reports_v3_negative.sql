@@ -24,8 +24,8 @@ SELECT rt.reject_mutation('public.get_report_state_breakdown_v3(date,date,uuid,t
   'mutated state narrowing FAIL');
 -- Removed narrowing: the journey totals become agency totals.
 SELECT rt.reject_mutation('public.get_report_journey_v3(date,date,uuid,text)',
-  'a.org_id, a.agent_ids, w.time_zone, w.start_at, w.end_at, sw.sold_from, sw.sold_until, v_as_of)),',
-  'a.org_id, NULL, w.time_zone, w.start_at, w.end_at, sw.sold_from, sw.sold_until, v_as_of)),',
+  'report_v3_journey_facts_by(a.org_id, a.agent_ids, true,',
+  'report_v3_journey_facts_by(a.org_id, NULL, true,',
   $probe$SELECT rt.eq('mutated journey narrowing', rt.v3r('A1', 'journey') -> 'metrics', (SELECT personal #> '{journey,metrics}' FROM neg_before))$probe$,
   'mutated journey narrowing FAIL');
 -- Other-agent rows: the roster ignores the resolved agents.
