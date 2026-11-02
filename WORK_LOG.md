@@ -1,5 +1,98 @@
 # AgentFlow Work Log
 
+## 2026-11-02 — Reports V2 PKG-A Batch 4: appointment-facts stub and state helpers (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
+
+**Status.**
+- **Authority:** built under Chris's Batch 4 message and the existing branch approval. Normal checkpoint pushes and one isolated `reports-backend.yml` dispatch on the pushed head are authorized; nothing else is.
+- **Still pending:** ★1 and ★4. The AGENT_RULES amendments remain proposed.
+- **State fallback:** the state helpers implement D5's recorded-state fallback: the current record, then the narrowed campaign copy (D5-2's default; omitting the copy remains Chris's alternative). Its privacy effect E4 (D5-17) still needs the §2.9 security review, and nothing here records it as accepted.
+- **Not touched:** no appointment evidence table, trigger, outcome write or capture. No telephony, `TwilioContext`, call-initiation or duration-writer change.
+
+**What changed.**
+- **Appointment facts stub** (`20261101000013_reports_v3_appointment_facts_stub.sql`, placeholder version, class C, **not applied**). `private.report_v3_appointment_facts` has the final X1 signature.
+  - KPIs 12, 15, 16, 17 and 18 come back in registry order as `unavailable/evidence_not_captured`, with value, numerator, denominator, coverage, maturity and detail all null.
+  - They are built only through the foundation builders, so missing evidence never becomes a zero.
+  - There is one `by_agent` row per distinct roster id, in roster order, each with the same five envelopes.
+  - It reads no table. Basis flags stay at contract 3.0.0 with `appointment_evidence: not_installed`.
+  - It refuses replay. It also refuses to install over a changed registry order, kinds or config codes, or over installed appointment evidence.
+- **State helpers** (`20261101000014_reports_v3_state_helpers.sql`, placeholder version, class C, **not applied**).
+  - **Classifier:** trims space, tab, LF, VT, FF and CR, then calls the unchanged `public.normalize_us_state`. It returns one of the 51 supported jurisdictions (DC included), or `missing_state`, `unsupported_geography` (12 listed territory and military codes and their names) or `invalid_state`. It never echoes the raw input.
+  - **Identity states:** an identity's own same-org lead and client records decide first. Only when they are all blank does a same-org campaign-membership copy apply, reached through `campaign_leads.lead_id`, the conversion lineage, or a same-org call on the identity by any agent.
+    - Two or more distinct codes give `source_conflict`.
+    - No same-org record gives `unresolved_identity`, with no fallback.
+    - Results are all-time and keyed only by the identities asked for. Phone numbers are never read.
+  - **Private index:** `report_v3_lineage_original_lead`, built in the migration's transaction.
+  - **Guards:** replay refusal; order (…12 and …13 first); `normalize_us_state` pinned (md5(prosrc) `c80ff9ad…`, immutable, invoker, its search_path); dependency columns.
+  - **Postconditions:**
+    - helper metadata and the seal;
+    - the exact index definition;
+    - the normalizer's body, flags, owner and privileges unchanged;
+    - RLS still on for the lineage and history tables.
+- **D3 KPI 19 maturity wording.** The maturity block counts the whole group (every first-contact member, assessable or not). The value keeps the assessable-cohort denominator.
+  - This matches plan §2.2 rule 7 and the Batch 3 SQL. The journey suite already pins it: personal KPI 19 has denominator 5 and maturity members 7.
+  - No SQL changed.
+- **Harness.**
+  - `public.normalize_us_state`, verbatim from the baseline, with its production owner and grants. The platform-only `supabase_auth_admin` revoke is left out, because the runner refuses any database with that role.
+  - Production `state` columns on leads, clients, campaign_leads and recruits, and the `contact_history_calls_page` index.
+  - A snapshot of the normalizer's privileges, for the unchanged check.
+- **Static test.** The function parser now skips OUT parameters. New checks cover …13 and …14.
+
+**Required cases covered.**
+- **Replay:** both migrations refuse a second run.
+- **Dependency drift:**
+  - …13 refuses installed appointment evidence and a changed registry order.
+  - …14 refuses a changed normalizer body, a volatile or definer normalizer, a changed search_path and a missing state column.
+  - Each refuses to run before the migration it depends on.
+- **Cross-organization isolation:**
+  - Another tenant's lead resolves only in its own organization.
+  - Cross-tenant memberships, calls and lineage never supply a copy.
+  - Changes made in the other tenant leave every result in this one byte-identical: its states, memberships, history, calls and lineage.
+- **Conflicting evidence:**
+  - Lead CA with client NV, and copies TX and OK, give `source_conflict`.
+  - A supported code wins over an invalid one, and 'California' and 'CA' agree.
+- **Blank states:**
+  - Blank, whitespace-only, NULL and control-character values are `missing_state`.
+  - An all-blank identity falls back to its copy; nothing recorded anywhere stays missing.
+- **Unsupported geography:** PR, Guam, AE and the other listed codes and names.
+- **Invalid states:** NBSP+TX, D.C., Ontario, XX and 'v', among others. An invalid recorded value never falls back to a copy.
+- **Sealed permissions:** neither migration grants anything. Every new helper is non-executable for anon, authenticated, service_role, a PUBLIC-only role and a member of authenticated, and is owned by postgres with invoker rights and a pinned search_path.
+- **Mutation controls:**
+  - stub (3): a misleading zero, a lost roster, a broken order;
+  - state helpers (5): no pre-trim, a fallback after an invalid value, a collapsed conflict, a cross-tenant membership, a cross-tenant call.
+
+**Files touched.**
+- Created:
+  - `supabase/migrations/20261101000013_reports_v3_appointment_facts_stub.sql`
+  - `supabase/migrations/20261101000014_reports_v3_state_helpers.sql`
+  - `supabase/tests/reports_v3_appointment_facts.sql`
+  - `supabase/tests/reports_v3_state_harness.sql`
+  - `supabase/tests/reports_v3_state_breakdown.sql`
+- Modified:
+  - `scripts/reports_v3_fixture.py`
+  - `src/lib/__tests__/reportsV3Contracts.test.ts`
+  - `docs/plans/2026-10-31-reports-v2/appendix/D3.md`
+  - `implementation_plan.md`
+  - `WORK_LOG.md`
+
+**Migrations and deploys.** None. Disposable local synthetic databases only, with placeholder versions.
+
+**Verification** (local, base `6e39c15`):
+- **Failing first:** without …13 and …14, the new suites stop at `private.report_v3_appointment_facts(...) does not exist` and `private.report_v3_state_classify(text) does not exist`. The static test fails to load without the two migrations.
+- **SQL suites:** the v3 suite passes on PG 16.15: 23 stub assertions, 28 state assertions, 4 harness assertions, 11 refusal steps and 8 mutation controls. The integrity, RPC and profile suites also pass.
+- **Static test:** 26/26.
+- **TypeScript:** root `npx tsc --noEmit` passes. The app typecheck gives 80 errors whose identities match base, line for line.
+- **ESLint and Reports Vitest:** scoped ESLint is clean. Reports Vitest: 27 files, 429 passed, 1 pre-existing skip.
+- **Full Vitest:** 6,713 passed, 2 failed, 37 skipped across 1,973 suites. Against the clean `6e39c15` worktree (6,687 passed across 1,966 suites), the 11 failing files and the 2 failing tests are identical by name. The 26 extra passing tests all come from this branch's static contract test, and no test that passes at base fails here.
+- **Build:** `npm run build` passes.
+- **PostgreSQL 17.6 CI on the pushed head:** dispatched after the push; the result is added in the follow-up record commit.
+
+**Known follow-ups (not claimed as done).**
+- The state reader `get_report_state_breakdown_v3` and its cases (cardinality, premium, attempt classes, cross-reader equalities, S14a/S14b) come in Batch 5 with `…15`.
+- The state lookups' performance is measured by D1's gate.
+- The campaign-copy fallback (D5-2) and E4 (D5-17) stay on the §2.9 security review list.
+
+**Next.** Stop for review before Batch 5 (`…15` readers and `…16` index). Its exact file list will be recorded first.
+
 ## 2026-11-01 — Reports V2 PKG-A Batch 3: call and journey helpers; branch pushed; PostgreSQL 17.6 CI green (branch `claude/great-goodall-911azc`; NOT merged, applied or deployed)
 
 **Status.** Built under Chris's Batch 3 message and the existing branch approval. Normal checkpoint pushes and one isolated `reports-backend.yml` dispatch on the pushed head are authorized; nothing else is. ★1 and ★4 remain pending: the journey history gates are the **proposed design**, implemented and tested only in isolation. No privacy acceptance, reviewer or agency-only fallback is recorded or enabled. No telephony, `TwilioContext`, call-initiation or duration-writer change.

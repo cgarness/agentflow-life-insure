@@ -34,6 +34,7 @@ V2_STATE = [
 
 PERFORMANCE_CONTRACT = 'supabase/migrations/20261005161623_performance_reporting_contract.sql'
 PHONE_NORMALIZER = 'supabase/migrations/20260823222528_inbound_identity_foundation.sql'
+BASELINE = 'supabase/migrations/20260806000000_baseline_production_schema.sql'
 
 
 def verbatim_line(path, prefix):
@@ -59,6 +60,26 @@ def phone_normalizer():
                                              'GRANT EXECUTE ON FUNCTION public.phone_last10(text)'))]
     assert len(acl) == 4, acl
     return v2.block(PHONE_NORMALIZER, 'CREATE OR REPLACE FUNCTION public.phone_last10(') + '\n' + '\n'.join(acl)
+
+
+def state_normalizer():
+    """public.normalize_us_state(text), verbatim from the baseline, with its owner and production grants.
+
+    The baseline's REVOKE from supabase_auth_admin is not reproduced: that platform role does not exist here,
+    and run_reports_v3_tests.sh refuses any database that has it.
+    """
+    grants = [l for l in v2.read(BASELINE).splitlines()
+              if l.startswith('GRANT ALL ON FUNCTION "public"."normalize_us_state"("p_raw" "text") TO ')]
+    assert len(grants) == 3, grants
+    return '\n'.join([v2.block(BASELINE, 'CREATE OR REPLACE FUNCTION "public"."normalize_us_state"('),
+                      verbatim_line(BASELINE, 'ALTER FUNCTION "public"."normalize_us_state"("p_raw" "text") OWNER TO ')] + grants)
+
+
+def normalizer_drift(alteration):
+    """SQL that changes public.normalize_us_state inside a refused (rolled-back) attempt."""
+    return alteration if alteration.startswith('ALTER') else (
+        "DO $drift$ BEGIN EXECUTE replace(pg_get_functiondef('public.normalize_us_state(text)'::regprocedure), "
+        + alteration + "); END $drift$;")
 
 
 def release_enable_check():
@@ -87,7 +108,9 @@ def steps():
     yield 'v3 controls', v2.read('supabase/tests/reports_v3_controls.sql')
     yield 'v2 state is sealed before v3', 'SELECT rt.assert_sealed_v3(true, false);'
     yield 'verbatim phone normalizer (20260823222528)', phone_normalizer()
+    yield 'verbatim state normalizer (20260806000000)', state_normalizer()
     yield 'v3 dependency schema', v2.read('supabase/tests/reports_v3_dependencies.sql')
+    yield 'v3 state harness', v2.read('supabase/tests/reports_v3_state_harness.sql')
     yield 'verbatim premium choke point (20261005161623)', premium_choke_point()
     yield 'v3 synthetic fixtures', v2.read('supabase/tests/reports_v3_fixtures.sql')
     yield 'v3 call and journey fixtures', v2.read('supabase/tests/reports_v3_journey_fixtures.sql')
@@ -95,6 +118,8 @@ def steps():
     foundation = v2.migration('reports_v3_foundation')
     sale_facts = v2.migration('reports_v3_sale_facts')
     call_journey = v2.migration('reports_v3_call_journey_helpers')
+    appointment_stub = v2.migration('reports_v3_appointment_facts_stub')
+    state_helpers = v2.migration('reports_v3_state_helpers')
     yield 'sale facts refuse to run before the foundation', v2.refused(sale_facts, 'Reports v3 sale facts: the foundation')
     yield 'foundation refuses closure-helper drift', v2.refused(
         'ALTER FUNCTION private.report_meta(text,uuid,text,text,date,date,timestamptz,timestamptz) SECURITY DEFINER;' + foundation,
@@ -112,6 +137,8 @@ def steps():
     yield '20261101000011_reports_v3_sale_facts', sale_facts
     yield 'sale facts replay refuses', v2.refused(sale_facts, 'Reports v3 sale facts: refusing replay')
     yield 'v3 sale facts', v2.read('supabase/tests/reports_v3_sale_facts.sql')
+    yield 'appointment stub refuses to run before the call and journey helpers', v2.refused(
+        appointment_stub, 'Reports v3 appointment stub: the foundation (…10) and the call and journey helpers (…12)')
     yield 'call journey refuses v2 call reader drift', v2.refused(
         'ALTER FUNCTION private.report_call_facts(uuid,timestamptz,timestamptz,uuid[]) SECURITY INVOKER;' + call_journey,
         'Reports v3 call journey: v2 call reader drift')
@@ -119,6 +146,32 @@ def steps():
     yield 'call journey replay refuses', v2.refused(call_journey, 'Reports v3 call journey: refusing replay')
     yield 'v3 calls and identity', v2.read('supabase/tests/reports_v3_calls_identity.sql')
     yield 'v3 journeys', v2.read('supabase/tests/reports_v3_journey.sql')
+    yield 'state helpers refuse to run before the appointment stub', v2.refused(
+        state_helpers, 'Reports v3 state helpers: the call and journey helpers (…12) and the appointment stub (…13)')
+    yield 'appointment stub refuses installed appointment evidence', v2.refused(
+        "DO $drift$ BEGIN EXECUTE replace(pg_get_functiondef('private.report_v3_basis_flags()'::regprocedure), "
+        "'\"appointment_evidence\":\"not_installed\"', '\"appointment_evidence\":\"installed\"'); END $drift$;" + appointment_stub,
+        'Reports v3 appointment stub: contract drift')
+    yield 'appointment stub refuses sales appointments registry drift', v2.refused(
+        "DO $drift$ BEGIN EXECUTE replace(pg_get_functiondef('private.report_v3_kpi_ids(text)'::regprocedure), "
+        "'ARRAY[12, 15, 16, 17, 18]', 'ARRAY[12, 15, 16, 18, 17]'); END $drift$;" + appointment_stub,
+        'Reports v3 appointment stub: contract drift')
+    yield '20261101000013_reports_v3_appointment_facts_stub', appointment_stub
+    yield 'appointment stub replay refuses', v2.refused(appointment_stub, 'Reports v3 appointment stub: refusing replay')
+    yield 'v3 appointment facts', v2.read('supabase/tests/reports_v3_appointment_facts.sql')
+    for label, alteration in [
+            ('a changed body', "'WHEN ''texas''               THEN ''TX''', 'WHEN ''texas''               THEN ''OK'''"),
+            ('a volatile normalizer', 'ALTER FUNCTION public.normalize_us_state(text) VOLATILE;'),
+            ('a definer normalizer', 'ALTER FUNCTION public.normalize_us_state(text) SECURITY DEFINER;'),
+            ('a changed search_path', 'ALTER FUNCTION public.normalize_us_state(text) SET search_path = public;')]:
+        yield 'state helpers refuse normalizer drift: ' + label, v2.refused(
+            normalizer_drift(alteration) + state_helpers, 'Reports v3 state helpers: normalize_us_state drift')
+    yield 'state helpers refuse a missing state column', v2.refused(
+        'ALTER TABLE public.campaign_leads DROP COLUMN state;' + state_helpers,
+        'Reports v3 state helpers: dependency column missing: public.campaign_leads.state')
+    yield '20261101000014_reports_v3_state_helpers', state_helpers
+    yield 'state helpers replay refuses', v2.refused(state_helpers, 'Reports v3 state helpers: refusing replay')
+    yield 'v3 state helpers', v2.read('supabase/tests/reports_v3_state_breakdown.sql')
     yield 'v2 surface unchanged after the v3 helpers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
 
 

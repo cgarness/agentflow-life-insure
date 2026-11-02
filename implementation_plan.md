@@ -1,3 +1,37 @@
+## 2026-11-02 — Reports V2 PKG-A Batch 4: appointment-facts stub (…13) and state helpers (…14) (branch `claude/great-goodall-911azc`; nothing applied, merged or deployed)
+
+**Authorization:** Chris's Batch 4 message, under the existing branch-implementation approval.
+- **Authorized:** normal checkpoint pushes to `claude/great-goodall-911azc`, and one manual `reports-backend.yml` verification dispatch for Batch 4, provided the pre-push automation check stays safe.
+- **Not authorized:** PR, merge, push to `main`, production change, release-runner execution, telephony change or deploy. No appointment evidence tables, triggers, outcome writes or production capture.
+- **Still pending:** ★1 and ★4; the AGENT_RULES amendments remain proposed. The state helpers implement D5's recorded-state fallback (the current record, then the narrowed campaign copy) as the Batch 4 scope requires. Its privacy effect E4 (D5-17) still needs the pending §2.9 security review, and nothing here records it as accepted.
+
+**Base:** the branch head `628d5b2`. `main` is still `6e39c15`. The newest open PR (#486) was last updated 2026-10-23, and no open PR overlaps the Reports V2 files. The latest Work Log entry (Batch 3) has no conflict.
+
+**Batch 4 files** (all on the reviewed PKG-A list: plan §8, D3 §5, D4 §5, D5 §6):
+1. `supabase/migrations/20261101000013_reports_v3_appointment_facts_stub.sql` (create; class C; placeholder version, **not applied**): `private.report_v3_appointment_facts` with the final X1 signature, returning five `unavailable/evidence_not_captured` envelopes in registry order and one `by_agent` row per roster id
+2. `supabase/migrations/20261101000014_reports_v3_state_helpers.sql` (create; class C; placeholder version, **not applied**): `private.report_v3_state_classify`, `private.report_v3_identity_states` and the private index `report_v3_lineage_original_lead`
+3. `supabase/tests/reports_v3_appointment_facts.sql` (create): the PKG-A stub suite (PKG-D extends it later)
+4. `supabase/tests/reports_v3_state_harness.sql` (create): the production state columns on leads, clients, campaign_leads and recruits, the `contact_history_calls_page` index, and the pinned `normalize_us_state` fingerprint
+5. `supabase/tests/reports_v3_state_breakdown.sql` (create): classifier and identity-resolution cases, cross-organization isolation and privileges; Batch 5 adds the reader cases
+6. `scripts/reports_v3_fixture.py` (modify): verbatim `public.normalize_us_state` with its production privilege lines, the state harness, the ordering, drift and replay refusals for `…13` and `…14`, and the new suites
+7. `src/lib/__tests__/reportsV3Contracts.test.ts` (modify): static checks for `…13` and `…14`
+8. `docs/plans/2026-10-31-reports-v2/appendix/D3.md` (modify): the KPI 19 maturity wording (a whole-group block; the value keeps the assessable-cohort denominator), matching plan §2.2 rule 7 and the Batch 3 SQL
+9. `implementation_plan.md` (this entry)
+10. `WORK_LOG.md` (newest-first entry)
+
+No change is needed to `scripts/run_reports_v3_tests.sh` or `.github/workflows/reports-backend.yml`: the suites run through the fixture builder, and the existing path filters already match the new files.
+
+**Checks:**
+- failing-first runs and mutation controls;
+- the v3, integrity and RPC SQL suites;
+- the static test, scoped ESLint, the relevant Vitest files and `npm run build`;
+- `npx tsc --noEmit` and the application typecheck, with error identities compared against `6e39c15`;
+- PostgreSQL 17.6 CI on the pushed head, with the checked-out SHA, the new migration steps and the new suites confirmed in the log.
+
+No telephony, `TwilioContext`, call-initiation or duration-writer change.
+
+---
+
 ## 2026-11-01 — Reports V2 PKG-A Batch 3: call and journey helpers (…12) (branch `claude/great-goodall-911azc`; nothing applied, merged or deployed)
 
 **Authorization:** Chris's 2026-11-01 Batch 3 message, under the existing branch-implementation approval.

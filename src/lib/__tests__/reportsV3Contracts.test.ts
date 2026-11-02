@@ -102,8 +102,10 @@ const createdFunctions = (sql: string): CreatedFunction[] => {
   const re = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+([a-z_]+\.[a-z0-9_]+)\s*\(/gi;
   for (let m = re.exec(sql); m; m = re.exec(sql)) {
     const params = balanced(sql, m.index + m[0].length - 1);
-    const types = splitTopLevel(params).map((p) => {
-      const noDefault = p.replace(/\s+DEFAULT\s+[\s\S]*$/i, "").replace(/\s*=\s*[\s\S]*$/, "").trim();
+    // OUT parameters are not part of a function's identity (its REVOKE names only the input types).
+    const types = splitTopLevel(params).map((p) => p.trim()).filter((p) => !/^OUT\s/i.test(p)).map((p) => {
+      const noMode = p.replace(/^(?:IN|INOUT|VARIADIC)\s+/i, "");
+      const noDefault = noMode.replace(/\s+DEFAULT\s+[\s\S]*$/i, "").replace(/\s*=\s*[\s\S]*$/, "").trim();
       return normalizeType(noDefault.split(/\s+/).slice(1).join(" "));
     });
     const bodyStart = sql.indexOf("AS $", m.index);
@@ -300,5 +302,107 @@ describe("Reports v3 call and journey helpers", () => {
   it("keeps the v2 call reader as the single source of call rows and the stub link reader empty", () => {
     expect(body("report_v3_call_facts")).toMatch(/private\.report_call_facts\(p_org, p_start, p_end, NULL\)/);
     expect(body("report_v3_sale_call_links")).toMatch(/WHERE false/);
+  });
+});
+
+describe("Reports v3 appointment facts stub", () => {
+  const stub = readdirSync(join(ROOT, MIGRATIONS)).find((n) => n.endsWith("_reports_v3_appointment_facts_stub.sql"));
+  const sql = stripSqlComments(read(`${MIGRATIONS}/${stub}`));
+  const start = sql.indexOf("AS $$");
+  const body = sql.slice(start, sql.indexOf("$$;", start));
+
+  it("creates exactly the final X1 signature, as a stable sql helper with invoker rights", () => {
+    const created = createdFunctions(sql);
+    expect(created.map((f) => `${f.name}(${f.types.join(",")})`)).toEqual([
+      "private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamp with time zone,timestamp with time zone,text,timestamp with time zone)",
+    ]);
+    expect(created[0].header).toMatch(/LANGUAGE sql\s+STABLE\s/);
+    expect(sql).not.toMatch(/SECURITY\s+DEFINER/i);
+  });
+
+  it("reads no table and builds the five envelopes in registry order, only through the builders", () => {
+    expect(body).not.toMatch(/\bpublic\./);
+    expect(new Set([...body.matchAll(/private\.([a-z0-9_]+)/g)].map((m) => m[1]))).toEqual(
+      new Set(["report_v3_ratio", "report_v3_total", "report_v3_rate"]),
+    );
+    for (const call of [
+      "private.report_v3_ratio(12, 0, 0, NULL, NULL, 'evidence_not_captured')",
+      "private.report_v3_total(15, 0, NULL, 'evidence_not_captured')",
+      "private.report_v3_total(16, 0, NULL, 'evidence_not_captured')",
+      "private.report_v3_rate(17, 0, 0, NULL, NULL, 'evidence_not_captured')",
+      "private.report_v3_rate(18, 0, 0, NULL, NULL, 'evidence_not_captured')",
+    ]) expect(body).toContain(call);
+    expect([...body.matchAll(/report_v3_(?:ratio|total|rate)\((\d+),/g)].map((m) => Number(m[1]))).toEqual([12, 15, 16, 17, 18]);
+  });
+
+  it("adds no appointment evidence: no table, trigger, index, policy or data write", () => {
+    expect(sql).not.toMatch(/CREATE\s+(?:UNIQUE\s+)?(?:TABLE|TRIGGER|INDEX|POLICY)|INSERT\s+INTO|DELETE\s+FROM|ALTER\s+TABLE|\bUPDATE\s+[a-z]/i);
+  });
+
+  it("refuses replay, and refuses to install over a changed registry or installed evidence", () => {
+    const preflight = sql.slice(0, sql.indexOf("CREATE FUNCTION"));
+    expect(preflight).toMatch(/refusing replay/);
+    expect(preflight).toContain("private.report_v3_kpi_ids('sales_appointments') IS DISTINCT FROM ARRAY[12, 15, 16, 17, 18]");
+    expect(preflight).toContain("private.report_v3_basis_flags() ->> 'appointment_evidence' IS DISTINCT FROM 'not_installed'");
+  });
+});
+
+describe("Reports v3 state helpers", () => {
+  const helpers = readdirSync(join(ROOT, MIGRATIONS)).find((n) => n.endsWith("_reports_v3_state_helpers.sql"));
+  const sql = stripSqlComments(read(`${MIGRATIONS}/${helpers}`));
+  const body = (name: string) => {
+    const start = sql.indexOf(`CREATE FUNCTION private.${name}(`);
+    return sql.slice(start, sql.indexOf("$$;", sql.indexOf("AS $$", start)));
+  };
+
+  it("creates exactly the classifier and the identity resolver, with invoker rights", () => {
+    expect(createdFunctions(sql).map((f) => `${f.name}(${f.types.join(",")})`).sort()).toEqual([
+      "private.report_v3_identity_states(uuid,text[])",
+      "private.report_v3_state_classify(text)",
+    ]);
+    expect(body("report_v3_state_classify")).toMatch(/LANGUAGE sql\s+IMMUTABLE\s+PARALLEL SAFE\s/);
+    expect(body("report_v3_identity_states")).toMatch(/LANGUAGE sql\s+STABLE\s/);
+    expect(sql).not.toMatch(/SECURITY\s+DEFINER/i);
+  });
+
+  it("pre-trims ASCII whitespace, never E'\\v', and classifies through the pinned, unchanged normalize_us_state", () => {
+    const cls = body("report_v3_state_classify");
+    expect(cls).toContain("btrim(coalesce(p_raw, ''), ' ' || chr(9) || chr(10) || chr(11) || chr(12) || chr(13))");
+    expect(sql).not.toMatch(/E'[^']*\\v/);
+    expect(cls.match(/public\.normalize_us_state\(/g)).toHaveLength(1);
+    expect(sql).toContain("md5(prosrc) = 'c80ff9ad87445693d84d0276c872ba83'");
+    expect(sql).not.toMatch(/(?:CREATE|ALTER|GRANT|REVOKE)[^;]*FUNCTION\s+public\.normalize_us_state/i);
+  });
+
+  it("supports exactly 51 jurisdictions, DC included, and names the twelve unsupported codes", () => {
+    const cls = body("report_v3_state_classify");
+    const codes = (from: string, to: string) =>
+      [...cls.slice(cls.indexOf(from), cls.indexOf(to)).matchAll(/'([A-Z]{2})'/g)].map((m) => m[1]);
+    const supported = codes("ARRAY['AL'", "AS supported");
+    expect(supported).toHaveLength(51);
+    expect(new Set(supported).size).toBe(51);
+    expect(supported).toContain("DC");
+    expect(codes("ARRAY['PR'", "AS unsupported_codes")).toEqual(["PR", "GU", "VI", "AS", "MP", "UM", "FM", "MH", "PW", "AA", "AE", "AP"]);
+  });
+
+  it("never reads a phone number and pins every table it reads to the caller's organization", () => {
+    expect(sql).not.toMatch(/phone/i);
+    const resolver = body("report_v3_identity_states");
+    const reads = [...resolver.matchAll(/(?:FROM|JOIN)\s+(?:public|private)\.[a-z_]+\s+([a-z]+)\b/g)];
+    expect(reads.length).toBe(9);
+    for (const m of reads) {
+      const rest = resolver.slice(m.index! + m[0].length);
+      const end = rest.search(/\bJOIN\b|\bUNION\b|\bGROUP BY\b|\)\s*,/);
+      const clause = end < 0 ? rest : rest.slice(0, end);
+      expect(clause, `${m[0]} is not pinned to p_org`).toMatch(new RegExp(`(?<![a-z_.])${m[1]}\\.organization_id = p_org`));
+    }
+  });
+
+  it("builds the private lineage index transactionally and changes no RLS setting or policy", () => {
+    expect(sql).toMatch(
+      /CREATE INDEX IF NOT EXISTS report_v3_lineage_original_lead ON private\.dialer_conversion_lineage \(organization_id, original_lead_id\);/,
+    );
+    expect(sql).not.toMatch(/CONCURRENTLY/i);
+    expect(sql).not.toMatch(/ROW LEVEL SECURITY|\bPOLICY\b/i);
   });
 });
