@@ -159,3 +159,103 @@ SELECT rt.reject_mutation('private.report_v3_contact_predicate(bigint,text,text,
   'coalesce(p_duration_seconds, 0) > 45', 'coalesce(p_duration_seconds, 0) >= 45',
   $probe$SELECT rt.eq('mutated threshold', private.report_v3_contact_predicate(45, NULL, NULL, false), false)$probe$,
   'mutated threshold FAIL');
+
+-- -----------------------------------------------------------------------------------------------------
+-- Disposition matching (Batch 7 keyed joins): exactly the v2 precedence and cardinality. By id when the call has
+-- one (only an id of this organization matches; no fallback to the name), else by lower(name) within the
+-- organization. dispositions_org_lower_name_unique makes the name match unique per organization; the duplicates the
+-- schema allows are names in other organizations (in any case) and names that differ by whitespace.
+-- -----------------------------------------------------------------------------------------------------
+INSERT INTO rt.v3_ids VALUES ('OD', 'c3d70000-0000-0000-0000-000000000001'), ('OD2', 'c3d70000-0000-0000-0000-000000000002'),
+  ('ADMD', 'c3d70000-0000-0000-0000-000000000003'), ('DSTAGE', 'c3d70000-0000-0000-0000-000000000004'),
+  ('D_CB', 'c3d70000-0000-0000-0000-000000000011'), ('D_INT', 'c3d70000-0000-0000-0000-000000000012'),
+  ('D_SOLD', 'c3d70000-0000-0000-0000-000000000013'), ('D_GONE', 'c3d70000-0000-0000-0000-000000000014'),
+  ('D2_CB', 'c3d70000-0000-0000-0000-000000000021'), ('D2_VM', 'c3d70000-0000-0000-0000-000000000022');
+INSERT INTO rt.v3_ids SELECT 'DC_' || n, ('c3d70000-0000-0000-0000-0000000001' || lpad(n::text, 2, '0'))::uuid FROM generate_series(1, 11) n;
+INSERT INTO public.organizations VALUES (rt.v3('OD'), 'V3 Disposition Agency'), (rt.v3('OD2'), 'V3 Other Disposition Agency');
+INSERT INTO public.company_settings (company_name, timezone, organization_id) VALUES ('V3 Disposition Agency', 'America/Los_Angeles', rt.v3('OD'));
+INSERT INTO public.profiles (id, organization_id, first_name, last_name, email, role, status, upline_id)
+VALUES (rt.v3('ADMD'), rt.v3('OD'), 'Vee', 'Disposition Admin', 'admd@v3.invalid', 'Admin', 'Active', NULL);
+INSERT INTO public.pipeline_stages (id, name, pipeline_type, convert_to_client, organization_id)
+VALUES (rt.v3('DSTAGE'), 'Sold', 'lead', true, rt.v3('OD'));
+INSERT INTO public.dispositions (id, name, color, counts_as_contacted, callback_scheduler, appointment_scheduler, dnc_auto_add,
+                                 pipeline_stage_id, organization_id) VALUES
+  (rt.v3('D_CB'), 'Callback', '#111111', true, true, false, false, NULL, rt.v3('OD')),
+  (rt.v3('D_INT'), 'Interested', '#222222', true, false, false, false, NULL, rt.v3('OD')),
+  (rt.v3('D_SOLD'), 'Sold', '#333333', true, false, false, false, rt.v3('DSTAGE'), rt.v3('OD')),
+  (rt.v3('D_GONE'), 'Gone Away', '#444444', false, false, false, true, NULL, rt.v3('OD')),
+  (rt.v3('D2_CB'), 'callback', '#555555', false, false, true, true, NULL, rt.v3('OD2')),
+  (rt.v3('D2_VM'), 'Voicemail', '#666666', false, false, false, false, NULL, rt.v3('OD2'));
+INSERT INTO public.calls (id, organization_id, agent_id, direction, created_at, duration, disposition_id, disposition_name, status,
+                          dialer_admission_required)
+SELECT rt.v3(k.name), rt.v3('OD'), rt.v3('ADMD'), 'outbound', k.at::timestamptz, 30, k.disp, k.disp_name, 'completed', false
+  FROM (VALUES ('DC_1', '2026-10-05 16:00+00', rt.v3('D_CB'), 'Interested'),   -- id wins over a disagreeing name
+               ('DC_2', '2026-10-05 16:01+00', rt.v3('D2_CB'), 'Callback'),    -- another organization's id: no match, no name fallback
+               ('DC_3', '2026-10-05 16:02+00', NULL, 'CALLBACK'),              -- by name, case-insensitive
+               ('DC_4', '2026-10-05 16:03+00', NULL, 'Callback '),             -- a trailing space is another name: no match
+               ('DC_5', '2026-10-05 16:04+00', NULL, 'Voicemail'),             -- the name exists only in another organization
+               ('DC_6', '2026-10-05 16:05+00', rt.v3('D_GONE'), 'Gone Away'),  -- its disposition is deleted below: a dangling id
+               ('DC_7', '2026-10-05 16:06+00', NULL, NULL),                    -- no disposition at all
+               ('DC_8', '2026-10-05 16:07+00', rt.v3('D_SOLD'), NULL),          -- a converting stage, by id
+               ('DC_9', '2026-10-05 16:08+00', NULL, 'sold'),                  -- the same converting stage, by name
+               ('DC_10', '2026-10-05 16:09+00', NULL, '  '),                   -- a blank name
+               ('DC_11', '2026-10-05 16:10+00', NULL, 'Gone Away'))            -- production's state after the delete (FK SET NULL)
+       AS k(name, at, disp, disp_name);
+DELETE FROM public.dispositions WHERE id = rt.v3('D_GONE');
+CREATE FUNCTION rt.dmatch(p_call text) RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT concat_ws('|', f.disposition_key, f.disposition_name, f.disposition_color, f.disp_counts_contacted, f.disp_converts,
+                   f.disp_dnc, f.disp_callback, f.disp_appointment)
+    FROM private.report_v3_call_facts(rt.v3('OD'), '2026-10-05 07:00+00', '2026-10-06 07:00+00') f WHERE f.call_id = rt.v3(p_call);
+$$;
+SELECT rt.eq('disposition matching: one row per call, exactly the v2 row set',
+  (SELECT count(*) || '|' || count(DISTINCT f.call_id) FROM private.report_v3_call_facts(rt.v3('OD'), '2026-10-05 07:00+00', '2026-10-06 07:00+00') f),
+  (SELECT count(*) || '|' || count(DISTINCT v.call_id) FROM private.report_call_facts(rt.v3('OD'), '2026-10-05 07:00+00', '2026-10-06 07:00+00', NULL) v));
+SELECT rt.eq('disposition matching: every carried v2 column equal',
+  (SELECT count(*) FROM private.report_v3_call_facts(rt.v3('OD'), '2026-10-05 07:00+00', '2026-10-06 07:00+00') f
+     JOIN private.report_call_facts(rt.v3('OD'), '2026-10-05 07:00+00', '2026-10-06 07:00+00', NULL) v ON v.call_id = f.call_id
+    WHERE f.disposition_key IS NOT DISTINCT FROM v.disposition_key AND f.disposition_name IS NOT DISTINCT FROM v.disposition_name
+      AND f.disposition_color IS NOT DISTINCT FROM v.disposition_color AND f.is_contacted IS NOT DISTINCT FROM v.is_contacted
+      AND f.disp_counts_contacted IS NOT DISTINCT FROM v.disp_counts_contacted AND f.disp_converts IS NOT DISTINCT FROM v.disp_converts
+      AND f.disp_dnc IS NOT DISTINCT FROM v.disp_dnc AND f.disp_callback IS NOT DISTINCT FROM v.disp_callback
+      AND f.disp_appointment IS NOT DISTINCT FROM v.disp_appointment), 11::bigint);
+SELECT rt.eq('disposition matching: the id wins over a disagreeing name', rt.dmatch('DC_1'),
+  rt.v3('D_CB') || '|Callback|#111111|t|f|f|t|f');
+SELECT rt.eq('disposition matching: another organization''s id matches nothing, and the name is not tried', rt.dmatch('DC_2'),
+  'name:callback|Callback|#6B7280|f|f|f|f|f');
+SELECT rt.eq('disposition matching: by name, case-insensitive', rt.dmatch('DC_3'),
+  rt.v3('D_CB') || '|Callback|#111111|t|f|f|t|f');
+SELECT rt.eq('disposition matching: a trailing space is another name', rt.dmatch('DC_4'),
+  'name:callback|Callback|#6B7280|f|f|f|f|f');
+SELECT rt.eq('disposition matching: a name only another organization has matches nothing', rt.dmatch('DC_5'),
+  'name:voicemail|Voicemail|#6B7280|f|f|f|f|f');
+SELECT rt.eq('disposition matching: a deleted disposition matches nothing, by its dangling id or (after the FK sets it NULL) by its name',
+  rt.dmatch('DC_6') || ' ' || rt.dmatch('DC_11'),
+  'name:gone away|Gone Away|#6B7280|f|f|f|f|f name:gone away|Gone Away|#6B7280|f|f|f|f|f');
+SELECT rt.eq('disposition matching: no disposition', rt.dmatch('DC_7'), 'none|(No disposition)|#6B7280|f|f|f|f|f');
+SELECT rt.eq('disposition matching: the converting stage by id and by name', rt.dmatch('DC_8') || ' ' || rt.dmatch('DC_9'),
+  rt.v3('D_SOLD') || '|Sold|#333333|t|t|f|f|f ' || rt.v3('D_SOLD') || '|Sold|#333333|t|t|f|f|f');
+SELECT rt.eq('disposition matching: a blank name is no disposition', rt.dmatch('DC_10'), 'none|(No disposition)|#6B7280|f|f|f|f|f');
+
+-- Direction classes (Batch 7 exact-value fast path): exactly v2's lower(coalesce(direction, '')) classes, case-
+-- insensitive, with no trimming; anything else is other. DIR_14's capital dotted I lowers differently by locale, so
+-- it is compared with v2 only (both classify through lower()).
+INSERT INTO rt.v3_ids SELECT 'DIR_' || n, ('c3d70000-0000-0000-0000-0000000002' || lpad(n::text, 2, '0'))::uuid FROM generate_series(1, 14) n;
+INSERT INTO public.calls (id, organization_id, agent_id, direction, created_at, duration, disposition_id, disposition_name, status,
+                          dialer_admission_required)
+SELECT rt.v3('DIR_' || k.n), rt.v3('OD'), rt.v3('ADMD'), k.direction, '2026-10-06 16:00+00'::timestamptz + k.n * interval '1 minute',
+       50, NULL, NULL, 'completed', false
+  FROM (VALUES (1, 'outbound'), (2, 'outgoing'), (3, 'OUTBOUND'), (4, 'Outgoing'), (5, 'inbound'), (6, 'incoming'),
+               (7, 'Inbound'), (8, 'INCOMING'), (9, NULL), (10, ''), (11, ' outbound'), (12, 'outbound '), (13, 'inbound_calls'),
+               (14, U&'\0130NBOUND')) AS k(n, direction);
+SELECT rt.eq('direction classes: one row per call, each class and every carried v2 column equal to v2',
+  (SELECT count(*) FILTER (WHERE f.direction_class IS NOT DISTINCT FROM v.direction_class AND f.is_contacted IS NOT DISTINCT FROM v.is_contacted
+                             AND f.placing_agent_id IS NOT DISTINCT FROM v.agent_id AND f.disposition_key IS NOT DISTINCT FROM v.disposition_key)
+          || '|' || count(*)
+     FROM private.report_v3_call_facts(rt.v3('OD'), '2026-10-06 07:00+00', '2026-10-07 07:00+00') f
+     FULL JOIN private.report_call_facts(rt.v3('OD'), '2026-10-06 07:00+00', '2026-10-07 07:00+00', NULL) v ON v.call_id = f.call_id),
+  '14|14');
+SELECT rt.eq('direction classes: case-insensitive v2 classes, untrimmed, else other',
+  (SELECT string_agg(f.direction_class || ':' || coalesce(f.attempt_class, '-') || ':' || f.is_contacted, ' ' ORDER BY f.created_at)
+     FROM private.report_v3_call_facts(rt.v3('OD'), '2026-10-06 07:00+00', '2026-10-07 07:00+00') f WHERE f.call_id <> rt.v3('DIR_14')),
+  'outbound:attempt:true outbound:attempt:true outbound:attempt:true outbound:attempt:true inbound:-:false inbound:-:false '
+  || 'inbound:-:false inbound:-:false other:-:false other:-:false other:-:false other:-:false other:-:false');

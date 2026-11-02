@@ -312,14 +312,10 @@ BEGIN
   -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
   -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
   -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
-  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
-    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
-           d.appointment_scheduler, ps.convert_to_client
-      FROM public.dispositions d
-      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
-     WHERE d.organization_id = $1
-    UNION ALL
-    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+  dm AS NOT MATERIALIZED (   -- the organization's dispositions with the stage conversion flag; lower(name) is unique per
+            -- organization (dispositions_org_lower_name_unique), so a call matches at most one by id and at most one by
+            -- name. Inlined at both references, so the call scan keeps its parallel plan.
+    SELECT d.id, lower(d.name) AS lname, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
            d.appointment_scheduler, ps.convert_to_client
       FROM public.dispositions d
       LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
@@ -329,25 +325,30 @@ BEGIN
            c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
            c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
            c.disposition_name AS raw_disposition_name,
-           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
-                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
-                ELSE 'other' END AS direction_class,
+           -- v2's classes of lower(coalesce(direction, '')): outbound/outgoing, inbound/incoming, else other. An exact
+           -- lower-case value is matched first (lower() leaves it unchanged), so most rows never call lower().
+           CASE c.direction WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound' WHEN 'inbound' THEN 'inbound'
+                WHEN 'incoming' THEN 'inbound'
+                ELSE CASE lower(coalesce(c.direction, '')) WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound'
+                          WHEN 'inbound' THEN 'inbound' WHEN 'incoming' THEN 'inbound' ELSE 'other' END END AS direction_class,
            greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
            CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
            coalesce(l1.id, l2.id) AS lead_id,
            coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
-           dm.id AS resolved_disposition_id,
-           dm.name AS resolved_disposition_name,
-           coalesce(dm.color, '#6B7280') AS disposition_color,
-           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
-           coalesce(dm.convert_to_client, false) AS disp_converts,
-           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
-           coalesce(dm.callback_scheduler, false) AS disp_callback,
-           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+           coalesce(di.id, dn.id) AS resolved_disposition_id,
+           coalesce(di.name, dn.name) AS resolved_disposition_name,
+           coalesce(di.color, dn.color, '#6B7280') AS disposition_color,
+           coalesce(di.counts_as_contacted, dn.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(di.convert_to_client, dn.convert_to_client, false) AS disp_converts,
+           coalesce(di.dnc_auto_add, dn.dnc_auto_add, false) AS disp_dnc,
+           coalesce(di.callback_scheduler, dn.callback_scheduler, false) AS disp_callback,
+           coalesce(di.appointment_scheduler, dn.appointment_scheduler, false) AS disp_appointment
       FROM public.calls c
-      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
-      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
-                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: by id when the call has one (only an id of this organization matches, with no fallback to the name), else
+      -- by lower(name); the stage of whichever matched. Two keyed joins: the uuid, and the lowered name only for calls
+      -- without an id.
+      LEFT JOIN dm di ON di.id = c.disposition_id
+      LEFT JOIN dm dn ON dn.lname = CASE WHEN c.disposition_id IS NULL THEN lower(c.disposition_name) END
       -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
       -- provably unique, so a reader that does not read the campaign keeps neither.
       LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
@@ -751,14 +752,10 @@ BEGIN
   -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
   -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
   -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
-  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
-    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
-           d.appointment_scheduler, ps.convert_to_client
-      FROM public.dispositions d
-      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
-     WHERE d.organization_id = $1
-    UNION ALL
-    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+  dm AS NOT MATERIALIZED (   -- the organization's dispositions with the stage conversion flag; lower(name) is unique per
+            -- organization (dispositions_org_lower_name_unique), so a call matches at most one by id and at most one by
+            -- name. Inlined at both references, so the call scan keeps its parallel plan.
+    SELECT d.id, lower(d.name) AS lname, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
            d.appointment_scheduler, ps.convert_to_client
       FROM public.dispositions d
       LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
@@ -768,25 +765,30 @@ BEGIN
            c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
            c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
            c.disposition_name AS raw_disposition_name,
-           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
-                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
-                ELSE 'other' END AS direction_class,
+           -- v2's classes of lower(coalesce(direction, '')): outbound/outgoing, inbound/incoming, else other. An exact
+           -- lower-case value is matched first (lower() leaves it unchanged), so most rows never call lower().
+           CASE c.direction WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound' WHEN 'inbound' THEN 'inbound'
+                WHEN 'incoming' THEN 'inbound'
+                ELSE CASE lower(coalesce(c.direction, '')) WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound'
+                          WHEN 'inbound' THEN 'inbound' WHEN 'incoming' THEN 'inbound' ELSE 'other' END END AS direction_class,
            greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
            CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
            coalesce(l1.id, l2.id) AS lead_id,
            coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
-           dm.id AS resolved_disposition_id,
-           dm.name AS resolved_disposition_name,
-           coalesce(dm.color, '#6B7280') AS disposition_color,
-           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
-           coalesce(dm.convert_to_client, false) AS disp_converts,
-           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
-           coalesce(dm.callback_scheduler, false) AS disp_callback,
-           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+           coalesce(di.id, dn.id) AS resolved_disposition_id,
+           coalesce(di.name, dn.name) AS resolved_disposition_name,
+           coalesce(di.color, dn.color, '#6B7280') AS disposition_color,
+           coalesce(di.counts_as_contacted, dn.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(di.convert_to_client, dn.convert_to_client, false) AS disp_converts,
+           coalesce(di.dnc_auto_add, dn.dnc_auto_add, false) AS disp_dnc,
+           coalesce(di.callback_scheduler, dn.callback_scheduler, false) AS disp_callback,
+           coalesce(di.appointment_scheduler, dn.appointment_scheduler, false) AS disp_appointment
       FROM public.calls c
-      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
-      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
-                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: by id when the call has one (only an id of this organization matches, with no fallback to the name), else
+      -- by lower(name); the stage of whichever matched. Two keyed joins: the uuid, and the lowered name only for calls
+      -- without an id.
+      LEFT JOIN dm di ON di.id = c.disposition_id
+      LEFT JOIN dm dn ON dn.lname = CASE WHEN c.disposition_id IS NULL THEN lower(c.disposition_name) END
       -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
       -- provably unique, so a reader that does not read the campaign keeps neither.
       LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
@@ -1122,14 +1124,10 @@ BEGIN
   -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
   -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
   -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
-  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
-    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
-           d.appointment_scheduler, ps.convert_to_client
-      FROM public.dispositions d
-      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
-     WHERE d.organization_id = $1
-    UNION ALL
-    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+  dm AS NOT MATERIALIZED (   -- the organization's dispositions with the stage conversion flag; lower(name) is unique per
+            -- organization (dispositions_org_lower_name_unique), so a call matches at most one by id and at most one by
+            -- name. Inlined at both references, so the call scan keeps its parallel plan.
+    SELECT d.id, lower(d.name) AS lname, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
            d.appointment_scheduler, ps.convert_to_client
       FROM public.dispositions d
       LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
@@ -1139,25 +1137,30 @@ BEGIN
            c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
            c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
            c.disposition_name AS raw_disposition_name,
-           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
-                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
-                ELSE 'other' END AS direction_class,
+           -- v2's classes of lower(coalesce(direction, '')): outbound/outgoing, inbound/incoming, else other. An exact
+           -- lower-case value is matched first (lower() leaves it unchanged), so most rows never call lower().
+           CASE c.direction WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound' WHEN 'inbound' THEN 'inbound'
+                WHEN 'incoming' THEN 'inbound'
+                ELSE CASE lower(coalesce(c.direction, '')) WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound'
+                          WHEN 'inbound' THEN 'inbound' WHEN 'incoming' THEN 'inbound' ELSE 'other' END END AS direction_class,
            greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
            CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
            coalesce(l1.id, l2.id) AS lead_id,
            coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
-           dm.id AS resolved_disposition_id,
-           dm.name AS resolved_disposition_name,
-           coalesce(dm.color, '#6B7280') AS disposition_color,
-           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
-           coalesce(dm.convert_to_client, false) AS disp_converts,
-           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
-           coalesce(dm.callback_scheduler, false) AS disp_callback,
-           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+           coalesce(di.id, dn.id) AS resolved_disposition_id,
+           coalesce(di.name, dn.name) AS resolved_disposition_name,
+           coalesce(di.color, dn.color, '#6B7280') AS disposition_color,
+           coalesce(di.counts_as_contacted, dn.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(di.convert_to_client, dn.convert_to_client, false) AS disp_converts,
+           coalesce(di.dnc_auto_add, dn.dnc_auto_add, false) AS disp_dnc,
+           coalesce(di.callback_scheduler, dn.callback_scheduler, false) AS disp_callback,
+           coalesce(di.appointment_scheduler, dn.appointment_scheduler, false) AS disp_appointment
       FROM public.calls c
-      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
-      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
-                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: by id when the call has one (only an id of this organization matches, with no fallback to the name), else
+      -- by lower(name); the stage of whichever matched. Two keyed joins: the uuid, and the lowered name only for calls
+      -- without an id.
+      LEFT JOIN dm di ON di.id = c.disposition_id
+      LEFT JOIN dm dn ON dn.lname = CASE WHEN c.disposition_id IS NULL THEN lower(c.disposition_name) END
       -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
       -- provably unique, so a reader that does not read the campaign keeps neither.
       LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
@@ -1293,14 +1296,10 @@ BEGIN
   -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
   -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
   -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
-  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
-    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
-           d.appointment_scheduler, ps.convert_to_client
-      FROM public.dispositions d
-      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
-     WHERE d.organization_id = $1
-    UNION ALL
-    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+  dm AS NOT MATERIALIZED (   -- the organization's dispositions with the stage conversion flag; lower(name) is unique per
+            -- organization (dispositions_org_lower_name_unique), so a call matches at most one by id and at most one by
+            -- name. Inlined at both references, so the call scan keeps its parallel plan.
+    SELECT d.id, lower(d.name) AS lname, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
            d.appointment_scheduler, ps.convert_to_client
       FROM public.dispositions d
       LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
@@ -1310,25 +1309,30 @@ BEGIN
            c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
            c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
            c.disposition_name AS raw_disposition_name,
-           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
-                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
-                ELSE 'other' END AS direction_class,
+           -- v2's classes of lower(coalesce(direction, '')): outbound/outgoing, inbound/incoming, else other. An exact
+           -- lower-case value is matched first (lower() leaves it unchanged), so most rows never call lower().
+           CASE c.direction WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound' WHEN 'inbound' THEN 'inbound'
+                WHEN 'incoming' THEN 'inbound'
+                ELSE CASE lower(coalesce(c.direction, '')) WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound'
+                          WHEN 'inbound' THEN 'inbound' WHEN 'incoming' THEN 'inbound' ELSE 'other' END END AS direction_class,
            greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
            CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
            coalesce(l1.id, l2.id) AS lead_id,
            coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
-           dm.id AS resolved_disposition_id,
-           dm.name AS resolved_disposition_name,
-           coalesce(dm.color, '#6B7280') AS disposition_color,
-           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
-           coalesce(dm.convert_to_client, false) AS disp_converts,
-           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
-           coalesce(dm.callback_scheduler, false) AS disp_callback,
-           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+           coalesce(di.id, dn.id) AS resolved_disposition_id,
+           coalesce(di.name, dn.name) AS resolved_disposition_name,
+           coalesce(di.color, dn.color, '#6B7280') AS disposition_color,
+           coalesce(di.counts_as_contacted, dn.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(di.convert_to_client, dn.convert_to_client, false) AS disp_converts,
+           coalesce(di.dnc_auto_add, dn.dnc_auto_add, false) AS disp_dnc,
+           coalesce(di.callback_scheduler, dn.callback_scheduler, false) AS disp_callback,
+           coalesce(di.appointment_scheduler, dn.appointment_scheduler, false) AS disp_appointment
       FROM public.calls c
-      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
-      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
-                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: by id when the call has one (only an id of this organization matches, with no fallback to the name), else
+      -- by lower(name); the stage of whichever matched. Two keyed joins: the uuid, and the lowered name only for calls
+      -- without an id.
+      LEFT JOIN dm di ON di.id = c.disposition_id
+      LEFT JOIN dm dn ON dn.lname = CASE WHEN c.disposition_id IS NULL THEN lower(c.disposition_name) END
       -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
       -- provably unique, so a reader that does not read the campaign keeps neither.
       LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
@@ -1496,14 +1500,10 @@ BEGIN
   -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
   -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
   -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
-  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
-    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
-           d.appointment_scheduler, ps.convert_to_client
-      FROM public.dispositions d
-      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
-     WHERE d.organization_id = $1
-    UNION ALL
-    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+  dm AS NOT MATERIALIZED (   -- the organization's dispositions with the stage conversion flag; lower(name) is unique per
+            -- organization (dispositions_org_lower_name_unique), so a call matches at most one by id and at most one by
+            -- name. Inlined at both references, so the call scan keeps its parallel plan.
+    SELECT d.id, lower(d.name) AS lname, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
            d.appointment_scheduler, ps.convert_to_client
       FROM public.dispositions d
       LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
@@ -1513,25 +1513,30 @@ BEGIN
            c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
            c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
            c.disposition_name AS raw_disposition_name,
-           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
-                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
-                ELSE 'other' END AS direction_class,
+           -- v2's classes of lower(coalesce(direction, '')): outbound/outgoing, inbound/incoming, else other. An exact
+           -- lower-case value is matched first (lower() leaves it unchanged), so most rows never call lower().
+           CASE c.direction WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound' WHEN 'inbound' THEN 'inbound'
+                WHEN 'incoming' THEN 'inbound'
+                ELSE CASE lower(coalesce(c.direction, '')) WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound'
+                          WHEN 'inbound' THEN 'inbound' WHEN 'incoming' THEN 'inbound' ELSE 'other' END END AS direction_class,
            greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
            CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
            coalesce(l1.id, l2.id) AS lead_id,
            coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
-           dm.id AS resolved_disposition_id,
-           dm.name AS resolved_disposition_name,
-           coalesce(dm.color, '#6B7280') AS disposition_color,
-           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
-           coalesce(dm.convert_to_client, false) AS disp_converts,
-           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
-           coalesce(dm.callback_scheduler, false) AS disp_callback,
-           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+           coalesce(di.id, dn.id) AS resolved_disposition_id,
+           coalesce(di.name, dn.name) AS resolved_disposition_name,
+           coalesce(di.color, dn.color, '#6B7280') AS disposition_color,
+           coalesce(di.counts_as_contacted, dn.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(di.convert_to_client, dn.convert_to_client, false) AS disp_converts,
+           coalesce(di.dnc_auto_add, dn.dnc_auto_add, false) AS disp_dnc,
+           coalesce(di.callback_scheduler, dn.callback_scheduler, false) AS disp_callback,
+           coalesce(di.appointment_scheduler, dn.appointment_scheduler, false) AS disp_appointment
       FROM public.calls c
-      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
-      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
-                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: by id when the call has one (only an id of this organization matches, with no fallback to the name), else
+      -- by lower(name); the stage of whichever matched. Two keyed joins: the uuid, and the lowered name only for calls
+      -- without an id.
+      LEFT JOIN dm di ON di.id = c.disposition_id
+      LEFT JOIN dm dn ON dn.lname = CASE WHEN c.disposition_id IS NULL THEN lower(c.disposition_name) END
       -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
       -- provably unique, so a reader that does not read the campaign keeps neither.
       LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
@@ -1656,14 +1661,10 @@ BEGIN
   -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
   -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
   -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
-  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
-    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
-           d.appointment_scheduler, ps.convert_to_client
-      FROM public.dispositions d
-      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
-     WHERE d.organization_id = $1
-    UNION ALL
-    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+  dm AS NOT MATERIALIZED (   -- the organization's dispositions with the stage conversion flag; lower(name) is unique per
+            -- organization (dispositions_org_lower_name_unique), so a call matches at most one by id and at most one by
+            -- name. Inlined at both references, so the call scan keeps its parallel plan.
+    SELECT d.id, lower(d.name) AS lname, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
            d.appointment_scheduler, ps.convert_to_client
       FROM public.dispositions d
       LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
@@ -1673,25 +1674,30 @@ BEGIN
            c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
            c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
            c.disposition_name AS raw_disposition_name,
-           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
-                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
-                ELSE 'other' END AS direction_class,
+           -- v2's classes of lower(coalesce(direction, '')): outbound/outgoing, inbound/incoming, else other. An exact
+           -- lower-case value is matched first (lower() leaves it unchanged), so most rows never call lower().
+           CASE c.direction WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound' WHEN 'inbound' THEN 'inbound'
+                WHEN 'incoming' THEN 'inbound'
+                ELSE CASE lower(coalesce(c.direction, '')) WHEN 'outbound' THEN 'outbound' WHEN 'outgoing' THEN 'outbound'
+                          WHEN 'inbound' THEN 'inbound' WHEN 'incoming' THEN 'inbound' ELSE 'other' END END AS direction_class,
            greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
            CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
            coalesce(l1.id, l2.id) AS lead_id,
            coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
-           dm.id AS resolved_disposition_id,
-           dm.name AS resolved_disposition_name,
-           coalesce(dm.color, '#6B7280') AS disposition_color,
-           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
-           coalesce(dm.convert_to_client, false) AS disp_converts,
-           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
-           coalesce(dm.callback_scheduler, false) AS disp_callback,
-           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+           coalesce(di.id, dn.id) AS resolved_disposition_id,
+           coalesce(di.name, dn.name) AS resolved_disposition_name,
+           coalesce(di.color, dn.color, '#6B7280') AS disposition_color,
+           coalesce(di.counts_as_contacted, dn.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(di.convert_to_client, dn.convert_to_client, false) AS disp_converts,
+           coalesce(di.dnc_auto_add, dn.dnc_auto_add, false) AS disp_dnc,
+           coalesce(di.callback_scheduler, dn.callback_scheduler, false) AS disp_callback,
+           coalesce(di.appointment_scheduler, dn.appointment_scheduler, false) AS disp_appointment
       FROM public.calls c
-      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
-      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
-                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: by id when the call has one (only an id of this organization matches, with no fallback to the name), else
+      -- by lower(name); the stage of whichever matched. Two keyed joins: the uuid, and the lowered name only for calls
+      -- without an id.
+      LEFT JOIN dm di ON di.id = c.disposition_id
+      LEFT JOIN dm dn ON dn.lname = CASE WHEN c.disposition_id IS NULL THEN lower(c.disposition_name) END
       -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
       -- provably unique, so a reader that does not read the campaign keeps neither.
       LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
