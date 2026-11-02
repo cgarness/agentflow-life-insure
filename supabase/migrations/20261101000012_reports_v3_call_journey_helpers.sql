@@ -107,6 +107,7 @@ CREATE FUNCTION private.report_v3_local_day_start(p_day date, p_time_zone text)
 RETURNS timestamptz
 LANGUAGE sql
 STABLE
+PARALLEL RESTRICTED
 SET search_path = pg_catalog, pg_temp
 AS $$
   SELECT least(p_day::timestamp AT TIME ZONE p_time_zone,
@@ -413,6 +414,7 @@ CREATE FUNCTION private.report_v3_identity_receipts(p_org uuid, p_root_lead_ids 
 RETURNS TABLE (root_lead_id uuid, receipt_at timestamptz, receipt_source text)
 LANGUAGE plpgsql
 STABLE
+PARALLEL RESTRICTED
 SET search_path = pg_catalog, pg_temp
 AS $$
 BEGIN
@@ -463,6 +465,7 @@ CREATE FUNCTION private.report_v3_identity_numbers(p_org uuid, p_identity_keys t
 RETURNS TABLE (identity_key text, phone_last10 text, number_source text)
 LANGUAGE plpgsql
 STABLE
+PARALLEL RESTRICTED
 SET search_path = pg_catalog, pg_temp
 AS $$
 BEGIN
@@ -489,9 +492,10 @@ BEGIN
       SELECT k.key, cl.phone, 'campaign_lineage' FROM k
         JOIN private.dialer_conversion_lineage lin ON lin.organization_id = $1 AND lin.original_lead_id = k.lead_id
         JOIN public.campaign_leads cl ON cl.id = lin.campaign_lead_id AND cl.organization_id = $1
+    ), num AS MATERIALIZED (   -- each raw number normalized once (phone_last10 of NULL is NULL)
+      SELECT r.key, public.phone_last10(r.phone) AS phone_last10, r.source FROM raw r WHERE r.phone IS NOT NULL
     )
-    SELECT DISTINCT r.key, public.phone_last10(r.phone), r.source
-      FROM raw r WHERE public.phone_last10(r.phone) IS NOT NULL
+    SELECT DISTINCT n.key, n.phone_last10, n.source FROM num n WHERE n.phone_last10 IS NOT NULL
   $q$ USING p_org, p_identity_keys;
 END $$;
 
@@ -500,6 +504,7 @@ CREATE FUNCTION private.report_v3_sale_call_links(p_org uuid, p_as_of timestampt
 RETURNS TABLE (win_id uuid, call_id uuid, call_direction text, link_source text)
 LANGUAGE sql
 STABLE
+PARALLEL RESTRICTED
 SET search_path = pg_catalog, pg_temp
 AS $$
   SELECT NULL::uuid, NULL::uuid, NULL::text, NULL::text WHERE false;
@@ -516,6 +521,7 @@ RETURNS TABLE (identity_key text, identity_kind text, buyer_id uuid, first_win_i
                assessable boolean, reason text)
 LANGUAGE sql
 STABLE
+PARALLEL RESTRICTED
 SET search_path = pg_catalog, pg_temp
 AS $$
   WITH sales AS (
@@ -570,7 +576,9 @@ BEGIN
     RAISE EXCEPTION 'reports v3 journey: the organization, time zone, windows and as_of are required' USING ERRCODE = '22023';
   END IF;
   -- One constant statement planned for these arguments (EXECUTE ... USING): the readers' own call-row, pointer and
-  -- identity blocks over (-infinity, as_of) with no agent narrowing ($4 NULL), then each rule set-based.
+  -- identity blocks over (-infinity, as_of) with no agent narrowing ($4 NULL), then each rule set-based. Every helper
+  -- it calls is PARALLEL RESTRICTED (read-only, no subtransaction; run by the leader), so the history pass may use a
+  -- parallel plan: one PARALLEL UNSAFE call anywhere in the statement would make all of it serial.
   -- $5 agents, $6 time zone, $7/$8 contact window, $9/$10 sold window, $11 as_of.
   RETURN QUERY EXECUTE $q$
   WITH
@@ -749,17 +757,24 @@ BEGIN
   hist AS MATERIALIZED (
     -- Every same-org call before as_of, by any agent, that the journey reads: a linked call (lead or client identity)
     -- or an unresolved outbound or answered inbound call, with a number only on unresolved rows (the only rows ever
-    -- compared by number). The two kinds are flagged as plain columns so each reader's row count is estimated.
+    -- compared by number). The two kinds are flagged as plain columns so each reader's row count is estimated. Narrow
+    -- rows: the identity as its uuid and kind (identity_key is NULL exactly when its kind or uuid is), the classes the
+    -- journey reads as flags; the text key is built only for the identities that become members (keyinfo).
     SELECT y.* FROM (
-      SELECT cx.call_id, cx.created_at, cx.credited_agent_id, cx.direction_class, cx.attempt_class, cx.is_attempt,
-             cx.is_contacted, cx.is_answered_inbound, cx.is_journey_contact, cx.could_qualify, cx.identity_key,
+      SELECT cx.call_id, cx.created_at, cx.credited_agent_id, cx.direction_class = 'outbound' AS is_outbound,
+             cx.attempt_class = 'unverified' AS is_unverified, cx.is_attempt, cx.is_contacted, cx.is_answered_inbound,
+             cx.is_journey_contact, cx.could_qualify, cx.identity_uuid, cx.identity_kind = 'client' AS is_client,
              coalesce(cx.identity_kind IN ('lead', 'client'), false) AS is_linked,
-             (cx.identity_key IS NULL AND (cx.direction_class = 'outbound' OR cx.is_answered_inbound)) AS is_unresolved,
-             CASE WHEN cx.identity_key IS NULL THEN cx.phone_last10 END AS phone_last10
+             ((cx.identity_kind IS NULL OR cx.identity_uuid IS NULL) AND (cx.direction_class = 'outbound' OR cx.is_answered_inbound))
+               AS is_unresolved,
+             CASE WHEN cx.identity_kind IS NULL OR cx.identity_uuid IS NULL THEN cx.phone_last10 END AS phone_last10
         FROM cx) y
      WHERE y.is_linked OR y.is_unresolved
   ), fs AS MATERIALIZED (
-    SELECT * FROM private.report_v3_first_sales($1, $11)
+    -- First sales keyed like hist: report_v3_client_identity_key's 'lead:<root lead>' or 'client:<id>' as uuid and kind.
+    SELECT s.*, CASE WHEN s.identity_kind = 'lead' THEN substr(s.identity_key, 6) ELSE substr(s.identity_key, 8) END::uuid
+                  AS identity_uuid, s.identity_kind = 'client' AS is_client
+      FROM private.report_v3_first_sales($1, $11) s
   ), buyers AS (
     SELECT s.* FROM fs s
      WHERE s.first_sold_date >= $9 AND s.first_sold_date < $10
@@ -768,39 +783,39 @@ BEGIN
     -- Candidate identities first: a member's first journey contact is in the window and credited in scope, so it has
     -- an in-window journey contact credited in scope; a buyer is a candidate as such. Each candidate's history below
     -- is then its whole same-org history: every agent, every date before as_of.
-    SELECT h.identity_key FROM hist h
+    SELECT h.identity_uuid, h.is_client FROM hist h
      WHERE h.is_linked AND h.is_journey_contact AND h.created_at >= $7 AND h.created_at < $8
        AND ($5::uuid[] IS NULL OR h.credited_agent_id = ANY ($5))
     UNION
-    SELECT b.identity_key FROM buyers b
+    SELECT b.identity_uuid, b.is_client FROM buyers b
   ), lw AS MATERIALIZED (
     -- Each candidate's linked calls in (created_at, call_id) order, read once: its first journey contact (the first
     -- row that is one), the attempts before that row, its first linked call and its first unverified attempt.
-    SELECT l.identity_key, l.call_id, l.created_at, l.credited_agent_id, l.direction_class, l.is_journey_contact,
+    SELECT l.identity_uuid, l.is_client, l.call_id, l.created_at, l.credited_agent_id, l.is_outbound, l.is_journey_contact,
            l.is_journey_contact AND NOT coalesce(bool_or(l.is_journey_contact) OVER w, false) AS is_first_contact,
            count(*) FILTER (WHERE l.is_attempt) OVER w AS attempts_before,
            min(l.created_at) OVER p AS first_at,
-           min(l.created_at) FILTER (WHERE l.attempt_class = 'unverified') OVER p AS first_unverified_at
+           min(l.created_at) FILTER (WHERE l.is_unverified) OVER p AS first_unverified_at
       FROM hist l
-     WHERE l.is_linked AND l.identity_key IN (SELECT c.identity_key FROM cands c)
-    WINDOW p AS (PARTITION BY l.identity_key COLLATE "C"),
+     WHERE l.is_linked AND (l.identity_uuid, l.is_client) IN (SELECT c.identity_uuid, c.is_client FROM cands c)
+    WINDOW p AS (PARTITION BY l.identity_uuid, l.is_client),
            w AS (p ORDER BY l.created_at, l.call_id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
   ), fc AS (
-    SELECT f.identity_key, f.call_id AS anchor_call_id, f.created_at AS anchor_at,
-           (f.created_at AT TIME ZONE $6)::date AS anchor_date, f.credited_agent_id, f.direction_class, f.attempts_before,
+    SELECT f.identity_uuid, f.is_client, f.call_id AS anchor_call_id, f.created_at AS anchor_at,
+           (f.created_at AT TIME ZONE $6)::date AS anchor_date, f.credited_agent_id, f.is_outbound, f.attempts_before,
            f.first_unverified_at, s.first_sold_date
-      FROM lw f LEFT JOIN fs s ON s.identity_key = f.identity_key
+      FROM lw f LEFT JOIN fs s ON s.identity_uuid = f.identity_uuid AND s.is_client = f.is_client
      WHERE f.is_first_contact AND f.created_at >= $7 AND f.created_at < $8
        AND ($5::uuid[] IS NULL OR f.credited_agent_id = ANY ($5))
        AND (s.first_sold_date IS NULL OR s.first_sold_date >= (f.created_at AT TIME ZONE $6)::date)
   ), keyinfo AS MATERIALIZED (
-    -- A lead identity's converted client is unique (uq_clients_lead_id).
-    SELECT k.identity_key, k.root_lead_id,
-           CASE WHEN k.identity_key LIKE 'client:%' THEN substr(k.identity_key, 8)::uuid ELSE c.id END AS client_id
-      FROM (SELECT u.identity_key,
-                   CASE WHEN u.identity_key LIKE 'lead:%' THEN substr(u.identity_key, 6)::uuid END AS root_lead_id
-              FROM (SELECT fc.identity_key FROM fc UNION SELECT b.identity_key FROM buyers b) u) k
-      LEFT JOIN public.clients c ON c.organization_id = $1 AND c.lead_id = k.root_lead_id
+    -- Each member identity once with its text key, exactly D3's 'lead:<root lead>' or 'client:<id>'. A lead
+    -- identity's converted client is unique (uq_clients_lead_id).
+    SELECT u.identity_uuid, u.is_client, CASE WHEN u.is_client THEN 'client:' ELSE 'lead:' END || u.identity_uuid::text AS identity_key,
+           CASE WHEN NOT u.is_client THEN u.identity_uuid END AS root_lead_id,
+           CASE WHEN u.is_client THEN u.identity_uuid ELSE c.id END AS client_id
+      FROM (SELECT fc.identity_uuid, fc.is_client FROM fc UNION SELECT b.identity_uuid, b.is_client FROM buyers b) u
+      LEFT JOIN public.clients c ON c.organization_id = $1 AND c.lead_id = CASE WHEN NOT u.is_client THEN u.identity_uuid END
   ), rec AS (
     SELECT * FROM private.report_v3_identity_receipts($1,
       (SELECT array_agg(ki.root_lead_id) FROM keyinfo ki WHERE ki.root_lead_id IS NOT NULL))
@@ -834,16 +849,16 @@ BEGIN
   ), links AS (
     SELECT * FROM private.report_v3_sale_call_links($1, $11)
   ), m AS (
-    SELECT fc.*, ki.root_lead_id, r.receipt_at,
+    SELECT fc.*, ki.identity_key, ki.root_lead_id, r.receipt_at,
            coalesce(rl.qual_at < fc.anchor_at, false) AS related_qualifying,
            coalesce(rl.any_at < fc.anchor_at, false) AS related_any,
            coalesce(ch.first_at < fc.anchor_at, false) AS phone_changed,
            coalesce(fc.first_unverified_at < fc.anchor_at, false) AS unverified_before,
-           fc.attempts_before + CASE WHEN fc.direction_class = 'outbound' THEN 1 ELSE 0 END AS attempts
-      FROM fc JOIN keyinfo ki ON ki.identity_key = fc.identity_key
+           fc.attempts_before + CASE WHEN fc.is_outbound THEN 1 ELSE 0 END AS attempts
+      FROM fc JOIN keyinfo ki ON ki.identity_uuid = fc.identity_uuid AND ki.is_client = fc.is_client
       LEFT JOIN rec r ON r.root_lead_id = ki.root_lead_id
-      LEFT JOIN rel rl ON rl.identity_key = fc.identity_key
-      LEFT JOIN chg ch ON ch.identity_key = fc.identity_key
+      LEFT JOIN rel rl ON rl.identity_key = ki.identity_key
+      LEFT JOIN chg ch ON ch.identity_key = ki.identity_key
   ), m2 AS (
     SELECT m.*,
            CASE WHEN m.root_lead_id IS NULL THEN 'hand_entered_client'
@@ -860,13 +875,13 @@ BEGIN
            ($11 >= private.report_v3_local_day_start(m.anchor_date + 31, $6)) AS is_mature
       FROM m
   ), fl AS (
-    SELECT l.identity_key, min(l.first_at) AS first_at FROM lw l GROUP BY l.identity_key
+    SELECT l.identity_uuid, l.is_client, min(l.first_at) AS first_at FROM lw l GROUP BY l.identity_uuid, l.is_client
   ), b AS (
     SELECT bu.*, ki.root_lead_id, ki.client_id, r.receipt_at, fl.first_at,
            (SELECT lk.call_id FROM links lk WHERE lk.win_id = ANY (bu.first_set_win_ids) ORDER BY lk.call_id LIMIT 1) AS link_call_id
-      FROM buyers bu JOIN keyinfo ki ON ki.identity_key = bu.identity_key
+      FROM buyers bu JOIN keyinfo ki ON ki.identity_uuid = bu.identity_uuid AND ki.is_client = bu.is_client
       LEFT JOIN rec r ON r.root_lead_id = ki.root_lead_id
-      LEFT JOIN fl ON fl.identity_key = bu.identity_key
+      LEFT JOIN fl ON fl.identity_uuid = bu.identity_uuid AND fl.is_client = bu.is_client
   ), b2 AS (
     SELECT b.*, lc.created_at AS link_at, lc.is_journey_contact AS link_is_contact,
            CASE WHEN b.root_lead_id IS NULL THEN 'hand_entered_client'
@@ -874,7 +889,7 @@ BEGIN
                 WHEN b.first_at IS NOT NULL AND b.receipt_at > b.first_at THEN 'receipt_contradicted'
                 WHEN (b.receipt_at AT TIME ZONE $6)::date > b.first_sold_date THEN 'sold_before_receipt'
                 WHEN NOT b.assessable OR b.first_event_time_source = 'sold_date_proxy' THEN 'imported_already_sold' END AS gate14
-      FROM b LEFT JOIN lw lc ON lc.call_id = b.link_call_id AND lc.identity_key = b.identity_key
+      FROM b LEFT JOIN lw lc ON lc.call_id = b.link_call_id AND lc.identity_uuid = b.identity_uuid AND lc.is_client = b.is_client
   ), b3 AS (
     -- A journey contact before the link exists exactly when the identity's first journey contact is before it.
     SELECT b2.*,
@@ -886,7 +901,7 @@ BEGIN
                 WHEN b2.link_is_contact THEN 'yes'
                 ELSE 'unclassified:link' END AS class38
       FROM b2
-      LEFT JOIN lw fx ON fx.identity_key = b2.identity_key AND fx.is_first_contact
+      LEFT JOIN lw fx ON fx.identity_uuid = b2.identity_uuid AND fx.is_client = b2.is_client AND fx.is_first_contact
       LEFT JOIN rel rl ON rl.identity_key = b2.identity_key
       LEFT JOIN chg ch ON ch.identity_key = b2.identity_key
   )

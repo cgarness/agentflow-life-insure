@@ -182,6 +182,15 @@ SELECT rt.eq('BC2 rollback restores the stub', (SELECT count(*) FROM private.rep
 -- -----------------------------------------------------------------------------------------------------
 SELECT rt.assert_v3_helper_shape();
 SELECT rt.assert_sealed_v3(true, false);
+-- Batch 7: every helper the journey statement calls is PARALLEL RESTRICTED (read-only, no subtransaction, run by the
+-- leader), so its history pass may use a parallel plan; one PARALLEL UNSAFE call would make the whole statement serial.
+SELECT rt.eq('the journey statement''s helpers are parallel restricted',
+  (SELECT string_agg(p.proname || ':' || p.proparallel::text, ' ' ORDER BY p.proname) FROM pg_proc p
+    WHERE p.pronamespace = 'private'::regnamespace
+      AND p.proname IN ('report_v3_first_sales', 'report_v3_identity_numbers', 'report_v3_identity_receipts',
+                        'report_v3_local_day_start', 'report_v3_sale_call_links')),
+  'report_v3_first_sales:r report_v3_identity_numbers:r report_v3_identity_receipts:r report_v3_local_day_start:r '
+  || 'report_v3_sale_call_links:r');
 SELECT rt.reject_mutation('private.report_v3_journey_rows(uuid,uuid[],text,timestamp with time zone,timestamp with time zone,date,date,timestamp with time zone)',
   'min(c.created_at) FILTER (WHERE c.could_qualify) AS qual_at',
   'min(c.created_at) AS qual_at',
