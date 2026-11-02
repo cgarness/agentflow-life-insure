@@ -289,6 +289,7 @@ DECLARE
   sw record;
   v_as_of timestamptz := now();
   v_prod jsonb;
+  v_calls jsonb;
   v_counts jsonb;
   v_out jsonb;
 BEGIN
@@ -296,10 +297,281 @@ BEGIN
   SELECT * INTO w FROM private.report_window(a.org_id, p_start_date, p_end_date);
   SELECT * INTO sw FROM private.report_v3_sold_window(w.start_date, w.end_date, (v_as_of AT TIME ZONE w.time_zone)::date);
   v_prod := private.report_v3_production(a.org_id, a.agent_ids, sw.sold_from, sw.sold_until, v_as_of);
-  v_counts := private.report_v3_call_counts(a.org_id, a.agent_ids, w.start_at, w.end_at);
+  -- One pass over the window's calls with identities resolved once per pointer: the scope counts and every agent's
+  -- counts and talk time come from one sort. Scope distinct counts read the identity level, agent distinct counts the
+  -- identity and agent level; nothing is summed across agents. Only outbound rows count (inbound and other rows carry
+  -- no attempt class); an outbound row's credited agent is its placing agent. $1 org, $2 start, $3 end, $4 agent_ids.
+  EXECUTE $q$
+  WITH
+  -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
+  -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
+  -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
+  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
+    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+    UNION ALL
+    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+  ), cr AS (
+    SELECT c.id AS call_id, c.created_at, c.agent_id AS placing_agent_id, c.contact_id, c.contact_type,
+           c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
+           c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
+           c.disposition_name AS raw_disposition_name,
+           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
+                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
+                ELSE 'other' END AS direction_class,
+           greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
+           CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
+           coalesce(l1.id, l2.id) AS lead_id,
+           coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
+           dm.id AS resolved_disposition_id,
+           dm.name AS resolved_disposition_name,
+           coalesce(dm.color, '#6B7280') AS disposition_color,
+           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(dm.convert_to_client, false) AS disp_converts,
+           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
+           coalesce(dm.callback_scheduler, false) AS disp_callback,
+           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+      FROM public.calls c
+      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
+      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
+                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
+      -- provably unique, so a reader that does not read the campaign keeps neither.
+      LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
+      LEFT JOIN (SELECT cl.id, (array_agg(k.id))[1] AS campaign_id
+                   FROM public.campaign_leads cl
+                   JOIN public.campaigns k ON k.id = cl.campaign_id AND k.organization_id = $1
+                  GROUP BY cl.id) mc ON mc.id = c.campaign_lead_id
+      LEFT JOIN public.leads l1 ON l1.id = c.lead_id AND l1.organization_id = $1
+      LEFT JOIN public.leads l2
+             ON c.lead_id IS NULL AND l2.id = c.contact_id AND (c.contact_type = 'lead' OR c.contact_type IS NULL)
+            AND l2.organization_id = $1
+      LEFT JOIN private.dialer_outbound_admissions adm ON adm.organization_id = $1 AND adm.call_id = c.id
+     WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+       AND NOT EXISTS (SELECT 1 FROM private.performance_duplicate_rows d
+                        WHERE d.organization_id = $1 AND d.kind = 'call' AND d.duplicate_id = c.id)
+  ), cf AS (
+    SELECT cr.*,
+           CASE WHEN cr.direction_class = 'inbound' THEN coalesce(cr.placing_agent_id, cr.answered_by_agent_id)
+                ELSE cr.placing_agent_id END AS credited_agent_id,
+           CASE WHEN cr.resolved_disposition_id IS NOT NULL THEN cr.resolved_disposition_id::text
+                WHEN nullif(btrim(cr.raw_disposition_name), '') IS NOT NULL THEN 'name:' || lower(btrim(cr.raw_disposition_name))
+                ELSE 'none' END AS disposition_key,
+           coalesce(cr.resolved_disposition_name, nullif(btrim(cr.raw_disposition_name), ''), '(No disposition)') AS disposition_name,
+           CASE WHEN cr.direction_class <> 'outbound' THEN false
+                WHEN lower(coalesce(cr.resolved_disposition_name, cr.raw_disposition_name, '')) = 'no answer' THEN false
+                WHEN cr.duration_seconds > 45 THEN true
+                WHEN cr.disp_counts_contacted THEN true
+                ELSE false END AS is_contacted,
+           CASE WHEN cr.direction_class <> 'outbound' THEN NULL
+                WHEN NOT cr.dialer_admission_required OR cr.admitted IS TRUE THEN 'attempt'
+                WHEN cr.admitted IS FALSE THEN 'non_attempt'
+                ELSE 'unverified' END AS attempt_class,
+           (cr.direction_class = 'inbound' AND (cr.placing_agent_id IS NOT NULL OR cr.outcome = 'forwarded_answered')
+              AND cr.voicemail_id IS NULL) AS is_answered_inbound
+      FROM cr
+  ), cg AS (
+    SELECT cf.*,
+           coalesce(cf.attempt_class = 'attempt', false) AS is_attempt,
+           (coalesce(cf.attempt_class = 'attempt', false) AND cf.is_contacted)
+             OR (cf.is_answered_inbound AND CASE WHEN lower(cf.disposition_name) = 'no answer' THEN false
+                                                 WHEN cf.duration_seconds > 45 THEN true
+                                                 WHEN cf.disp_counts_contacted THEN true
+                                                 ELSE false END) AS is_journey_contact,
+           (lower(cf.disposition_name) <> 'no answer'
+             AND (cf.disp_counts_contacted OR cf.raw_duration IS NULL OR cf.raw_duration > 45)) AS could_qualify,
+           public.phone_last10(cf.contact_phone) AS phone_last10
+      FROM cf
+  ),
+  -- @call-rows end
+  -- @call-pointers begin: each pointer of the window resolved once (report_v3_contact_identity rules 1–8, its exact
+  -- CASE order), one row per pointer. Pointers are read only from calls a scope could credit ($4: placing or answering
+  -- agent), a superset of every row a caller keeps. Byte-identical wherever it appears (reportsV3Contracts.test.ts).
+  ic AS (   -- contact pointers (rules 1–6)
+    SELECT p.id,
+           CASE WHEN r.id IS NOT NULL THEN 'recruit'
+                WHEN k.id IS NOT NULL THEN CASE WHEN k.lead_id IS NOT NULL THEN 'lead' ELSE 'client' END
+                WHEN l.id IS NOT NULL OR kc.id IS NOT NULL OR coalesce(cl.lead_id, lin.original_lead_id) IS NOT NULL THEN 'lead'
+           END AS identity_kind,
+           CASE WHEN r.id IS NOT NULL THEN r.id
+                WHEN k.id IS NOT NULL THEN coalesce(k.lead_id, k.id)
+                WHEN l.id IS NOT NULL THEN l.id
+                WHEN kc.id IS NOT NULL THEN p.id
+                ELSE coalesce(cl.lead_id, lin.original_lead_id)
+           END AS identity_uuid,
+           CASE WHEN r.id IS NOT NULL THEN 'recruit'
+                WHEN k.id IS NOT NULL THEN 'client'
+                WHEN l.id IS NOT NULL THEN 'lead'
+                WHEN kc.id IS NOT NULL THEN 'converted_lead_pointer'
+                WHEN cl.id IS NOT NULL AND coalesce(cl.lead_id, lin.original_lead_id) IS NOT NULL THEN 'legacy_membership_as_contact'
+                WHEN cl.id IS NOT NULL THEN 'unresolved_membership_without_lead'
+                ELSE 'unresolved_dangling_contact'
+           END AS resolution,
+           CASE WHEN ck.id IS NOT NULL THEN coalesce((ck.lead_conversion ->> 'converted_at')::timestamptz, ck.created_at) END
+             AS converted_at
+      FROM (SELECT DISTINCT c.contact_id AS id FROM public.calls c
+             WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3 AND c.contact_id IS NOT NULL
+               AND ($4::uuid[] IS NULL OR c.agent_id = ANY ($4) OR c.answered_by_agent_id = ANY ($4))) p
+      LEFT JOIN public.recruits r ON r.id = p.id AND r.organization_id = $1
+      LEFT JOIN public.clients k ON k.id = p.id AND k.organization_id = $1
+      LEFT JOIN public.leads l ON l.id = p.id AND l.organization_id = $1
+      LEFT JOIN public.clients kc ON kc.lead_id = p.id AND kc.organization_id = $1
+      LEFT JOIN public.campaign_leads cl ON cl.id = p.id AND cl.organization_id = $1
+      LEFT JOIN private.dialer_conversion_lineage lin ON lin.organization_id = $1 AND lin.campaign_lead_id = p.id
+      LEFT JOIN public.clients ck
+             ON ck.lead_id = CASE WHEN r.id IS NULL AND (k.id IS NULL OR k.lead_id IS NOT NULL) THEN
+                               CASE WHEN k.id IS NOT NULL THEN k.lead_id WHEN l.id IS NOT NULL THEN l.id
+                                    WHEN kc.id IS NOT NULL THEN p.id ELSE coalesce(cl.lead_id, lin.original_lead_id) END END
+            AND ck.organization_id = $1
+  ), im AS (   -- campaign-membership pointers of calls with no contact (rules 7–8)
+    SELECT p.id,
+           CASE WHEN coalesce(cl.lead_id, lin.original_lead_id) IS NOT NULL THEN 'lead' END AS identity_kind,
+           coalesce(cl.lead_id, lin.original_lead_id) AS identity_uuid,
+           CASE WHEN cl.lead_id IS NOT NULL THEN 'campaign_membership'
+                WHEN lin.original_lead_id IS NOT NULL THEN 'campaign_lineage'
+                WHEN cl.id IS NOT NULL THEN 'unresolved_membership_without_lead'
+                ELSE 'unresolved_no_link' END AS resolution,
+           CASE WHEN ck.id IS NOT NULL THEN coalesce((ck.lead_conversion ->> 'converted_at')::timestamptz, ck.created_at) END
+             AS converted_at
+      FROM (SELECT DISTINCT c.campaign_lead_id AS id FROM public.calls c
+             WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+               AND c.contact_id IS NULL AND c.campaign_lead_id IS NOT NULL
+               AND ($4::uuid[] IS NULL OR c.agent_id = ANY ($4) OR c.answered_by_agent_id = ANY ($4))) p
+      LEFT JOIN public.campaign_leads cl ON cl.id = p.id AND cl.organization_id = $1
+      LEFT JOIN private.dialer_conversion_lineage lin ON lin.organization_id = $1 AND lin.campaign_lead_id = p.id
+      LEFT JOIN public.clients ck ON ck.lead_id = coalesce(cl.lead_id, lin.original_lead_id) AND ck.organization_id = $1
+  ),
+  -- @call-pointers end
+  -- @call-identity begin: each call's identity from its pointer (the contact pointer when the call has one, else its
+  -- campaign membership; a recruit contact stays a recruit). identity_key is rebuilt as kind || ':' || uuid, the
+  -- resolver's own format. Byte-identical wherever it appears (reportsV3Contracts.test.ts).
+  cy AS (
+    SELECT cg.*,
+           CASE WHEN cg.contact_type = 'recruit' AND cg.contact_id IS NOT NULL THEN 'recruit'
+                ELSE coalesce(xc.identity_kind, xm.identity_kind) END AS identity_kind,
+           CASE WHEN cg.contact_type = 'recruit' AND cg.contact_id IS NOT NULL THEN cg.contact_id
+                ELSE coalesce(xc.identity_uuid, xm.identity_uuid) END AS identity_uuid,
+           CASE WHEN cg.contact_type = 'recruit' AND cg.contact_id IS NOT NULL THEN 'recruit'
+                ELSE coalesce(xc.resolution, xm.resolution, 'unresolved_no_link') END AS resolution,
+           coalesce(xc.converted_at, xm.converted_at) AS converted_at
+      FROM cg
+      -- The contact pointer when the call has one, else its campaign membership: two single-key hash joins. ic and im
+      -- hold one row per pointer (each join above is on a primary or unique key), so DISTINCT ON changes no row; it
+      -- tells the planner the key is unique even when the set is materialized for a second reader, so the pointer set
+      -- is hashed and the calls stream past it.
+      LEFT JOIN (SELECT DISTINCT ON (u.id) u.* FROM ic u) xc ON xc.id = cg.contact_id
+      LEFT JOIN (SELECT DISTINCT ON (u.id) u.* FROM im u) xm ON cg.contact_id IS NULL AND xm.id = cg.raw_campaign_lead_id
+  ), cx AS (
+    SELECT cy.*, cy.identity_kind || ':' || cy.identity_uuid AS identity_key,
+           (cy.identity_kind = 'lead' AND (cy.converted_at IS NULL OR cy.created_at < cy.converted_at)) AS is_lead_stage
+      FROM cy
+  ),
+  -- @call-identity end
+  pa AS (
+    -- Narrow per-call flags first (the sort carries booleans, not text), then one sort serves both the identity and
+    -- identity-and-agent levels; one roll-up below reads them as they stream.
+    SELECT grouping(y.agent_id) AS g_agent, y.agent_id,
+           count(*) FILTER (WHERE y.outbound) AS outbound_rows,
+           count(*) FILTER (WHERE y.att) AS attempts,
+           count(*) FILTER (WHERE y.non_att) AS non_attempts,
+           count(*) FILTER (WHERE y.unv) AS unverified,
+           count(*) FILTER (WHERE y.att AND y.con) AS contacted,
+           count(*) FILTER (WHERE y.att AND y.con AND NOT y.recruit) AS contacted_eligible,
+           count(*) FILTER (WHERE y.att AND y.con AND y.linked) AS contacted_resolved,
+           count(*) FILTER (WHERE y.att AND y.con AND y.unresolved) AS contacted_unresolved,
+           coalesce(bool_or(y.att AND y.con AND y.linked), false) AS reached,
+           count(*) FILTER (WHERE y.att AND y.lead_stage) AS lead_stage_attempts,
+           coalesce(bool_or(y.att AND y.lead_stage), false) AS lead_identity,
+           count(*) FILTER (WHERE y.att AND y.unresolved) AS unresolved_attempts,
+           count(*) FILTER (WHERE y.unv AND (y.lead_stage OR y.unresolved)) AS lead_unverified,
+           coalesce(sum(y.duration_seconds) FILTER (WHERE y.att), 0) AS seconds,
+           count(*) FILTER (WHERE y.att AND y.estimated) AS estimated,
+           count(*) FILTER (WHERE y.att AND y.unknown) AS unknown,
+           count(*) FILTER (WHERE y.att AND y.conflicting) AS conflicting,
+           count(*) FILTER (WHERE y.att AND y.provider_confirmed) AS provider_confirmed
+      FROM (SELECT x.placing_agent_id AS agent_id, CASE x.identity_kind WHEN 'lead' THEN 1 WHEN 'client' THEN 2 WHEN 'recruit' THEN 3 END
+                     AS kind_code, x.identity_uuid,
+                   x.attempt_class IS NOT NULL AS outbound, x.is_attempt AS att, x.attempt_class = 'non_attempt' AS non_att,
+                   x.attempt_class = 'unverified' AS unv, x.is_contacted AS con,
+                   coalesce(x.identity_kind = 'recruit', false) AS recruit, coalesce(x.identity_kind IN ('lead', 'client'), false) AS linked,
+                   x.identity_kind IS NULL AS unresolved, coalesce(x.is_lead_stage, false) AS lead_stage, x.duration_seconds,
+                   x.duration_source = 'elapsed_estimate' AS estimated, x.duration_source = 'legacy_unknown' AS unknown,
+                   x.duration_conflict AS conflicting,
+                   x.duration_source IN ('provider', 'terminal_non_answer') AND NOT x.duration_conflict AS provider_confirmed
+              FROM cx x
+             WHERE $4::uuid[] IS NULL OR x.placing_agent_id = ANY ($4)) y
+     GROUP BY GROUPING SETS ((y.kind_code, y.identity_uuid, y.agent_id), (y.kind_code, y.identity_uuid))
+  ), roll AS MATERIALIZED (
+    -- Per agent from the identity-and-agent level; the scope from the identity level (distinct identities, never a sum
+    -- of agent rows).
+    SELECT p.g_agent, CASE WHEN p.g_agent = 0 THEN p.agent_id END AS agent_id, sum(p.outbound_rows) AS outbound_rows,
+           sum(p.attempts) AS attempts, sum(p.non_attempts) AS non_attempts, sum(p.unverified) AS unverified,
+           sum(p.contacted) AS contacted, sum(p.contacted_eligible) AS contacted_eligible,
+           sum(p.contacted_resolved) AS contacted_resolved, sum(p.contacted_unresolved) AS contacted_unresolved,
+           count(*) FILTER (WHERE p.reached) AS reached, sum(p.lead_stage_attempts) AS lead_stage_attempts,
+           count(*) FILTER (WHERE p.lead_identity) AS lead_identities, sum(p.unresolved_attempts) AS unresolved_attempts,
+           sum(p.lead_unverified) AS lead_unverified, sum(p.seconds) AS seconds, sum(p.estimated) AS estimated,
+           sum(p.unknown) AS unknown, sum(p.conflicting) AS conflicting, sum(p.provider_confirmed) AS provider_confirmed
+      FROM pa p
+     GROUP BY p.g_agent, CASE WHEN p.g_agent = 0 THEN p.agent_id END
+  ), ag AS (
+    SELECT r.* FROM roll r WHERE r.g_agent = 0 AND r.outbound_rows > 0
+  ), sc AS (
+    SELECT coalesce(sum(r.attempts), 0) AS attempts, coalesce(sum(r.non_attempts), 0) AS non_attempts,
+           coalesce(sum(r.unverified), 0) AS unverified, coalesce(sum(r.contacted), 0) AS contacted,
+           coalesce(sum(r.contacted_eligible), 0) AS contacted_eligible, coalesce(sum(r.contacted_resolved), 0) AS contacted_resolved,
+           coalesce(sum(r.contacted_unresolved), 0) AS contacted_unresolved, coalesce(sum(r.reached), 0) AS reached,
+           coalesce(sum(r.lead_stage_attempts), 0) AS lead_stage_attempts, coalesce(sum(r.lead_identities), 0) AS lead_identities,
+           coalesce(sum(r.unresolved_attempts), 0) AS unresolved_attempts, coalesce(sum(r.lead_unverified), 0) AS lead_unverified
+      FROM roll r WHERE r.g_agent = 1
+  ), dup AS (
+    -- Reviewed duplicates in the window, by placing agent: driven from the reviewed rows, one key lookup each.
+    SELECT x.agent_id, count(*) AS n
+      FROM private.performance_duplicate_rows d
+     CROSS JOIN LATERAL (SELECT c.agent_id FROM public.calls c
+                          WHERE c.id = d.duplicate_id AND c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+                            AND ($4::uuid[] IS NULL OR c.agent_id = ANY ($4))) x
+     WHERE d.organization_id = $1 AND d.kind = 'call'
+     GROUP BY x.agent_id
+  )
+  SELECT jsonb_build_object(
+    'counts', (SELECT jsonb_build_object(
+                 'attempts', s.attempts, 'non_attempts', s.non_attempts, 'unverified', s.unverified,
+                 'duplicates_excluded', (SELECT coalesce(sum(d.n), 0) FROM dup d),
+                 'contacted', s.contacted, 'contacted_eligible', s.contacted_eligible, 'contacted_resolved', s.contacted_resolved,
+                 'contacted_unresolved', s.contacted_unresolved, 'reached', s.reached,
+                 'lead_stage_attempts', s.lead_stage_attempts, 'lead_identities', s.lead_identities,
+                 'unresolved_attempts', s.unresolved_attempts, 'lead_unverified', s.lead_unverified) FROM sc s),
+    'stats', coalesce((SELECT jsonb_agg(jsonb_build_object(
+                 'agent_id', coalesce(g.agent_id, d.agent_id),
+                 'counts', jsonb_build_object(
+                   'attempts', coalesce(g.attempts, 0), 'non_attempts', coalesce(g.non_attempts, 0),
+                   'unverified', coalesce(g.unverified, 0), 'duplicates_excluded', coalesce(d.n, 0),
+                   'contacted', coalesce(g.contacted, 0), 'contacted_eligible', coalesce(g.contacted_eligible, 0),
+                   'contacted_resolved', coalesce(g.contacted_resolved, 0), 'contacted_unresolved', coalesce(g.contacted_unresolved, 0),
+                   'reached', coalesce(g.reached, 0), 'lead_stage_attempts', coalesce(g.lead_stage_attempts, 0),
+                   'lead_identities', coalesce(g.lead_identities, 0), 'unresolved_attempts', coalesce(g.unresolved_attempts, 0),
+                   'lead_unverified', coalesce(g.lead_unverified, 0)),
+                 'talk', jsonb_build_object(
+                   'seconds', coalesce(g.seconds, 0), 'estimated', coalesce(g.estimated, 0), 'unknown', coalesce(g.unknown, 0),
+                   'conflicting', coalesce(g.conflicting, 0), 'provider_confirmed', coalesce(g.provider_confirmed, 0),
+                   'duplicates_excluded', coalesce(d.n, 0))))
+                 FROM ag g
+                 FULL JOIN dup d ON coalesce(d.agent_id, '00000000-0000-0000-0000-000000000000'::uuid)
+                                  = coalesce(g.agent_id, '00000000-0000-0000-0000-000000000000'::uuid)), '[]'::jsonb))
+  $q$ INTO v_calls USING a.org_id, w.start_at, w.end_at, a.agent_ids;
+  v_counts := v_calls -> 'counts';
 
   WITH stats AS MATERIALIZED (
-    SELECT * FROM private.report_v3_agent_call_stats(a.org_id, a.agent_ids, w.start_at, w.end_at)
+    SELECT (e ->> 'agent_id')::uuid AS agent_id, e -> 'counts' AS counts, e -> 'talk' AS talk
+      FROM jsonb_array_elements(v_calls -> 'stats') e
   ), sess AS MATERIALIZED (
     SELECT * FROM private.report_session_seconds(a.org_id, w.start_at, w.end_at, a.agent_ids)
   ), sq AS MATERIALIZED (
@@ -450,43 +722,237 @@ DECLARE
   w record;
   sw record;
   v_as_of timestamptz := now();
+  v_body jsonb;
   v_counts jsonb;
-  v_prod jsonb;
   v_call_kpis jsonb;
   v_prod_kpis jsonb;
-  v_out jsonb;
 BEGIN
   SELECT * INTO a FROM private.report_access_v2(p_requested_scope, p_agent_id);
   SELECT * INTO w FROM private.report_window(a.org_id, p_start_date, p_end_date);
   SELECT * INTO sw FROM private.report_v3_sold_window(w.start_date, w.end_date, (v_as_of AT TIME ZONE w.time_zone)::date);
-  v_counts := private.report_v3_call_counts(a.org_id, a.agent_ids, w.start_at, w.end_at);
-  v_prod := private.report_v3_production(a.org_id, a.agent_ids, sw.sold_from, sw.sold_until, v_as_of);
-  v_call_kpis := private.report_v3_call_kpis(v_counts, (v_prod #>> '{totals,policy_count}')::numeric);
-  v_prod_kpis := private.report_v3_production_kpis(v_prod -> 'totals');
 
-  WITH calls_f AS MATERIALIZED (
-    SELECT f.created_at, f.is_contacted, f.identity_key
-      FROM private.report_v3_call_facts(a.org_id, w.start_at, w.end_at) f
-     WHERE f.direction_class = 'outbound' AND f.is_attempt
-       AND (a.agent_ids IS NULL OR f.credited_agent_id = ANY (a.agent_ids))
-  ), pol_f AS MATERIALIZED (
-    SELECT s.recorded_at, s.monthly_premium, s.premium_state,
-           private.report_v3_client_identity_key(a.org_id, s.buyer_id) AS identity_key
-      FROM private.report_v3_sale_facts(a.org_id, a.agent_ids, sw.sold_from, sw.sold_until) s
-     WHERE s.recorded_at <= v_as_of
+  -- One pass over the window's calls with identities resolved once per pointer; the identity states are read once for
+  -- the window's linked identities and the buyers. In-scope attempt rows (an outbound row's credited agent is its
+  -- placing agent) are grouped by state group as they stream; call_population comes from the same groups.
+  -- $1 org, $2 start, $3 end, $4 agent_ids, $5/$6 sold window, $7 as_of.
+  EXECUTE $q$
+  WITH
+  -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
+  -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
+  -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
+  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
+    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+    UNION ALL
+    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+  ), cr AS (
+    SELECT c.id AS call_id, c.created_at, c.agent_id AS placing_agent_id, c.contact_id, c.contact_type,
+           c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
+           c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
+           c.disposition_name AS raw_disposition_name,
+           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
+                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
+                ELSE 'other' END AS direction_class,
+           greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
+           CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
+           coalesce(l1.id, l2.id) AS lead_id,
+           coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
+           dm.id AS resolved_disposition_id,
+           dm.name AS resolved_disposition_name,
+           coalesce(dm.color, '#6B7280') AS disposition_color,
+           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(dm.convert_to_client, false) AS disp_converts,
+           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
+           coalesce(dm.callback_scheduler, false) AS disp_callback,
+           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+      FROM public.calls c
+      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
+      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
+                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
+      -- provably unique, so a reader that does not read the campaign keeps neither.
+      LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
+      LEFT JOIN (SELECT cl.id, (array_agg(k.id))[1] AS campaign_id
+                   FROM public.campaign_leads cl
+                   JOIN public.campaigns k ON k.id = cl.campaign_id AND k.organization_id = $1
+                  GROUP BY cl.id) mc ON mc.id = c.campaign_lead_id
+      LEFT JOIN public.leads l1 ON l1.id = c.lead_id AND l1.organization_id = $1
+      LEFT JOIN public.leads l2
+             ON c.lead_id IS NULL AND l2.id = c.contact_id AND (c.contact_type = 'lead' OR c.contact_type IS NULL)
+            AND l2.organization_id = $1
+      LEFT JOIN private.dialer_outbound_admissions adm ON adm.organization_id = $1 AND adm.call_id = c.id
+     WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+       AND NOT EXISTS (SELECT 1 FROM private.performance_duplicate_rows d
+                        WHERE d.organization_id = $1 AND d.kind = 'call' AND d.duplicate_id = c.id)
+  ), cf AS (
+    SELECT cr.*,
+           CASE WHEN cr.direction_class = 'inbound' THEN coalesce(cr.placing_agent_id, cr.answered_by_agent_id)
+                ELSE cr.placing_agent_id END AS credited_agent_id,
+           CASE WHEN cr.resolved_disposition_id IS NOT NULL THEN cr.resolved_disposition_id::text
+                WHEN nullif(btrim(cr.raw_disposition_name), '') IS NOT NULL THEN 'name:' || lower(btrim(cr.raw_disposition_name))
+                ELSE 'none' END AS disposition_key,
+           coalesce(cr.resolved_disposition_name, nullif(btrim(cr.raw_disposition_name), ''), '(No disposition)') AS disposition_name,
+           CASE WHEN cr.direction_class <> 'outbound' THEN false
+                WHEN lower(coalesce(cr.resolved_disposition_name, cr.raw_disposition_name, '')) = 'no answer' THEN false
+                WHEN cr.duration_seconds > 45 THEN true
+                WHEN cr.disp_counts_contacted THEN true
+                ELSE false END AS is_contacted,
+           CASE WHEN cr.direction_class <> 'outbound' THEN NULL
+                WHEN NOT cr.dialer_admission_required OR cr.admitted IS TRUE THEN 'attempt'
+                WHEN cr.admitted IS FALSE THEN 'non_attempt'
+                ELSE 'unverified' END AS attempt_class,
+           (cr.direction_class = 'inbound' AND (cr.placing_agent_id IS NOT NULL OR cr.outcome = 'forwarded_answered')
+              AND cr.voicemail_id IS NULL) AS is_answered_inbound
+      FROM cr
+  ), cg AS (
+    SELECT cf.*,
+           coalesce(cf.attempt_class = 'attempt', false) AS is_attempt,
+           (coalesce(cf.attempt_class = 'attempt', false) AND cf.is_contacted)
+             OR (cf.is_answered_inbound AND CASE WHEN lower(cf.disposition_name) = 'no answer' THEN false
+                                                 WHEN cf.duration_seconds > 45 THEN true
+                                                 WHEN cf.disp_counts_contacted THEN true
+                                                 ELSE false END) AS is_journey_contact,
+           (lower(cf.disposition_name) <> 'no answer'
+             AND (cf.disp_counts_contacted OR cf.raw_duration IS NULL OR cf.raw_duration > 45)) AS could_qualify,
+           public.phone_last10(cf.contact_phone) AS phone_last10
+      FROM cf
+  ),
+  -- @call-rows end
+  -- @call-pointers begin: each pointer of the window resolved once (report_v3_contact_identity rules 1–8, its exact
+  -- CASE order), one row per pointer. Pointers are read only from calls a scope could credit ($4: placing or answering
+  -- agent), a superset of every row a caller keeps. Byte-identical wherever it appears (reportsV3Contracts.test.ts).
+  ic AS (   -- contact pointers (rules 1–6)
+    SELECT p.id,
+           CASE WHEN r.id IS NOT NULL THEN 'recruit'
+                WHEN k.id IS NOT NULL THEN CASE WHEN k.lead_id IS NOT NULL THEN 'lead' ELSE 'client' END
+                WHEN l.id IS NOT NULL OR kc.id IS NOT NULL OR coalesce(cl.lead_id, lin.original_lead_id) IS NOT NULL THEN 'lead'
+           END AS identity_kind,
+           CASE WHEN r.id IS NOT NULL THEN r.id
+                WHEN k.id IS NOT NULL THEN coalesce(k.lead_id, k.id)
+                WHEN l.id IS NOT NULL THEN l.id
+                WHEN kc.id IS NOT NULL THEN p.id
+                ELSE coalesce(cl.lead_id, lin.original_lead_id)
+           END AS identity_uuid,
+           CASE WHEN r.id IS NOT NULL THEN 'recruit'
+                WHEN k.id IS NOT NULL THEN 'client'
+                WHEN l.id IS NOT NULL THEN 'lead'
+                WHEN kc.id IS NOT NULL THEN 'converted_lead_pointer'
+                WHEN cl.id IS NOT NULL AND coalesce(cl.lead_id, lin.original_lead_id) IS NOT NULL THEN 'legacy_membership_as_contact'
+                WHEN cl.id IS NOT NULL THEN 'unresolved_membership_without_lead'
+                ELSE 'unresolved_dangling_contact'
+           END AS resolution,
+           CASE WHEN ck.id IS NOT NULL THEN coalesce((ck.lead_conversion ->> 'converted_at')::timestamptz, ck.created_at) END
+             AS converted_at
+      FROM (SELECT DISTINCT c.contact_id AS id FROM public.calls c
+             WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3 AND c.contact_id IS NOT NULL
+               AND ($4::uuid[] IS NULL OR c.agent_id = ANY ($4) OR c.answered_by_agent_id = ANY ($4))) p
+      LEFT JOIN public.recruits r ON r.id = p.id AND r.organization_id = $1
+      LEFT JOIN public.clients k ON k.id = p.id AND k.organization_id = $1
+      LEFT JOIN public.leads l ON l.id = p.id AND l.organization_id = $1
+      LEFT JOIN public.clients kc ON kc.lead_id = p.id AND kc.organization_id = $1
+      LEFT JOIN public.campaign_leads cl ON cl.id = p.id AND cl.organization_id = $1
+      LEFT JOIN private.dialer_conversion_lineage lin ON lin.organization_id = $1 AND lin.campaign_lead_id = p.id
+      LEFT JOIN public.clients ck
+             ON ck.lead_id = CASE WHEN r.id IS NULL AND (k.id IS NULL OR k.lead_id IS NOT NULL) THEN
+                               CASE WHEN k.id IS NOT NULL THEN k.lead_id WHEN l.id IS NOT NULL THEN l.id
+                                    WHEN kc.id IS NOT NULL THEN p.id ELSE coalesce(cl.lead_id, lin.original_lead_id) END END
+            AND ck.organization_id = $1
+  ), im AS (   -- campaign-membership pointers of calls with no contact (rules 7–8)
+    SELECT p.id,
+           CASE WHEN coalesce(cl.lead_id, lin.original_lead_id) IS NOT NULL THEN 'lead' END AS identity_kind,
+           coalesce(cl.lead_id, lin.original_lead_id) AS identity_uuid,
+           CASE WHEN cl.lead_id IS NOT NULL THEN 'campaign_membership'
+                WHEN lin.original_lead_id IS NOT NULL THEN 'campaign_lineage'
+                WHEN cl.id IS NOT NULL THEN 'unresolved_membership_without_lead'
+                ELSE 'unresolved_no_link' END AS resolution,
+           CASE WHEN ck.id IS NOT NULL THEN coalesce((ck.lead_conversion ->> 'converted_at')::timestamptz, ck.created_at) END
+             AS converted_at
+      FROM (SELECT DISTINCT c.campaign_lead_id AS id FROM public.calls c
+             WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+               AND c.contact_id IS NULL AND c.campaign_lead_id IS NOT NULL
+               AND ($4::uuid[] IS NULL OR c.agent_id = ANY ($4) OR c.answered_by_agent_id = ANY ($4))) p
+      LEFT JOIN public.campaign_leads cl ON cl.id = p.id AND cl.organization_id = $1
+      LEFT JOIN private.dialer_conversion_lineage lin ON lin.organization_id = $1 AND lin.campaign_lead_id = p.id
+      LEFT JOIN public.clients ck ON ck.lead_id = coalesce(cl.lead_id, lin.original_lead_id) AND ck.organization_id = $1
+  ),
+  -- @call-pointers end
+  pol_f AS MATERIALIZED (
+    SELECT s.recorded_at, s.monthly_premium, s.premium_state, s.buyer_id,
+           private.report_v3_client_identity_key($1, s.buyer_id) AS identity_key
+      FROM private.report_v3_sale_facts($1, $4, $5, $6) s
+     WHERE s.recorded_at <= $7
   ), ist AS MATERIALIZED (
-    SELECT * FROM private.report_v3_identity_states(a.org_id, ARRAY(
-      SELECT c.identity_key FROM calls_f c WHERE c.identity_key LIKE 'lead:%' OR c.identity_key LIKE 'client:%'
+    SELECT * FROM private.report_v3_identity_states($1, ARRAY(
+      SELECT x.identity_kind || ':' || x.identity_uuid FROM ic x WHERE x.identity_kind IN ('lead', 'client')
+      UNION SELECT x.identity_kind || ':' || x.identity_uuid FROM im x WHERE x.identity_kind IN ('lead', 'client')
       UNION SELECT p.identity_key FROM pol_f p WHERE p.identity_key LIKE 'lead:%' OR p.identity_key LIKE 'client:%'))
-  ), call_rows AS (
-    SELECT c.is_contacted,
-           CASE WHEN c.identity_key LIKE 'recruit:%' THEN NULL ELSE i.state_code END AS state_code,
-           CASE WHEN c.identity_key LIKE 'recruit:%' THEN 'non_prospect_contact'
-                WHEN i.identity_key IS NULL THEN 'unresolved_identity' ELSE i.reason END AS reason,
-           CASE WHEN c.identity_key NOT LIKE 'recruit:%' AND i.state_code IS NOT NULL THEN i.basis END AS basis,
-           coalesce(c.identity_key NOT LIKE 'recruit:%' AND i.basis = 'current_record' AND i.state_code IS NOT NULL
-                    AND i.last_state_change_at > c.created_at, false) AS changed_after
-      FROM calls_f c LEFT JOIN ist i ON i.identity_key = c.identity_key
+  ), sp_c AS MATERIALIZED (   -- each contact pointer once: its identity kind and that identity's state
+    SELECT p.id, p.identity_kind, i.identity_key AS state_key, i.state_code, i.reason, i.basis, i.last_state_change_at
+      FROM ic p
+      -- One row per key (report_v3_identity_states), declared to the planner so the states are hashed.
+      LEFT JOIN (SELECT DISTINCT ON (u.identity_key) u.* FROM ist u) i
+             ON p.identity_kind IN ('lead', 'client') AND i.identity_key = p.identity_kind || ':' || p.identity_uuid
+  ), sp_m AS MATERIALIZED (   -- each campaign-membership pointer once, likewise
+    SELECT p.id, p.identity_kind, i.identity_key AS state_key, i.state_code, i.reason, i.basis, i.last_state_change_at
+      FROM im p
+      LEFT JOIN (SELECT DISTINCT ON (u.identity_key) u.* FROM ist u) i
+             ON p.identity_kind IN ('lead', 'client') AND i.identity_key = p.identity_kind || ':' || p.identity_uuid
+  ), pg AS (
+    -- In-scope rows grouped by pointer before any state is attached. A row is later than its identity's last state
+    -- change when the pointer's identity has a current-record state whose last change follows the row.
+    SELECT cg.contact_id IS NOT NULL AS by_contact, coalesce(cg.contact_id, cg.raw_campaign_lead_id) AS pid,
+           coalesce(cg.contact_type = 'recruit' AND cg.contact_id IS NOT NULL, false) AS recruit_contact,
+           cg.attempt_class, cg.is_contacted,
+           coalesce(CASE WHEN cg.contact_id IS NOT NULL THEN tc.last_state_change_at ELSE tm.last_state_change_at END
+                      > cg.created_at, false) AS before_change,
+           count(*) AS n
+      FROM cg
+      LEFT JOIN (SELECT DISTINCT ON (u.id) u.id, u.last_state_change_at FROM sp_c u
+                  WHERE u.basis = 'current_record' AND u.state_code IS NOT NULL AND u.last_state_change_at IS NOT NULL) tc
+             ON tc.id = cg.contact_id
+      LEFT JOIN (SELECT DISTINCT ON (u.id) u.id, u.last_state_change_at FROM sp_m u
+                  WHERE u.basis = 'current_record' AND u.state_code IS NOT NULL AND u.last_state_change_at IS NOT NULL) tm
+             ON cg.contact_id IS NULL AND tm.id = cg.raw_campaign_lead_id
+     WHERE $4::uuid[] IS NULL OR cg.placing_agent_id = ANY ($4)
+     GROUP BY 1, 2, 3, 4, 5, 6
+  ), call_g AS MATERIALIZED (
+    -- Each pointer group takes its pointer's state exactly as cy/cx attach identities: the contact pointer when the call
+    -- has one, else its campaign membership, and a recruit contact is a non-prospect.
+    SELECT y.state_code, y.reason, y.attempt_class,
+           sum(y.n)::bigint AS rows_, coalesce(sum(y.n) FILTER (WHERE y.is_contacted), 0)::bigint AS contacted_calls,
+           coalesce(sum(y.n) FILTER (WHERE y.basis = 'current_record'), 0)::bigint AS b_current,
+           coalesce(sum(y.n) FILTER (WHERE y.basis = 'campaign_copy'), 0)::bigint AS b_copy,
+           coalesce(sum(y.n) FILTER (WHERE y.changed_after), 0)::bigint AS changed_after
+      FROM (SELECT z.attempt_class, z.is_contacted, z.n,
+                   CASE WHEN z.recruit THEN NULL ELSE z.state_code END AS state_code,
+                   CASE WHEN z.recruit THEN 'non_prospect_contact'
+                        WHEN z.state_key IS NULL THEN 'unresolved_identity' ELSE z.reason END AS reason,
+                   CASE WHEN NOT z.recruit AND z.state_code IS NOT NULL THEN z.basis END AS basis,
+                   NOT z.recruit AND z.basis IS NOT DISTINCT FROM 'current_record' AND z.state_code IS NOT NULL
+                     AND z.before_change AS changed_after
+              FROM (SELECT g.attempt_class, g.is_contacted, g.n, g.before_change,
+                           g.recruit_contact OR coalesce(CASE WHEN g.by_contact THEN xc.identity_kind ELSE xm.identity_kind END
+                                                         = 'recruit', false) AS recruit,
+                           CASE WHEN g.by_contact THEN xc.state_key ELSE xm.state_key END AS state_key,
+                           CASE WHEN g.by_contact THEN xc.state_code ELSE xm.state_code END AS state_code,
+                           CASE WHEN g.by_contact THEN xc.reason ELSE xm.reason END AS reason,
+                           CASE WHEN g.by_contact THEN xc.basis ELSE xm.basis END AS basis
+                      FROM pg g
+                      -- sp_c/sp_m hold one row per pointer, declared to the planner so the pointers are hashed.
+                      LEFT JOIN (SELECT DISTINCT ON (u.id) u.* FROM sp_c u) xc ON g.by_contact AND xc.id = g.pid
+                      LEFT JOIN (SELECT DISTINCT ON (u.id) u.* FROM sp_m u) xm ON NOT g.by_contact AND xm.id = g.pid) z) y
+     GROUP BY 1, 2, 3
+  ), att_g AS (
+    SELECT g.state_code, g.reason, sum(g.rows_) AS calls_made, sum(g.contacted_calls) AS contacted_calls,
+           sum(g.b_current) AS b_current, sum(g.b_copy) AS b_copy, sum(g.changed_after) AS changed_after
+      FROM call_g g WHERE g.attempt_class = 'attempt' GROUP BY 1, 2
   ), pol_rows AS (
     SELECT p.monthly_premium, p.premium_state,
            CASE WHEN p.identity_key LIKE 'recruit:%' THEN NULL ELSE i.state_code END AS state_code,
@@ -496,11 +962,6 @@ BEGIN
            coalesce(p.identity_key NOT LIKE 'recruit:%' AND i.basis = 'current_record' AND i.state_code IS NOT NULL
                     AND i.last_state_change_at > p.recorded_at, false) AS changed_after
       FROM pol_f p LEFT JOIN ist i ON i.identity_key = p.identity_key
-  ), call_g AS (
-    SELECT c.state_code, c.reason, count(*) AS calls_made, count(*) FILTER (WHERE c.is_contacted) AS contacted_calls,
-           count(*) FILTER (WHERE c.basis = 'current_record') AS b_current, count(*) FILTER (WHERE c.basis = 'campaign_copy') AS b_copy,
-           count(*) FILTER (WHERE c.changed_after) AS changed_after
-      FROM call_rows c GROUP BY c.state_code, c.reason
   ), pol_g AS (
     SELECT p.state_code, p.reason, count(*) AS policy_count,
            count(*) FILTER (WHERE p.premium_state = 'known') AS known_count,
@@ -519,26 +980,20 @@ BEGIN
     SELECT u.reason, u.o FROM unnest(ARRAY['missing_state', 'invalid_state', 'unresolved_identity', 'source_conflict',
                                            'unsupported_geography', 'non_prospect_contact']) WITH ORDINALITY AS u(reason, o)
   )
-  SELECT private.report_v3_envelope('state_breakdown', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
-                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
-         || jsonb_build_object(
-           'state_basis', jsonb_build_object(
-             'version', 'state_v1', 'priority', jsonb_build_array('event_snapshot', 'current_record', 'campaign_copy'),
-             'event_snapshot_available', false, 'campaign_copy_fallback', true, 'normalizer', 'public.normalize_us_state',
-             'classifier', 'report_v3_state_classify_v1', 'history_capture_since', '2026-10-03'),
-           'metrics', '[]'::jsonb,
-           'modes', jsonb_build_object(
-             'calls_made', (SELECT jsonb_build_object('metric_id', 5, 'status', e ->> 'status', 'reason', e -> 'reason')
-                              FROM jsonb_array_elements(v_call_kpis) e WHERE (e ->> 'id')::int = 5),
-             'contacted_calls', (SELECT jsonb_build_object('metric_id', 6, 'status', e ->> 'status', 'reason', e -> 'reason')
-                                   FROM jsonb_array_elements(v_call_kpis) e WHERE (e ->> 'id')::int = 6),
-             'policies_sold', (SELECT jsonb_build_object('metric_id', 2, 'status', e ->> 'status', 'reason', e -> 'reason')
-                                 FROM jsonb_array_elements(v_prod_kpis) e WHERE (e ->> 'id')::int = 2),
-             'ap', (SELECT jsonb_build_object('metric_id', 1, 'status', e ->> 'status', 'reason', e -> 'reason')
-                      FROM jsonb_array_elements(v_prod_kpis) e WHERE (e ->> 'id')::int = 1)),
-           'call_population', jsonb_build_object('attempts', v_counts -> 'attempts', 'non_attempts', v_counts -> 'non_attempts',
-                                                 'unverified', v_counts -> 'unverified',
-                                                 'duplicates_excluded', v_counts -> 'duplicates_excluded'),
+  SELECT jsonb_build_object(
+           -- KPI 1 and 2 statuses (the modes) from the same facts and counts report_v3_production totals them with.
+           'production', (SELECT jsonb_build_object(
+                            'policy_count', count(*), 'buyer_count', count(DISTINCT p.buyer_id),
+                            'known_count', count(*) FILTER (WHERE p.premium_state = 'known'),
+                            'missing_count', count(*) FILTER (WHERE p.premium_state = 'missing'),
+                            'invalid_count', count(*) FILTER (WHERE p.premium_state = 'invalid'),
+                            'annual_premium', coalesce(sum(p.monthly_premium * 12) FILTER (WHERE p.premium_state = 'known'), 0))
+                            FROM pol_f p),
+           'counts', (SELECT jsonb_build_object(
+                        'attempts', coalesce(sum(g.rows_) FILTER (WHERE g.attempt_class = 'attempt'), 0),
+                        'non_attempts', coalesce(sum(g.rows_) FILTER (WHERE g.attempt_class = 'non_attempt'), 0),
+                        'unverified', coalesce(sum(g.rows_) FILTER (WHERE g.attempt_class = 'unverified'), 0),
+                        'contacted', coalesce(sum(g.contacted_calls) FILTER (WHERE g.attempt_class = 'attempt'), 0)) FROM call_g g),
            'jurisdictions', (
              SELECT jsonb_agg(jsonb_build_object(
                       'state', j.code,
@@ -559,7 +1014,7 @@ BEGIN
                         'policies_changed_after_event', coalesce(pg.changed_after, 0)))
                     ORDER BY j.code)
                FROM jur j
-               LEFT JOIN call_g cg ON cg.state_code = j.code
+               LEFT JOIN att_g cg ON cg.state_code = j.code
                LEFT JOIN pol_g pg ON pg.state_code = j.code),
            'unmapped', (
              SELECT jsonb_build_object(
@@ -584,12 +1039,12 @@ BEGIN
                                                  WHEN pg.known_count = 0 THEN NULL ELSE pg.annual_premium END))
                         ORDER BY r.o))
                FROM reasons r
-               LEFT JOIN call_g cg ON cg.state_code IS NULL AND cg.reason = r.reason
+               LEFT JOIN att_g cg ON cg.state_code IS NULL AND cg.reason = r.reason
                LEFT JOIN pol_g pg ON pg.state_code IS NULL AND pg.reason = r.reason),
            'totals', (
              SELECT jsonb_build_object(
-                      'calls_made', (SELECT count(*) FROM calls_f),
-                      'contacted_calls', (SELECT count(*) FROM calls_f WHERE is_contacted),
+                      'calls_made', (SELECT coalesce(sum(cg.calls_made), 0) FROM att_g cg),
+                      'contacted_calls', (SELECT coalesce(sum(cg.contacted_calls), 0) FROM att_g cg),
                       'policies_sold', count(*),
                       'premium', jsonb_build_object(
                         'policy_count', count(*), 'known_count', count(*) FILTER (WHERE p.premium_state = 'known'),
@@ -599,8 +1054,35 @@ BEGIN
                                                WHEN count(*) FILTER (WHERE p.premium_state = 'known') = 0 THEN NULL
                                                ELSE sum(p.monthly_premium * 12) FILTER (WHERE p.premium_state = 'known') END))
                FROM pol_f p))
-    INTO v_out;
-  RETURN v_out;
+  $q$ INTO v_body USING a.org_id, w.start_at, w.end_at, a.agent_ids, sw.sold_from, sw.sold_until, v_as_of;
+  v_counts := (v_body -> 'counts') || jsonb_build_object(
+    'duplicates_excluded', private.report_v3_duplicates_excluded(a.org_id, a.agent_ids, w.start_at, w.end_at));
+  v_call_kpis := private.report_v3_attempt_kpis(v_counts);
+  v_prod_kpis := private.report_v3_production_kpis(v_body -> 'production');
+
+  RETURN private.report_v3_envelope('state_breakdown', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
+                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
+         || jsonb_build_object(
+           'state_basis', jsonb_build_object(
+             'version', 'state_v1', 'priority', jsonb_build_array('event_snapshot', 'current_record', 'campaign_copy'),
+             'event_snapshot_available', false, 'campaign_copy_fallback', true, 'normalizer', 'public.normalize_us_state',
+             'classifier', 'report_v3_state_classify_v1', 'history_capture_since', '2026-10-03'),
+           'metrics', '[]'::jsonb,
+           'modes', jsonb_build_object(
+             'calls_made', (SELECT jsonb_build_object('metric_id', 5, 'status', e ->> 'status', 'reason', e -> 'reason')
+                              FROM jsonb_array_elements(v_call_kpis) e WHERE (e ->> 'id')::int = 5),
+             'contacted_calls', (SELECT jsonb_build_object('metric_id', 6, 'status', e ->> 'status', 'reason', e -> 'reason')
+                                   FROM jsonb_array_elements(v_call_kpis) e WHERE (e ->> 'id')::int = 6),
+             'policies_sold', (SELECT jsonb_build_object('metric_id', 2, 'status', e ->> 'status', 'reason', e -> 'reason')
+                                 FROM jsonb_array_elements(v_prod_kpis) e WHERE (e ->> 'id')::int = 2),
+             'ap', (SELECT jsonb_build_object('metric_id', 1, 'status', e ->> 'status', 'reason', e -> 'reason')
+                      FROM jsonb_array_elements(v_prod_kpis) e WHERE (e ->> 'id')::int = 1)),
+           'call_population', jsonb_build_object('attempts', v_counts -> 'attempts', 'non_attempts', v_counts -> 'non_attempts',
+                                                 'unverified', v_counts -> 'unverified',
+                                                 'duplicates_excluded', v_counts -> 'duplicates_excluded'),
+           'jurisdictions', v_body -> 'jurisdictions',
+           'unmapped', v_body -> 'unmapped',
+           'totals', v_body -> 'totals');
 END $$;
 
 -- -----------------------------------------------------------------------------------------------------
@@ -617,36 +1099,124 @@ AS $$
 DECLARE
   a record;
   w record;
-  v_counts jsonb;
-  v_out jsonb;
+  v_body jsonb;
 BEGIN
   SELECT * INTO a FROM private.report_access_v2(p_requested_scope, p_agent_id);
   SELECT * INTO w FROM private.report_window(a.org_id, p_start_date, p_end_date);
-  v_counts := private.report_v3_call_counts(a.org_id, a.agent_ids, w.start_at, w.end_at);
 
-  WITH f AS MATERIALIZED (
-    SELECT x.is_attempt, x.is_contacted, x.direction_class, x.duration_seconds, (x.created_at AT TIME ZONE w.time_zone) AS local_ts
-      FROM private.report_v3_call_facts(a.org_id, w.start_at, w.end_at) x
-     WHERE (a.agent_ids IS NULL OR x.credited_agent_id = ANY (a.agent_ids))
-       AND (x.is_attempt OR x.direction_class = 'inbound')
-  ), days AS (
-    SELECT d::date AS local_date FROM generate_series(w.start_date::timestamp, w.end_date::timestamp, interval '1 day') d
-  ), day_calls AS (
-    SELECT f.local_ts::date AS local_date,
-           count(*) FILTER (WHERE f.is_attempt) AS calls_made,
-           count(*) FILTER (WHERE f.is_attempt AND f.is_contacted) AS contacted,
-           count(*) FILTER (WHERE f.direction_class = 'inbound') AS inbound_calls,
-           coalesce(sum(f.duration_seconds) FILTER (WHERE f.is_attempt), 0) AS talk_time_seconds
-      FROM f GROUP BY 1
+  -- One pass over the window. EXECUTE plans the constant text for this call's actual bounds (a cached generic
+  -- plan would assume a tiny window). $1 org, $2 start, $3 end, $4 agent_ids, $5 time zone, $6/$7 window dates.
+  EXECUTE $q$
+  WITH
+  -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
+  -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
+  -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
+  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
+    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+    UNION ALL
+    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+  ), cr AS (
+    SELECT c.id AS call_id, c.created_at, c.agent_id AS placing_agent_id, c.contact_id, c.contact_type,
+           c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
+           c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
+           c.disposition_name AS raw_disposition_name,
+           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
+                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
+                ELSE 'other' END AS direction_class,
+           greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
+           CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
+           coalesce(l1.id, l2.id) AS lead_id,
+           coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
+           dm.id AS resolved_disposition_id,
+           dm.name AS resolved_disposition_name,
+           coalesce(dm.color, '#6B7280') AS disposition_color,
+           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(dm.convert_to_client, false) AS disp_converts,
+           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
+           coalesce(dm.callback_scheduler, false) AS disp_callback,
+           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+      FROM public.calls c
+      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
+      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
+                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
+      -- provably unique, so a reader that does not read the campaign keeps neither.
+      LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
+      LEFT JOIN (SELECT cl.id, (array_agg(k.id))[1] AS campaign_id
+                   FROM public.campaign_leads cl
+                   JOIN public.campaigns k ON k.id = cl.campaign_id AND k.organization_id = $1
+                  GROUP BY cl.id) mc ON mc.id = c.campaign_lead_id
+      LEFT JOIN public.leads l1 ON l1.id = c.lead_id AND l1.organization_id = $1
+      LEFT JOIN public.leads l2
+             ON c.lead_id IS NULL AND l2.id = c.contact_id AND (c.contact_type = 'lead' OR c.contact_type IS NULL)
+            AND l2.organization_id = $1
+      LEFT JOIN private.dialer_outbound_admissions adm ON adm.organization_id = $1 AND adm.call_id = c.id
+     WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+       AND NOT EXISTS (SELECT 1 FROM private.performance_duplicate_rows d
+                        WHERE d.organization_id = $1 AND d.kind = 'call' AND d.duplicate_id = c.id)
+  ), cf AS (
+    SELECT cr.*,
+           CASE WHEN cr.direction_class = 'inbound' THEN coalesce(cr.placing_agent_id, cr.answered_by_agent_id)
+                ELSE cr.placing_agent_id END AS credited_agent_id,
+           CASE WHEN cr.resolved_disposition_id IS NOT NULL THEN cr.resolved_disposition_id::text
+                WHEN nullif(btrim(cr.raw_disposition_name), '') IS NOT NULL THEN 'name:' || lower(btrim(cr.raw_disposition_name))
+                ELSE 'none' END AS disposition_key,
+           coalesce(cr.resolved_disposition_name, nullif(btrim(cr.raw_disposition_name), ''), '(No disposition)') AS disposition_name,
+           CASE WHEN cr.direction_class <> 'outbound' THEN false
+                WHEN lower(coalesce(cr.resolved_disposition_name, cr.raw_disposition_name, '')) = 'no answer' THEN false
+                WHEN cr.duration_seconds > 45 THEN true
+                WHEN cr.disp_counts_contacted THEN true
+                ELSE false END AS is_contacted,
+           CASE WHEN cr.direction_class <> 'outbound' THEN NULL
+                WHEN NOT cr.dialer_admission_required OR cr.admitted IS TRUE THEN 'attempt'
+                WHEN cr.admitted IS FALSE THEN 'non_attempt'
+                ELSE 'unverified' END AS attempt_class,
+           (cr.direction_class = 'inbound' AND (cr.placing_agent_id IS NOT NULL OR cr.outcome = 'forwarded_answered')
+              AND cr.voicemail_id IS NULL) AS is_answered_inbound
+      FROM cr
+  ), cg AS (
+    SELECT cf.*,
+           coalesce(cf.attempt_class = 'attempt', false) AS is_attempt,
+           (coalesce(cf.attempt_class = 'attempt', false) AND cf.is_contacted)
+             OR (cf.is_answered_inbound AND CASE WHEN lower(cf.disposition_name) = 'no answer' THEN false
+                                                 WHEN cf.duration_seconds > 45 THEN true
+                                                 WHEN cf.disp_counts_contacted THEN true
+                                                 ELSE false END) AS is_journey_contact,
+           (lower(cf.disposition_name) <> 'no answer'
+             AND (cf.disp_counts_contacted OR cf.raw_duration IS NULL OR cf.raw_duration > 45)) AS could_qualify,
+           public.phone_last10(cf.contact_phone) AS phone_last10
+      FROM cf
+  ),
+  -- @call-rows end
+  hc AS MATERIALIZED (
+    SELECT (cg.created_at AT TIME ZONE $5)::date AS local_date, extract(hour FROM cg.created_at AT TIME ZONE $5)::int AS hour_of_day,
+           count(*) FILTER (WHERE cg.is_attempt) AS calls_made,
+           count(*) FILTER (WHERE cg.is_attempt AND cg.is_contacted) AS contacted,
+           count(*) FILTER (WHERE cg.direction_class = 'inbound') AS inbound_calls,
+           coalesce(sum(cg.duration_seconds) FILTER (WHERE cg.is_attempt), 0) AS talk_time_seconds,
+           count(*) FILTER (WHERE cg.direction_class = 'outbound' AND cg.is_attempt) AS attempts,
+           count(*) FILTER (WHERE cg.direction_class = 'outbound' AND cg.attempt_class = 'non_attempt') AS non_attempts,
+           count(*) FILTER (WHERE cg.direction_class = 'outbound' AND cg.attempt_class = 'unverified') AS unverified
+      FROM cg
+     WHERE $4::uuid[] IS NULL OR cg.credited_agent_id = ANY ($4)
+     GROUP BY 1, 2
   ), cells AS (
-    SELECT extract(dow FROM f.local_ts)::int AS dow, extract(hour FROM f.local_ts)::int AS hour_of_day,
-           count(*) AS calls_made, count(*) FILTER (WHERE f.is_contacted) AS contacted
-      FROM f WHERE f.is_attempt GROUP BY 1, 2
+    SELECT extract(dow FROM hc.local_date)::int AS dow, hc.hour_of_day, sum(hc.calls_made) AS calls_made, sum(hc.contacted) AS contacted
+      FROM hc GROUP BY 1, 2
+  ), day_calls AS (
+    SELECT hc.local_date, sum(hc.calls_made) AS calls_made, sum(hc.contacted) AS contacted, sum(hc.inbound_calls) AS inbound_calls,
+           sum(hc.talk_time_seconds) AS talk_time_seconds
+      FROM hc GROUP BY 1
   )
-  SELECT private.report_v3_envelope('call_volume', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
-                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
-         || jsonb_build_object(
-           'metrics', '[]'::jsonb,
+  SELECT jsonb_build_object(
            'heatmap', (SELECT jsonb_agg(jsonb_build_object('dow', d.d, 'hour', h.h, 'calls_made', coalesce(c.calls_made, 0),
                                                            'contacted', coalesce(c.contacted, 0)) ORDER BY d.d, h.h)
                          FROM generate_series(0, 6) d(d) CROSS JOIN generate_series(0, 23) h(h)
@@ -657,7 +1227,8 @@ BEGIN
                                                            'inbound_calls', coalesce(dc.inbound_calls, 0),
                                                            'talk_time_seconds', coalesce(dc.talk_time_seconds, 0))
                                         ORDER BY dy.local_date)
-                         FROM days dy LEFT JOIN day_calls dc ON dc.local_date = dy.local_date),
+                         FROM (SELECT d::date AS local_date FROM generate_series($6::timestamp, $7::timestamp, interval '1 day') d) dy
+                         LEFT JOIN day_calls dc ON dc.local_date = dy.local_date),
            'by_hour', (SELECT jsonb_agg(jsonb_build_object('hour', h.h,
                                           'calls_made', coalesce((SELECT sum(c.calls_made) FROM cells c WHERE c.hour_of_day = h.h), 0),
                                           'contacted', coalesce((SELECT sum(c.contacted) FROM cells c WHERE c.hour_of_day = h.h), 0))
@@ -668,12 +1239,17 @@ BEGIN
                                              'contacted', coalesce((SELECT sum(c.contacted) FROM cells c WHERE c.dow = d.d), 0))
                                            ORDER BY d.d)
                             FROM generate_series(0, 6) d(d)),
-           'inbound_calls', (SELECT count(*) FROM f WHERE f.direction_class = 'inbound'),
-           'call_population', jsonb_build_object('attempts', v_counts -> 'attempts', 'non_attempts', v_counts -> 'non_attempts',
-                                                 'unverified', v_counts -> 'unverified',
-                                                 'duplicates_excluded', v_counts -> 'duplicates_excluded'))
-    INTO v_out;
-  RETURN v_out;
+           'inbound_calls', (SELECT coalesce(sum(hc.inbound_calls), 0) FROM hc),
+           'call_population', (SELECT jsonb_build_object('attempts', coalesce(sum(hc.attempts), 0),
+                                                         'non_attempts', coalesce(sum(hc.non_attempts), 0),
+                                                         'unverified', coalesce(sum(hc.unverified), 0)) FROM hc))
+  $q$ INTO v_body USING a.org_id, w.start_at, w.end_at, a.agent_ids, w.time_zone, w.start_date, w.end_date;
+
+  RETURN private.report_v3_envelope('call_volume', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
+                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
+         || jsonb_build_object('metrics', '[]'::jsonb) || v_body
+         || jsonb_build_object('call_population', (v_body -> 'call_population') || jsonb_build_object(
+              'duplicates_excluded', private.report_v3_duplicates_excluded(a.org_id, a.agent_ids, w.start_at, w.end_at)));
 END $$;
 
 -- -----------------------------------------------------------------------------------------------------
@@ -692,48 +1268,154 @@ AS $$
 DECLARE
   a record;
   w record;
-  v_counts jsonb;
-  v_out jsonb;
+  v_visible uuid[];
+  v_body jsonb;
 BEGIN
   SELECT * INTO a FROM private.report_access_v2(p_requested_scope, p_agent_id);
   SELECT * INTO w FROM private.report_window(a.org_id, p_start_date, p_end_date);
-  v_counts := private.report_v3_call_counts(a.org_id, a.agent_ids, w.start_at, w.end_at);
+  SELECT coalesce(array_agg(v.campaign_id), '{}') INTO v_visible FROM private.report_visible_campaigns(a.org_id) v;
 
-  WITH visible AS MATERIALIZED (
-    SELECT v.campaign_id FROM private.report_visible_campaigns(a.org_id) v
-  ), f AS MATERIALIZED (
-    SELECT x.credited_agent_id AS agent_id, x.campaign_id, x.duration_seconds, x.disposition_key, x.disposition_name,
-           x.disposition_color, x.disp_counts_contacted, x.disp_converts, x.disp_dnc, x.disp_callback, x.disp_appointment,
-           CASE WHEN x.campaign_id IS NULL THEN 'none'
-                WHEN EXISTS (SELECT 1 FROM visible v WHERE v.campaign_id = x.campaign_id) THEN 'visible'
-                ELSE 'hidden' END AS campaign_class
-      FROM private.report_v3_call_facts(a.org_id, w.start_at, w.end_at) x
-     WHERE x.is_attempt AND (a.agent_ids IS NULL OR x.credited_agent_id = ANY (a.agent_ids))
+  -- One pass over the window's in-scope outbound rows, grouped once; every view and call_population reads the
+  -- groups. $1 org, $2 start, $3 end, $4 agent_ids, $5 campaigns visible to the viewer.
+  EXECUTE $q$
+  WITH
+  -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
+  -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
+  -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
+  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
+    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+    UNION ALL
+    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+  ), cr AS (
+    SELECT c.id AS call_id, c.created_at, c.agent_id AS placing_agent_id, c.contact_id, c.contact_type,
+           c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
+           c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
+           c.disposition_name AS raw_disposition_name,
+           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
+                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
+                ELSE 'other' END AS direction_class,
+           greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
+           CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
+           coalesce(l1.id, l2.id) AS lead_id,
+           coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
+           dm.id AS resolved_disposition_id,
+           dm.name AS resolved_disposition_name,
+           coalesce(dm.color, '#6B7280') AS disposition_color,
+           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(dm.convert_to_client, false) AS disp_converts,
+           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
+           coalesce(dm.callback_scheduler, false) AS disp_callback,
+           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+      FROM public.calls c
+      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
+      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
+                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
+      -- provably unique, so a reader that does not read the campaign keeps neither.
+      LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
+      LEFT JOIN (SELECT cl.id, (array_agg(k.id))[1] AS campaign_id
+                   FROM public.campaign_leads cl
+                   JOIN public.campaigns k ON k.id = cl.campaign_id AND k.organization_id = $1
+                  GROUP BY cl.id) mc ON mc.id = c.campaign_lead_id
+      LEFT JOIN public.leads l1 ON l1.id = c.lead_id AND l1.organization_id = $1
+      LEFT JOIN public.leads l2
+             ON c.lead_id IS NULL AND l2.id = c.contact_id AND (c.contact_type = 'lead' OR c.contact_type IS NULL)
+            AND l2.organization_id = $1
+      LEFT JOIN private.dialer_outbound_admissions adm ON adm.organization_id = $1 AND adm.call_id = c.id
+     WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+       AND NOT EXISTS (SELECT 1 FROM private.performance_duplicate_rows d
+                        WHERE d.organization_id = $1 AND d.kind = 'call' AND d.duplicate_id = c.id)
+  ), cf AS (
+    SELECT cr.*,
+           CASE WHEN cr.direction_class = 'inbound' THEN coalesce(cr.placing_agent_id, cr.answered_by_agent_id)
+                ELSE cr.placing_agent_id END AS credited_agent_id,
+           CASE WHEN cr.resolved_disposition_id IS NOT NULL THEN cr.resolved_disposition_id::text
+                WHEN nullif(btrim(cr.raw_disposition_name), '') IS NOT NULL THEN 'name:' || lower(btrim(cr.raw_disposition_name))
+                ELSE 'none' END AS disposition_key,
+           coalesce(cr.resolved_disposition_name, nullif(btrim(cr.raw_disposition_name), ''), '(No disposition)') AS disposition_name,
+           CASE WHEN cr.direction_class <> 'outbound' THEN false
+                WHEN lower(coalesce(cr.resolved_disposition_name, cr.raw_disposition_name, '')) = 'no answer' THEN false
+                WHEN cr.duration_seconds > 45 THEN true
+                WHEN cr.disp_counts_contacted THEN true
+                ELSE false END AS is_contacted,
+           CASE WHEN cr.direction_class <> 'outbound' THEN NULL
+                WHEN NOT cr.dialer_admission_required OR cr.admitted IS TRUE THEN 'attempt'
+                WHEN cr.admitted IS FALSE THEN 'non_attempt'
+                ELSE 'unverified' END AS attempt_class,
+           (cr.direction_class = 'inbound' AND (cr.placing_agent_id IS NOT NULL OR cr.outcome = 'forwarded_answered')
+              AND cr.voicemail_id IS NULL) AS is_answered_inbound
+      FROM cr
+  ), cg AS (
+    SELECT cf.*,
+           coalesce(cf.attempt_class = 'attempt', false) AS is_attempt,
+           (coalesce(cf.attempt_class = 'attempt', false) AND cf.is_contacted)
+             OR (cf.is_answered_inbound AND CASE WHEN lower(cf.disposition_name) = 'no answer' THEN false
+                                                 WHEN cf.duration_seconds > 45 THEN true
+                                                 WHEN cf.disp_counts_contacted THEN true
+                                                 ELSE false END) AS is_journey_contact,
+           (lower(cf.disposition_name) <> 'no answer'
+             AND (cf.disp_counts_contacted OR cf.raw_duration IS NULL OR cf.raw_duration > 45)) AS could_qualify,
+           public.phone_last10(cf.contact_phone) AS phone_last10
+      FROM cf
+  ),
+  -- @call-rows end
+  dg AS MATERIALIZED (
+    -- Grouped once by attempt class, agent, campaign, outcome and duration bucket; every view reads these groups.
+    -- Inbound and other rows carry no attempt class and are not read below. An outbound row's credited agent is its
+    -- placing agent, so the scope test reads the base column. A resolved outcome's color and flags are its
+    -- disposition row's (joined after grouping); only the name varies by row, for outcomes known by name alone.
+    SELECT cg.attempt_class, cg.placing_agent_id AS agent_id, cg.campaign_id, cg.disposition_key,
+           CASE WHEN cg.duration_seconds < 30 THEN 1 WHEN cg.duration_seconds < 60 THEN 2 WHEN cg.duration_seconds < 120 THEN 3
+                WHEN cg.duration_seconds < 300 THEN 4 ELSE 5 END AS bucket,
+           count(*) AS calls, sum(cg.duration_seconds) AS duration_seconds, max(cg.disposition_name) AS name
+      FROM cg
+     WHERE $4::uuid[] IS NULL OR cg.placing_agent_id = ANY ($4)
+     GROUP BY 1, 2, 3, 4, 5
+  ), f AS (
+    SELECT dg.*, CASE WHEN dg.campaign_id IS NULL THEN 'none' WHEN dg.campaign_id = ANY ($5) THEN 'visible' ELSE 'hidden' END
+             AS campaign_class
+      FROM dg WHERE dg.attempt_class = 'attempt'
   ), disp AS (
-    SELECT f.disposition_key, max(f.disposition_name) AS name, max(f.disposition_color) AS color, count(*) AS calls,
-           sum(f.duration_seconds) AS duration_seconds, bool_or(f.disp_counts_contacted) AS counts_as_contacted,
-           bool_or(f.disp_converts) AS converts, bool_or(f.disp_dnc) AS dnc, bool_or(f.disp_callback) AS callback,
-           bool_or(f.disp_appointment) AS appointment
-      FROM f GROUP BY f.disposition_key
+    SELECT k.disposition_key, k.name, k.calls, k.duration_seconds,
+           coalesce(d.color, '#6B7280') AS color, coalesce(d.counts_as_contacted, false) AS counts_as_contacted,
+           coalesce(ps.convert_to_client, false) AS converts, coalesce(d.dnc_auto_add, false) AS dnc,
+           coalesce(d.callback_scheduler, false) AS callback, coalesce(d.appointment_scheduler, false) AS appointment
+      FROM (SELECT f.disposition_key, max(f.name) AS name, sum(f.calls) AS calls, sum(f.duration_seconds) AS duration_seconds
+              FROM f GROUP BY f.disposition_key) k
+      LEFT JOIN public.dispositions d
+             ON d.id = CASE WHEN k.disposition_key ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                            THEN k.disposition_key::uuid END
+            AND d.organization_id = $1
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
   ), by_agent AS (
     SELECT x.agent_id, private.report_agent_name(p.first_name, p.last_name) AS name,
            jsonb_object_agg(x.disposition_key, x.calls) AS counts, sum(x.calls) AS total
-      FROM (SELECT f.agent_id, f.disposition_key, count(*) AS calls FROM f WHERE f.agent_id IS NOT NULL GROUP BY 1, 2) x
-      LEFT JOIN public.profiles p ON p.id = x.agent_id AND p.organization_id = a.org_id
+      FROM (SELECT f.agent_id, f.disposition_key, sum(f.calls) AS calls FROM f WHERE f.agent_id IS NOT NULL GROUP BY 1, 2) x
+      LEFT JOIN public.profiles p ON p.id = x.agent_id AND p.organization_id = $1
      GROUP BY x.agent_id, p.first_name, p.last_name
   ), by_campaign AS (
     SELECT x.campaign_id, max(c.name) AS name, jsonb_object_agg(x.disposition_key, x.calls) AS counts, sum(x.calls) AS total
-      FROM (SELECT f.campaign_id, f.disposition_key, count(*) AS calls FROM f WHERE f.campaign_class = 'visible' GROUP BY 1, 2) x
-      JOIN public.campaigns c ON c.id = x.campaign_id AND c.organization_id = a.org_id
+      FROM (SELECT f.campaign_id, f.disposition_key, sum(f.calls) AS calls FROM f WHERE f.campaign_class = 'visible' GROUP BY 1, 2) x
+      JOIN public.campaigns c ON c.id = x.campaign_id AND c.organization_id = $1
      GROUP BY x.campaign_id
-  ), buckets AS (
-    SELECT * FROM (VALUES (1, '0-30s', 0::bigint, 30::bigint), (2, '30s-1m', 30, 60), (3, '1-2m', 60, 120),
-                          (4, '2-5m', 120, 300), (5, '5m+', 300, NULL)) v(ord, label, lo, hi)
+  ), part AS (
+    SELECT y.part, coalesce(sum(y.calls), 0) AS total, coalesce(jsonb_object_agg(y.disposition_key, y.calls), '{}'::jsonb) AS counts
+      FROM (SELECT CASE WHEN f.campaign_class = 'hidden' THEN 'other_campaigns' ELSE 'without_campaign' END AS part,
+                   f.disposition_key, sum(f.calls) AS calls
+              FROM f WHERE f.campaign_class IN ('hidden', 'none') GROUP BY 1, 2
+            UNION ALL
+            SELECT 'unattributed', f.disposition_key, sum(f.calls) FROM f WHERE f.agent_id IS NULL GROUP BY 1, 2) y
+     GROUP BY y.part
   )
-  SELECT private.report_v3_envelope('disposition_breakdown', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
-                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
-         || jsonb_build_object(
-           'metrics', '[]'::jsonb,
+  SELECT jsonb_build_object(
            'by_disposition', coalesce((
              SELECT jsonb_agg(jsonb_build_object(
                       'key', d.disposition_key,
@@ -743,9 +1425,10 @@ BEGIN
                       'callback', d.callback, 'appointment', d.appointment)
                     ORDER BY d.calls DESC, lower(d.name), d.disposition_key)
                FROM disp d), '[]'::jsonb),
-           'duration_buckets', (SELECT jsonb_agg(jsonb_build_object('range', b.label, 'calls', (
-                                    SELECT count(*) FROM f WHERE f.duration_seconds >= b.lo AND (b.hi IS NULL OR f.duration_seconds < b.hi)))
-                                  ORDER BY b.ord) FROM buckets b),
+           'duration_buckets', (SELECT jsonb_agg(jsonb_build_object('range', b.label,
+                                                  'calls', coalesce((SELECT sum(f.calls) FROM f WHERE f.bucket = b.ord), 0))
+                                  ORDER BY b.ord)
+                                  FROM (VALUES (1, '0-30s'), (2, '30s-1m'), (3, '1-2m'), (4, '2-5m'), (5, '5m+')) b(ord, label)),
            'deep_dive', jsonb_build_object(
              'by_agent', coalesce((SELECT jsonb_agg(jsonb_build_object('agent_id', x.agent_id, 'name', x.name, 'total', x.total,
                                                                       'counts', x.counts) ORDER BY x.total DESC, lower(x.name), x.agent_id)
@@ -753,24 +1436,24 @@ BEGIN
              'by_campaign', coalesce((SELECT jsonb_agg(jsonb_build_object('campaign_id', x.campaign_id, 'name', x.name, 'total', x.total,
                                                                          'counts', x.counts) ORDER BY x.total DESC, lower(x.name), x.campaign_id)
                                         FROM by_campaign x), '[]'::jsonb),
-             'other_campaigns', (SELECT jsonb_build_object('total', count(*), 'counts', coalesce(
-                                   (SELECT jsonb_object_agg(y.disposition_key, y.calls) FROM (
-                                      SELECT f2.disposition_key, count(*) AS calls FROM f f2 WHERE f2.campaign_class = 'hidden' GROUP BY 1) y),
-                                   '{}'::jsonb)) FROM f WHERE f.campaign_class = 'hidden'),
-             'without_campaign', (SELECT jsonb_build_object('total', count(*), 'counts', coalesce(
-                                    (SELECT jsonb_object_agg(y.disposition_key, y.calls) FROM (
-                                       SELECT f2.disposition_key, count(*) AS calls FROM f f2 WHERE f2.campaign_class = 'none' GROUP BY 1) y),
-                                    '{}'::jsonb)) FROM f WHERE f.campaign_class = 'none'),
-             'unattributed', CASE WHEN a.agent_ids IS NULL THEN (
-                               SELECT jsonb_build_object('total', count(*), 'counts', coalesce(
-                                 (SELECT jsonb_object_agg(y.disposition_key, y.calls) FROM (
-                                    SELECT f2.disposition_key, count(*) AS calls FROM f f2 WHERE f2.agent_id IS NULL GROUP BY 1) y),
-                                 '{}'::jsonb)) FROM f WHERE f.agent_id IS NULL) END),
-           'call_population', jsonb_build_object('attempts', v_counts -> 'attempts', 'non_attempts', v_counts -> 'non_attempts',
-                                                 'unverified', v_counts -> 'unverified',
-                                                 'duplicates_excluded', v_counts -> 'duplicates_excluded'))
-    INTO v_out;
-  RETURN v_out;
+             'other_campaigns', coalesce((SELECT jsonb_build_object('total', p.total, 'counts', p.counts) FROM part p
+                                            WHERE p.part = 'other_campaigns'), jsonb_build_object('total', 0, 'counts', '{}'::jsonb)),
+             'without_campaign', coalesce((SELECT jsonb_build_object('total', p.total, 'counts', p.counts) FROM part p
+                                             WHERE p.part = 'without_campaign'), jsonb_build_object('total', 0, 'counts', '{}'::jsonb)),
+             'unattributed', CASE WHEN $4::uuid[] IS NULL THEN coalesce((
+                               SELECT jsonb_build_object('total', p.total, 'counts', p.counts) FROM part p WHERE p.part = 'unattributed'),
+                               jsonb_build_object('total', 0, 'counts', '{}'::jsonb)) END),
+           'call_population', (SELECT jsonb_build_object('attempts', coalesce(sum(dg.calls) FILTER (WHERE dg.attempt_class = 'attempt'), 0),
+                                                         'non_attempts', coalesce(sum(dg.calls) FILTER (WHERE dg.attempt_class = 'non_attempt'), 0),
+                                                         'unverified', coalesce(sum(dg.calls) FILTER (WHERE dg.attempt_class = 'unverified'), 0))
+                                 FROM dg))
+  $q$ INTO v_body USING a.org_id, w.start_at, w.end_at, a.agent_ids, v_visible;
+
+  RETURN private.report_v3_envelope('disposition_breakdown', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
+                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
+         || jsonb_build_object('metrics', '[]'::jsonb) || v_body
+         || jsonb_build_object('call_population', (v_body -> 'call_population') || jsonb_build_object(
+              'duplicates_excluded', private.report_v3_duplicates_excluded(a.org_id, a.agent_ids, w.start_at, w.end_at)));
 END $$;
 
 -- -----------------------------------------------------------------------------------------------------
@@ -788,32 +1471,123 @@ AS $$
 DECLARE
   a record;
   w record;
-  v_counts jsonb;
-  v_out jsonb;
+  v_visible uuid[];
+  v_body jsonb;
 BEGIN
   SELECT * INTO a FROM private.report_access_v2(p_requested_scope, p_agent_id);
   SELECT * INTO w FROM private.report_window(a.org_id, p_start_date, p_end_date);
-  v_counts := private.report_v3_call_counts(a.org_id, a.agent_ids, w.start_at, w.end_at);
+  SELECT coalesce(array_agg(v.campaign_id), '{}') INTO v_visible FROM private.report_visible_campaigns(a.org_id) v;
 
-  WITH visible AS MATERIALIZED (
-    SELECT v.campaign_id FROM private.report_visible_campaigns(a.org_id) v
-  ), f AS MATERIALIZED (
-    SELECT x.campaign_id, x.is_contacted,
-           CASE WHEN x.campaign_id IS NULL THEN 'none'
-                WHEN EXISTS (SELECT 1 FROM visible v WHERE v.campaign_id = x.campaign_id) THEN 'visible'
-                ELSE 'hidden' END AS campaign_class
-      FROM private.report_v3_call_facts(a.org_id, w.start_at, w.end_at) x
-     WHERE x.is_attempt AND (a.agent_ids IS NULL OR x.credited_agent_id = ANY (a.agent_ids))
+  -- One pass over the window's in-scope outbound rows, grouped once by attempt class and campaign.
+  -- $1 org, $2 start, $3 end, $4 agent_ids, $5 campaigns visible to the viewer.
+  EXECUTE $q$
+  WITH
+  -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
+  -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
+  -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
+  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
+    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+    UNION ALL
+    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+  ), cr AS (
+    SELECT c.id AS call_id, c.created_at, c.agent_id AS placing_agent_id, c.contact_id, c.contact_type,
+           c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
+           c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
+           c.disposition_name AS raw_disposition_name,
+           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
+                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
+                ELSE 'other' END AS direction_class,
+           greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
+           CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
+           coalesce(l1.id, l2.id) AS lead_id,
+           coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
+           dm.id AS resolved_disposition_id,
+           dm.name AS resolved_disposition_name,
+           coalesce(dm.color, '#6B7280') AS disposition_color,
+           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(dm.convert_to_client, false) AS disp_converts,
+           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
+           coalesce(dm.callback_scheduler, false) AS disp_callback,
+           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+      FROM public.calls c
+      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
+      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
+                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
+      -- provably unique, so a reader that does not read the campaign keeps neither.
+      LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
+      LEFT JOIN (SELECT cl.id, (array_agg(k.id))[1] AS campaign_id
+                   FROM public.campaign_leads cl
+                   JOIN public.campaigns k ON k.id = cl.campaign_id AND k.organization_id = $1
+                  GROUP BY cl.id) mc ON mc.id = c.campaign_lead_id
+      LEFT JOIN public.leads l1 ON l1.id = c.lead_id AND l1.organization_id = $1
+      LEFT JOIN public.leads l2
+             ON c.lead_id IS NULL AND l2.id = c.contact_id AND (c.contact_type = 'lead' OR c.contact_type IS NULL)
+            AND l2.organization_id = $1
+      LEFT JOIN private.dialer_outbound_admissions adm ON adm.organization_id = $1 AND adm.call_id = c.id
+     WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+       AND NOT EXISTS (SELECT 1 FROM private.performance_duplicate_rows d
+                        WHERE d.organization_id = $1 AND d.kind = 'call' AND d.duplicate_id = c.id)
+  ), cf AS (
+    SELECT cr.*,
+           CASE WHEN cr.direction_class = 'inbound' THEN coalesce(cr.placing_agent_id, cr.answered_by_agent_id)
+                ELSE cr.placing_agent_id END AS credited_agent_id,
+           CASE WHEN cr.resolved_disposition_id IS NOT NULL THEN cr.resolved_disposition_id::text
+                WHEN nullif(btrim(cr.raw_disposition_name), '') IS NOT NULL THEN 'name:' || lower(btrim(cr.raw_disposition_name))
+                ELSE 'none' END AS disposition_key,
+           coalesce(cr.resolved_disposition_name, nullif(btrim(cr.raw_disposition_name), ''), '(No disposition)') AS disposition_name,
+           CASE WHEN cr.direction_class <> 'outbound' THEN false
+                WHEN lower(coalesce(cr.resolved_disposition_name, cr.raw_disposition_name, '')) = 'no answer' THEN false
+                WHEN cr.duration_seconds > 45 THEN true
+                WHEN cr.disp_counts_contacted THEN true
+                ELSE false END AS is_contacted,
+           CASE WHEN cr.direction_class <> 'outbound' THEN NULL
+                WHEN NOT cr.dialer_admission_required OR cr.admitted IS TRUE THEN 'attempt'
+                WHEN cr.admitted IS FALSE THEN 'non_attempt'
+                ELSE 'unverified' END AS attempt_class,
+           (cr.direction_class = 'inbound' AND (cr.placing_agent_id IS NOT NULL OR cr.outcome = 'forwarded_answered')
+              AND cr.voicemail_id IS NULL) AS is_answered_inbound
+      FROM cr
+  ), cg AS (
+    SELECT cf.*,
+           coalesce(cf.attempt_class = 'attempt', false) AS is_attempt,
+           (coalesce(cf.attempt_class = 'attempt', false) AND cf.is_contacted)
+             OR (cf.is_answered_inbound AND CASE WHEN lower(cf.disposition_name) = 'no answer' THEN false
+                                                 WHEN cf.duration_seconds > 45 THEN true
+                                                 WHEN cf.disp_counts_contacted THEN true
+                                                 ELSE false END) AS is_journey_contact,
+           (lower(cf.disposition_name) <> 'no answer'
+             AND (cf.disp_counts_contacted OR cf.raw_duration IS NULL OR cf.raw_duration > 45)) AS could_qualify,
+           public.phone_last10(cf.contact_phone) AS phone_last10
+      FROM cf
+  ),
+  -- @call-rows end
+  kg AS MATERIALIZED (
+    -- Inbound and other rows carry no attempt class and are not read; an outbound row's credited agent is its
+    -- placing agent, so the scope test reads the base column.
+    SELECT cg.attempt_class, cg.campaign_id, count(*) AS calls_made, count(*) FILTER (WHERE cg.is_contacted) AS contacted_calls
+      FROM cg
+     WHERE $4::uuid[] IS NULL OR cg.placing_agent_id = ANY ($4)
+     GROUP BY 1, 2
+  ), f AS (
+    SELECT kg.*, CASE WHEN kg.campaign_id IS NULL THEN 'none' WHEN kg.campaign_id = ANY ($5) THEN 'visible' ELSE 'hidden' END
+             AS campaign_class
+      FROM kg WHERE kg.attempt_class = 'attempt'
   ), rows_ AS (
-    SELECT f.campaign_id, c.name, c.type, count(*) AS calls_made, count(*) FILTER (WHERE f.is_contacted) AS contacted_calls
-      FROM f JOIN public.campaigns c ON c.id = f.campaign_id AND c.organization_id = a.org_id
+    SELECT f.campaign_id, c.name, c.type, sum(f.calls_made) AS calls_made, sum(f.contacted_calls) AS contacted_calls
+      FROM f JOIN public.campaigns c ON c.id = f.campaign_id AND c.organization_id = $1
      WHERE f.campaign_class = 'visible'
      GROUP BY f.campaign_id, c.name, c.type
   )
-  SELECT private.report_v3_envelope('campaign_calls', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
-                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
-         || jsonb_build_object(
-           'metrics', '[]'::jsonb,
+  SELECT jsonb_build_object(
            'campaigns', coalesce((
              SELECT jsonb_agg(jsonb_build_object('campaign_id', r.campaign_id, 'name', r.name, 'type', r.type,
                                                  'calls_made', r.calls_made, 'contacted_calls', r.contacted_calls,
@@ -821,19 +1595,27 @@ BEGIN
                                                  'contact_rate_denominator', r.calls_made)
                               ORDER BY r.calls_made DESC, lower(r.name), r.campaign_id)
                FROM rows_ r), '[]'::jsonb),
-           'calls_without_campaign', (SELECT jsonb_build_object('calls_made', count(*), 'contacted_calls', count(*) FILTER (WHERE is_contacted),
-                                                                'contact_rate_numerator', count(*) FILTER (WHERE is_contacted),
-                                                                'contact_rate_denominator', count(*))
+           'calls_without_campaign', (SELECT jsonb_build_object('calls_made', coalesce(sum(f.calls_made), 0),
+                                                                'contacted_calls', coalesce(sum(f.contacted_calls), 0),
+                                                                'contact_rate_numerator', coalesce(sum(f.contacted_calls), 0),
+                                                                'contact_rate_denominator', coalesce(sum(f.calls_made), 0))
                                         FROM f WHERE f.campaign_class = 'none'),
-           'other_campaigns', (SELECT jsonb_build_object('calls_made', count(*), 'contacted_calls', count(*) FILTER (WHERE is_contacted),
-                                                         'contact_rate_numerator', count(*) FILTER (WHERE is_contacted),
-                                                         'contact_rate_denominator', count(*))
+           'other_campaigns', (SELECT jsonb_build_object('calls_made', coalesce(sum(f.calls_made), 0),
+                                                         'contacted_calls', coalesce(sum(f.contacted_calls), 0),
+                                                         'contact_rate_numerator', coalesce(sum(f.contacted_calls), 0),
+                                                         'contact_rate_denominator', coalesce(sum(f.calls_made), 0))
                                  FROM f WHERE f.campaign_class = 'hidden'),
-           'call_population', jsonb_build_object('attempts', v_counts -> 'attempts', 'non_attempts', v_counts -> 'non_attempts',
-                                                 'unverified', v_counts -> 'unverified',
-                                                 'duplicates_excluded', v_counts -> 'duplicates_excluded'))
-    INTO v_out;
-  RETURN v_out;
+           'call_population', (SELECT jsonb_build_object('attempts', coalesce(sum(kg.calls_made) FILTER (WHERE kg.attempt_class = 'attempt'), 0),
+                                                         'non_attempts', coalesce(sum(kg.calls_made) FILTER (WHERE kg.attempt_class = 'non_attempt'), 0),
+                                                         'unverified', coalesce(sum(kg.calls_made) FILTER (WHERE kg.attempt_class = 'unverified'), 0))
+                                 FROM kg))
+  $q$ INTO v_body USING a.org_id, w.start_at, w.end_at, a.agent_ids, v_visible;
+
+  RETURN private.report_v3_envelope('campaign_calls', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
+                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
+         || jsonb_build_object('metrics', '[]'::jsonb) || v_body
+         || jsonb_build_object('call_population', (v_body -> 'call_population') || jsonb_build_object(
+              'duplicates_excluded', private.report_v3_duplicates_excluded(a.org_id, a.agent_ids, w.start_at, w.end_at)));
 END $$;
 
 -- -----------------------------------------------------------------------------------------------------
@@ -851,25 +1633,119 @@ AS $$
 DECLARE
   a record;
   w record;
-  v_counts jsonb;
-  v_out jsonb;
+  v_body jsonb;
 BEGIN
   SELECT * INTO a FROM private.report_access_v2(p_requested_scope, p_agent_id);
   SELECT * INTO w FROM private.report_window(a.org_id, p_start_date, p_end_date);
-  v_counts := private.report_v3_call_counts(a.org_id, a.agent_ids, w.start_at, w.end_at);
 
-  WITH f AS MATERIALIZED (
-    SELECT x.lead_id, x.lead_source, x.is_contacted
-      FROM private.report_v3_call_facts(a.org_id, w.start_at, w.end_at) x
-     WHERE x.is_attempt AND (a.agent_ids IS NULL OR x.credited_agent_id = ANY (a.agent_ids))
+  -- One pass over the window's in-scope outbound rows, grouped once by attempt class, link and source; New leads keep
+  -- the v2 rule (created in the window, currently assigned in scope). $1 org, $2 start, $3 end, $4 agent_ids.
+  EXECUTE $q$
+  WITH
+  -- @call-rows begin: every call in [$2, $3) of organization $1, one row each, by the pinned v2 report_call_facts rules
+  -- (same rows, same carried columns, reviewed duplicates excluded) plus the v3 evidence columns. The text between the
+  -- markers is byte-identical wherever it appears (reportsV3Contracts.test.ts); a reader keeps only what it reads.
+  dm AS (   -- the organization's dispositions keyed by id ('i:') and by lower(name) ('n:'), with the stage conversion flag
+    SELECT 'i:' || d.id::text AS k, d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+    UNION ALL
+    SELECT 'n:' || lower(d.name), d.id, d.name, d.color, d.counts_as_contacted, d.dnc_auto_add, d.callback_scheduler,
+           d.appointment_scheduler, ps.convert_to_client
+      FROM public.dispositions d
+      LEFT JOIN public.pipeline_stages ps ON ps.id = d.pipeline_stage_id AND ps.organization_id = $1
+     WHERE d.organization_id = $1
+  ), cr AS (
+    SELECT c.id AS call_id, c.created_at, c.agent_id AS placing_agent_id, c.contact_id, c.contact_type,
+           c.campaign_lead_id AS raw_campaign_lead_id, c.contact_phone, c.answered_by_agent_id, c.outcome, c.voicemail_id,
+           c.dialer_admission_required, adm.admitted, c.duration AS raw_duration, c.duration_source, c.duration_conflict,
+           c.disposition_name AS raw_disposition_name,
+           CASE WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['outbound', 'outgoing']) THEN 'outbound'
+                WHEN lower(coalesce(c.direction, '')) = ANY (ARRAY['inbound', 'incoming']) THEN 'inbound'
+                ELSE 'other' END AS direction_class,
+           greatest(coalesce(c.duration, 0), 0)::bigint AS duration_seconds,
+           CASE WHEN c.campaign_id IS NOT NULL THEN cmp.id ELSE mc.campaign_id END AS campaign_id,
+           coalesce(l1.id, l2.id) AS lead_id,
+           coalesce(nullif(btrim(coalesce(l1.lead_source, l2.lead_source)), ''), '(No source)') AS lead_source,
+           dm.id AS resolved_disposition_id,
+           dm.name AS resolved_disposition_name,
+           coalesce(dm.color, '#6B7280') AS disposition_color,
+           coalesce(dm.counts_as_contacted, false) AS disp_counts_contacted,
+           coalesce(dm.convert_to_client, false) AS disp_converts,
+           coalesce(dm.dnc_auto_add, false) AS disp_dnc,
+           coalesce(dm.callback_scheduler, false) AS disp_callback,
+           coalesce(dm.appointment_scheduler, false) AS disp_appointment
+      FROM public.calls c
+      -- v2: by id when the call has one, else by lower(name); the stage of whichever matched.
+      LEFT JOIN dm ON dm.k = CASE WHEN c.disposition_id IS NOT NULL THEN 'i:' || c.disposition_id::text
+                                  WHEN c.disposition_name IS NOT NULL THEN 'n:' || lower(c.disposition_name) END
+      -- v2: the campaign is campaigns(coalesce(call campaign, membership campaign)) in the organization. Two joins, each
+      -- provably unique, so a reader that does not read the campaign keeps neither.
+      LEFT JOIN public.campaigns cmp ON cmp.id = c.campaign_id AND cmp.organization_id = $1
+      LEFT JOIN (SELECT cl.id, (array_agg(k.id))[1] AS campaign_id
+                   FROM public.campaign_leads cl
+                   JOIN public.campaigns k ON k.id = cl.campaign_id AND k.organization_id = $1
+                  GROUP BY cl.id) mc ON mc.id = c.campaign_lead_id
+      LEFT JOIN public.leads l1 ON l1.id = c.lead_id AND l1.organization_id = $1
+      LEFT JOIN public.leads l2
+             ON c.lead_id IS NULL AND l2.id = c.contact_id AND (c.contact_type = 'lead' OR c.contact_type IS NULL)
+            AND l2.organization_id = $1
+      LEFT JOIN private.dialer_outbound_admissions adm ON adm.organization_id = $1 AND adm.call_id = c.id
+     WHERE c.organization_id = $1 AND c.created_at >= $2 AND c.created_at < $3
+       AND NOT EXISTS (SELECT 1 FROM private.performance_duplicate_rows d
+                        WHERE d.organization_id = $1 AND d.kind = 'call' AND d.duplicate_id = c.id)
+  ), cf AS (
+    SELECT cr.*,
+           CASE WHEN cr.direction_class = 'inbound' THEN coalesce(cr.placing_agent_id, cr.answered_by_agent_id)
+                ELSE cr.placing_agent_id END AS credited_agent_id,
+           CASE WHEN cr.resolved_disposition_id IS NOT NULL THEN cr.resolved_disposition_id::text
+                WHEN nullif(btrim(cr.raw_disposition_name), '') IS NOT NULL THEN 'name:' || lower(btrim(cr.raw_disposition_name))
+                ELSE 'none' END AS disposition_key,
+           coalesce(cr.resolved_disposition_name, nullif(btrim(cr.raw_disposition_name), ''), '(No disposition)') AS disposition_name,
+           CASE WHEN cr.direction_class <> 'outbound' THEN false
+                WHEN lower(coalesce(cr.resolved_disposition_name, cr.raw_disposition_name, '')) = 'no answer' THEN false
+                WHEN cr.duration_seconds > 45 THEN true
+                WHEN cr.disp_counts_contacted THEN true
+                ELSE false END AS is_contacted,
+           CASE WHEN cr.direction_class <> 'outbound' THEN NULL
+                WHEN NOT cr.dialer_admission_required OR cr.admitted IS TRUE THEN 'attempt'
+                WHEN cr.admitted IS FALSE THEN 'non_attempt'
+                ELSE 'unverified' END AS attempt_class,
+           (cr.direction_class = 'inbound' AND (cr.placing_agent_id IS NOT NULL OR cr.outcome = 'forwarded_answered')
+              AND cr.voicemail_id IS NULL) AS is_answered_inbound
+      FROM cr
+  ), cg AS (
+    SELECT cf.*,
+           coalesce(cf.attempt_class = 'attempt', false) AS is_attempt,
+           (coalesce(cf.attempt_class = 'attempt', false) AND cf.is_contacted)
+             OR (cf.is_answered_inbound AND CASE WHEN lower(cf.disposition_name) = 'no answer' THEN false
+                                                 WHEN cf.duration_seconds > 45 THEN true
+                                                 WHEN cf.disp_counts_contacted THEN true
+                                                 ELSE false END) AS is_journey_contact,
+           (lower(cf.disposition_name) <> 'no answer'
+             AND (cf.disp_counts_contacted OR cf.raw_duration IS NULL OR cf.raw_duration > 45)) AS could_qualify,
+           public.phone_last10(cf.contact_phone) AS phone_last10
+      FROM cf
+  ),
+  -- @call-rows end
+  sg AS MATERIALIZED (
+    -- Inbound and other rows carry no attempt class and are not read; an outbound row's credited agent is its
+    -- placing agent, so the scope test reads the base column.
+    SELECT cg.attempt_class, cg.lead_id IS NULL AS not_linked, cg.lead_source,
+           count(*) AS calls_made, count(*) FILTER (WHERE cg.is_contacted) AS contacted_calls
+      FROM cg
+     WHERE $4::uuid[] IS NULL OR cg.placing_agent_id = ANY ($4)
+     GROUP BY 1, 2, 3
   ), call_agg AS (
-    SELECT f.lead_source, count(*) AS calls_made, count(*) FILTER (WHERE f.is_contacted) AS contacted_calls
-      FROM f WHERE f.lead_id IS NOT NULL GROUP BY f.lead_source
+    SELECT sg.lead_source, sum(sg.calls_made) AS calls_made, sum(sg.contacted_calls) AS contacted_calls
+      FROM sg WHERE sg.attempt_class = 'attempt' AND NOT sg.not_linked GROUP BY sg.lead_source
   ), new_leads AS (
     SELECT coalesce(nullif(btrim(l.lead_source), ''), '(No source)') AS lead_source, count(*) AS new_leads
       FROM public.leads l
-     WHERE l.organization_id = a.org_id AND l.created_at >= w.start_at AND l.created_at < w.end_at
-       AND (a.agent_ids IS NULL OR l.assigned_agent_id = ANY (a.agent_ids))
+     WHERE l.organization_id = $1 AND l.created_at >= $2 AND l.created_at < $3
+       AND ($4::uuid[] IS NULL OR l.assigned_agent_id = ANY ($4))
      GROUP BY 1
   ), rows_ AS (
     SELECT s.lead_source, coalesce(ca.calls_made, 0) AS calls_made, coalesce(ca.contacted_calls, 0) AS contacted_calls,
@@ -878,10 +1754,7 @@ BEGIN
       LEFT JOIN call_agg ca ON ca.lead_source = s.lead_source
       LEFT JOIN new_leads nl ON nl.lead_source = s.lead_source
   )
-  SELECT private.report_v3_envelope('lead_source_calls', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
-                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
-         || jsonb_build_object(
-           'metrics', '[]'::jsonb,
+  SELECT jsonb_build_object(
            'sources', coalesce((
              SELECT jsonb_agg(jsonb_build_object('lead_source', r.lead_source, 'new_leads', r.new_leads,
                                                  'calls_made', r.calls_made, 'contacted_calls', r.contacted_calls,
@@ -889,15 +1762,22 @@ BEGIN
                                                  'contact_rate_denominator', r.calls_made)
                               ORDER BY r.calls_made DESC, r.new_leads DESC, lower(r.lead_source))
                FROM rows_ r), '[]'::jsonb),
-           'not_linked', (SELECT jsonb_build_object('calls_made', count(*), 'contacted_calls', count(*) FILTER (WHERE is_contacted),
-                                                    'contact_rate_numerator', count(*) FILTER (WHERE is_contacted),
-                                                    'contact_rate_denominator', count(*))
-                            FROM f WHERE f.lead_id IS NULL),
-           'call_population', jsonb_build_object('attempts', v_counts -> 'attempts', 'non_attempts', v_counts -> 'non_attempts',
-                                                 'unverified', v_counts -> 'unverified',
-                                                 'duplicates_excluded', v_counts -> 'duplicates_excluded'))
-    INTO v_out;
-  RETURN v_out;
+           'not_linked', (SELECT jsonb_build_object('calls_made', coalesce(sum(sg.calls_made), 0),
+                                                    'contacted_calls', coalesce(sum(sg.contacted_calls), 0),
+                                                    'contact_rate_numerator', coalesce(sum(sg.contacted_calls), 0),
+                                                    'contact_rate_denominator', coalesce(sum(sg.calls_made), 0))
+                            FROM sg WHERE sg.attempt_class = 'attempt' AND sg.not_linked),
+           'call_population', (SELECT jsonb_build_object('attempts', coalesce(sum(sg.calls_made) FILTER (WHERE sg.attempt_class = 'attempt'), 0),
+                                                         'non_attempts', coalesce(sum(sg.calls_made) FILTER (WHERE sg.attempt_class = 'non_attempt'), 0),
+                                                         'unverified', coalesce(sum(sg.calls_made) FILTER (WHERE sg.attempt_class = 'unverified'), 0))
+                                 FROM sg))
+  $q$ INTO v_body USING a.org_id, w.start_at, w.end_at, a.agent_ids;
+
+  RETURN private.report_v3_envelope('lead_source_calls', a.scope, a.requested_scope, a.filter_agent_id, w.time_zone,
+                                    w.time_zone_source, w.start_date, w.end_date, w.start_at, w.end_at)
+         || jsonb_build_object('metrics', '[]'::jsonb) || v_body
+         || jsonb_build_object('call_population', (v_body -> 'call_population') || jsonb_build_object(
+              'duplicates_excluded', private.report_v3_duplicates_excluded(a.org_id, a.agent_ids, w.start_at, w.end_at)));
 END $$;
 
 REVOKE ALL ON FUNCTION private.report_v3_roster(uuid, uuid[], uuid, uuid[]) FROM PUBLIC, anon, authenticated, service_role;

@@ -256,11 +256,11 @@ SELECT rt.eq('the helpers read no phone column',
 -- -----------------------------------------------------------------------------------------------------
 -- 5. The seal, the unchanged normalizer and the private lineage index.
 -- -----------------------------------------------------------------------------------------------------
-SELECT rt.eq('identity resolver metadata: sql, stable, invoker, pinned search_path',
+SELECT rt.eq('identity resolver metadata: plpgsql (constant EXECUTE statements), stable, invoker, pinned search_path',
   (SELECT concat_ws('|', l.lanname, p.provolatile, p.prosecdef::text, array_to_string(p.proconfig, ';'),
                     pg_get_function_identity_arguments(p.oid), pg_get_function_result(p.oid))
      FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang WHERE p.oid = 'private.report_v3_identity_states(uuid,text[])'::regprocedure),
-  'sql|s|false|search_path=pg_catalog, pg_temp|p_org uuid, p_identity_keys text[]|'
+  'plpgsql|s|false|search_path=pg_catalog, pg_temp|p_org uuid, p_identity_keys text[]|'
   || 'TABLE(identity_key text, state_code text, reason text, basis text, last_state_change_at timestamp with time zone)');
 SELECT rt.eq('no client role can execute either state helper',
   (SELECT array_agg(has_function_privilege(r, f, 'EXECUTE') ORDER BY f, r)
@@ -300,20 +300,20 @@ SELECT rt.reject_mutation('private.report_v3_state_classify(text)',
   $probe$SELECT rt.eq('mutated pre-trim', rt.cls('ny' || chr(9)), 'NY|-')$probe$,
   'mutated pre-trim FAIL');
 SELECT rt.reject_mutation('private.report_v3_identity_states(uuid,text[])',
-  '(s.reason IS DISTINCT FROM ''missing_state'') AS recorded',
-  '(s.reason IS DISTINCT FROM ''missing_state'' AND s.reason IS DISTINCT FROM ''invalid_state'') AS recorded',
+  'x.a_reason IS DISTINCT FROM ''missing_state'')',
+  'x.a_reason IS DISTINCT FROM ''missing_state'' AND x.a_reason IS DISTINCT FROM ''invalid_state'')',
   $probe$SELECT rt.eq('mutated invalid fallback', rt.sstate('ST', rt.skey('lead', 'SL5')), '-|invalid_state|current_record')$probe$,
   'mutated invalid fallback FAIL');
 SELECT rt.reject_mutation('private.report_v3_identity_states(uuid,text[])',
-  'count(DISTINCT v.state_code) AS valid_codes', 'least(count(DISTINCT v.state_code), 1) AS valid_codes',
+  'THEN greatest(r.a_code, r.b_code) ELSE c.copy_max END AS code_max', 'THEN least(r.a_code, r.b_code) ELSE c.copy_min END AS code_max',
   $probe$SELECT rt.eq('mutated conflict', rt.sstate('ST', rt.skey('lead', 'SL3')), '-|source_conflict|current_record')$probe$,
   'mutated conflict FAIL');
 SELECT rt.reject_mutation('private.report_v3_identity_states(uuid,text[])',
-  'cl.id = ca.campaign_lead_id AND cl.organization_id = p_org', 'cl.id = ca.campaign_lead_id',
+  'cl.id = ca.campaign_lead_id AND cl.organization_id = $1', 'cl.id = ca.campaign_lead_id',
   $probe$SELECT rt.eq('mutated cross-tenant membership', rt.sstate('ST', rt.skey('lead', 'SL20')), '-|missing_state|-')$probe$,
   'mutated cross-tenant membership FAIL');
 SELECT rt.reject_mutation('private.report_v3_identity_states(uuid,text[])',
-  'ca.organization_id = p_org', 'true',
+  'ca.organization_id = $1', 'true',
   $probe$SELECT rt.eq('mutated cross-tenant call', rt.sstate('ST', rt.skey('lead', 'SL20')), '-|missing_state|-')$probe$,
   'mutated cross-tenant call FAIL');
 

@@ -13,7 +13,9 @@
 --                                reason: missing_state, unsupported_geography or invalid_state
 --   report_v3_identity_states    each D3 identity's recorded state: its same-org lead/client records first,
 --                                then (only when those are all blank) a campaign-membership copy; two or more
---                                distinct codes are an explicit source_conflict
+--                                distinct codes are an explicit source_conflict. PL/pgSQL running two constant
+--                                statements (EXECUTE ... USING) so each is planned for the keys given; it relies on
+--                                uq_clients_lead_id (checked by the preflight) for one converted client per lead
 --   report_v3_lineage_original_lead  private.dialer_conversion_lineage (organization_id, original_lead_id)
 --
 -- Every lookup is same-org; identities are never resolved from phone numbers; results are internal to the
@@ -34,6 +36,15 @@ BEGIN
      OR to_regprocedure('private.report_v3_contact_identity(uuid,uuid[],uuid[])') IS NULL
      OR to_regprocedure('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz)') IS NULL THEN
     RAISE EXCEPTION 'Reports v3 state helpers: the call and journey helpers (…12) and the appointment stub (…13) must be applied first';
+  END IF;
+  -- report_v3_identity_states reads at most one converted client per lead: clients.lead_id must stay unique.
+  IF NOT EXISTS (SELECT 1 FROM pg_index i
+                  WHERE i.indexrelid = to_regclass('public.uq_clients_lead_id') AND i.indrelid = 'public.clients'::regclass
+                    AND i.indisunique AND i.indisvalid AND i.indnkeyatts = 1
+                    AND i.indkey[0] = (SELECT a.attnum FROM pg_attribute a
+                                        WHERE a.attrelid = 'public.clients'::regclass AND a.attname = 'lead_id')
+                    AND (i.indpred IS NULL OR pg_get_expr(i.indpred, i.indrelid) = '(lead_id IS NOT NULL)')) THEN
+    RAISE EXCEPTION 'Reports v3 state helpers: public.clients.lead_id must be unique (uq_clients_lead_id)';
   END IF;
   -- The unchanged production normalizer (baseline:4378-4470), by the same method as the enable pins.
   IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = to_regprocedure('public.normalize_us_state(text)')
@@ -106,90 +117,139 @@ $$;
 -- -----------------------------------------------------------------------------------------------------
 CREATE FUNCTION private.report_v3_identity_states(p_org uuid, p_identity_keys text[])
 RETURNS TABLE (identity_key text, state_code text, reason text, basis text, last_state_change_at timestamptz)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
-  WITH keys AS (
-    SELECT DISTINCT k.key, split_part(k.key, ':', 1) AS kind,
-           CASE WHEN k.key ~ '^(lead|client):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                THEN split_part(k.key, ':', 2)::uuid END AS id
-      FROM unnest(p_identity_keys) AS k(key)
-     WHERE p_org IS NOT NULL
-       AND k.key ~ '^(lead|client):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-  ), records AS (
-    SELECT k.key, 'lead'::text AS contact_type, l.id AS contact_id, l.state AS raw_state
-      FROM keys k JOIN public.leads l ON l.id = k.id AND l.organization_id = p_org
-     WHERE k.kind = 'lead'
-    UNION ALL
-    SELECT k.key, 'client', c.id, c.state
-      FROM keys k JOIN public.clients c ON c.lead_id = k.id AND c.organization_id = p_org
-     WHERE k.kind = 'lead'
-    UNION ALL
-    SELECT k.key, 'client', c.id, c.state
-      FROM keys k JOIN public.clients c ON c.id = k.id AND c.organization_id = p_org
-     WHERE k.kind = 'client'
-  ), record_votes AS (
-    SELECT r.key, 'current_record'::text AS basis, s.state_code, s.reason,
-           (s.reason IS DISTINCT FROM 'missing_state') AS recorded
-      FROM records r CROSS JOIN LATERAL private.report_v3_state_classify(r.raw_state) s
-  ), blank AS (
-    SELECT k.key, k.kind, k.id FROM keys k
-     WHERE EXISTS (SELECT 1 FROM record_votes v WHERE v.key = k.key)
-       AND NOT EXISTS (SELECT 1 FROM record_votes v WHERE v.key = k.key AND v.recorded)
-  ), copies AS (
-    SELECT b.key, cl.id AS campaign_lead_id, cl.state AS raw_state
-      FROM blank b JOIN public.campaign_leads cl ON cl.lead_id = b.id AND cl.organization_id = p_org
-     WHERE b.kind = 'lead'
-    UNION
-    SELECT b.key, cl.id, cl.state
-      FROM blank b
-      JOIN private.dialer_conversion_lineage lin ON lin.original_lead_id = b.id AND lin.organization_id = p_org
-      JOIN public.campaign_leads cl ON cl.id = lin.campaign_lead_id AND cl.organization_id = p_org
-     WHERE b.kind = 'lead'
-    UNION
-    SELECT b.key, cl.id, cl.state
-      FROM blank b
-      JOIN records r ON r.key = b.key
-      JOIN public.calls ca ON ca.contact_id IN (r.contact_id, b.id) AND ca.organization_id = p_org
-      JOIN public.campaign_leads cl ON cl.id = ca.campaign_lead_id AND cl.organization_id = p_org
-  ), votes AS (
-    SELECT v.key, v.basis, v.state_code, v.reason, v.recorded FROM record_votes v
-    UNION ALL
-    SELECT c.key, 'campaign_copy', s.state_code, s.reason, (s.reason IS DISTINCT FROM 'missing_state')
-      FROM copies c CROSS JOIN LATERAL private.report_v3_state_classify(c.raw_state) s
-  ), decided AS (
-    SELECT DISTINCT ON (v.key) v.key, v.basis
-      FROM votes v WHERE v.recorded
-     ORDER BY v.key, v.basis = 'campaign_copy'
-  ), outcome AS (
-    SELECT d.key, d.basis, count(DISTINCT v.state_code) AS valid_codes, min(v.state_code) AS code,
-           bool_or(v.reason = 'unsupported_geography') AS unsupported
-      FROM decided d JOIN votes v ON v.key = d.key AND v.basis = d.basis
-     GROUP BY d.key, d.basis
-  ), history AS (
-    SELECT h.key, max(e.recorded_at) AS last_state_change_at
-      FROM (SELECT k.key, k.kind AS contact_type, k.id AS contact_id FROM keys k
-            UNION
-            SELECT r.key, r.contact_type, r.contact_id FROM records r) h
-      JOIN public.contact_history_events e
-        ON e.contact_id = h.contact_id AND e.contact_type = h.contact_type AND e.organization_id = p_org
-       AND 'state' = ANY (e.changed_fields)
-     GROUP BY h.key
-  )
-  SELECT k.key,
-         CASE WHEN o.valid_codes = 1 THEN o.code END,
-         CASE WHEN NOT EXISTS (SELECT 1 FROM records r WHERE r.key = k.key) THEN 'unresolved_identity'
-              WHEN o.key IS NULL THEN 'missing_state'
-              WHEN o.valid_codes = 1 THEN NULL
-              WHEN o.valid_codes > 1 THEN 'source_conflict'
-              WHEN o.unsupported THEN 'unsupported_geography'
-              ELSE 'invalid_state' END,
-         o.basis,
-         h.last_state_change_at
-    FROM keys k
-    LEFT JOIN outcome o ON o.key = k.key
-    LEFT JOIN history h ON h.key = k.key;
+DECLARE
+  v_leads uuid[];
+  v_clients uuid[];
+BEGIN
+  IF p_org IS NULL THEN
+    RETURN;
+  END IF;
+  -- The distinct lead and client identities among the keys. A key is one exactly when it matches
+  -- '^(lead|client):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$': LIKE fixes the prefix, the length and
+  -- the four dash positions, uuid input accepts the other 32 characters only as hex digits, and the round trip through
+  -- uuid's canonical lowercase text rejects upper case. Any other key yields no row.
+  EXECUTE $q$
+    SELECT array_agg(v.id) FILTER (WHERE v.kind = 'lead'), array_agg(v.id) FILTER (WHERE v.kind = 'client')
+      FROM (SELECT DISTINCT d.kind, CASE WHEN pg_input_is_valid(d.part, 'uuid') AND d.part::uuid::text = d.part
+                                          THEN d.part::uuid END AS id
+              FROM (SELECT CASE WHEN u.key LIKE 'lead:________-____-____-____-____________' THEN 'lead'
+                                WHEN u.key LIKE 'client:________-____-____-____-____________' THEN 'client' END AS kind,
+                           CASE WHEN u.key LIKE 'lead:%' THEN substr(u.key, 6) ELSE substr(u.key, 8) END AS part
+                      FROM unnest($1) AS u(key)) d
+             WHERE d.kind IS NOT NULL) v
+     WHERE v.id IS NOT NULL
+  $q$ INTO v_leads, v_clients USING p_identity_keys;
+
+  -- One statement with constant text, planned for the actual identities (EXECUTE ... USING), with the rules and their
+  -- order unchanged. A key has at most two records, its own (the lead row of a lead key, the client row of a client key)
+  -- and, for a lead key, the client converted from it (clients.lead_id is unique: uq_clients_lead_id), so each key's
+  -- current-record votes sit on one row. Recorded values are classified once (the classifier is immutable); only keys
+  -- whose records are all blank read campaign copies.
+  RETURN QUERY EXECUTE $q$
+    WITH k AS MATERIALIZED (
+      SELECT 'lead:' || x.id::text AS key, x.id AS lead_id, NULL::uuid AS client_id FROM unnest($2) AS x(id)
+      UNION ALL
+      SELECT 'client:' || x.id::text, NULL::uuid, x.id FROM unnest($3) AS x(id)
+    ), w AS MATERIALIZED (
+      SELECT k.key, k.lead_id, coalesce(k.lead_id, k.client_id) AS id,
+             CASE WHEN k.lead_id IS NOT NULL THEN 'lead' ELSE 'client' END AS kind,
+             coalesce(l.id, c2.id) AS a_id, CASE WHEN k.lead_id IS NOT NULL THEN l.state ELSE c2.state END AS a_raw,
+             c1.id AS b_id, c1.state AS b_raw
+        FROM k
+        LEFT JOIN public.leads l ON l.id = k.lead_id AND l.organization_id = $1
+        LEFT JOIN public.clients c1 ON c1.lead_id = k.lead_id AND c1.organization_id = $1
+        LEFT JOIN public.clients c2 ON c2.id = k.client_id AND c2.organization_id = $1
+    ), null_class AS (
+      SELECT s.state_code, s.reason FROM private.report_v3_state_classify(NULL) s
+    ), record_class AS (
+      SELECT v.raw, s.state_code, s.reason
+        FROM (SELECT DISTINCT u.raw
+                FROM (SELECT w.a_raw AS raw FROM w UNION ALL SELECT w.b_raw FROM w WHERE w.b_id IS NOT NULL) u
+               WHERE u.raw IS NOT NULL) v
+       CROSS JOIN LATERAL private.report_v3_state_classify(v.raw) s
+    ), rv AS MATERIALIZED (
+      SELECT x.*,
+             (x.a_id IS NOT NULL AND x.a_reason IS DISTINCT FROM 'missing_state')
+               OR (x.b_id IS NOT NULL AND x.b_reason IS DISTINCT FROM 'missing_state') AS rec_recorded
+        FROM (SELECT w.key, w.lead_id, w.id, w.kind, w.b_id, (w.a_id IS NOT NULL OR w.b_id IS NOT NULL) AS has_records,
+                     w.a_id,
+                     CASE WHEN w.a_id IS NULL THEN NULL WHEN w.a_raw IS NULL THEN n.state_code ELSE ra.state_code END AS a_code,
+                     CASE WHEN w.a_id IS NULL THEN NULL WHEN w.a_raw IS NULL THEN n.reason ELSE ra.reason END AS a_reason,
+                     CASE WHEN w.b_id IS NULL THEN NULL WHEN w.b_raw IS NULL THEN n.state_code ELSE rb.state_code END AS b_code,
+                     CASE WHEN w.b_id IS NULL THEN NULL WHEN w.b_raw IS NULL THEN n.reason ELSE rb.reason END AS b_reason
+                FROM w CROSS JOIN null_class n
+                LEFT JOIN record_class ra ON ra.raw = w.a_raw
+                LEFT JOIN record_class rb ON rb.raw = w.b_raw) x
+    ), copies AS MATERIALIZED (
+      -- Keys with records, all blank: the same three membership routes as before.
+      SELECT b.key, cl.id AS campaign_lead_id, cl.state AS raw_state
+        FROM rv b JOIN public.campaign_leads cl ON cl.lead_id = b.lead_id AND cl.organization_id = $1
+       WHERE b.has_records AND NOT b.rec_recorded
+      UNION
+      SELECT b.key, cl.id, cl.state
+        FROM rv b
+        JOIN private.dialer_conversion_lineage lin ON lin.original_lead_id = b.lead_id AND lin.organization_id = $1
+        JOIN public.campaign_leads cl ON cl.id = lin.campaign_lead_id AND cl.organization_id = $1
+       WHERE b.has_records AND NOT b.rec_recorded
+      UNION
+      SELECT b.key, cl.id, cl.state
+        FROM rv b
+        JOIN public.calls ca ON ca.contact_id IN (b.id, b.b_id) AND ca.organization_id = $1
+        JOIN public.campaign_leads cl ON cl.id = ca.campaign_lead_id AND cl.organization_id = $1
+       WHERE b.has_records AND NOT b.rec_recorded
+    ), copy_class AS (
+      SELECT v.raw, s.state_code, s.reason
+        FROM (SELECT DISTINCT c.raw_state AS raw FROM copies c WHERE c.raw_state IS NOT NULL) v
+       CROSS JOIN LATERAL private.report_v3_state_classify(v.raw) s
+    ), cv AS (
+      SELECT y.key, bool_or(y.reason IS DISTINCT FROM 'missing_state') AS copy_recorded, min(y.state_code) AS copy_min,
+             max(y.state_code) AS copy_max, bool_or(y.reason = 'unsupported_geography') AS copy_unsupported
+        FROM (SELECT c.key, CASE WHEN c.raw_state IS NULL THEN n.state_code ELSE x.state_code END AS state_code,
+                     CASE WHEN c.raw_state IS NULL THEN n.reason ELSE x.reason END AS reason
+                FROM copies c CROSS JOIN null_class n LEFT JOIN copy_class x ON x.raw = c.raw_state) y
+       GROUP BY y.key
+    ), hist AS (
+      -- The key's own contact and its records' contacts; the converted client is the only one that differs from it.
+      SELECT h.key, max(e.recorded_at) AS last_at
+        FROM (SELECT w.key, w.kind AS contact_type, w.id AS contact_id FROM w
+              UNION ALL
+              SELECT w.key, 'client', w.b_id FROM w WHERE w.b_id IS NOT NULL) h
+        JOIN public.contact_history_events e
+          ON e.contact_id = h.contact_id AND e.contact_type = h.contact_type AND e.organization_id = $1
+         AND 'state' = ANY (e.changed_fields)
+       GROUP BY h.key
+    ), o AS (
+      -- The decided basis is the current record when any record carries a value, else the campaign copy when any copy
+      -- does. All of the decided basis's votes give its codes (none, exactly one distinct code, or more than one), the
+      -- code and the unsupported flag.
+      SELECT r.key, r.has_records, h.last_at,
+             CASE WHEN r.rec_recorded THEN 'current_record' WHEN c.copy_recorded THEN 'campaign_copy' END AS decided,
+             CASE WHEN r.rec_recorded THEN least(r.a_code, r.b_code) ELSE c.copy_min END AS code,
+             CASE WHEN r.rec_recorded THEN greatest(r.a_code, r.b_code) ELSE c.copy_max END AS code_max,
+             CASE WHEN r.rec_recorded THEN coalesce(r.a_reason = 'unsupported_geography', false)
+                                             OR coalesce(r.b_reason = 'unsupported_geography', false)
+                  ELSE c.copy_unsupported END AS unsupported
+        FROM rv r
+        LEFT JOIN cv c ON c.key = r.key
+        LEFT JOIN hist h ON h.key = r.key
+    )
+    SELECT o.key,
+           CASE WHEN o.decided IS NOT NULL AND o.code = o.code_max THEN o.code END,
+           CASE WHEN NOT o.has_records THEN 'unresolved_identity'
+                WHEN o.decided IS NULL THEN 'missing_state'
+                WHEN o.code = o.code_max THEN NULL
+                WHEN o.code IS NOT NULL THEN 'source_conflict'
+                WHEN o.unsupported THEN 'unsupported_geography'
+                ELSE 'invalid_state' END,
+           o.decided,
+           o.last_at
+      FROM o
+  $q$ USING p_org, v_leads, v_clients;
+END
 $$;
 
 -- The private lineage index (D5 §3.8): S3's lineage lookups, and D3's, read by (organization, original lead).
@@ -206,7 +266,7 @@ BEGIN
             WHERE n.nspname = 'private' AND p.proname IN ('report_v3_state_classify', 'report_v3_identity_states') LOOP
     n := n + 1;
     IF f.prosecdef OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp'] OR f.proowner <> 'postgres'::regrole
-       OR f.lanname <> 'sql'
+       OR f.lanname <> (CASE f.proname WHEN 'report_v3_identity_states' THEN 'plpgsql' ELSE 'sql' END)
        OR (f.proname = 'report_v3_state_classify' AND (f.provolatile <> 'i' OR f.proparallel <> 's'
            OR f.oid IS DISTINCT FROM to_regprocedure('private.report_v3_state_classify(text)')))
        OR (f.proname = 'report_v3_identity_states' AND (f.provolatile <> 's'

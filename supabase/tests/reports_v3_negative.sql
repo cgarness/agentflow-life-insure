@@ -13,13 +13,13 @@ $$;
 
 -- Removed narrowing: the summary counts every agent's calls for a personal viewer.
 SELECT rt.reject_mutation('public.get_report_summary_v3(date,date,uuid,text)',
-  'v_counts := private.report_v3_call_counts(a.org_id, a.agent_ids, w.start_at, w.end_at);',
-  'v_counts := private.report_v3_call_counts(a.org_id, NULL, w.start_at, w.end_at);',
+  '$q$ INTO v_calls USING a.org_id, w.start_at, w.end_at, a.agent_ids;',
+  '$q$ INTO v_calls USING a.org_id, w.start_at, w.end_at, NULL::uuid[];',
   $probe$SELECT rt.eq('mutated summary narrowing', rt.kpi(rt.v3r('A1', 'summary'), 5), '5')$probe$,
   'mutated summary narrowing FAIL');
 -- Removed narrowing: the state reader maps every agent's calls.
 SELECT rt.reject_mutation('public.get_report_state_breakdown_v3(date,date,uuid,text)',
-  '       AND (a.agent_ids IS NULL OR f.credited_agent_id = ANY (a.agent_ids))', '',
+  E'     WHERE $4::uuid[] IS NULL OR cg.placing_agent_id = ANY ($4)\n     GROUP BY 1, 2, 3, 4, 5, 6', '     GROUP BY 1, 2, 3, 4, 5, 6',
   $probe$SELECT rt.eq('mutated state narrowing', rt.v3r('A1', 'state_breakdown') #> '{totals,calls_made}', '5'::jsonb)$probe$,
   'mutated state narrowing FAIL');
 -- Removed narrowing: the journey totals become agency totals.
@@ -51,14 +51,14 @@ SELECT rt.reject_mutation('public.get_report_campaign_calls_v3(date,date,uuid,te
   'mutated call-only payload FAIL');
 -- Non-attempts and unverified rows counted as Calls made.
 SELECT rt.reject_mutation('public.get_report_campaign_calls_v3(date,date,uuid,text)',
-  'WHERE x.is_attempt AND (a.agent_ids IS NULL OR x.credited_agent_id = ANY (a.agent_ids))',
-  'WHERE x.direction_class = ''outbound'' AND (a.agent_ids IS NULL OR x.credited_agent_id = ANY (a.agent_ids))',
+  '      FROM kg WHERE kg.attempt_class = ''attempt''',
+  '      FROM kg WHERE kg.attempt_class IS NOT NULL',
   $probe$SELECT rt.eq('mutated attempt population', rt.v3_recon('ADM1'), 'calls|10|10|10|10|10|10|10|10|10|10|contacted|5|5|5|5|5|5|population|1')$probe$,
   'mutated attempt population FAIL');
 -- A duplicate-producing join: every campaign membership of a lead multiplies its calls.
 SELECT rt.reject_mutation('public.get_report_lead_source_calls_v3(date,date,uuid,text)',
-  '      FROM private.report_v3_call_facts(a.org_id, w.start_at, w.end_at) x',
-  '      FROM private.report_v3_call_facts(a.org_id, w.start_at, w.end_at) x LEFT JOIN public.campaign_leads cm ON cm.lead_id = x.lead_id AND cm.organization_id = a.org_id',
+  E'      FROM cg\n     WHERE $4::uuid[] IS NULL OR cg.placing_agent_id = ANY ($4)\n     GROUP BY 1, 2, 3',
+  E'      FROM cg LEFT JOIN public.campaign_leads cm ON cm.lead_id = cg.lead_id AND cm.organization_id = $1\n     WHERE $4::uuid[] IS NULL OR cg.placing_agent_id = ANY ($4)\n     GROUP BY 1, 2, 3',
   $probe$SELECT rt.eq('mutated membership join', rt.v3_recon('ADM1'), 'calls|10|10|10|10|10|10|10|10|10|10|contacted|5|5|5|5|5|5|population|1')$probe$,
   'mutated membership join FAIL');
 -- A hidden campaign's name and id leak into an agent's campaign rows.

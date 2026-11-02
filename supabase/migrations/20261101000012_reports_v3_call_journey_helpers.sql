@@ -26,6 +26,8 @@
 --   report_v3_journey_members     one internal row per member and journey KPI (never returned to a client)
 --   report_v3_journey_facts       the journey KPI counts for one scope (no key, number, time or id)
 --   report_v3_call_counts         the call KPI counts for one scope
+--   report_v3_duplicates_excluded reviewed duplicate calls excluded from a window (call_population)
+--   report_v3_attempt_kpis        KPI 5 and 6 envelopes from the attempt evidence (shared by call_kpis and the state modes)
 --   report_v3_call_kpis           KPI 5–11 and 34 envelopes, only through the foundation builders
 --   report_v3_journey_kpis        KPI 14, 19, 21 and 38 envelopes, only through the foundation builders
 -- =====================================================================================================
@@ -180,8 +182,11 @@ AS $$
          CASE WHEN ck.id IS NOT NULL THEN coalesce((ck.lead_conversion ->> 'converted_at')::timestamptz, ck.created_at) END,
          r.resolution
     FROM resolved r
+    -- The cast sits under CASE: a join condition gives no evaluation order, so a hash join could otherwise
+    -- cast a client or recruit key (22P02 at production volume).
     LEFT JOIN public.clients ck
-           ON r.identity_key LIKE 'lead:%' AND ck.lead_id = substr(r.identity_key, 6)::uuid AND ck.organization_id = p_org;
+           ON ck.lead_id = CASE WHEN r.identity_key LIKE 'lead:%' THEN substr(r.identity_key, 6)::uuid END
+          AND ck.organization_id = p_org;
 $$;
 
 -- -----------------------------------------------------------------------------------------------------
@@ -650,6 +655,49 @@ AS $$
     FROM f;
 $$;
 
+-- Reviewed duplicates excluded from the window (call_population.duplicates_excluded): placing agent in scope, as
+-- report_v3_call_counts has always counted them.
+CREATE FUNCTION private.report_v3_duplicates_excluded(p_org uuid, p_agents uuid[], p_start timestamptz, p_end timestamptz)
+RETURNS bigint
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  -- Driven from the reviewed rows (few per organization): one primary-key lookup each, whatever the window.
+  SELECT count(*) FROM private.performance_duplicate_rows d
+   CROSS JOIN LATERAL (SELECT 1 FROM public.calls c
+                        WHERE c.id = d.duplicate_id AND c.organization_id = p_org
+                          AND c.created_at >= p_start AND c.created_at < p_end
+                          AND (p_agents IS NULL OR c.agent_id = ANY (p_agents))) x
+   WHERE d.organization_id = p_org AND d.kind = 'call';
+$$;
+
+-- KPI 5 and 6 envelopes from one counts object's attempt evidence (attempts, unverified, non_attempts,
+-- duplicates_excluded, contacted), only through the builders. report_v3_call_kpis and the state reader's modes share it.
+CREATE FUNCTION private.report_v3_attempt_kpis(p_counts jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_att numeric := (p_counts ->> 'attempts')::numeric;
+  v_unv numeric := (p_counts ->> 'unverified')::numeric;
+  v_con numeric := (p_counts ->> 'contacted')::numeric;
+BEGIN
+  IF v_att IS NULL OR v_unv IS NULL OR v_con IS NULL THEN
+    RAISE EXCEPTION 'reports v3 calls: inconsistent call KPI counts' USING ERRCODE = 'P0001';
+  END IF;
+  RETURN jsonb_build_array(
+    private.report_v3_total(5, v_att, jsonb_build_object(
+      'eligible', v_att + v_unv, 'assessable', v_att, 'unassessable', v_unv,
+      'reasons', jsonb_strip_nulls(jsonb_build_object('attempt_unverified', nullif(v_unv, 0)))), NULL,
+      jsonb_build_object('call_population', jsonb_build_object(
+        'attempts', v_att, 'non_attempts', p_counts -> 'non_attempts', 'unverified', v_unv,
+        'duplicates_excluded', p_counts -> 'duplicates_excluded'))),
+    private.report_v3_total(6, v_con));
+END $$;
+
 -- KPI 5–11 and 34 envelopes for one counts object and its policy count P (D2 KPI 2), only through the builders.
 CREATE FUNCTION private.report_v3_call_kpis(p_counts jsonb, p_policies numeric)
 RETURNS jsonb
@@ -684,11 +732,7 @@ BEGIN
   v_cov_lead := jsonb_build_object('eligible', v_ls + v_ua + v_lu, 'assessable', v_ls, 'unassessable', v_ua + v_lu,
                                    'reasons', jsonb_strip_nulls(jsonb_build_object('attempt_unverified', nullif(v_lu, 0),
                                                                                    'unlinked_calls_excluded', nullif(v_ua, 0))));
-  RETURN jsonb_build_array(
-    private.report_v3_total(5, v_att, v_cov_att, NULL, jsonb_build_object('call_population', jsonb_build_object(
-      'attempts', v_att, 'non_attempts', p_counts -> 'non_attempts', 'unverified', v_unv,
-      'duplicates_excluded', p_counts -> 'duplicates_excluded'))),
-    private.report_v3_total(6, v_con),
+  RETURN private.report_v3_attempt_kpis(p_counts) || jsonb_build_array(
     private.report_v3_total(7, v_reach, v_cov_reach),
     private.report_v3_rate(8, v_con, v_att, v_cov_att),
     private.report_v3_ratio(9, v_att, p_policies, v_cov_att),
@@ -771,6 +815,8 @@ REVOKE ALL ON FUNCTION private.report_v3_journey_members(uuid, uuid[], text, tim
 REVOKE ALL ON FUNCTION private.report_v3_journey_facts(uuid, uuid[], text, timestamptz, timestamptz, date, date, timestamptz)
   FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION private.report_v3_call_counts(uuid, uuid[], timestamptz, timestamptz) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION private.report_v3_duplicates_excluded(uuid, uuid[], timestamptz, timestamptz) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION private.report_v3_attempt_kpis(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION private.report_v3_call_kpis(jsonb, numeric) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION private.report_v3_journey_kpis(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 
@@ -782,7 +828,7 @@ BEGIN
                   'report_v3_client_identity_key', 'report_v3_contact_identity', 'report_v3_call_facts',
                   'report_v3_identity_receipts', 'report_v3_identity_numbers', 'report_v3_sale_call_links',
                   'report_v3_first_sales', 'report_v3_journey_members', 'report_v3_journey_facts', 'report_v3_call_counts',
-                  'report_v3_call_kpis', 'report_v3_journey_kpis') LOOP
+                  'report_v3_duplicates_excluded', 'report_v3_attempt_kpis', 'report_v3_call_kpis', 'report_v3_journey_kpis') LOOP
     n := n + 1;
     IF f.prosecdef OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp'] OR f.proowner <> 'postgres'::regrole THEN
       RAISE EXCEPTION 'Reports v3 call journey: helper metadata mismatch: %', f.oid::regprocedure;
@@ -793,7 +839,7 @@ BEGIN
       END IF;
     END LOOP;
   END LOOP;
-  IF n <> 14 THEN
-    RAISE EXCEPTION 'Reports v3 call journey: expected 14 helpers, found %', n;
+  IF n <> 16 THEN
+    RAISE EXCEPTION 'Reports v3 call journey: expected 16 helpers, found %', n;
   END IF;
 END $postcondition$;

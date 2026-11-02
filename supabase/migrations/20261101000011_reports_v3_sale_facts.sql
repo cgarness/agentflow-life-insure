@@ -59,29 +59,33 @@ END $preflight$;
 -- PKG-B replaces this stub (…21) with the audited effective-premium reader, under a preimage guard.
 CREATE FUNCTION private.report_v3_sale_premium(p_win public.wins, p_client numeric)
 RETURNS TABLE (monthly numeric, premium_source text, premium_state text, revision integer)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
-  SELECT m.v,
-         CASE WHEN p_win.premium_snapshot THEN 'sale_snapshot'
-              WHEN nullif(p_win.premium_amount, 0) IS NOT NULL THEN 'legacy_sale_event'
-              WHEN f.fb IS NOT NULL THEN 'legacy_record_fallback'
-              ELSE 'none' END,
-         CASE WHEN m.v IS NOT NULL THEN 'known'
-              WHEN (CASE WHEN p_win.premium_snapshot THEN p_win.premium_amount
-                         ELSE coalesce(nullif(p_win.premium_amount, 0), f.fb) END) < 0 THEN 'invalid'
-              ELSE 'missing' END,
-         0
-    FROM (SELECT private.performance_sale_monthly(p_win, p_client) AS v) m
-   CROSS JOIN LATERAL (
-     -- Additional-policy legacy sales never borrow a client's premium (the same rule as the choke point).
-     SELECT CASE WHEN p_win.idempotency_key ~ ':policy:[0-9]+$'
-                   OR EXISTS (SELECT 1 FROM private.policy_identities i
-                               WHERE i.organization_id = p_win.organization_id AND i.policy_id = p_win.policy_id
-                                 AND i.source = 'additional')
-                 THEN NULL ELSE nullif(p_client, 0) END AS fb) f;
-$$;
+-- PL/pgSQL, not SQL: the choke point is called through an assignment, so its initialized state is kept across the
+-- per-sale calls instead of being rebuilt inside each call (the same row, about a third of the cost).
+DECLARE
+  v_fallback numeric;
+BEGIN
+  monthly := private.performance_sale_monthly(p_win, p_client);
+  -- Additional-policy legacy sales never borrow a client's premium (the same rule as the choke point).
+  v_fallback := CASE WHEN p_win.idempotency_key ~ ':policy:[0-9]+$'
+                       OR EXISTS (SELECT 1 FROM private.policy_identities i
+                                   WHERE i.organization_id = p_win.organization_id AND i.policy_id = p_win.policy_id
+                                     AND i.source = 'additional')
+                     THEN NULL ELSE nullif(p_client, 0) END;
+  premium_source := CASE WHEN p_win.premium_snapshot THEN 'sale_snapshot'
+                         WHEN nullif(p_win.premium_amount, 0) IS NOT NULL THEN 'legacy_sale_event'
+                         WHEN v_fallback IS NOT NULL THEN 'legacy_record_fallback'
+                         ELSE 'none' END;
+  premium_state := CASE WHEN monthly IS NOT NULL THEN 'known'
+                        WHEN (CASE WHEN p_win.premium_snapshot THEN p_win.premium_amount
+                                   ELSE coalesce(nullif(p_win.premium_amount, 0), v_fallback) END) < 0 THEN 'invalid'
+                        ELSE 'missing' END;
+  revision := 0;
+  RETURN NEXT;
+END $$;
 
 CREATE FUNCTION private.report_v3_sale_facts(p_org uuid, p_agents uuid[], p_sold_from date, p_sold_until date)
 RETURNS TABLE (win_id uuid, policy_id uuid, buyer_id uuid, seller_id uuid, sold_date date, created_at timestamptz,

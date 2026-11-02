@@ -1,3 +1,139 @@
+## 2026-11-02 — Reports V2 PKG-A Batch 6: performance and correctness hardening (branch `claude/great-goodall-911azc`; nothing applied, merged, enabled or deployed)
+
+**Authorization:** Chris's Batch 6 message, under the 2026-11-01 branch-implementation approval for PKG-A's reviewed file list (plan §8, D1 §9).
+- **Covered:**
+  - edits to the unpublished PKG-A migrations `…11`, `…12`, `…14` and `…15` (placeholder versions, never applied anywhere);
+  - creating `supabase/tests/reports_v3_performance.sql`, and editing the reviewed PKG-A test files, the fixture script, the static contract test and the plan documents;
+  - normal checkpoint pushes to this branch and manual `reports-backend.yml` dispatches, subject to the pre-push automation check;
+  - disposable loopback PostgreSQL databases.
+- **Not covered (stop and request approval first):**
+  - any new file path, index, table, view or persistent cache;
+  - any applied migration, `AGENT_RULES.md`, telephony, a duration writer or guard, a v2 body or privilege;
+  - grants or enablement, and release or recovery work.
+- **Unchanged and still pending:**
+  - ★1 and ★4;
+  - E1–E6, including the campaign-copy fallback, stay a proposed branch implementation;
+  - there is no agency-only fallback;
+  - the security review, the named reviewer and the PKG-A production approval.
+
+**Base:** branch head `4236b8a`; `main` `6e39c15`. The newest open PR (#486) was last updated 2026-10-23. No other PKG branch exists, and no open PR overlaps the Reports V2 files.
+
+**Baseline before any change.** These are single runs, not p95, on a local PostgreSQL 16.15 loopback database. The scale fixture is one organization with 500,000 calls, 5,000 clients, 10,000 policy objects with one sale each, and 10,000 appointments. Each call ran under `statement_timeout` 8 s.
+- Scope and sales appointments: 13–32 ms in every combination.
+- **Correctness defect found at scale.** `report_v3_contact_identity` (`…12`) casts `substr(identity_key, 6)::uuid` in a join condition guarded only by `AND`.
+  - At this volume the planner hashes on the cast for client keys, so every call-based reader raised 22P02.
+  - The small fixtures never produce that plan.
+- **Times after a scratch fix of the cast.** The 366-day agency window holds 457,311 calls.
+
+  | Reader | 1 day | 30 days | 366 days, any scope |
+  |---|---|---|---|
+  | Call volume, dispositions, campaign calls, lead-source calls | 0.16 s | 2.0–2.3 s | over 8 s |
+  | Summary | 0.39 s | 2.6 s | over 8 s |
+  | State | 1.18 s | over 8 s | over 8 s |
+  | Journey | over 8 s | over 8 s | over 8 s |
+- **Causes:**
+  - **Repeated passes.** Each call reader computes call facts twice (counts, then rows). Journey recomputes full-history call facts twice per by_agent row and three more times for the scope.
+  - **Materialized layers.** Each pass goes through the non-inlinable pinned v2 `report_call_facts` (2.85 s alone at 366 days) and two more materialized v3 layers.
+  - **Per-identity loops.** Journey members and the state identity resolver use correlated aggregates per identity.
+  - **Per-sale lookups.** Production takes 0.98 s for 10,000 sales.
+
+**Design (bounded; payload contract unchanged):**
+1. **Cast guard (correctness):** every identity-key cast is evaluated only under a `CASE`, so no plan can cast a key of another kind.
+2. **One call pass per reader:** each reader computes all of its call aggregates, including `call_population`, in one statement over the window's `public.calls` rows.
+   - The v2 row rules are reproduced exactly: same rows, same carried columns, same disposition, campaign and lead-source resolution, same duplicate exclusion. The v3 attempt classes are added.
+   - The v2 bodies, privileges and pins are unchanged.
+   - A test proves the v3 rows equal `private.report_call_facts` row for row, on every fixture and at scale.
+3. **Identity per pointer, not per call:** identities are resolved once per distinct pointer and joined back. Scope totals deduplicate identities and never sum agent rows.
+4. **Journey in two phases (D1 §3.11):**
+   - **Candidates:** identities with an in-window journey contact credited in scope, plus identities with an in-window sale by an in-scope seller.
+   - **History:** first contact, attempts, gates and first sale are then read for those identities only, over the full same-organization history (all agents, all dates before as_of). The history is never narrowed to the reporting dates or to the viewer.
+   - **Unresolved activity:** keeps its whole-lookback count.
+   - **One member set:** members are computed once per reader call. The scope facts and every by_agent row derive from that one set, each with its KPI's own credit rule. Nothing is summed across agents, and no ratio or median is averaged.
+5. **State and production:** the same outputs, from set-based lookups instead of per-identity and per-sale correlated work.
+
+Any optimization that cannot keep every payload byte-identical stops and is reported instead.
+
+**Equivalence proof:**
+- **Method:** the Batch 5 bodies, mechanically renamed into a scratch schema with only the cast guard added, run in the same REPEATABLE READ snapshot as the new code.
+- **What is compared:** every public reader payload, all nine readers, by jsonb equality with array order kept. The matrix covers:
+  - scopes, filters and windows;
+  - DST days and 30-day maturity boundaries;
+  - multi-agent identities, earlier out-of-window history, reassignment, multiple policies and repeated memberships;
+  - missing and invalid evidence, and unresolved identities;
+  - cross-organization and unrelated same-organization activity;
+  - empty scopes and windows.
+- **Where it runs:** the fixtures, and the scale fixture where the old code can finish.
+- **What stays in the repository:** the reference bodies are not committed, because a new test path needs approval. The retained scenarios live in the existing suites.
+
+**KPI 24 quality:**
+- Inspect the canonical writer `record_call_duration_evidence` and the guard `guard_call_reporting_fields` without changing either.
+- Test six cases:
+  - a positive provider duration;
+  - a non-conflicting `terminal_non_answer` of 0 s;
+  - `elapsed_estimate`;
+  - `legacy_unknown`;
+  - a conflicting duration;
+  - a positive-duration `terminal_non_answer`. The writer can produce this one, because it accepts any non-negative candidate when the stored duration is NULL or 0.
+- Any reporting-only correction is proposed with its exact payload, not applied.
+
+**Performance gate** (`supabase/tests/reports_v3_performance.sql`, run by the v3 runner after the functional suites):
+- **Fixture:** one organization with at least 500,000 calls, 5,000 clients, 10,000 policy objects with 10,000 sales, and 10,000 appointments.
+  - It includes the live identity shapes: unlinked calls with matching and with unrelated numbers, dangling pointers, numberless calls, recruits, converted and deleted leads, lineage, repeated memberships, admissions and duplicates.
+  - Production btree indexes on the readers' tables are mirrored verbatim from the migrations; indexes that cannot apply are listed.
+  - The fixture is analyzed after loading.
+- **Calls measured:**
+  - Each call goes through the real public reader as `authenticated`, with JWT claims and `SET LOCAL statement_timeout = '8s'`, one transaction per call.
+  - Windows of 1, 30 and 366 days, at personal, team and agency scope, with null and single-agent filters where the signature supports them.
+  - A warm-up, then 20 timed samples per combination, reported as the nearest-rank p95.
+- **EXPLAIN evidence:** `auto_explain` (analyze, buffers, nested statements) for each reader at its heaviest combination.
+- **Gate:** p95 ≤ 2 s, journey ≤ 4 s, no 57014.
+- **Grants:** confined to the harness, revoked afterwards, and the seal asserted.
+
+**Batch 6 files** (all on the reviewed PKG-A list):
+1. `supabase/migrations/20261101000011_reports_v3_sale_facts.sql` (modify; unpublished): production without per-sale correlated lookups
+2. `supabase/migrations/20261101000012_reports_v3_call_journey_helpers.sql` (modify; unpublished): the cast guard, call facts, and the two-phase journey with one member set
+3. `supabase/migrations/20261101000014_reports_v3_state_helpers.sql` (modify; unpublished): a set-based identity-state resolver
+4. `supabase/migrations/20261101000015_reports_v3_readers.sql` (modify; unpublished): one call pass per reader, and journey by_agent from one member set
+5. `supabase/tests/reports_v3_performance.sql` (create): the gate
+6. `supabase/tests/reports_v3_fixtures.sql` (modify): retained equivalence-scenario fixtures and harness helpers
+7. `supabase/tests/reports_v3_journey_fixtures.sql` (modify): retained journey scenarios (multi-agent, earlier history, maturity and DST boundaries)
+8. `supabase/tests/reports_v3_journey.sql` (modify): journey cases for the two-phase path
+9. `supabase/tests/reports_v3_calls_identity.sql` (modify): v3 rows equal v2 rows, and the cast-guard regression
+10. `supabase/tests/reports_v3_call_readers.sql` (modify): the KPI 24 cases and retained reader scenarios
+11. `supabase/tests/reports_v3_state_breakdown.sql` (modify): state cases for the set-based resolver
+12. `supabase/tests/reports_v3_sale_facts.sql` (modify): sale-fact cases for the rewritten production path
+13. `supabase/tests/reports_v3_negative.sql` (modify): the mutation controls retargeted to the new bodies
+14. `supabase/tests/reports_v3_security.sql` (modify): boundary cases for the new paths
+15. `supabase/tests/reports_v3_contract.sql` (modify): the helper inventory and metadata
+16. `scripts/reports_v3_fixture.py` (modify): the performance step, verbatim production-index extraction, and the suite order
+17. `src/lib/__tests__/reportsV3Contracts.test.ts` (modify): static checks for the changed helpers
+18. `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (modify): the §2.6 helper inventory and the §9.1 A2 status
+19. `docs/plans/2026-10-31-reports-v2/appendix/D1.md` and `D3.md` (modify; precise clarifications only, for example that the call readers no longer read through `report_v3_call_facts`)
+20. `implementation_plan.md` (this entry)
+21. `WORK_LOG.md` (newest-first entry)
+
+Files are touched only as the work needs them. No change is planned to `scripts/run_reports_v3_tests.sh` or `.github/workflows/reports-backend.yml`.
+
+**Recorded, not done in this batch (release and recovery):**
+- `reports_v3_release.sql`;
+- the ops enable and disable scripts and `…17`;
+- the R5 rollback files and recovery proofs;
+- S15 across the release and recovery states;
+- the A7 runner stage with exact index-definition, `indisvalid` and `indisready` checks, where a wrong or invalid index fails closed, with no automatic drop or rebuild;
+- final fingerprints and checksums once the bodies stabilize;
+- no migration-history repair.
+
+**Checks:**
+- the v3 suites, including the gate;
+- the RPC, integrity and profile suites;
+- the relevant Vitest files and the static test;
+- `npx tsc --noEmit` and `npx tsc -p tsconfig.app.json --noEmit`;
+- scoped ESLint and `npm run build`;
+- baseline failure identities compared against `6e39c15`;
+- PostgreSQL 17.6 CI on the pushed head: the SHA, the version, the new suites, and unexpected errors kept apart from deliberate controls.
+
+---
+
 ## 2026-11-02 — Reports V2 PKG-A Batch 5: the nine v3 readers (…15) and the calls index (…16) (branch `claude/great-goodall-911azc`; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's Batch 5 message, under the existing branch-implementation approval.
