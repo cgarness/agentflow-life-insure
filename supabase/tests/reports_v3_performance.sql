@@ -387,9 +387,17 @@ SELECT format('SELECT rt.perf_measure(%L, %L, %s);', c.reader, c.combo, s.n)
  ORDER BY s.n, c.ord \gexec
 \o
 RESET statement_timeout;
+SELECT 'performance parameters' AS evidence, :perf_samples AS samples_per_combination, 1 AS warm_up_rounds,
+       (SELECT count(*) FROM rt.perf_combos) AS combinations, 'nearest-rank p95 of the measured samples' AS statistic,
+       '8s' AS statement_timeout, 'jit off, work_mem 5MB, hash_mem_multiplier 2, max_parallel_workers_per_gather 1, '
+       || 'max_parallel_workers 2, random_page_cost 1.1, effective_cache_size 1536MB' AS session_settings;
+SELECT reader, combo, samples, min_ms, median_ms, p95_ms, max_ms, target_ms, within_budget,
+       CASE WHEN meets_target THEN 'PASS' ELSE 'FAIL' END AS verdict
+  FROM rt.perf_results ORDER BY ord;
 -- EXPLAIN (ANALYZE, BUFFERS) of each reader's 366-day agency path (agency scope for the scope reader): every
 -- statement of at least 100 ms, nested ones included, is logged with its plan. Evidence only, not a sample:
--- instrumented timing is slower, so this step does not run under the samples' statement_timeout.
+-- instrumented timing is slower, so this step does not run under the samples' statement_timeout. Bound parameter
+-- values are not logged: an identity-key array alone runs to megabytes.
 LOAD 'auto_explain';
 SET auto_explain.log_min_duration = '100ms';
 SET auto_explain.log_analyze = on;
@@ -397,6 +405,7 @@ SET auto_explain.log_buffers = on;
 SET auto_explain.log_timing = on;
 SET auto_explain.log_nested_statements = on;
 SET auto_explain.log_format = 'text';
+SET auto_explain.log_parameter_max_length = 0;
 SET client_min_messages = log;
 SELECT format('SELECT rt.perf_explain(%L, %L);', c.reader, c.combo)
   FROM rt.perf_combos c WHERE c.combo IN ('agency-366', 'agency') ORDER BY c.ord \gexec
@@ -407,11 +416,4 @@ RESET jit; RESET work_mem; RESET hash_mem_multiplier; RESET max_parallel_workers
 RESET random_page_cost; RESET effective_cache_size;
 -- The temporary grants are gone and the creation-migration seal holds again.
 SELECT rt.assert_sealed_v3(true, false);
-SELECT 'performance parameters' AS evidence, :perf_samples AS samples_per_combination, 1 AS warm_up_rounds,
-       (SELECT count(*) FROM rt.perf_combos) AS combinations, 'nearest-rank p95 of the measured samples' AS statistic,
-       '8s' AS statement_timeout, 'jit off, work_mem 5MB, hash_mem_multiplier 2, max_parallel_workers_per_gather 1, '
-       || 'max_parallel_workers 2, random_page_cost 1.1, effective_cache_size 1536MB' AS session_settings;
-SELECT reader, combo, samples, min_ms, median_ms, p95_ms, max_ms, target_ms, within_budget,
-       CASE WHEN meets_target THEN 'PASS' ELSE 'FAIL' END AS verdict
-  FROM rt.perf_results ORDER BY ord;
 SELECT rt.perf_gate(:perf_samples, :perf_enforce);
