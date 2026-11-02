@@ -133,6 +133,24 @@ Files are touched only as the work needs them. No change is planned to `scripts/
 - baseline failure identities compared against `6e39c15`;
 - PostgreSQL 17.6 CI on the pushed head: the SHA, the version, the new suites, and unexpected errors kept apart from deliberate controls.
 
+**Outcome (2026-11-02, recorded after implementation).**
+- **As planned:**
+  - the cast guard;
+  - one call pass per reader, from one shared, byte-identical call-row block (`-- @call-rows`, `-- @call-pointers`, `-- @call-identity`; static test);
+  - identities and states resolved per pointer;
+  - one journey member set for the scope and every by_agent row (`report_v3_journey_facts_by`), with nothing summed and no median averaged;
+  - set-based state, receipts, numbers and first sales;
+  - the gate suite.
+- **Different from the plan, by necessity:**
+  - **Journey history read path.** The plan read history through identity-keyed lookups after candidates. As built, `report_v3_journey_rows` resolves the whole same-org history before as_of in one pass. Unresolved activity and numberless calls count every unresolved call in the lookback, so every pointer must be resolved in any case. Candidates are taken from that pass, and only their linked histories are ordered. Rows and classifications are unchanged; D1 §3.11 and D3 record the access path.
+  - **Statement planning.** Reader, resolver and helper statements run as constant text through `EXECUTE … USING`. PL/pgSQL's generic plans (after five calls), and SQL functions' default parameter estimates, produced nested loops at scale. The static test requires every such statement to be a constant `$q$` literal with bound parameters (12 statements).
+  - **Resolver language.** `report_v3_identity_states` is PL/pgSQL (D5 clarified). It reads at most one converted client per lead, which `uq_clients_lead_id` guarantees, and the `…14` preflight refuses to install without that index.
+  - **State reader production pass.** The state reader takes KPI 1 and 2 statuses from its own sale facts through `report_v3_production_kpis`, instead of a second `report_v3_production` pass.
+  - **Gate sample counts.** CI runs the gate with 5 measured samples after one warm-up round, because of the job's fixed 25-minute timeout and the runner and workflow being outside this batch's files. The local evidence run uses 20. The gate prints its verdicts; `REPORTS_V3_PERF_ENFORCE=1` makes a miss fail.
+  - **Gate fixture indexes.** The fixture is built from the baseline schema and the reviewed migrations, so production's indexes on the readers' tables are present, together with `…16`'s. The only indexes missing are on columns the fixture's tables do not have (`twilio_call_sid`, `is_missed`, `attempt_id`), and no reader uses them.
+- **Not changed:** v2 bodies, privileges and pins; applied migrations; telephony; the duration writer and its guard; the runner; the workflow.
+- **Result:** see the newest `WORK_LOG.md` entry. The gate is built and not passed.
+
 ---
 
 ## 2026-11-02 — Reports V2 PKG-A Batch 5: the nine v3 readers (…15) and the calls index (…16) (branch `claude/great-goodall-911azc`; nothing applied, merged, enabled or deployed)

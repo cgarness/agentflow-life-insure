@@ -488,7 +488,7 @@ describe("Reports v3 readers", () => {
 
   it("names campaigns only through report_visible_campaigns", () => {
     // The shared call-row block joins campaigns for the campaign id only, never a name or type.
-    const callRows = /  -- @call-rows begin:[\s\S]*?  -- @call-rows end\n/;
+    const callRows = / {2}-- @call-rows begin:[\s\S]*? {2}-- @call-rows end\n/;
     const block = readersRaw.match(callRows)![0];
     expect(stripSqlComments(block)).not.toMatch(/\b(?:cmp|k)\.(?:name|type)\b/);
     for (const r of WINDOWED) {

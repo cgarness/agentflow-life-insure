@@ -1,5 +1,106 @@
 # AgentFlow Work Log
 
+## 2026-11-02 — Reports V2 PKG-A Batch 6: performance and correctness hardening; the performance gate is built and NOT passed (branch `claude/great-goodall-911azc`; NOT merged, applied, enabled or deployed)
+
+**Status.**
+- **Authority:** Chris's Batch 6 message, under the 2026-11-01 branch-implementation approval for PKG-A's reviewed file list. Normal checkpoint pushes and manual `reports-backend.yml` dispatches are authorized; nothing else is.
+- **Sealed:** every reader and helper is still created sealed. The harness grants EXECUTE to `authenticated` only inside the disposable database, for the measurement, then revokes it and re-asserts the seal.
+- **Not release-ready.** The performance gate misses its targets for summary and state at 366-day agency scope, and for journey at every combination (below). The release suite, the recovery proofs and the security review are also still open.
+- **Still pending:** ★1 and ★4; E1–E6 acceptance, including the campaign-copy fallback's security review; the named reviewer; the PKG-A production approval. No agency-only fallback exists.
+- **Not touched:** applied migrations, `AGENT_RULES.md`, telephony, the duration writer and its guard, v2 bodies and privileges, the runner and the workflow.
+
+**What changed.**
+- **Correctness defect fixed (`…12`).** `report_v3_contact_identity` cast `substr(identity_key, 6)::uuid` in a join condition guarded only by `AND`. At 500,000 calls the planner hashed on the cast for client keys, and every call-based reader raised 22P02. The cast now sits under `CASE`.
+- **One call pass per reader (`…15`).** The four call readers, the summary and the state reader each run one constant statement, planned for the call's bounds (`EXECUTE $q$ … $q$ USING`).
+  - The call rows come from one shared block of SQL text. It is copied byte for byte into every reader and into `report_v3_call_facts`; the static test checks the copies.
+  - The block reproduces the pinned v2 rows exactly. The calls suite compares `report_v3_call_facts` with `private.report_call_facts` on every carried column.
+  - Pointers resolve once each (`-- @call-pointers`) and attach to calls by single-key hash joins (`-- @call-identity`).
+  - Reviewed duplicates are counted from the reviewed rows (`report_v3_duplicates_excluded`). KPIs 5 and 6 come from one shared builder (`report_v3_attempt_kpis`).
+- **State (`…14`, `…15`).**
+  - `report_v3_identity_states` is now set-based. It is PL/pgSQL running two constant statements: keys are validated exactly as before (the same pattern, without a regex) and deduplicated, then each key's records are read in one row.
+  - It relies on `uq_clients_lead_id` for at most one converted client per lead, and the `…14` preflight now refuses to install without that index. Speed: 18 s → 0.27 s on 20,000 keys; 64,100 keys in about 0.6 s.
+  - The state reader looks a state up once per pointer, groups calls by pointer first, and takes KPI 1 and 2 statuses from its own sale facts, so the second production pass is gone.
+- **Journey (`…12`, `…15`).**
+  - `report_v3_journey_rows` reads the organization's call history before `as_of` in one pass, for every agent and every date. The pass must be complete because unresolved activity and numberless calls count every unresolved call in the lookback.
+  - Candidates come first: in-window journey contacts credited in scope, plus the sold window's first buyers. Only their linked histories are then ordered.
+  - The gates are set-based: the earliest related call, phone change and unverified attempt per member, and attempts from one ordered pass.
+  - `report_v3_journey_facts_by` computes the scope's counts and every by_agent row's counts from that one member set, plus the counts of an agent with no members. Each group counts only its own rows and computes its own medians; nothing is summed or averaged.
+  - `report_v3_journey_members` and `report_v3_journey_facts` keep their signatures as views of the new helpers. The reader calls the journey once, not N+2 times.
+  - Supporting rewrites:
+    - receipts match import history set-based, with exactly the `?` operator's matches (53 s → 0.27 s for 59,100 leads);
+    - numbers use single-key joins;
+    - first sales build each first-sale set in one grouping (3.5 s → 0.12 s);
+    - call facts use the shared block (19.3 s → 3.6 s over the whole history).
+- **Sale facts (`…11`).** The premium stub is PL/pgSQL with the same result; it was 200 µs per sale as SQL and is 72 µs now. D2 records this.
+- **KPI 24 (talk time).** The six evidence cases are tested (below). The inconsistent case has a proposal, which is not applied.
+- **Performance suite** (`supabase/tests/reports_v3_performance.sql`, new). `scripts/reports_v3_fixture.py` appends it after the functional suites.
+  - Fixture: one organization with 500,000 calls, 59,100 leads, 80,000 memberships, 5,000 clients, 10,000 policy objects with one sale each, 10,000 appointments, 63,100 history events and 17,383 sessions.
+  - Calls go through the public readers as `authenticated`, with JWT claims, under production's session planner settings. Each sample is its own statement under the 8 s `statement_timeout`.
+  - Matrix: 51 combinations. One warm-up round, then N measured rounds, interleaved; nearest-rank p95.
+  - `auto_explain` logs EXPLAIN (ANALYZE, BUFFERS) for each reader's 366-day agency path.
+  - The verdict table is printed. `REPORTS_V3_PERF_ENFORCE=1` makes a miss fail the run; CI runs in report mode with N = 5.
+
+**Correctness comparison.**
+- **Method:** the reviewed head's (`4236b8a`) reader and helper bodies were mechanically renamed into a scratch schema, with only the cast guard added (not committed; a new test path needs approval). Both versions run in one REPEATABLE READ snapshot, and payloads are compared by jsonb equality with array order kept.
+- **Matrix:** 2,136 cases, all equal, 708 of them equal errors (same SQLSTATE and message).
+  - Coverage: 24 persona, scope and filter cases × 11 windows × the 8 windowed readers, plus the scope reader.
+  - Scopes and filters: agency, team, personal, single-agent filters, a cross-organization agent, refused scopes and other organizations.
+  - Windows: month, single days, both DST days, an empty day, a future month, a 366-day window and a straddling window.
+  - Rerun after every step, last on the final code.
+- **Identity-state resolver against the reference body:**
+  - 55 of 55 adversarial cases are equal: 605 rows over 6 organizations, including own, foreign, duplicate, NULL, unresolved and malformed keys (case, whitespace, braces, a missing dash, non-hex, multibyte, an empty key);
+  - a 7,123-key sample of the scale data is identical (107 campaign-copy rows, 863 conflicts, 184 with history).
+- **Journey at scale:** personal scope, 30-day window. 58 member rows are identical in both directions and the facts are equal; the gates seen were none, hand_entered_client, phone_changed, possibly_related_unlinked_call and receipt_contradicted. The old path takes 34 s for the members and 44 s for the facts; the new one takes 7 s and 6 s.
+- **The suites' own expectations are unchanged:** every journey (BC1–BC5), state, call, sale, security and negative assertion written for Batch 5 passes on the new bodies. The controls whose target text moved were retargeted to the same defect: 4 resolver, 3 journey, 2 call-facts and 2 reader controls.
+
+**Performance results.** Pending in this entry: the local 20-sample run (PostgreSQL 16.15) and the PostgreSQL 17.6 CI run are being recorded next; nothing here claims a pass.
+
+**KPI 24 talk-time quality** (inspected, not changed: `record_call_duration_evidence` and `guard_call_reporting_fields`, `20261005161632`).
+- **The six cases** (new organization O24, 2026-06-15): value 375 s = 120 + 0 + 90 + 40 + 100 + 25, with quality `{unknown 1, estimated 1, conflicting 1, provider_confirmed 3, duplicates_excluded 0}`.
+  - The 0 s `terminal_non_answer` row is a provider-backed known zero: it adds 0 s and counts as confirmed.
+  - The 120 s provider row is measured talk.
+  - The conflicting row keeps its value but is not counted as confirmed.
+  - KPI 25 is unaffected.
+- **The inconsistent case misleads.** The writer accepts `terminal_non_answer` evidence with any non-negative candidate while the stored duration is NULL or 0. A non-answer can therefore store a positive duration, and KPI 24 then reports those seconds as provider-confirmed talk: K24_6 with 25 s, and fixture RC2 with 20 s.
+- **Proposal: smallest reporting-only correction, not applied.** The quality keys are frozen in D3, D1, D6 and tests.md C9, so this needs a contract decision.
+  - `provider_confirmed` would count attempt rows with no conflict whose evidence is `provider`, or `terminal_non_answer` with canonical duration 0.
+  - A new key `inconsistent` would count attempt rows with no conflict whose evidence is `terminal_non_answer` with canonical duration > 0.
+  - The value (Σ canonical seconds of attempt rows) and KPI 25 do not change.
+  - Six-case payload: `{"quality": {"unknown": 1, "estimated": 1, "conflicting": 1, "inconsistent": 1, "provider_confirmed": 2, "duplicates_excluded": 0}}`, value 375. O1 agency: `provider_confirmed` 4 → 3, `inconsistent` 1, value 725.
+  - Doc changes: D3 (KPI 24 table row and quality bullet), D1's key table row 24, D6's KPI 24 line, tests.md C9's key set and the main plan's key table.
+  - Code changes: the two quality expressions in `…15`, the O1 and six-case assertions, and the contract key set.
+
+**Files touched.** All are on the reviewed PKG-A list; D2 and D5 were added to the plan entry before either was edited.
+- Created: `supabase/tests/reports_v3_performance.sql`.
+- Modified:
+  - Migrations (unpublished placeholder versions): `supabase/migrations/20261101000011_reports_v3_sale_facts.sql`, `20261101000012_reports_v3_call_journey_helpers.sql`, `20261101000014_reports_v3_state_helpers.sql`, `20261101000015_reports_v3_readers.sql`.
+  - Tests: `supabase/tests/reports_v3_call_readers.sql`, `reports_v3_calls_identity.sql`, `reports_v3_journey.sql`, `reports_v3_negative.sql`, `reports_v3_state_breakdown.sql`.
+  - Harness and static test: `scripts/reports_v3_fixture.py`, `src/lib/__tests__/reportsV3Contracts.test.ts`.
+  - Docs: `docs/plans/2026-10-31-reports-v2/implementation_plan.md`, and `appendix/D1.md`, `D2.md`, `D3.md`, `D5.md`.
+  - Plan and log: `implementation_plan.md`, `WORK_LOG.md`.
+
+**Migrations and deploys.** None. Disposable local and CI synthetic databases only, with placeholder versions. No grant outside the harness, no enable, no PR, merge or deploy.
+
+**Verification.** Pending in this entry until the runs above complete. Recorded so far:
+- local: every functional v3 suite passes; RPC, integrity and profile suites pass; static test 35/35; root `npx tsc --noEmit` passes; app typecheck 80 errors identical to base; scoped ESLint clean; full Vitest 6,722 passed, 2 failed, 37 skipped, failing identities identical to base `6e39c15`; `npm run build` passes.
+
+**Open PKG-A requirements (not claimed as passed).**
+- **Performance gate:** summary and state at 366-day agency scope, and journey everywhere, miss their targets. The journey at 366-day agency and team scope runs about 6–7 s, within the 8 s budget on this hardware but not with margin.
+  - D1 §3.11 names the remedy: a separately approved maintained identity table. It has not been requested or started. No index, table, cache or timeout change was made.
+  - Bounded options to decide between:
+    - (a) the maintained call-to-identity table (D1's remedy);
+    - (b) a maintained per-identity first-contact record for the journey;
+    - (c) accepting different targets at 366-day agency scope.
+- **KPI 24:** the inconsistent-case proposal awaits a contract decision.
+- **Release and recovery (recorded, not done):**
+  - `reports_v3_release.sql`, the ops enable and disable scripts and `…17`;
+  - the R5 rollback files and recovery proofs, and S15 across the release and recovery states;
+  - the A7 runner stage with exact index-definition, `indisvalid` and `indisready` checks, where a wrong or invalid index fails closed with no automatic drop or rebuild;
+  - final fingerprints; and no migration-history repair.
+- **Security review:** the named §2.9 review of the actual SQL; the campaign-copy fallback review.
+
+**Next.** Stop for review after Batch 6.
+
 ## 2026-11-02 — Reports V2 PKG-A Batch 5: the nine v3 readers and the calls index; branch pushed; PostgreSQL 17.6 CI green after a test-only collation fix (branch `claude/great-goodall-911azc`; NOT merged, applied, enabled or deployed)
 
 **Status.**

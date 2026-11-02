@@ -29,6 +29,11 @@
 -- Internal helpers (private, SECURITY INVOKER, sealed): report_v3_roster, report_v3_credit_map,
 -- report_v3_agent_call_stats, report_v3_session_quality, report_v3_summary_metrics.
 --
+-- Batch 6: the summary, the state reader and the four call readers each run one constant statement per call
+-- (EXECUTE ... USING) over the shared call-row block (-- @call-rows, with -- @call-pointers and -- @call-identity),
+-- copied byte for byte (reportsV3Contracts.test.ts). The journey reads one member set for the scope and every
+-- by_agent row (report_v3_journey_facts_by). report_v3_agent_call_stats keeps its suite; no reader calls it now.
+--
 -- ★1 and ★4 are pending: the linked-history effects E1–E6 (including E4's campaign-copy fallback) are the
 -- proposed branch design only. No agency-only fallback is implemented.
 -- =====================================================================================================
