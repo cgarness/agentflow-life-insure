@@ -132,7 +132,13 @@
     - The EXPLAIN step then logged each plan's bound parameters in full. One line held the 57,723-key identity array (2.4 MB), and the job log ends there.
     - The job was cancelled at 06:47:19, so step 4 never finished and no artifact was uploaded. The window has no ERROR, FATAL or `##[error]` line.
   - **Fix, test file only (`625b02b`).** `auto_explain.log_parameter_max_length = 0`, and the parameters row and verdict table now print before the plans. Locally the longest log line is 1,352 characters, there is no parameter dump, and the verdicts are unchanged.
-  - **The second run:** run 41403248712 on `625b02ba8af1fd79a5fd5c19c5630fbb3cbcafaa` (dispatched 06:58 UTC) is in progress at this commit; its result will be recorded here.
+  - **The second run is green, but its verdicts were not readable from the log tail.** Run 41403248712, conclusion success, on `625b02ba8af1fd79a5fd5c19c5630fbb3cbcafaa`.
+    - Step 4 ran 06:58:30–07:07:23; the whole job took about 11 minutes.
+    - The last 5,000 of its 20,829 log lines are entirely the service container's own log, dumped at "Stop containers". That dump carried a second copy of every `auto_explain` plan, and it reports `starting PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1)`.
+    - The dump's only ERROR line is the profile suite's deliberate control ("NEGATIVE CONTROL FIRED: an annualized total was detected"). Its 22 FATAL lines are the health check's `role "root" does not exist`.
+    - Artifact `reports-backend-evidence-41403248712` (id 13122319736, 2,270,100 bytes, sha256 `0213fc322c0131f621a76bf6faaa77cadcf395a237946f02acfc4d1827c280d7`).
+  - **Fix, test file only (`f098b62`).** The EXPLAIN step sets `log_min_messages = fatal` (plans go to the session's client only), and the verdict table is repeated after the plans, just before the gate line.
+  - **The third run:** run 41405559061 on `f098b62fa7099481e896258a244a3755ff633770` (dispatched 07:19 UTC) is in progress at this commit; its result will be recorded here.
 
 **Open PKG-A requirements (not claimed as passed).**
 - **Performance gate:** summary and state at 366-day agency scope, and journey everywhere, miss their targets. The journey at 366-day agency and team scope runs about 6–7 s, within the 8 s budget on this hardware but not with margin.
