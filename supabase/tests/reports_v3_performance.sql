@@ -406,14 +406,20 @@ SET auto_explain.log_timing = on;
 SET auto_explain.log_nested_statements = on;
 SET auto_explain.log_format = 'text';
 SET auto_explain.log_parameter_max_length = 0;
+-- The plans go to this session's client only, not the server log (a CI service log would carry a second copy).
+SET log_min_messages = fatal;
 SET client_min_messages = log;
 SELECT format('SELECT rt.perf_explain(%L, %L);', c.reader, c.combo)
   FROM rt.perf_combos c WHERE c.combo IN ('agency-366', 'agency') ORDER BY c.ord \gexec
 SET client_min_messages = notice;
 SET auto_explain.log_min_duration = -1;
+RESET log_min_messages;
 SELECT rt.v3_reader_grants(false);
 RESET jit; RESET work_mem; RESET hash_mem_multiplier; RESET max_parallel_workers_per_gather; RESET max_parallel_workers;
 RESET random_page_cost; RESET effective_cache_size;
 -- The temporary grants are gone and the creation-migration seal holds again.
 SELECT rt.assert_sealed_v3(true, false);
+-- The verdicts once more, after the plans, so that they end the evidence.
+SELECT reader, combo, samples, p95_ms, target_ms, within_budget, CASE WHEN meets_target THEN 'PASS' ELSE 'FAIL' END AS verdict
+  FROM rt.perf_results ORDER BY ord;
 SELECT rt.perf_gate(:perf_samples, :perf_enforce);
