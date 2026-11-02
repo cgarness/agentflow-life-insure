@@ -367,12 +367,14 @@ describe("Reports v3 state helpers", () => {
     return sql.slice(start, sql.indexOf("$$;", sql.indexOf("AS $$", start)));
   };
 
-  it("creates exactly the classifier and the identity resolver, with invoker rights", () => {
+  it("creates exactly the classifier, the typed identity resolver and its key form, with invoker rights", () => {
     expect(createdFunctions(sql).map((f) => `${f.name}(${f.types.join(",")})`).sort()).toEqual([
       "private.report_v3_identity_states(uuid,text[])",
+      "private.report_v3_identity_states_by_id(uuid,uuid[],uuid[])",
       "private.report_v3_state_classify(text)",
     ]);
     expect(body("report_v3_state_classify")).toMatch(/LANGUAGE sql\s+IMMUTABLE\s+PARALLEL SAFE\s/);
+    expect(body("report_v3_identity_states_by_id")).toMatch(/LANGUAGE plpgsql\s+STABLE\s+PARALLEL RESTRICTED\s/);
     expect(body("report_v3_identity_states")).toMatch(/LANGUAGE plpgsql\s+STABLE\s/);
     expect(sql).not.toMatch(/SECURITY\s+DEFINER/i);
   });
@@ -399,7 +401,7 @@ describe("Reports v3 state helpers", () => {
 
   it("never reads a phone number and pins every table it reads to the caller's organization", () => {
     expect(sql).not.toMatch(/phone/i);
-    const resolver = body("report_v3_identity_states");
+    const resolver = body("report_v3_identity_states_by_id");
     const reads = [...resolver.matchAll(/(?:FROM|JOIN)\s+(?:public|private)\.[a-z_]+\s+([a-z][a-z0-9_]*)\b/g)];
     expect(reads.length).toBe(9);
     for (const m of reads) {
@@ -408,11 +410,16 @@ describe("Reports v3 state helpers", () => {
       const clause = end < 0 ? rest : rest.slice(0, end);
       expect(clause, `${m[0]} is not pinned to the organization`).toMatch(new RegExp(`(?<![a-z_.])${m[1]}\\.organization_id = \\$1(?![0-9])`));
     }
-    // Every table is read by the second statement, whose $1 is bound to p_org.
+    // Every table is read by the typed resolver's one statement, whose $1 is bound to p_org.
     const statements = [...resolver.matchAll(/EXECUTE \$q\$([\s\S]*?)\$q\$ (?:INTO [a-z_, ]+ )?USING ([a-z_, ]+);/g)];
-    expect(statements).toHaveLength(2);
-    expect(statements[0][1]).not.toMatch(/(?:FROM|JOIN)\s+(?:public|private)\./);
-    expect(statements[1][2].trim()).toMatch(/^p_org, /);
+    expect(statements).toHaveLength(1);
+    expect(statements[0][2].trim()).toMatch(/^p_org, /);
+    // The key form reads no table: it parses its keys, then reads the typed resolver for the same organization.
+    const keyForm = body("report_v3_identity_states");
+    const keyStatements = [...keyForm.matchAll(/EXECUTE \$q\$([\s\S]*?)\$q\$ (?:INTO [a-z_, ]+ )?USING ([a-z_, ]+);/g)];
+    expect(keyStatements).toHaveLength(1);
+    expect(keyForm).not.toMatch(/(?:FROM|JOIN)\s+(?:public|private)\.[a-z_]+\s+[a-z]/);
+    expect(keyForm).toContain("FROM private.report_v3_identity_states_by_id(p_org, v_leads, v_clients) s");
   });
 
   it("builds the private lineage index transactionally and changes no RLS setting or policy", () => {
