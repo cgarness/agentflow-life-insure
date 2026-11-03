@@ -2,6 +2,8 @@
 
 Additional verification file: `.github/workflows/inbounds-room.yml`. Run a frozen-lock, pinned Deno check of all four full Edge handlers in cloud CI to close the local dependency-network limitation before backend approval. No deployed function or dependency bytes change.
 
+Cloud-check corrections: `supabase/functions/twilio-voice-inbound/request.ts` (nullable parser contract and absent child SID normalization), `deno.lock` (one audited CDN checksum; six redundant parentheses only), and the focused `release-hashes.json` (new request module digest). Preserve frozen dependency checks, signature validation and route behavior. Run inbound regressions and full cloud compilation before the exact backend release request.
+
 Chris approved the brighter room concept and branch implementation. Detailed plan and intended files: [Inbounds room plan](docs/plans/2026-11-03-inbounds-room/implementation_plan.md). Existing plans below are preserved. No production mutation or release.
 
 Release preparation follow-up (Chris: “proceed”): inspect final CI and live baselines. Correct the existing premature `PhoneNumber[]` assertion in `src/components/settings/NumberReputation.tsx`, exposed by the added generated column changing a baseline diagnostic. Keep raw row inference and validate the final async result as `PhoneNumber[]`; preserve queries, rendering and calculated metrics. Intended files: that component, this plan, `WORK_LOG.md`, and the focused verification record. Run root TypeScript and exact-base application diagnostic comparison. Do not relax either CI comparison. Investigate the independent SMS dependency integrity failure before recommending release. Exact backend release approval is still required.
