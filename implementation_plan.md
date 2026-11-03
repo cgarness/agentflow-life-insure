@@ -1,3 +1,47 @@
+## 2026-11-03 — Reports V2 PKG-A X1: isolated pointer-map read-path experiment (branch `claude/great-goodall-911azc`; measurement and documentation only; nothing applied, merged, enabled or deployed)
+
+**Authorization:** Chris's X1 message of 2026-11-03. It approves X1 as an isolated, reproducible experiment, starting from the reviewed head `772e88327efe76a9e9c211c08eb330e2da5f56fa`. **Phase B implementation and X2 are not approved.**
+- **Base:** branch and remote at `772e883`; `main` `6e39c15` (unchanged). The newest open PR is still #486 (2026-10-23), so there is no conflicting work. Re-read for this entry: `AGENT_RULES.md`, `VISION.md`, the 2026-11-03 `WORK_LOG.md` entry, both plans (especially §14), and the readers' and helpers' source at `772e883`.
+- **Objective:** measure whether a precomputed pointer map removes enough work from the three failing readers (summary, state and journey at agency-366) to justify maintained infrastructure. The deliverable is measurements and a go/no-go recommendation, not a plan rewrite.
+- **Authorized tracked edits (exact paths):**
+  1. `implementation_plan.md`: this entry.
+  2. `docs/plans/2026-10-31-reports-v2/implementation_plan.md`: the X1 findings in §14, and a precise correction to the repair-risk discussion (§14.B B5 and B6: out-of-order journal commits).
+  3. `WORK_LOG.md`: a newest-first entry.
+- **Authorized backend scope:** scratch-schema creation and synthetic queries in disposable loopback PostgreSQL databases only, through the existing isolated tooling. No hosted database command.
+- **Untracked, outside the checkout:** every experimental script and SQL file lives in the session scratchpad and is preserved in a downloadable evidence bundle with:
+  - the source SHA and the hashes of the inputs;
+  - the fixture recipe;
+  - the raw measurements, the plans and the comparison results.
+- **Prototype, the smallest one:**
+  - On the existing synthetic 500k-call fixture, a scratch schema `x1` holds a pointer table populated from the current live resolver (the readers' own `@call-pointers` text over the organization's whole call history).
+  - Scratch copies of the summary, state and journey statements read the table. Each copy is the function's current source at `772e883`, with only the `@call-pointers` block replaced by a read of the stored rows, so the call rows, the identity attach and every rule after it stay byte-identical.
+  - The candidate charges the real lookup costs: reading the stored mapping, attaching it to calls, and the organization boundaries.
+  - **Two candidate arms:**
+    - C1 reads the stored rows only. It is the upper bound on benefit.
+    - C2 adds the §14 B4 and B7 shape: the `to_regclass` checks, and an in-statement freshness gate (layer state, an empty journal, the B6 global-row rule) over a stored branch plus the unchanged live branch.
+  - Overhead not represented (maintenance, a non-empty journal, catalog trigger state) is listed as excluded.
+- **Not built:** maintenance triggers, a journal writer, repair, event triggers, a first-contact cache, a production index, a migration or a migration version. The production readers are not changed, even on the branch.
+- **Equivalence before timing:** run the applicable existing differential cases (the pinned `rt.dx_expected` inventory) and the scale cases, with the candidate compared with the current code at `772e883`.
+  - Zero unexpected payload or refusal difference is required.
+  - Array order, scope, agent credit, current-state identity semantics, coverage and the approved KPI 24 amendment are unchanged.
+  - No expected result is regenerated from the prototype.
+- **Fair A/B:**
+  - **Setup:** the same database and session, with production session settings, the 8 s request timeout, and no change to parallel costs, `work_mem`, worker limits or targets.
+  - **Order:** one warm-up round, then at least 20 measured rounds, rotating the arm order each round.
+  - **Primary cases:** summary, state and journey at agency-366.
+  - **Controls:** short window, personal, team and agent-filtered.
+  - **Reported:** PostgreSQL version and hardware; fixture sizes; mapping population and storage; min, median, p95, max and timeouts; absolute and percentage change; separate EXPLAIN.
+  - **Server:** PostgreSQL 16.15 is the only local server, so its evidence is diagnostic only. A 17.6 run needs a CI experiment mode, which is returned as a proposed file change and not made.
+  - X1 is not an acceptance run, and the two-run acceptance matrix is not rerun.
+- **Design risks kept explicit:**
+  - The mandatory journal append can fail the CRM write; that tradeoff remains unapproved.
+  - The repair watermark must be proven under out-of-order commits, and so must global acknowledgments. This is recorded as a pending concurrency proof, and no repair or synchronization mechanism is built.
+  - No migration placement decision; `…17` is untouched.
+- **Verification:** the hardened exit-status procedure (the Batch 7 checkpoint entry below). Every required check is 0 before the documentation checkpoint commit and push, after the push-automation check. No force push, PR, `main` push or merge.
+- **Not authorized:** any other tracked path; hosted mutation, production migration, grants outside the disposable harness, enablement, release-runner execution, deployment or settings change; telephony, `TwilioContext`, duration-writer or v2 changes.
+- **Still pending:** ★1, ★4, E1–E6 acceptance, the campaign-copy fallback security review, the named reviewer and the PKG-A production approval. No agency-only fallback.
+- **Stop:** after X1, with no automatic follow-on (no X2).
+
 ## 2026-11-03 — Reports V2 PKG-A Batch 7 checkpoint review: verification hardening, differential-job allowance, parallel-safety review and the Phase B design delta (branch `claude/great-goodall-911azc`; documentation and one workflow timeout only; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's Batch 7 checkpoint-review message of 2026-11-03. Batch 7 Phase E, Phase A and KPI 24 are a completed branch-development checkpoint at the reviewed remote head `d2bba9e8e302a8b618b4f83661925319580c1b09`. Performance acceptance remains failed, and PKG-A is not release-ready.
