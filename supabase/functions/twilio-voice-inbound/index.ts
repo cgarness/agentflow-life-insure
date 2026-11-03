@@ -1,3 +1,4 @@
+import { parseRoomRoute } from "../_shared/inbounds-room.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { insertMissedCallNotifications } from "../_shared/notifications.ts";
 import {
@@ -1094,6 +1095,14 @@ async function handleInitialInbound(
     });
   }
   const callRowId = ingest.call_row_id || "";
+  // Immutable ingest tag: number edits cannot reroute a replay into the CRM.
+  const roomRead = await withDeadline((async () => {
+    const { data, error } = await supabase.rpc("inbounds_room_route", { p_call: callRowId, p_org: organizationId });
+    if (error) throw new Error("Room routing unavailable");
+    return parseRoomRoute(data);
+  })().catch(() => null), deadline, "read:inbounds_room_route", FAILURE_PATH_RESERVE_MS);
+  if (roomRead.kind === "expired" || !roomRead.value) return sorry();
+  const inboundsRoom = roomRead.value.room;
   console.log("[twilio-voice-inbound] identity resolution", {
     callRowId,
     inserted: ingest.inserted,
@@ -1110,7 +1119,10 @@ async function handleInitialInbound(
   // ONE deadline-bound sequence (request.ts): settings → owner → decision → proceed, or the failure path
   // with its side effects clipped to what the deadline leaves (unit-tested at the handler level).
   const outcome = await runInboundStartRequest({
-    loadSettings: () => v2Promise,
+    loadSettings: async () => {
+      const result = await v2Promise;
+      return inboundsRoom && result.ok ? { ...result, settings: { ...result.settings, engine: "v2" as const, groupIds: [] } } : result;
+    },
     // Corrective pass 6: the engine THIS call routes with is persisted before any engine-specific work,
     // so the durable recovery owns exactly the calls v2 actually took — including a request that dies
     // before an attempt row exists — and a duplicate webhook routes with the first decision.
@@ -1123,7 +1135,7 @@ async function handleInitialInbound(
     readEngineDecision: callRowId
       ? (opts) => readPersistedEngineDecision(supabase, callRowId, organizationId, { sleep: rpcSleep, ...opts })
       : null,
-    loadOwner: (opts) => resolveContactAssignedAgent(supabase, organizationId, ingest.contact_id, ingest.contact_type, { sleep: rpcSleep, ...opts }),
+    loadOwner: (opts) => resolveContactAssignedAgent(supabase, organizationId, inboundsRoom ? null : ingest.contact_id, inboundsRoom ? null : ingest.contact_type, { sleep: rpcSleep, ...opts }),
     directLineOwnerId,
     failure: callRowId ? failureDeps(supabase, callRowId, organizationId, "start_decision_unavailable", [], directLineOwnerId) : null,
     sorryTwiml: buildHangupTwiml("We're sorry, we can't take your call right now. Goodbye."),
@@ -1140,7 +1152,7 @@ async function handleInitialInbound(
     // the deadline is treated as open (no SMS) rather than stalling the webhook.
     const hoursOutcome = await withDeadline(checkBusinessHours(supabase, organizationId), deadline, "read:business_hours", FAILURE_PATH_RESERVE_MS);
     const { isOpen: openNow, afterHoursSms: sms } = hoursOutcome.kind === "value" ? hoursOutcome.value : { isOpen: true, afterHoursSms: null };
-    if (!openNow && sms) void sendAfterHoursSms(supabase, organizationId, fromNumber, toNumber, sms);
+    if (!inboundsRoom && !openNow && sms) void sendAfterHoursSms(supabase, organizationId, fromNumber, toNumber, sms);
     const owner = resolveOwnerCandidate({
       isDirectLine: phoneRow.is_direct_line,
       numberAssignedTo: phoneRow.assigned_to,
@@ -1304,8 +1316,13 @@ function buildStageDeps(
       if (r.ok === false) throw new StageReadError("inbound_route_attempts", r.error);
       return r.attempt;
     },
-    resolveIdentities: async (agentIds) => {
+    resolveIdentities: async (agentIds, callRowId) => {
       if (agentIds.length === 0) return [];
+      if (!callRowId) throw new StageReadError("inbounds_room_route", "Missing parent call");
+      const { data, error } = await supabase.rpc("inbounds_room_route", { p_call: callRowId, p_org: organizationId });
+      if (error) throw new StageReadError("inbounds_room_route", error.message);
+      const room = parseRoomRoute(data);
+      if (room.room) return room.targets.filter(t => agentIds.includes(t.agentId));
       const targets = await resolveActiveRingTargetsByAgentIds(supabase, agentIds, organizationId);
       const byId = new Map<string, string>();
       targets.agentIds.forEach((id, i) => byId.set(id, targets.identities[i]));

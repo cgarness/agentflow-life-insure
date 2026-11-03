@@ -1,3 +1,7 @@
+# 2026-11-03 — Inbounds room V1 (build approved; production gated)
+
+Chris approved the brighter room concept and branch implementation. Detailed plan and intended files: [Inbounds room plan](docs/plans/2026-11-03-inbounds-room/implementation_plan.md). Existing plans below are preserved. No production mutation or release.
+
 ## 2026-11-03 — APPROVED: Editable SMS/Email Template Preview and Expanding Composer
 
 **Approval:** Chris approved the template-preview/composer behavior, then explicitly asked ChatGPT to make the fixes. Authorized scope: branch-only frontend changes, focused tests, and draft PR. **Not authorized:** direct push to main, merge, production release, database writes, migrations, backend dispatch changes, real messaging or telephony changes.

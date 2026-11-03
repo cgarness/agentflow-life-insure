@@ -30,6 +30,7 @@ async function buildAccessToken(
   accountSid: string,
   twimlAppSid: string,
   identity: string,
+  receiveOnly = false,
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const jti = `${apiKeySid}-${now}-${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
@@ -44,7 +45,7 @@ async function buildAccessToken(
       identity,
       voice: {
         incoming: { allow: true },
-        outgoing: { application_sid: twimlAppSid },
+        ...(!receiveOnly ? { outgoing: { application_sid: twimlAppSid } } : {}),
       },
     },
   };
@@ -111,7 +112,7 @@ Deno.serve(async (req) => {
 
     const { data: profile, error: profileError } = await supabaseClient
       .from("profiles")
-      .select("organization_id, twilio_client_identity")
+      .select("organization_id, twilio_client_identity, status")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -196,7 +197,26 @@ Deno.serve(async (req) => {
       return json({ error: "Telephony credentials missing", code: "TOKEN_MISSING" }, 500);
     }
 
+    const body = await req.text();
+    let roomSession: string | null = null;
+    if (body.trim()) {
+      let input: unknown;
+      try { input = JSON.parse(body); } catch { return json({ error: "Invalid request" }, 400); }
+      if (!input || typeof input !== "object") return json({ error: "Invalid request" }, 400);
+      const session = (input as Record<string, unknown>).room_session_id;
+      if (session !== undefined) {
+        if (typeof session !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session)) return json({ error: "Invalid room session" }, 400);
+        roomSession = session;
+      }
+    }
     let identity: string = profile.twilio_client_identity ?? "";
+    if (roomSession) {
+      const { data: session, error } = await supabaseClient.from("inbounds_room_sessions")
+        .select("identity,state,expires_at").eq("organization_id", orgId).eq("agent_id", user.id).eq("session_id", roomSession).maybeSingle();
+      if (error) return json({ error: "Room unavailable" }, 503);
+      if (profile.status !== "Active" || !session || session.state === "offline" || Date.parse(session.expires_at) <= Date.now()) return json({ error: "Rejoin your inbound room" }, 403);
+      identity = session.identity;
+    }
     if (!identity) {
       identity = generateIdentity(user.id);
       console.log(`[twilio-token] org=${orgId} generated new identity: ${identity}`);
@@ -233,6 +253,7 @@ Deno.serve(async (req) => {
       masterAccountSid, // sub = master account SID (not subaccount SID)
       twimlAppSid,
       identity,
+      !!roomSession,
     );
 
     console.log(`[twilio-token] org=${orgId} sid=${sidPartial} master=${masterAccountSid.slice(0, 8)}... outcome=ok`);

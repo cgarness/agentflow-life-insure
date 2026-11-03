@@ -45,7 +45,7 @@ export interface StageDeps {
   /** service-role read of one attempt row (null when absent). */
   loadAttempt(attemptId: string): Promise<AttemptView | null>;
   /** same-org Active profiles with a non-blank identity, in the order requested (T17/T18). */
-  resolveIdentities(agentIds: string[]): Promise<Array<{ agentId: string; identity: string }>>;
+  resolveIdentities(agentIds: string[], callRowId?: string): Promise<Array<{ agentId: string; identity: string }>>;
   /** R14: append_call_routed_agents must land before any <Client> wave rings. */
   persistRoutedAgents(agentIds: string[]): Promise<boolean>;
   /** agent_inbound_settings greeting (D6); null fields fall back to the organization greeting. */
@@ -216,7 +216,7 @@ async function clientDialOrVoicemail(
   attempt: AttemptView | null,
 ): Promise<string> {
   const persisted = next.agentIds.length > 0 ? await deps.persistRoutedAgents(next.agentIds) : false;
-  const identities = persisted ? await deps.resolveIdentities(next.agentIds) : [];
+  const identities = persisted ? await deps.resolveIdentities(next.agentIds, ctx.callRowId) : [];
   if (persisted && identities.length > 0) {
     return buildClientDialTwiml({
       targets: identities,

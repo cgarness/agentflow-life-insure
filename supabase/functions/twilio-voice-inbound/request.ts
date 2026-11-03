@@ -252,8 +252,8 @@ export function deadlineBoundStageDeps(deps: StageDeps, deadline: RequestDeadlin
       if (r.kind === "expired") throw new StageReadError("inbound_route_attempts", "request deadline reached");
       return r.value;
     },
-    resolveIdentities: async (agentIds) => {
-      const r = await bound("read:profiles", () => deps.resolveIdentities(agentIds));
+    resolveIdentities: async (agentIds, callRowId) => {
+      const r = await bound("read:profiles", () => deps.resolveIdentities(agentIds, callRowId));
       if (r.kind === "expired") throw new StageReadError("profiles", "request deadline reached");
       return r.value;
     },

@@ -1,0 +1,14 @@
+const org='a0000000-0000-0000-0000-000000000001',user='a1000000-0000-0000-0000-000000000001';
+const id='a5000000-0000-0000-0000-000000000001',disp='a3000000-0000-0000-0000-000000000001';
+let session=null,pending=null,ended=null,saved=false;
+export const demo={accept(){pending={id,contact_id:null,contact_type:null,contact_name:'Demo caller',contact_phone:'+1 (202) 555-0111',ended_at:null,status:'connected',duration:0,voicemail_id:null,created_at:new Date().toISOString()};},end(){ended=new Date().toISOString();if(pending)pending={...pending,ended_at:ended,status:'completed',duration:42};}};
+function snapshot(){return{organization_id:org,user_id:user,admin:new URLSearchParams(location.search).get('agent')!=='true',session,pending,presence:{available:4,busy:2,paused:1},stats:{total:28,answered:22,missed:6,voicemails:3,pending:pending?1:0},outcomes:[{id:disp,name:'Follow-up requested',count:8},{id:'other',name:'Not interested',count:4},{id:'third',name:'Appointment booked',count:10}],agents:[{id:user,name:'Demo agent',answered:12,dispositioned:12}],missed:[],voicemail_calls:[]};}
+const data={call_scripts:[{id:'script',name:'Inbound · Facebook inquiry',content:'OPENING\nThanks for calling! My name is Alex. Are you calling about the coverage options you saw on Facebook?\n\nDISCOVERY\nWho are you looking to protect?\nWhat matters most to you about your coverage?\n\nNEXT STEP\nLet’s walk through the options together.',active:true}],dispositions:[{id:disp,name:'Follow-up requested',color:'blue',require_notes:true,min_note_chars:3,callback_scheduler:false,appointment_scheduler:false,automation_trigger:false,pipeline_stage_id:null,sort_order:1,usage_count:0}],pipeline_stages:[]};
+function chain(table){const x={select:()=>x,eq:()=>x,order:()=>x,then:(fn)=>Promise.resolve({data:data[table]||[],error:null}).then(fn)};return x;}
+export const supabase={from:chain,channel:()=>{const x={on:()=>x,subscribe:()=>x};return x;},removeChannel:async()=>{},functions:{invoke:async(name,{body})=>({data:{token:'synthetic',identity:'ir_'+body.room_session_id.replace(/-/g,'')},error:null})},rpc:async(name,args)=>{
+ if(name==='inbounds_room_state')return{data:snapshot(),error:null};
+ if(name==='inbounds_room_session'){if(args.p_action==='join')session={session_id:args.p_session,state:'paused',ready:false,expires_at:new Date(Date.now()+45000).toISOString()};else session={...session,state:args.p_action==='leave'?'offline':args.p_action==='resume'?'available':args.p_action==='pause'?'paused':session?.state,ready:args.p_ready,expires_at:new Date(Date.now()+45000).toISOString()};return{data:session,error:null};}
+ if(name==='inbounds_room_call_state')return{data:{agent_id:user,ended_at:ended,dispositioned:saved},error:null};
+ if(name==='save_disposition_with_booking'){saved=true;pending=null;return{data:{call_id:id,contact_id:null,contact_type:'lead',dnc_suppressed:false,lock_released:true,replayed:false},error:null};}
+ return{data:true,error:null};
+}};

@@ -1,5 +1,15 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Inbounds room V1 (approved build; branch only)
+
+**Status:** Chris approved the bright-font concept and requested the build. Implemented on `feat/inbounds-room-20261103`; production migration, Edge deployment, frontend activation and number designation remain separate exact release gates. Nothing was merged or applied live.
+
+**Behavior:** The Inbounds sidebar entry opens a separate document with its own receive-only phone identity. Dedicated DIDs bypass CRM owner/group routing and ring all eligible room participants, first Twilio-confirmed answer wins. Shared database locks exclude agents occupied by an ordinary call or a room reservation. Canonical disposition receipts keep answered agents unavailable after hang-up, refresh or rejoin. Collapsible agency scripts, configured outcomes, required notes/callback/appointment behavior and existing conversion/policy flows are reused. Agents see their own counts/recipient records; admins see room totals, agent breakdown and missed/voicemail records. New phone-number settings designate active, nondefault agency DIDs. UI uses white text and green/blue/violet/amber accents.
+
+**Integrity:** No browser ownership or call-duration writes; signed callbacks retain authority. Frozen per-call room targets survive reconnects. RPCs derive the organization/actor and deny cross-tenant access; new tables have RLS and no direct browser grants. Provider ingestion owns room tags. Outbound number selection and bridge-time checks exclude dedicated DIDs. New explicit caller-details RPC updates contact fields only. The pending SQL guards the three modified live-function preimages; full Edge baselines were compared read-only.
+
+**Validation:** Production frontend build and 288 routing/UI/hook/disposition tests pass. The local SQL fixture passes; true PostgreSQL contention is separately checked in CI. Actual components passed an isolated synthetic browser flow and mobile-width check. Root TypeScript passes; application TypeScript retains the base's 80 known diagnostics. See `docs/plans/2026-11-03-inbounds-room/verification.md` for exact evidence, limits and release sequence. No real calls or customer data were used.
+
 ## 2026-11-03 — SMS/Email editable template preview and expanding composer (branch-only, CI pending)
 
 **Status:** Implemented on `fix/editable-template-preview-composer-20261103`. Chris explicitly approved the revised template workflow and requested direct fixes. **No merge, production deployment, backend commands, migrations, schema/RLS change, outbound SMS/email or telephony modification.**

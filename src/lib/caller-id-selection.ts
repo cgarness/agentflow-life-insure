@@ -10,6 +10,7 @@ export const CALLER_ID_STICKY_MIN_DURATION_SEC = 45;
 export const DEFAULT_DAILY_CALL_LIMIT = 100;
 
 export interface CallerIdPhoneRow {
+  inbounds_only?: boolean;
   phone_number: string;
   area_code: string | null;
   is_default: boolean | null;
@@ -51,13 +52,13 @@ export function isEligibleStrict(
   p: CallerIdPhoneRow,
   _input: Pick<SelectCallerIdInput, "didLastUsedAt">,
 ): boolean {
-  if (!underDailyCap(p)) return false;
+  if (p.inbounds_only || !underDailyCap(p)) return false;
   return true;
 }
 
 /** Fallback pool: ignores daily cap and cooldown. */
 export function isEligibleFallback(_p: CallerIdPhoneRow): boolean {
-  return true;
+  return !_p.inbounds_only;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ function isPersonalNumber(p: CallerIdPhoneRow): boolean {
 
 /** Active Agency number — eligible for both automatic and manual selection (assigned_to ignored). */
 export function isAgencyCallerIdEligible(p: CallerIdPhoneRow): boolean {
-  return isActiveStatus(p.status) && !isPersonalNumber(p);
+  return !p.inbounds_only && isActiveStatus(p.status) && !isPersonalNumber(p);
 }
 
 /** Active Personal number owned by the given user. */
@@ -92,7 +93,7 @@ export function isPersonalCallerIdOwnedByUser(
   userId: string | null | undefined,
 ): boolean {
   return (
-    isActiveStatus(p.status) &&
+    !p.inbounds_only && isActiveStatus(p.status) &&
     isPersonalNumber(p) &&
     !!userId &&
     p.assigned_to === userId
