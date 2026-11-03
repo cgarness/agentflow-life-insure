@@ -9,7 +9,8 @@ let db,sql,pg;
 if(process.env.PGURL){
  const url=new URL(process.env.PGURL);assert(['127.0.0.1','localhost'].includes(url.hostname),'Only disposable localhost PostgreSQL');
  const {default:postgres}=await import('postgres');pg=postgres(process.env.PGURL,{max:4});
- db={exec:s=>pg.unsafe(s),query:async(s,p=[])=>({rows:await pg.unsafe(s,p)}),close:()=>pg.end()};
+ const session=await pg.reserve();
+ db={exec:s=>session.unsafe(s),query:async(s,p=[])=>({rows:await session.unsafe(s,p)}),close:async()=>{session.release();await pg.end();}};
 }else{const {PGlite}=await import(process.env.PGLITE_MODULE||'@electric-sql/pglite');db=new PGlite();}
 const q=async(s,p)=>(await db.query(s,p)).rows;
 const exec=s=>db.exec(s);

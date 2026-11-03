@@ -2,7 +2,7 @@
 
 ## 2026-11-03 — Inbounds room V1 (approved build; branch only)
 
-**Status:** Chris approved the bright-font concept and requested the build. Implemented on `feat/inbounds-room-20261103`; production migration, Edge deployment, frontend activation and number designation remain separate exact release gates. Nothing was merged or applied live.
+**Status:** Chris approved the bright-font concept and requested the build. Implemented on `feat/inbounds-room-20261103` and published as PR #509 after explicit approval; production migration, Edge deployment, frontend activation and number designation remain separate exact release gates. Nothing was merged or applied live.
 
 **Behavior:** The Inbounds sidebar entry opens a separate document with its own receive-only phone identity. Dedicated DIDs bypass CRM owner/group routing and ring all eligible room participants, first Twilio-confirmed answer wins. Shared database locks exclude agents occupied by an ordinary call or a room reservation. Canonical disposition receipts keep answered agents unavailable after hang-up, refresh or rejoin. Collapsible agency scripts, configured outcomes, required notes/callback/appointment behavior and existing conversion/policy flows are reused. Agents see their own counts/recipient records; admins see room totals, agent breakdown and missed/voicemail records. New phone-number settings designate active, nondefault agency DIDs. UI uses white text and green/blue/violet/amber accents.
 
