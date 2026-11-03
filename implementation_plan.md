@@ -19,6 +19,8 @@
 
 **Acceptance gates:** Selection never changes the composer. Preview edits persist until applied, only to current draft. Cancel/Back preserve previous draft. Preview displays actual contact merges, separate email subject, and missing-field notices. Draft replacement is explicit. Long SMS/email messages are scrollable and accessible with no viewport overflow; Shift+Enter, Enter, IME and failed/in-flight sends are covered. View As remains read-only. Existing tenant/RLS scoping, sms pending-store and manual send paths remain unchanged. Dialer still does not send from the coming-soon stub.
 
+**Additional regression files identified before verification:** `src/pages/__tests__/conversationsViewAs.test.tsx`, `src/pages/__tests__/conversationsSendContract.test.tsx`, `src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx`, and `scripts/tests/sms-responsiveness/measure.mjs` (SMS input selector changes and branding-context fixtures). No production behavior change in these files.
+
 **Verification:** Focused Vitest, `npx tsc --noEmit`, targeted lint, build and browser/small-screen checks when available; separate known baseline failures from new failures. No backend commands needed. Append newest-first `WORK_LOG.md` entry, create draft PR, leave it unmerged pending review/release approval.
 
 ---
