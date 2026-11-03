@@ -1381,6 +1381,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         onOpenChange={setShowTemplatesModal}
         channel={composeTab === "Email" ? "email" : "sms"}
         mergeInput={messageTemplateMergeInput}
+        hasDraft={!!composeText.trim() || (composeTab === "Email" && !!emailSubject.trim())}
         onApply={({ body, subject }) => {
           setComposeText(body);
           if (subject !== null) setEmailSubject(subject);
