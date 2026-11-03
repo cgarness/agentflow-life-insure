@@ -1,3 +1,36 @@
+## 2026-11-03 — Reports V2 PKG-A Batch 8: query-only optimization after X1 (branch `claude/great-goodall-911azc`; branch-only; nothing applied, merged, enabled or deployed)
+
+**Authorization:** Chris's Batch 8 message of 2026-11-03, against the reviewed head `bf7d5d63c17f03ab0e33cd0944de8bd441e5c80f`.
+- **Decision recorded:** the recommendation to stop the maintained pointer layer is accepted. X2 and Phase B are removed from the implementation path. The Batch 7 proposal, §14 and the X1 evidence stay as history and are not built.
+- **Base:** branch and remote at `bf7d5d6`; `main` `6e39c15` (unchanged). The newest open PR is still #486, so there is no conflicting work. Re-read: `AGENT_RULES.md`, `VISION.md`, the X1 `WORK_LOG.md` entry, both plans (§14 and §14.F), D1 §3.9, D3 §3.2 and D5 §3.3.
+- **Intended files (exact paths; anything else needs approval first):**
+  1. `supabase/migrations/20261101000012_reports_v3_call_journey_helpers.sql`: the `@call-pointers` block (shared text), `report_v3_call_facts` and `report_v3_journey_rows`.
+  2. `supabase/migrations/20261101000015_reports_v3_readers.sql`: the `@call-pointers` and `@call-identity` blocks of the summary and state readers.
+  3. `supabase/migrations/20261101000014_reports_v3_state_helpers.sql`: only if the state reader's measured change needs its existing read-only helper; otherwise untouched.
+  4. `supabase/tests/reports_v3_differential.sql`: explicit public journey-reader comparisons at scale, plus a self-control proving they run.
+  5. `supabase/tests/reference/reports_v3_reference_manifest.json`: the scale inventory gains journey cases. The pinned sources, the reference-only repair and `generated_sha256` are unchanged, so the frozen reference implementation is unchanged.
+  6. `src/lib/__tests__/reportsV3Contracts.test.ts`: the block identity checks and the scale-inventory pin.
+  7. Retained X1 cases in the existing test files, only where they are needed: `supabase/tests/reports_v3_journey.sql`, `supabase/tests/reports_v3_call_readers.sql`, `supabase/tests/reports_v3_calls_identity.sql`, `supabase/tests/reports_v3_state_breakdown.sql`, `supabase/tests/reports_v3_security.sql`, `supabase/tests/reports_v3_negative.sql`.
+  8. `docs/plans/2026-10-31-reports-v2/appendix/D1.md`, `D3.md`, `D5.md` and `tests.md`; `docs/plans/2026-10-31-reports-v2/implementation_plan.md`; this file; `WORK_LOG.md`.
+
+  `scripts/reports_v3_reference.py` and `scripts/reports_v3_fixture.py` are expected to stay unchanged. If either needs a change, it is listed here before the edit.
+- **Allowed:** query-structure changes to the unpublished `…12`, `…14` and `…15` and their existing read-only helpers, each measured before it is retained.
+- **Not allowed:**
+  - a maintained mapping table, journal, trigger, first-contact cache, materialized view, persistent cache or new index;
+  - reader writes, or changes to the call or CRM write paths;
+  - planner settings, parallel costs, `work_mem`, worker limits, timeouts or targets;
+  - renumbering, or repurposing `…17`.
+- **Preserved:** the 23 metric definitions and BC1–BC5; `organization_id` isolation and server-resolved permissions; structural identity and same-organization history with full lookback; original seller and activity credit; scope-level deduplication; coverage, missing data and cohort maturity; the KPI 24 amendment; v2 bodies, privileges and meanings.
+- **Method:**
+  - **Screening:** candidates are scratch copies in a disposable 500k database (the X1 tooling, outside the checkout), each proven equal to the current code before timing.
+  - **Retention:** a candidate is kept only on a repeatable gain, from same-session interleaved samples (at least 20 after warm-up) over the three annual agency misses, short windows, personal and team scopes, and single-agent filters. Repeatable regressions are reported.
+  - **Verification of what is retained:** local functional, regression and differential suites; then PostgreSQL 17.6 CI (the postgres and differential jobs).
+  - **Acceptance:** the enforced two-run acceptance (147 combinations × 20 samples, 2 s and 4 s, 8 s timeout, both runs on the same SHA) runs only if the implementation is promising. It is never rerun on unchanged code.
+- **Checks:** the hardened exit-status procedure; the SQL and regression suites; the differential; static tests; scoped lint; build; `npx tsc --noEmit`; `npx tsc -p tsconfig.app.json --noEmit`. Pre-existing failures are compared by identity.
+- **Delivery:** checkpoint pushes to this branch and manual verification dispatches after the automation check. No PR, `main` push, force push or merge. No hosted mutation, production migration, grant, enablement, release runner, promotion or settings change. No change to `AGENT_RULES.md`, telephony, `TwilioContext`, the duration writers and their guards, or v2.
+- **Still pending:** ★1, ★4, E1–E6, the campaign-copy fallback review, the named security reviewer and the PKG-A production approval. No agency-only fallback.
+- **Stop:** after this batch, whether it passes or still misses. No other cache architecture is proposed.
+
 ## 2026-11-03 — Reports V2 PKG-A X1: isolated pointer-map read-path experiment (branch `claude/great-goodall-911azc`; measurement and documentation only; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's X1 message of 2026-11-03. It approves X1 as an isolated, reproducible experiment, starting from the reviewed head `772e88327efe76a9e9c211c08eb330e2da5f56fa`. **Phase B implementation and X2 are not approved.**
