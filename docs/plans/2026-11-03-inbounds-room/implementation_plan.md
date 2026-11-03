@@ -1,3 +1,7 @@
+## Navigation placement follow-up — November 3
+
+Chris requested moving Inbounds to the bottom of navigation. Move the existing `InboundsNavItem` from the first item to the last item in the main navigation branch, after any administrative links and before the collapse footer. Preserve its existing flag, permission, View As, new-tab and mobile-close behavior. Intended files: `src/components/layout/Sidebar.tsx`, this plan, and `WORK_LOG.md`. Validate with existing sidebar/room tests, root TypeScript, scoped lint and production build. No backend or configuration changes.
+
 ## November 3 frontend release completed
 
 Chris explicitly approved merging PR #509 and enabling `VITE_INBOUNDS_ROOM=true` for the AgentFlow Production environment, including the Vercel dashboard fallback after the connector denied environment access. The flag was saved successfully in the dashboard before the merge; environment changes only affect a new build. All ten cloud workflows passed on reviewed head `01a30ba3b886df9472d1004ddc0d1e55572c0218`. PR #509 merged as `afe309723d8a50b1e58466cf7bbd3816c43cfb68`; production deployment `dpl_FSuKKb5L3x98tKYFUbduCQRakKE7` is READY and its enabled served bundle and authentication boundary are verified. See `frontend-release.json`. Do not assign numbers or place real calls. Backend SQL and Edge bundles are already applied and must not be replayed.
