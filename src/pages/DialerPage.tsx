@@ -4194,6 +4194,7 @@ export default function DialerPage() {
         onOpenChange={setShowTemplatesModal}
         channel={smsTab}
         mergeInput={messageTemplateMergeInput}
+        hasDraft={!!messageText.trim() || (smsTab === "email" && !!subjectText.trim())}
         onApply={({ body, subject }) => {
           setMessageText(body);
           if (subject !== null) setSubjectText(subject);
