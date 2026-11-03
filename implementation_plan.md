@@ -1,3 +1,43 @@
+## 2026-11-03 — Reports V2: complete the remaining build; Package F private preview first (branches `claude/great-goodall-911azc` and `-pkg-b/-pkg-c/-pkg-d/-pkg-f`; nothing applied, merged, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-03 ("Complete the remaining build; first deliver the private Reports preview"). It continues the approved package scope on branches and disposable synthetic databases. It does not approve unseen defaults, pending security decisions or proposed AGENT_RULES amendments. Out of scope: the stopped Phase B maintained-identity layer, X2 and any new cache architecture.
+
+**State at start.**
+- Foundation `claude/great-goodall-911azc` at `9f967b5` (PKG-A, branch only). `main` at `0e74428`: five Inbounds commits since `6e39c15`, including an `AGENT_RULES.md` Inbounds section, a two-line `TwilioContext.tsx` change and the applied migration `20261103191631_inbounds_room_v1`. No Reports file changed on main.
+- `-pkg-b`, `-pkg-c`, `-pkg-d` and `-pkg-f` do not exist yet; each is created from the foundation head when its first batch starts.
+
+**Completion checklist** (dependency order; the production order stays A → B → policy classifications → C/D → F).
+1. [ ] **F preview** (`-pkg-f`): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
+2. [ ] **A support** (foundation): the v3 payload writer (D1 X9: `run_reports_v3_tests.sh` / `reports_v3_fixture.py`).
+3. [ ] **B** (`-pkg-b`, D2): audited correction ledger, the correction workflow, history display, effective original-sale premium; Reports, Leaderboard and Dashboard consistency.
+4. [ ] **C** (`-pkg-c`, D3): producing-call capture, supported inbound integration, failure handling and recovery for 1 Call Close. `TwilioContext.tsx` is read before any approved telephony-adjacent edit.
+5. [ ] **D** (`-pkg-d`, D4): classification, occurrence and outcome evidence, assignment-at-start credit (BC3), optional closing-appointment attribution, recovery.
+6. [ ] **F integration** with the completed B, C and D contracts; the integrated review build.
+7. [ ] Prepared release and recovery files rehearsed only in disposable databases.
+
+**Shared-file ownership.**
+- `WORK_LOG.md`, this file and `docs/plans/2026-10-31-reports-v2/**` change only on the foundation branch. Package branches record checkpoints there by SHA, so branches never conflict on them.
+- `src/lib/reports-v3-schemas.ts` and `src/lib/reports-v3-queries.ts` are D1-owned and created on `-pkg-f`. B, C and D contribute their detail and contract changes there through the integration merge into `-pkg-f`, never in parallel copies.
+- `src/components/reports/regional/*` is D5-owned on `-pkg-f`.
+- Migrations: each package adds only its own numbered files. No renumbering.
+
+**Release checklist** (blockers; none of them blocks branch development).
+- [ ] The two unfinished agency journey comparisons (30 and 366 days); needs one bounded verification-infrastructure request.
+- [ ] The failed performance acceptance gate (no remedy approved).
+- [ ] ★1, ★4, E1–E6 and the campaign-copy fallback privacy decisions.
+- [ ] The named security review of the exact reader implementation.
+- [ ] The exact AGENT_RULES amendments awaiting approval.
+- [ ] Real-policy classification decisions (Chris/Admin).
+- [ ] Release, enable/disable, rollback, index-validation and recovery proofs.
+- [ ] **New:** migration ordering. Production now has `20261103191631` applied, later than every unapplied Reports migration (`20261101000010`–`…17`). Renumbering is not allowed without approval, so this needs Chris's decision before any release.
+- [ ] Map asset provenance and notices recorded (D5, RL-12) before the map merges.
+- [ ] Final cross-surface reconciliation and private visual approval.
+
+**Next file list.**
+- **Batch F-A** (foundation): `scripts/reports_v3_fixture.py` (a `--part payloads` mode); `scripts/run_reports_v3_tests.sh` (`REPORTS_V3_PAYLOADS` writes the payload file from the synthetic scale organization, one actor, agency, team and personal); this file; `WORK_LOG.md`.
+- **Batch F-1** (`-pkg-f`): `src/lib/reports-v3-schemas.ts`, `src/lib/reports-v3-queries.ts` (create); `src/lib/reports-queries.ts` (exports, v3 names, 57014); `src/lib/reports-kpi-registry.ts`, `reports-kpi-format.ts`, `reports-v3-text.ts` (create); `src/lib/__tests__/{reportsV3Fixtures.ts, reportsV3Schemas.test.ts, reportsKpiFormat.test.ts, reportsKpiRegistry.test.ts}` (create).
+- **Batch F-2** (`-pkg-f`): `src/components/reports/{KpiTile, KpiStatusNote, ProductionCard, ReportsProduction, ReportsEffortSection, ActivityStrip, MoreMetrics}.tsx` (create); `src/lib/reports-panels.ts`, `src/hooks/useReportsPage.ts` (create); `src/hooks/useReportsData.ts`, `src/pages/Reports.tsx`, `src/index.css`, `tailwind.config.ts` (modify); `scripts/tests/reports-visual/{stubs.ts, vite.config.ts, README.md}` (modify).
+
 ## 2026-11-03 — Reports V2 PKG-A Batch 8: query-only optimization after X1 (branch `claude/great-goodall-911azc`; branch-only; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's Batch 8 message of 2026-11-03, against the reviewed head `bf7d5d63c17f03ab0e33cd0944de8bd441e5c80f`.

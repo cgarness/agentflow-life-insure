@@ -249,7 +249,58 @@ def performance_part(name):
     return parts[name]
 
 
+PAYLOAD_READERS = [  # (payload key, reader, scope-only) in REPORT_RPC_V3 order; the v2 keys serve the base bundle
+    ('scopeV3', 'get_report_scope_v3', True), ('summaryV3', 'get_report_summary_v3', False),
+    ('journeyV3', 'get_report_journey_v3', False), ('salesAppointmentsV3', 'get_report_sales_appointments_v3', False),
+    ('statesV3', 'get_report_state_breakdown_v3', False), ('volumeV3', 'get_report_call_volume_v3', False),
+    ('dispositionsV3', 'get_report_disposition_breakdown_v3', False), ('campaignsV3', 'get_report_campaign_calls_v3', False),
+    ('leadSourcesV3', 'get_report_lead_source_calls_v3', False),
+    ('scope', 'get_report_scope_v2', True), ('summary', 'get_report_call_summary_v2', False),
+    ('volume', 'get_report_call_volume_v2', False), ('dispositions', 'get_report_disposition_breakdown_v2', False),
+    ('campaigns', 'get_report_campaign_performance_v2', False), ('leadSources', 'get_report_lead_source_performance_v2', False),
+]
+
+
+def payloads_part():
+    """The payload file (D1 X9): every report reader's real response for one synthetic actor (the scale organization's
+    Admin, persona 0) over the 30 days ending on the fixture's end date, at agency, team and personal scope. One
+    REPEATABLE READ snapshot; the sealed v3 readers are granted only inside it and the transaction rolls back, so the
+    database is unchanged. Synthetic data only; the file is a test input, never part of a production build."""
+    def call(reader, scope_only, scope):
+        args = f"'{scope}'" if scope_only else f"%L::date, %L::date, NULL, '{scope}'"
+        sql = f"format($q$SELECT public.{reader}({args})$q$, m.end_date - 29, m.end_date)" if not scope_only \
+            else f"$q$SELECT public.{reader}({args})$q$"
+        return f"rt.call(rt.perf_agent(0), m.org, {sql})"
+    def bundle(scope):
+        return 'jsonb_build_object(' + ', '.join(f"'{k}', {call(r, s, scope)}" for k, r, s in PAYLOAD_READERS) + ')'
+    v3 = ', '.join(f"'{r}'" for k, r, s in PAYLOAD_READERS if k.endswith('V3'))
+    return f"""\\set ON_ERROR_STOP 1
+SET statement_timeout = 0;
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+DO $grant$ DECLARE f regprocedure; BEGIN
+  FOR f IN SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public' AND p.proname IN ({v3}) LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', f);
+  END LOOP;
+END $grant$;
+\\pset tuples_only on
+\\pset format unaligned
+\\o :payloads
+SELECT jsonb_pretty({bundle('agency')} || jsonb_build_object(
+         'scopes', jsonb_build_object('team', {bundle('team')}, 'personal', {bundle('personal')}),
+         'fixture', jsonb_build_object('source', 'reports_v3_performance.sql scale organization (synthetic)',
+                                       'actor', rt.perf_agent(0), 'organization', m.org, 'time_zone', m.tz,
+                                       'start_date', m.end_date - 29, 'end_date', m.end_date)))
+  FROM rt.perf_meta m;
+\\o
+ROLLBACK;
+"""
+
+
 if __name__ == '__main__':
+    if '--part' in sys.argv and sys.argv[sys.argv.index('--part') + 1] == 'payloads':
+        print('\\echo v3 payload file\n' + payloads_part())
+        sys.exit(0)
     if '--part' in sys.argv:
         # One performance stage only, for a database that already holds the functional suites.
         stage = sys.argv[sys.argv.index('--part') + 1]

@@ -1,5 +1,20 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Reports V2 Batch F-A: the v3 payload file for the isolated preview (branch `claude/great-goodall-911azc`; test tooling only; nothing applied, merged, enabled or deployed)
+
+**Request:** Chris's "complete the remaining build; first deliver the private Reports preview" message. The completion checklist, shared-file ownership and next file lists are in `implementation_plan.md`.
+
+**Changed.**
+- `scripts/reports_v3_fixture.py`: `--part payloads` (D1 X9). In one REPEATABLE READ snapshot it calls every report reader (the nine v3 readers and the six v2 readers) as the synthetic scale organization's Admin. It covers agency, team and personal scope over the 30 days ending on the fixture's end date, then rolls back. The sealed v3 readers are granted only inside that transaction.
+- `scripts/run_reports_v3_tests.sh`: `REPORTS_V3_PAYLOADS=<path>` writes the file after the suites pass. It loads the scale organization only when the suites did not, and checks each v3 bundle's `reports_v3` marker and requested scope.
+
+**Verification** (local PostgreSQL 16.15):
+- `REPORTS_V3_PERF=0` run: every v3 suite passed, and the file was written (2.1 MB, three scopes).
+- The payloads show the PKG-A state as specified: KPIs 12 and 15–18 `evidence_not_captured`, KPI 38 `sale_call_link_not_captured`, and Partial coverage from unverified attempts and missing premiums.
+- Contract test 41/41.
+
+**Found:** production now has `20261103191631_inbounds_room_v1` applied, which is later than every unapplied Reports migration. This is recorded as a release blocker for Chris's decision. No renumbering.
+
 ## 2026-11-03 — Reports V2 PKG-A Batch 8: query-only optimization after X1; no reader change retained; journey reader scale coverage added (branch `claude/great-goodall-911azc`; tests and documentation only; NOT merged, applied, enabled or deployed)
 
 **Status.**
