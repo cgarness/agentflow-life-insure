@@ -126,7 +126,6 @@ const Sidebar: React.FC = () => {
       </>
     ) : (
       <>
-        {!isImpersonating&&!permsLoading&&hasPageAccess("Dialer")&&<InboundsNavItem collapsed={collapsed} onClick={()=>setMobileOpen(false)}/>}
         {visibleCoreMenu.map((item) => (
           <MainNavItem
             key={item.path}
@@ -199,6 +198,7 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         )}
+        {!isImpersonating&&!permsLoading&&hasPageAccess("Dialer")&&<InboundsNavItem collapsed={collapsed} onClick={()=>setMobileOpen(false)}/>}
       </>
     )}
   </nav>

@@ -1,5 +1,13 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Inbounds navigation moved to the bottom
+
+**Request/change:** Chris requested moving the Inbounds button to the bottom of navigation. Moved the existing item after the other main/admin links, immediately before the collapse footer; the shared sidebar covers desktop, collapsed and mobile navigation. Flag/permission/View As checks and new-tab behavior are unchanged.
+
+**Files:** `src/components/layout/Sidebar.tsx`, `docs/plans/2026-11-03-inbounds-room/implementation_plan.md`, this log. One existing JSX item moved; no new production logic or tests introduced.
+
+**Verification:** Existing sidebar and room suites pass (26 tests, flag enabled), `npx tsc --noEmit`, scoped ESLint and the production build pass. The existing large-bundle warning remains. Frontend-only delivery through a PR and the linked Vercel production build; release commit/deployment evidence belongs in the PR. No database migration, Edge deployment, environment-variable change, number assignment or real call.
+
 ## 2026-11-03 — Inbounds frontend released (PR #509; numbers not assigned)
 
 **Approval:** Chris approved the frontend release and Vercel dashboard fallback. Created only `VITE_INBOUNDS_ROOM=true` in AgentFlow Production; dashboard confirmed the save. Merged reviewed head `01a30ba3b886df9472d1004ddc0d1e55572c0218` as `afe309723d8a50b1e58466cf7bbd3816c43cfb68`, with identical tree `a5840f3df3fd3a68cf956c362deaa396e054c01d`.
