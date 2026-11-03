@@ -4,14 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { CalendarRange, RangeProblem, ReportPreset } from "@/lib/reports-format";
-import type { ReportRequestedScope, ReportScope } from "@/lib/reports-schemas";
+import type { ReportRequestedScope } from "@/lib/reports-schemas";
+import type { ReportScopeView } from "@/lib/reports-v3-schemas";
 import ReportScopeTabs from "./ReportScopeTabs";
 import ReportPeriodControl from "./ReportPeriodControl";
 import ReportContextLine from "./ReportContextLine";
 import type { DataBasisContent } from "./DataBasisSections";
 
 interface Props {
-  scope: ReportScope | null;
+  scope: ReportScopeView | null;
   /** The scope is still resolving (the tabs hold their place). */
   scopeLoading?: boolean;
   scopeStatusText: string;

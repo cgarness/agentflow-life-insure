@@ -234,3 +234,6 @@ export type ReportCampaignCallsV3 = z.infer<typeof reportCampaignCallsV3Schema>;
 export type ReportLeadSourceCallsV3 = z.infer<typeof reportLeadSourceCallsV3Schema>;
 export type ReportStateBreakdownV3 = z.infer<typeof reportStateBreakdownV3Schema>;
 export type ByAgentRow = ReportSummaryV3["by_agent"][number];
+
+/** The scope fields the toolbar, context line and scope tabs read; a v2 or v3 scope satisfies it. */
+export type ReportScopeView = Pick<ReportScopeV3, "scope" | "agents" | "max_range_days" | "available_scopes" | "time_zone" | "today" | "requested_scope">;

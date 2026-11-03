@@ -17,6 +17,11 @@ export default {
         sans: ["Inter", "system-ui", "sans-serif"],
       },
       colors: {
+        report: {
+          production: "hsl(var(--report-production) / <alpha-value>)",
+          appointment: "hsl(var(--report-appointment) / <alpha-value>)",
+          close: "hsl(var(--report-close) / <alpha-value>)",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

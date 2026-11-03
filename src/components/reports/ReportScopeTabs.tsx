@@ -1,6 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { ReportRequestedScope, ReportScope } from "@/lib/reports-schemas";
+import type { ReportRequestedScope } from "@/lib/reports-schemas";
+import type { ReportScopeView } from "@/lib/reports-v3-schemas";
 
 const SCOPES: { value: ReportRequestedScope; label: string }[] = [
   { value: "personal", label: "Personal" },
@@ -8,7 +9,7 @@ const SCOPES: { value: ReportRequestedScope; label: string }[] = [
   { value: "agency", label: "Agency" },
 ];
 interface Props {
-  scope: ReportScope | null;
+  scope: ReportScopeView | null;
   onScope: (scope: ReportRequestedScope) => void;
   disabled?: boolean;
   /** The scope is still resolving: hold the bar's place without offering any tab. */
