@@ -4,6 +4,8 @@
 
 **Status:** Chris said “proceed” after review-branch publication. Continued branch verification and read-only production preflight; no merge, migration, Edge deployment, flag change, number designation or real call.
 
+**Remaining build check:** Added `.github/workflows/inbounds-room.yml` cloud compilation for all four full Edge handlers using pinned Deno 2.5.2 and the frozen dependency lock, because the local remote import was refused. Also covers token/outbound-handler path changes. This is a secret-free source check, not a deployment. Result required before backend release.
+
 **Correction:** Final broader CI exposed a pre-existing `NumberReputation` cast error whose diagnostic text changed when the generated phone row gained `inbounds_only`. Raw database rows do not yet contain calculated `calls_today` or `last_outbound_shaken_stir`. Removed the premature assertion and typed the final query result as `Promise<PhoneNumber[]>`; calculations, queries and UI are unchanged. Neither baseline comparison was relaxed. Files: `src/components/settings/NumberReputation.tsx`, `implementation_plan.md`, this log and the Inbounds verification record.
 
 **Verification:** Root TypeScript and scoped ESLint pass. Exact-base application comparison: base 80, candidate 79, new 0. Inbounds PostgreSQL concurrency/build CI passed on `ba3150e` (run `41694451928`); cloud rerun on the correction is required. The separate SMS job hit an upstream `tslib@2.8.1` integrity mismatch; a fresh download again matches the unchanged tracked SHA-256 `c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9`. No dependency or lockfile edits.
