@@ -1,5 +1,18 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — SMS/Email editable template preview and expanding composer (branch-only, CI pending)
+
+**Status:** Implemented on `fix/editable-template-preview-composer-20261103`. Chris explicitly approved the revised template workflow and requested direct fixes. **No merge, production deployment, backend commands, migrations, schema/RLS change, outbound SMS/email or telephony modification.**
+
+**What changed:** Manual template selection is now list → editable preview → explicit Use Template; includes personalized real contact/agent values, separate email subject editing, a missing-merge-field alert and existing-draft replacement notice. Back/Cancel never replace the compose draft. Templates themselves are unchanged. The shared SMS field is multiline; both SMS and email auto-grow with a bounded height, internal scroll and expand/collapse. SMS Enter still sends, Shift+Enter enters a newline, IME composition does not send. The formerly inactive Conversations Templates action now opens the scoped picker, with true first/last names passed through the existing authorized contact projection rather than a new cross-tenant query. View As read-only, contact-scope draft isolation, pending SMS protections, Gmail/Twilio dispatch and the Dialer's known coming-soon send behavior remain unchanged.
+
+**Files touched:** `implementation_plan.md`, `WORK_LOG.md`; `src/components/messaging/{MessageTemplatesPickerModal,MessageTemplatePickerList,MessageTemplateEditPreview,MessageComposePanel}.tsx`; `src/lib/supabase-messages.ts`; `src/pages/{Conversations,DialerPage}.tsx`; `src/components/conversations/ConversationThread.tsx`; `src/components/contacts/FullScreenContactView.tsx`; `src/components/messaging/__tests__/messageTemplatesPickerModal.test.tsx`; `src/components/messaging/smsConsent.test.tsx`; `src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx`; `src/pages/__tests__/{conversationsSendContract,conversationsViewAs}.test.tsx`; `scripts/tests/sms-responsiveness/measure.mjs`.
+
+**Verification:** Added/updated tests for edit-before-apply, Back/Cancel, missing merge fields, channel switch, multiline email/SMS, Enter/Shift+Enter/IME handling, and Conversations template access. CI and browser verification pending at this entry; any failures must be resolved before release.
+
+**Deployment/gates:** No database migration needed. Draft PR for review; merge and production release require separate approval. No real messages sent.
+
+
 ## 2026-10-30 — Prebuilt SMS and Email Templates V1.1 branch build (NOT merged, seeded or deployed)
 
 **Status:** Branch-only implementation in `claude/sharp-johnson-2ojnub`, continuing Claude's plan using the source ZIP previously supplied in ChatGPT. **Production database seed is NOT approved or run.** No schema/RLS, Twilio/Edge Function, workflow-executor, dialing, Vercel or frontend production changes.
