@@ -18,6 +18,34 @@ it('manual composer sends without a purpose or enrollment-readiness controls',()
  fireEvent.keyDown(screen.getByPlaceholderText('Type SMS message…'),{key:'Enter'});expect(send).toHaveBeenCalledOnce();expect(screen.getByDisplayValue('Keep this draft')).toBeInTheDocument();
  fireEvent.click(screen.getByTitle('Send SMS'));expect(send).toHaveBeenCalledTimes(2);
 });
+it('SMS composer supports multiline drafts, Shift+Enter and IME without accidental send',()=>{
+ const send=vi.fn();
+ function Test(){const [text,setText]=useState('First line');return <MessageComposePanel channel="sms" onChannelChange={()=>{}} messageText={text} onMessageChange={setText} subjectText="" onSubjectChange={()=>{}} onOpenTemplates={()=>{}} onSendMessage={send}/>;}
+ render(<Test/>);
+ const field=screen.getByRole('textbox',{name:'SMS message'}) as HTMLTextAreaElement;
+ expect(field.tagName).toBe('TEXTAREA');
+ fireEvent.change(field,{target:{value:'First line\nSecond line'}});
+ expect(field.value).toBe('First line\nSecond line');
+ fireEvent.keyDown(field,{key:'Enter',shiftKey:true});
+ fireEvent.keyDown(field,{key:'Enter',isComposing:true});
+ expect(send).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Expand message editor'}));
+ expect(screen.getByRole('button',{name:'Collapse message editor'})).toBeInTheDocument();
+ expect(field.value).toBe('First line\nSecond line');
+ fireEvent.keyDown(field,{key:'Enter'});
+ expect(send).toHaveBeenCalledOnce();
+});
+it('email composer keeps an entire long draft visible in its multiline editor',()=>{
+ const send=vi.fn();
+ const body=Array.from({length:30},(_,i)=>`Paragraph ${i}: insurance coverage information`).join('\n');
+ render(<MessageComposePanel channel="email" onChannelChange={()=>{}} messageText={body} onMessageChange={()=>{}} subjectText="Welcome" onSubjectChange={()=>{}} onOpenTemplates={()=>{}} onSendMessage={send}/>);
+ const field=screen.getByRole('textbox',{name:'Email message'}) as HTMLTextAreaElement;
+ expect(field.value).toBe(body);
+ fireEvent.keyDown(field,{key:'Enter'});
+ expect(send).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Expand message editor'}));
+ expect(field.value).toBe(body);
+});
 it('manual composer respects an in-flight send for both Enter and Send',()=>{
  const send=vi.fn();render(<MessageComposePanel channel="sms" onChannelChange={()=>{}} messageText="Keep this draft" onMessageChange={()=>{}} subjectText="" onSubjectChange={()=>{}} onOpenTemplates={()=>{}} onSendMessage={send} sendLoading/>);
  fireEvent.keyDown(screen.getByPlaceholderText('Type SMS message…'),{key:'Enter'});fireEvent.click(screen.getByTitle('Send SMS'));expect(send).not.toHaveBeenCalled();

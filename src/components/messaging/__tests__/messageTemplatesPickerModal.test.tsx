@@ -20,6 +20,7 @@ vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) => open ? <div>{children}</div> : null,
   DialogContent: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
   DialogHeader: ({ children }: { children: React.ReactNode }) => <header>{children}</header>,
+  DialogFooter: ({ children }: { children: React.ReactNode }) => <footer>{children}</footer>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
 }));
 vi.mock("@/integrations/supabase/client", () => ({
@@ -83,9 +84,16 @@ describe("manual message template picker: Starter V1.1", () => {
     expect(await screen.findByRole("button", { name: /Meet Your Agent/i })).toBeTruthy();
     expect(screen.getAllByRole("button")).toHaveLength(6);
     fireEvent.click(screen.getByRole("button", { name: /Meet Your Agent/i }));
-    expect(onApply).toHaveBeenCalledOnce();
-    expect(onApply.mock.calls[0][0].body).toContain("Hi Jane");
-    expect(onApply.mock.calls[0][0].subject).toContain("life insurance");
+    expect(onApply).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox", { name: "Edit message" }) as HTMLTextAreaElement).value).toContain("Hi Jane");
+    expect((screen.getByRole("textbox", { name: "Subject" }) as HTMLInputElement).value).toContain("life insurance");
+    fireEvent.change(screen.getByRole("textbox", { name: "Edit message" }), { target: { value: "Edited email body\nSecond line" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Subject" }), { target: { value: "My edited subject" } });
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use Template" }));
+    expect(onApply).toHaveBeenCalledExactlyOnceWith({
+      body: "Edited email body\nSecond line", subject: "My edited subject", purpose: null,
+    });
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(state.toast).not.toHaveBeenCalled();
   });
@@ -95,11 +103,45 @@ describe("manual message template picker: Starter V1.1", () => {
     render(<MessageTemplatesPickerModal open onOpenChange={vi.fn()} channel="sms"
       mergeInput={{ ...baseInput, contact: { first_name: "" } }} onApply={onApply} />);
     fireEvent.click(await screen.findByRole("button", { name: /New Lead Introduction/i }));
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("First Name");
+    expect(state.toast).not.toHaveBeenCalled();
+    const editor = screen.getByRole("textbox", { name: "Edit message" }) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: editor.value.replace("Hi ,", "Hi there,") } });
+    fireEvent.click(screen.getByRole("button", { name: "Use Template" }));
     expect(onApply).toHaveBeenCalledOnce();
-    expect(onApply.mock.calls[0][0].body).toContain("Hi ,");
+    expect(onApply.mock.calls[0][0].body).toContain("Hi there,");
     expect(onApply.mock.calls[0][0].purpose).toBe("marketing");
     expect(state.toast).toHaveBeenCalledOnce();
     expect(state.toast.mock.calls[0][0].description).toContain("First Name");
+  });
+
+  it("Back and Cancel never replace an existing compose draft", async () => {
+    const onApply = vi.fn();
+    const onOpenChange = vi.fn();
+    render(<MessageTemplatesPickerModal open hasDraft onOpenChange={onOpenChange} channel="sms" mergeInput={baseInput} onApply={onApply} />);
+    fireEvent.click(await screen.findByRole("button", { name: /New Lead Introduction/i }));
+    expect(screen.getByText("Using this template replaces your current draft.")).toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("button", { name: /New Lead Introduction/i })).toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /New Lead Introduction/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("invalidates an open preview when switching SMS to email", async () => {
+    const onApply = vi.fn();
+    const props = { open: true, onOpenChange: vi.fn(), mergeInput: baseInput, onApply };
+    const { rerender } = render(<MessageTemplatesPickerModal {...props} channel="sms" />);
+    fireEvent.click(await screen.findByRole("button", { name: /New Lead Introduction/i }));
+    expect(screen.getByRole("button", { name: "Use Template" })).toBeInTheDocument();
+    rerender(<MessageTemplatesPickerModal {...props} channel="email" />);
+    expect(screen.queryByRole("button", { name: "Use Template" })).toBeNull();
+    expect(await screen.findByRole("button", { name: /Meet Your Agent/i })).toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
   });
 
   it("searches within the active channel and does not mutate agency data", async () => {

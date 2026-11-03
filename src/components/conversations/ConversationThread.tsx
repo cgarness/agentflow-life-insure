@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { messagesSupabaseApi } from "@/lib/supabase-messages";
 import { MessageComposePanel } from "@/components/messaging/MessageComposePanel";
+import { MessageTemplatesPickerModal } from "@/components/messaging/MessageTemplatesPickerModal";
+import type { MessageTemplateMergeInput } from "@/lib/messageTemplateMerge";
 import { PendingSmsStatus } from "@/components/messaging/PendingSmsStatus";
 import { useComposerDraftSink, useMarkObserved, usePendingSmsRecords, useSmsScopeEvents } from "@/hooks/usePendingSms";
 import { pendingSmsStore, smsScopeKey, type SmsIdentityScope } from "@/lib/sms-send/pendingSmsStore";
@@ -17,6 +19,7 @@ interface ConversationThreadProps {
   contactId: string;
   contactName: string;
   contactType: string;
+  templateMergeInput?: MessageTemplateMergeInput;
   /**
    * Send the composed EMAIL. Resolves `true` ONLY on a confirmed provider success — the composer is
    * cleared and the thread refreshed on `true` and on nothing else, so a failed send leaves the
@@ -91,6 +94,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   contactId,
   contactName,
   contactType,
+  templateMergeInput = { contact: null },
   onSendMessage,
   onSubmitSms,
   smsScope = null,
@@ -111,6 +115,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   // another — and an `expanded` map keyed by row id would otherwise outlive the contact it belongs
   // to. See `activeComposer` / `activeExpanded` below.
   const [composer, setComposer] = useState<ComposerState | null>(null);
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [expanded, setExpanded] = useState<ExpandedState | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** The reader is within FOLLOW_WITHIN_PX of the newest row (kept current by onScroll). */
@@ -143,6 +148,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     // user had not typed anything for the contact in between, since one composer is held at a
     // time. Resetting makes the behaviour the same every time: a new contact, a blank composer.
     setComposer((prev) => (prev && prev.key === contactId ? prev : null));
+    setShowTemplatesModal(false);
     setExpanded((prev) => (prev && prev.key === contactId ? prev : null));
     // A newly opened contact starts from its own first load, on the spinner, at its newest row.
     setLoaded((prev) => (prev && prev.key === contactId ? prev : null));
@@ -592,13 +598,26 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
             onMessageChange={setMessageText}
             subjectText={subjectText}
             onSubjectChange={setSubjectText}
-            onOpenTemplates={() => {}}
+            onOpenTemplates={() => setShowTemplatesModal(true)}
             onSendMessage={handleSend}
             sendLoading={channel === "sms" ? smsInFlight : sending}
             className="shadow-xl border-primary/10"
           />
         )}
       </div>
+      {!readOnly && (
+        <MessageTemplatesPickerModal
+          open={showTemplatesModal}
+          onOpenChange={setShowTemplatesModal}
+          channel={channel}
+          mergeInput={templateMergeInput}
+          hasDraft={!!messageText.trim() || (channel === "email" && !!subjectText.trim())}
+          onApply={({ body, subject }) => patchComposer({
+            text: body,
+            ...(subject !== null ? { subject } : {}),
+          })}
+        />
+      )}
     </div>
   );
 };

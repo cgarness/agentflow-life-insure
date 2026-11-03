@@ -17,6 +17,8 @@ export interface ConversationPreview {
   contact_id: string;
   contact_name: string;
   contact_type: 'lead' | 'client' | 'recruit';
+  contact_first_name?: string;
+  contact_last_name?: string;
   contact_phone?: string;
   contact_email?: string;
   last_message: string;
@@ -30,6 +32,8 @@ export interface ScopedContact {
   contact_id: string;
   contact_name: string;
   contact_type: 'lead' | 'client' | 'recruit';
+  contact_first_name?: string;
+  contact_last_name?: string;
   contact_phone?: string;
   contact_email?: string;
 }
@@ -75,6 +79,8 @@ interface ActivityCandidate {
 
 interface ResolvedContact {
   name: string;
+  firstName?: string;
+  lastName?: string;
   type: 'lead' | 'client' | 'recruit';
   phone?: string;
   email?: string;
@@ -195,6 +201,8 @@ async function resolveContactsInScope(
         if (!id || resolved.has(id)) continue;
         resolved.set(id, {
           name: displayName(row.first_name, row.last_name),
+          firstName: optionalText(row.first_name),
+          lastName: optionalText(row.last_name),
           type,
           phone: optionalText(row.phone),
           email: optionalText(row.email),
@@ -245,6 +253,8 @@ async function listAuthorizedContacts(scope: ConversationScope): Promise<Map<str
         if (!id || resolved.has(id)) continue;
         resolved.set(id, {
           name: displayName(row.first_name, row.last_name),
+          firstName: optionalText(row.first_name),
+          lastName: optionalText(row.last_name),
           type,
           phone: optionalText(row.phone),
           email: optionalText(row.email),
@@ -637,6 +647,8 @@ export const messagesSupabaseApi = {
           contact_id: row.contact_id,
           contact_name: contactDisplayLabel(contact),
           contact_type: contact.type,
+          contact_first_name: contact.firstName,
+          contact_last_name: contact.lastName,
           contact_phone: contact.phone,
           contact_email: contact.email,
           last_message: row.last_message,
@@ -666,6 +678,8 @@ export const messagesSupabaseApi = {
       contact_id: contactId,
       contact_name: contactDisplayLabel(hit),
       contact_type: hit.type,
+      contact_first_name: hit.firstName,
+      contact_last_name: hit.lastName,
       contact_phone: hit.phone,
       contact_email: hit.email,
     };
