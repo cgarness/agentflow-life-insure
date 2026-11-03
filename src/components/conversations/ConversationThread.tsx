@@ -19,7 +19,7 @@ interface ConversationThreadProps {
   contactId: string;
   contactName: string;
   contactType: string;
-  templateMergeInput: MessageTemplateMergeInput;
+  templateMergeInput?: MessageTemplateMergeInput;
   /**
    * Send the composed EMAIL. Resolves `true` ONLY on a confirmed provider success — the composer is
    * cleared and the thread refreshed on `true` and on nothing else, so a failed send leaves the
@@ -94,7 +94,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
   contactId,
   contactName,
   contactType,
-  templateMergeInput,
+  templateMergeInput = { contact: null },
   onSendMessage,
   onSubmitSms,
   smsScope = null,
