@@ -193,7 +193,7 @@ const convo = (contactId: string, name: string, over: Record<string, unknown> = 
   channel: "sms", direction: "outbound", ...over,
 });
 
-const composer = () => document.querySelector('input[placeholder="Type SMS message…"]') as HTMLInputElement;
+const composer = () => document.querySelector('textarea[placeholder="Type SMS message…"]') as HTMLTextAreaElement;
 const emailBody = () => document.querySelector('textarea[placeholder="Type EMAIL message…"]') as HTMLTextAreaElement;
 const subject = () => document.querySelector('input[placeholder="Subject"]') as HTMLInputElement;
 const sendButton = () => screen.getByRole("button", { name: /^send$/i });
