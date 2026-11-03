@@ -174,6 +174,17 @@ beforeEach(() => {
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+describe("manual template access", () => {
+  it("opens the template picker without replacing an unsent draft", async () => {
+    await open();
+    fireEvent.change(composer(), { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Templates" }));
+    expect(await screen.findByText("Message templates")).toBeInTheDocument();
+    expect(composer().value).toBe("Keep this draft");
+    expect(screen.queryByRole("button", { name: "Use Template" })).toBeNull();
+  });
+});
+
 describe("the pending bubble is immediate and truthful", () => {
   it("renders on the click, keeps typing open, and becomes the saved row without a reload", async () => {
     await open();
