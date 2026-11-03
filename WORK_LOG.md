@@ -1,5 +1,49 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Reports V2 PKG-A X1: isolated pointer-map read-path experiment; recommendation: stop the maintained layer (branch `claude/great-goodall-911azc`; documentation only; NOT merged, applied, enabled or deployed)
+
+**Status.**
+- X1 was approved alone. **Phase B and X2 are not approved, and neither was started.**
+- Performance acceptance remains failed, and PKG-A is not release-ready.
+- No migration, production-reader, workflow, telephony, `TwilioContext`, duration-writer or v2 change. No hosted command, grant outside the disposable harness, enablement or deployment. `…17` is untouched.
+- **Still pending:** ★1, ★4, E1–E6 acceptance, the campaign-copy fallback security review, the named reviewer and the PKG-A production approval. No agency-only fallback.
+
+**Changed (tracked).**
+- `implementation_plan.md`: the X1 scope, written first and pushed as `abe6e0b`, and its outcome.
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`: §14.F (the measured result and recommendation), the B5/B6 correction (out-of-order journal commits) and a supersession note in §14.A.
+
+**Experiment** (disposable loopback databases; PostgreSQL 16.15; diagnostic only; not an acceptance run).
+- **Prototype:** the scratch `x1.pointers` was populated from the live resolver text: 225,500 rows for the scale organization in 1.07 s, 48 MB with indexes. Each arm copies the reader and replaces only its `@call-pointers` block, with byte identity asserted.
+  - W: the window's pointer sets mapped by keyed lookup.
+  - U: the whole organization's stored rows.
+  - F: W plus the §14 B4/B7 freshness gate and live branch.
+- **Equivalence with the current code:** 2,732 comparisons and 0 differences, covering:
+  - the fixture inventory (1,408 payloads, 704 refusals);
+  - 540 journey-helper cases;
+  - the 15 scale inventory cases;
+  - the 48 measured-combination cases;
+  - 6 scale journey-helper cases;
+  - verify over 11 organizations.
+
+  Controls: 8 of 8.
+- **A/B, p95, agency-366** (20 interleaved samples, 0 timeouts):
+
+  | Reader | Baseline | W | U | F |
+  |---|---|---|---|---|
+  | summary | 2,387 ms | −2.4% | −14.4%, still 43 ms over | −3.0% |
+  | state | 2,343 ms | −1.7% | n/a | −1.9% |
+  | journey | 3,814 ms | +2.3% | −8.9% | +20.0% |
+
+  - U regresses small summary scopes by 38–104 ms (paired).
+  - F loses the journey history pass's parallel plan: about +0.8 s on every journey combination.
+- **Plans:** the resolver's joins are negligible. The attributable pointer cost is the second pass over the window's calls that builds the distinct pointer sets.
+- **Recommendation: stop the maintained pointer layer.** It does not support further investment for summary or state, and the journey gain alone does not justify it.
+- **Evidence:** the bundle `reports_v3_x1_evidence_772e883.tar.gz` (sha256 `fddeed87…d08225`), delivered to Chris outside the repository. A proposed PostgreSQL 17.6 CI mode is included as a patch and is not applied.
+
+**Design correction.** §14 B5/B6's high-water mark is unsafe: a `bigserial` id is allocated at insert, not at commit. The counterexample: id 100 is uncommitted while 101 commits, repair records 101, then 100 commits before cleanup. Global acknowledgments fail the same way. This is recorded as a pending concurrency proof, with no mechanism chosen. The mandatory journal append's ability to fail the CRM write remains unapproved.
+
+**Checks:** the hardened exit-status ledger (see the checkpoint commit).
+
 ## 2026-11-03 — Reports V2 PKG-A Batch 7 checkpoint review: verification hardening, differential-job allowance, parallel-safety review and the Phase B design delta (branch `claude/great-goodall-911azc`; documentation and one workflow timeout only; NOT merged, applied, enabled or deployed)
 
 **Status.**

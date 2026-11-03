@@ -1773,6 +1773,7 @@ Where this section differs from that proposal, this section governs. It does not
 
 - **Measured:** the p95 values (CI), and the node times listed (local PostgreSQL 16.15, instrumented). Instrumented timings overlap and inflate many-row nodes; they are not additive or end-to-end.
 - **Estimated:** the "after" column. Reading the stored rows still costs a scan and hash of the organization's pointer rows (about 225k in the fixture), which the estimate charges at 0.1–0.2 s.
+- **Superseded by measurement (X1, §14.F):** the "after" estimates above overstated what resolution costs. The node times listed are dominated by building the window's distinct pointer sets from a second pass over the calls, not by the resolver's joins.
 - **Conclusion:** the layer alone is not expected to clear summary or state. The rest of their cost is the base pass over about 457k calls (about 0.9 s instrumented) and grouping (about 0.5 s). For the journey it is plausible but unproven.
 - **Proposed isolated experiment X1** (needs approval; disposable databases only; no migration file):
   - In the 500k fixture database, create a scratch schema holding a pointer table filled from the live resolver, and scratch copies of the three readers' statements that read it.
@@ -1822,6 +1823,22 @@ Where this section differs from that proposal, this section governs. It does not
 - A global journal row (`organization_id` NULL: TRUNCATE, trigger-state events or a restore rule) makes every organization live.
 - Repairing organization X records `repairs(X, hwm, completed_at)`. X is fresh only when it has no pending row of its own and every global row's id is ≤ X's recorded high-water mark.
 - A global row is deleted only after every organization's high-water mark has passed it, or after a full repair.
+
+**B5/B6 correction (X1 review, 2026-11-03): as written, B5 and B6 are unsafe under out-of-order commits.**
+- **The flaw.** Their high-water-mark rule (`id ≤ hwm` means observed and repaired) does not hold. A `bigserial` journal id is allocated when the row is inserted, not when its transaction commits.
+- **Counterexample:**
+  1. Transaction A appends journal id 100 for organization X and stays uncommitted. Its CRM change is invisible to everyone else.
+  2. Transaction B appends id 101 and commits.
+  3. Repair starts. The largest committed id is 101, so it records hwm = 101, then recomputes X's pointers. A's change is still invisible, so it is not repaired.
+  4. A commits.
+  5. Repair's cleanup deletes the journal rows with id ≤ 101, which now includes 100.
+  6. X has no pending row, so readers use the stored rows even though A's change was never applied. Nothing marks X stale until something else touches it.
+- **Global acknowledgments fail the same way.** A global row whose id is at or below X's recorded mark, but which committed after repair's snapshot, counts as acknowledged without being observed. "A global row is deleted only after every organization's mark has passed it" inherits the flaw.
+- **Status: a pending concurrency proof, not a mechanism.** Nothing is chosen or built.
+  - Any later design must show, in a test of this interleaving and its variants, that a journal row is removed or acknowledged only after repair has observed its committed change.
+  - The variants: A commits during the recompute; A commits after cleanup; A is a global row; two concurrent repairs; maintenance deleting its own rows.
+  - Candidate directions, unproven and unapproved: cleanup deletes exactly the ids repair saw rather than a range, and global acknowledgment records exact ids; or a horizon taken from the transaction snapshot (`pg_snapshot_xmin`) instead of a sequence value.
+- **B1's tradeoff also remains unapproved.** The mandatory journal append can fail the CRM write, for the classes listed in B2.
 
 **B7. Missing layer tables or functions.**
 - The reader's PL/pgSQL checks `to_regclass` and `to_regprocedure` for every layer object before choosing its statement. If any is missing, it runs the live statement's constant text, which never mentions the layer.
@@ -1900,6 +1917,78 @@ Where this section differs from that proposal, this section governs. It does not
    - the unchanged two-run, 147-combination acceptance passes.
 
    Phase B is not implemented, and no first-contact cache is proposed.
+
+### 14.F X1 measured result and recommendation (2026-11-03; isolated experiment; diagnostic only)
+
+**Scope.** X1 was approved alone (Phase B and X2 are not approved). It ran in disposable loopback databases on PostgreSQL 16.15, with:
+- a 4-vCPU Intel Xeon at 2.30 GHz and 16 GB of memory;
+- production session settings and the 8 s statement timeout;
+- the 500k-call fixture at `772e883`.
+
+It is diagnostic evidence, **not an acceptance run**. No migration, production reader change or hosted command was made. The scripts, generated SQL, hashes, raw samples and plans are in the downloadable bundle `reports_v3_x1_evidence_772e883.tar.gz` (sha256 `fddeed87a710489fd1f1cafc0dd9038b6a028664413155410e016c73d1d08225`), outside the repository.
+
+**Prototype.** The scratch schema `x1.pointers` holds one row per organization, pointer kind and pointer id:
+- the scale organization has 225,500 rows, populated from the live resolver text in 1.07 s;
+- storage is 48 MB: heap 25 MB, primary key 18 MB, reverse index 5.3 MB.
+
+Each arm copies the installed function and replaces only its `@call-pointers` block; byte identity is asserted.
+- **W:** the window's pointer sets (one pass over the window's calls), each mapped by one keyed lookup.
+- **U:** every stored row of the organization, with no pointer pass over the calls (summary and journey only; for the state reader, U would widen the identity-state input).
+- **F:** W plus the B4/B7 shape: `to_regclass` checks, and an in-statement freshness CTE gating the stored branch and the unchanged live branch.
+
+**Excluded:** maintenance and write-path cost, a non-empty journal, concurrent repair, lock waits, and the fallback's execution.
+
+**Equivalence before timing: 2,732 comparisons with the current code, 0 differences.**
+- every fixture inventory reader case of the three readers for every arm: 1,408 payloads and 704 refusals;
+- 540 journey-helper cases;
+- the 15 scale inventory cases;
+- the 18 measured combinations for every arm (48);
+- 6 scale journey-helper cases;
+- `x1.verify` over every pointer of every call of 11 organizations.
+
+**Controls: 8 of 8 behaved as expected.** A planted stored-row change is caught for every arm. F switches correctly to live on an organization journal row, a global row above the mark and a not-ready layer, and back to stored at the mark.
+
+**Primary results** (p95 in ms; 20 interleaved samples after one warm-up; 0 timeouts):
+
+| Reader, agency-366 | Baseline | W | U | F | Remaining gap to target, best arm (local) |
+|---|---|---|---|---|---|
+| summary (2 s) | 2,387.3 | 2,330.6 (−56.7, −2.4%; paired −30.8) | **2,042.7 (−344.6, −14.4%; paired −265.0)** | 2,316.4 (−70.9, −3.0%) | U: **+42.7 over** |
+| state (2 s) | 2,342.8 | **2,302.5 (−40.3, −1.7%; paired −9.3)** | n/a | 2,298.1 (−44.7, −1.9%; paired −8.1) | W: **+302.5 over** |
+| journey (4 s) | 3,813.8 | 3,900.1 (+86.3; paired +29.0) | **3,473.0 (−340.8, −8.9%; paired −229.5)** | 4,575.8 (**+762.0, +20.0%**) | U: 527 under; the baseline is already 186 under locally |
+
+- **Controls** (short windows, personal, team, agent-filtered):
+  - W and F are within about ±40 ms paired of the baseline for summary and state.
+  - U **regresses** small summary scopes: agency-1 +104 ms paired (p95 +62%), personal-366 +38 ms, agency-366-one-agent +42 ms. Every scope pays to hash the whole organization's rows.
+  - F costs **+0.78 to +0.83 s on every journey combination**.
+- **Plans** (instrumented, separate from the samples):
+  - The live resolver's own joins are negligible (recruits, clients-by-lead and lineage each finish within about 1 ms). Its cost is building the window's distinct pointer sets from a second pass over the calls: 399 ms for contacts and 156 ms for memberships in summary agency-366. W keeps that pass (333 and 196 ms), and U removes it (121 and 94 ms).
+  - F's freshness CTE removes the journey history pass's parallel plan (one Gather with one worker becomes none), because a CTE scan is parallel-restricted. That is the +0.8 s.
+- **Local versus CI.** The local baseline is faster than CI run 2 by a ratio of 1.16–1.18. Applying each measured percentage to CI run 2 gives **estimates, not measurements**:
+  - summary U about 2.37 s;
+  - state W about 2.71 s;
+  - journey U about 4.03 s.
+
+**Decision per failing reader** (unchanged targets):
+- **Summary:**
+  - Gain: at best −345 ms p95 (U), but U regresses every small scope. The shape that does not regress (W or F) gains −2 to −3%.
+  - Gap: +43 ms locally; about +370 ms estimated on CI.
+  - Verdict: **does not support** maintained infrastructure.
+  - Still needed: the remaining cost is the base pass over about 457k calls and the grouping, which no pointer layer touches.
+- **State:**
+  - Gain: −40 ms (−1.7%), within noise.
+  - Gap: +303 ms locally.
+  - Verdict: **does not support** it.
+  - Still needed: the miss is in the identity-state resolver, sale facts and the per-call pass.
+- **Journey:**
+  - Gain: −341 ms p95 (U) at best, while the B4 freshness shape costs +762 ms.
+  - Gap: under target locally even at baseline; about +33 ms estimated on CI with U.
+  - Verdict: alone, **does not justify** a maintained layer and its CRM write-path risk (B1, the B5/B6 correction).
+  - Not measured: PostgreSQL documents that a STABLE function's statements use the snapshot of the calling query. A PL/pgSQL-level branch could therefore keep the B4 snapshot guarantee without the two-branch statement.
+
+**Recommendation: stop the maintained pointer layer.** Do not proceed to X2, Phase B or migration placement on its account.
+- X1's useful finding is that the attributable pointer cost is the second pass over the window's calls, not resolution. Any change to that pass needs no maintained table, trigger or journal.
+- Pursuing it would be separate read-path performance work under its own approval; nothing is started.
+- A PostgreSQL 17.6 rerun of X1 needs a CI experiment mode and tracked scripts. It is returned as a proposed change only (`scripts/proposed_ci_x1_mode.patch` in the bundle) and is not needed for the no-go.
 
 ## Appendices
 

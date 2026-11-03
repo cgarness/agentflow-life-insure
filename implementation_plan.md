@@ -42,6 +42,23 @@
 - **Still pending:** ★1, ★4, E1–E6 acceptance, the campaign-copy fallback security review, the named reviewer and the PKG-A production approval. No agency-only fallback.
 - **Stop:** after X1, with no automatic follow-on (no X2).
 
+**Outcome (2026-11-03).** The full result is in `docs/plans/2026-10-31-reports-v2/implementation_plan.md` §14.F. The B5/B6 correction is in §14.B.
+- **Evidence:** the bundle `reports_v3_x1_evidence_772e883.tar.gz` (sha256 `fddeed87a710489fd1f1cafc0dd9038b6a028664413155410e016c73d1d08225`), delivered outside the repository. It holds the scripts, generated SQL, recipe, hashes, raw samples, plans and comparisons.
+- **Local current code against the frozen baseline,** before X1: fixtures 0 mismatches (2,136 reader cases, 180 journey, 120 by-agent, 55 resolver); scale 0 mismatches.
+- **Equivalence of the arms against the current code:** 2,732 comparisons, 0 differences. Controls: 8 of 8.
+- **A/B, p95 at agency-366** (PostgreSQL 16.15, diagnostic only):
+
+  | Reader | Baseline | Best arm | Change |
+  |---|---|---|---|
+  | summary | 2,387 ms | U, 2,043 ms | −14.4%; still over 2 s, and U regresses small scopes |
+  | state | 2,343 ms | W, 2,303 ms | −1.7% |
+  | journey | 3,814 ms | U, 3,473 ms | −8.9% |
+
+  F, the §14 B4 freshness shape, costs +0.8 s on every journey combination because it loses the parallel plan.
+- **Recommendation: stop the maintained pointer layer.** No X2 and no Phase B on its account.
+- **Process:** the first measurement attempt refused to start because a rotation check of my own returned NULL. It was fixed and rerun; no sample had run, and the refusal log is in the bundle.
+- **Not changed:** the production readers, migrations, the workflow, `…17`, telephony and v2. No hosted command, grant outside the disposable harness, enablement or deployment. The proposed PostgreSQL 17.6 CI mode is returned as a patch and is not applied.
+
 ## 2026-11-03 — Reports V2 PKG-A Batch 7 checkpoint review: verification hardening, differential-job allowance, parallel-safety review and the Phase B design delta (branch `claude/great-goodall-911azc`; documentation and one workflow timeout only; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's Batch 7 checkpoint-review message of 2026-11-03. Batch 7 Phase E, Phase A and KPI 24 are a completed branch-development checkpoint at the reviewed remote head `d2bba9e8e302a8b618b4f83661925319580c1b09`. Performance acceptance remains failed, and PKG-A is not release-ready.
