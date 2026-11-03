@@ -2,6 +2,8 @@
 
 Chris approved the brighter room concept and branch implementation. Detailed plan and intended files: [Inbounds room plan](docs/plans/2026-11-03-inbounds-room/implementation_plan.md). Existing plans below are preserved. No production mutation or release.
 
+Release preparation follow-up (Chris: “proceed”): inspect final CI and live baselines. Correct the existing premature `PhoneNumber[]` assertion in `src/components/settings/NumberReputation.tsx`, exposed by the added generated column changing a baseline diagnostic. Keep raw row inference and validate the final async result as `PhoneNumber[]`; preserve queries, rendering and calculated metrics. Intended files: that component, this plan, `WORK_LOG.md`, and the focused verification record. Run root TypeScript and exact-base application diagnostic comparison. Do not relax either CI comparison. Investigate the independent SMS dependency integrity failure before recommending release. Exact backend release approval is still required.
+
 ## 2026-11-03 — APPROVED: Editable SMS/Email Template Preview and Expanding Composer
 
 **Approval:** Chris approved the template-preview/composer behavior, then explicitly asked ChatGPT to make the fixes. Authorized scope: branch-only frontend changes, focused tests, and draft PR. **Not authorized:** direct push to main, merge, production release, database writes, migrations, backend dispatch changes, real messaging or telephony changes.

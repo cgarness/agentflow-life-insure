@@ -6,6 +6,14 @@ Desktop and mobile screenshots in this folder use synthetic demo data from the i
 
 ## Evidence
 
+### November 3 release-preparation update
+
+The Inbounds cloud job passed on `ba3150eacd753d0b24bdd5a49b8458c35813940c`: [run 41694451928](https://github.com/cgarness/agentflow-life-insure/actions/runs/41694451928), including real PostgreSQL contention tests. Broader CI then found an existing NumberReputation raw-row assertion whose diagnostic changed when `inbounds_only` was added. The correction removes that assertion and validates the final, calculated query result as `Promise<PhoneNumber[]>`. Root TypeScript and scoped ESLint pass; exact-base application comparison is **base=80, candidate=79, new=0**. The CI comparison scripts are unchanged. This supersedes the original 80/80 type count below.
+
+The SMS workflow's separate dependency integrity failure is not a passed check: it received unexpected bytes for `https://esm.sh/tslib@2.8.1/denonext/tslib.mjs`. A fresh download during preparation matches the original lockfile digest (`c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9`). No lockfile was regenerated. Cloud results on the corrected head remain to be recorded in the PR.
+
+Read-only production preflight reverified all three guarded SQL definitions and all 15 live source files in the four Edge bundles against base `e02342f`. Versions and `verify_jwt=false` remain unchanged. Room schema is absent; all 17 unique files in `release-hashes.json` still match. Vercel production is READY at `e02342f`. No production changes or live-call tests were performed. Pending SQL/Edge approval and frontend/number gates below still apply.
+
 - `npx tsc --noEmit`: passes (the repository root is a references-only config). The stronger `npx tsc --noEmit -p tsconfig.app.json` reports the same 80 existing diagnostics as clean base `e02342fa74afddea2342e9640fb18a274da2367a`; no added error locations/codes. Do not call the application-wide type check clean.
 - Production build with `VITE_INBOUNDS_ROOM=true`: passes; existing large-bundle warning remains.
 - Inbound regression + room phone + settings + statistics tests: 288 passing tests across 22 files, including failed-save retention and canonical disposition confirmation.

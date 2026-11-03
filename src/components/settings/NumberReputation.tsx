@@ -280,7 +280,7 @@ const NumberReputation: React.FC = () => {
   const { data: phoneNumbers, refetch, isLoading } = useQuery({
     queryKey: ["phone-numbers-reputation", organizationId],
     enabled: !!organizationId,
-    queryFn: async () => {
+    queryFn: async (): Promise<PhoneNumber[]> => {
       if (!organizationId) return [];
       const { data, error } = await supabase
         .from("phone_numbers")
@@ -289,8 +289,8 @@ const NumberReputation: React.FC = () => {
         .eq("organization_id", organizationId)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      const phoneRows = (data as PhoneNumber[]) ?? [];
-      if (phoneRows.length === 0) return phoneRows;
+      const phoneRows = data ?? [];
+      if (phoneRows.length === 0) return [];
 
       const numbers = phoneRows.map((row) => row.phone_number);
       const { data: callsData, error: callsError } = await supabase

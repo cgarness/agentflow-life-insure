@@ -1,5 +1,15 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Inbounds release preparation and CI type correction (PR #509; NOT released)
+
+**Status:** Chris said “proceed” after review-branch publication. Continued branch verification and read-only production preflight; no merge, migration, Edge deployment, flag change, number designation or real call.
+
+**Correction:** Final broader CI exposed a pre-existing `NumberReputation` cast error whose diagnostic text changed when the generated phone row gained `inbounds_only`. Raw database rows do not yet contain calculated `calls_today` or `last_outbound_shaken_stir`. Removed the premature assertion and typed the final query result as `Promise<PhoneNumber[]>`; calculations, queries and UI are unchanged. Neither baseline comparison was relaxed. Files: `src/components/settings/NumberReputation.tsx`, `implementation_plan.md`, this log and the Inbounds verification record.
+
+**Verification:** Root TypeScript and scoped ESLint pass. Exact-base application comparison: base 80, candidate 79, new 0. Inbounds PostgreSQL concurrency/build CI passed on `ba3150e` (run `41694451928`); cloud rerun on the correction is required. The separate SMS job hit an upstream `tslib@2.8.1` integrity mismatch; a fresh download again matches the unchanged tracked SHA-256 `c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9`. No dependency or lockfile edits.
+
+**Production preflight:** All three guarded SQL definitions match their expected md5; no room schema exists. All 15 live Edge source files match the reviewed base (token v57, inbound v71, claim v62, outbound v60; `verify_jwt=false`). All 17 unique release-manifest files match their SHA-256. Vercel production is READY on main `e02342f`. Pending migration/Edge approval, full cloud results and controlled Twilio testing remain release gates. Do not infer activation from this record.
+
 ## 2026-11-03 — Inbounds room V1 (approved build; branch only)
 
 **Status:** Chris approved the bright-font concept and requested the build. Implemented on `feat/inbounds-room-20261103` and published as PR #509 after explicit approval; production migration, Edge deployment, frontend activation and number designation remain separate exact release gates. Nothing was merged or applied live.
