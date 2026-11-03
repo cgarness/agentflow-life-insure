@@ -310,6 +310,19 @@ const ConversationsPage = () => {
             contactName={selectedContact.contact_name}
             // The RESOLVED type, from the table the contact was actually found in — never the URL.
             contactType={selectedContact.contact_type}
+            templateMergeInput={{
+              contact: {
+                id: selectedContact.contact_id,
+                first_name: selectedContact.contact_first_name,
+                last_name: selectedContact.contact_last_name,
+                phone: selectedContact.contact_phone,
+                email: selectedContact.contact_email,
+              },
+              agentFirstName: profile?.first_name,
+              agentLastName: profile?.last_name,
+              agentPhone: profile?.phone,
+              agentEmail: profile?.email,
+            }}
             onSendMessage={handleSendMessage}
             onSubmitSms={handleSubmitSms}
             smsScope={smsScope}
