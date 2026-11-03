@@ -1,3 +1,28 @@
+## 2026-11-03 — APPROVED: Editable SMS/Email Template Preview and Expanding Composer
+
+**Approval:** Chris approved the template-preview/composer behavior, then explicitly asked ChatGPT to make the fixes. Authorized scope: branch-only frontend changes, focused tests, and draft PR. **Not authorized:** direct push to main, merge, production release, database writes, migrations, backend dispatch changes, real messaging or telephony changes.
+
+**Problem:** `MessageTemplatesPickerModal` inserts on first click. `MessageComposePanel` has a single-line SMS input and fixed-height email area. Conversations renders a Templates button wired to an empty callback.
+
+**Approach:** Keep the existing tenant-scoped template list and merge resolver. A template click only populates an editable preview (full SMS body or email subject/body). An explicit **Use Template** action applies only the edited copy, never edits the saved template or sends a message. Back/Cancel retain the prior compose draft. Show missing/unknown field warnings in the preview. Warn when an existing draft will be replaced. Preserve channel/contact identity boundaries. Switch the shared SMS input to a multiline, auto-growing editor with a constrained maximum height and an optional expanded view. SMS Enter sends; Shift+Enter inserts a newline; IME Enter must not send. Email Enter inserts a newline. Wire the Conversations template button to the same picker, using first/last names from the existing authorized contact resolution (no new contact queries).
+
+**Files intended to touch before editing:**
+1. `src/components/messaging/MessageTemplatesPickerModal.tsx` (picker flow)
+2. `src/components/messaging/MessageTemplatePickerList.tsx` (extract list to keep components short)
+3. `src/components/messaging/MessageTemplateEditPreview.tsx` (editable preview)
+4. `src/components/messaging/MessageComposePanel.tsx` (multiline auto-grow + expand)
+5. `src/lib/supabase-messages.ts` (carry already-fetched real first/last names through scoped contact DTO)
+6. `src/pages/Conversations.tsx` and `src/components/conversations/ConversationThread.tsx` (wire selector)
+7. `src/components/contacts/FullScreenContactView.tsx`, `src/pages/DialerPage.tsx` (current draft notice)
+8. `src/components/messaging/__tests__/messageTemplatesPickerModal.test.tsx`, `src/components/messaging/smsConsent.test.tsx`, and focused conversation tests where necessary
+9. `implementation_plan.md` and `WORK_LOG.md` (plan, verification, handoff)
+
+**Acceptance gates:** Selection never changes the composer. Preview edits persist until applied, only to current draft. Cancel/Back preserve previous draft. Preview displays actual contact merges, separate email subject, and missing-field notices. Draft replacement is explicit. Long SMS/email messages are scrollable and accessible with no viewport overflow; Shift+Enter, Enter, IME and failed/in-flight sends are covered. View As remains read-only. Existing tenant/RLS scoping, sms pending-store and manual send paths remain unchanged. Dialer still does not send from the coming-soon stub.
+
+**Verification:** Focused Vitest, `npx tsc --noEmit`, targeted lint, build and browser/small-screen checks when available; separate known baseline failures from new failures. No backend commands needed. Append newest-first `WORK_LOG.md` entry, create draft PR, leave it unmerged pending review/release approval.
+
+---
+
 ## 2026-10-30 — APPROVED BRANCH BUILD: Starter SMS & Email Templates V1.1 (ChatGPT continuation)
 
 **Approval:** Chris asked ChatGPT to pick up Claude's existing plan and finish the task. This authorizes surgical branch implementation and tests only. **Not approved:** production data changes, migrations, merge, live release, or outbound sends.
