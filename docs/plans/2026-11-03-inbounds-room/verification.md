@@ -1,6 +1,10 @@
 # Inbounds room V1 verification and release boundary
 
-Status: branch build; not merged or applied to production. Feature flag `VITE_INBOUNDS_ROOM` defaults off. No numbers were changed and no customer calls were placed.
+Status: **backend applied and source-verified on November 3, 2026 after Chris's exact approval**. Frontend not merged or activated. All 21 phone numbers remain non-Inbounds and no customer calls were placed. Feature flag `VITE_INBOUNDS_ROOM` defaults off.
+
+Release evidence: [backend-release.json](backend-release.json). Migration recorded as `20261103191631 / inbounds_room_v1`, with the exact approved SQL bytes (SHA-256 `cf5ad21d7f262309de451610de73be18b3d13428df9a4339cbd4e6a81c1ef8e1`). The repository file is now `supabase/migrations/20261103191631_inbounds_room_v1.sql`; never replay it. Its original NOT APPLIED comment is retained as immutable authoring history. Four deployed bundles match every approved source file: token v58, inbound v72, claim v63 and outbound webhook v61, all ACTIVE with `verify_jwt=false` and no import map.
+
+All 15 database function bodies/owners/search paths/grants match; all three tables have RLS and deny direct browser access; three triggers, index and dedicated-number constraint verified. Unsigned probes returned 401 for token and 403 for the three webhooks. Security-advisor deltas are the intended three RLS/no-policy INFO findings for RPC-only tables and five authenticated DEFINER RPC warnings with explicit actor/organization validation. See the release JSON for findings and remediation links. No new anonymous execution or mutable-search-path finding. Earlier build/preflight sections below are historical; this status supersedes their not-deployed labels.
 
 Desktop and mobile screenshots in this folder use synthetic demo data from the isolated browser harness. They show the implemented components, not production performance.
 
@@ -38,13 +42,13 @@ Read-only production preflight reverified all three guarded SQL definitions and 
 - PGlite alternative (single-session only): install `@electric-sql/pglite` outside the application, set `PGLITE_MODULE` to its local `dist/index.js`, then run that same script.
 - Browser harness: install Playwright outside the application, set `PLAYWRIGHT_MODULE` to its local `index.mjs`, then `node scripts/tests/inbounds/browser/check.mjs`. It starts a local test-only Vite server and uses test aliases, never the real Supabase client or phone SDK.
 
-## Exact production release preparation
+## Release sequence
 
-1. Re-read live definitions and bundles. The pending migration aborts if `is_agent_busy`, `plan_inbound_route` or `claim_inbound_call` differs from the captured preimage. Do not remove the drift guards to force a deployment.
-2. Obtain exact approval for `supabase/migrations/pending/20261103170954_inbounds_room_v1.sql` and the four complete Edge bundles listed in `release-hashes.json`. Apply the migration through the normal reviewed migration process. It adds no enabled numbers and backfills no calls.
-3. Deploy `twilio-token`, `twilio-voice-inbound`, `inbound-call-claim`, and `twilio-voice-webhook`, including their complete current dependencies and the new `_shared/inbounds-room.ts`. Preserve `verify_jwt=false`, master-account JWT scope and signed Twilio callbacks. Backend first: new webhook handlers require the new RPC/column even for ordinary calls.
+1. **Complete:** Re-read and matched the three guarded live SQL definitions and all 15 original Edge source files. The exact migration's drift guards were retained.
+2. **Complete:** Chris approved the authored SQL `20261103170954_inbounds_room_v1.sql` and exact four bundles at commit `fddab04f`. Applied/recorded as `20261103191631`, with no enabled numbers or call backfill. The manifest preserves the approved source path and records the reconciled path. Do not reapply.
+3. **Complete:** Deployed and independently read back `twilio-token`, `twilio-voice-inbound`, `inbound-call-claim`, and `twilio-voice-webhook`, including every dependency. Preserved `verify_jwt=false`, master-account JWT scope and signed Twilio callbacks. The migration preceded all handler deployments.
 4. Check grants/RLS and security advisors, then use approved synthetic identities/numbers to verify real simultaneous ringing, first answer, ongoing CRM-call exclusion, media, cancellation, missed calls, voicemail playback, duplicate callback replay, refresh/rejoin and mandatory dispositions. Confirm existing non-room inbound/outbound behavior.
 5. Separately approve frontend merge/flag and exact experiment DIDs. An active agency number must not be the default, personal or a direct line. The room is a 10-agent pilot (Twilio client fan-out limit), with 45-second leases renewed every 10 seconds. Reload/closed-tab recovery can wait up to 45 seconds.
 6. Safe rollback starts with frontend flag off and pausing room sessions; coordinate existing calls before changing number routing. Turning a number off intentionally returns future calls to ordinary routing; never do that silently during an ad experiment. Retain tagged call history, frozen identities and pending disposition receipts. Do not drop the schema while these handlers are deployed.
 
-Known boundaries: Today uses the viewer's local midnight; activity lists show latest 50 records today. An unresolved provider ownership callback deliberately keeps the accepting browser paused. This build does not authorize production migration, deploy, configuration changes or live call testing.
+Known boundaries: Today uses the viewer's local midnight; activity lists show latest 50 records today. An unresolved provider ownership callback deliberately keeps the accepting browser paused. Backend deployment does not authorize frontend activation, number designation or live call testing, and does not prove real Twilio ringing/audio.

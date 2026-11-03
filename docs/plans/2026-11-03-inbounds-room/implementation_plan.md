@@ -1,4 +1,6 @@
-# Inbounds room V1 — approved build, production release pending
+# Inbounds room V1 — backend released; frontend activation pending
+
+November 3 backend gate: Chris explicitly approved the exact package at `fddab04f`. Migration applied once as `20261103191631` with unchanged SQL bytes; token v58, inbound v72, claim v63 and outbound webhook v61 deployed and read back. RLS/grants, all 15 function bodies, schema and unsigned-request rejection verified. The migration filename and isolated harness reference are reconciled to recorded history. See `backend-release.json`. Frontend, dedicated numbers and real-call testing remain separately gated.
 
 Chris approved the brighter interactive concept and said “proceed with build” on November 3, 2026. This authorizes branch implementation and local verification. No production SQL, Edge deployment, number reassignment, live test calls or merge is authorized by this build step.
 
@@ -20,6 +22,8 @@ Chris approved the brighter interactive concept and said “proceed with build�
 5. Documentation: this plan, root `implementation_plan.md`, `WORK_LOG.md`, release/verification record and narrow new invariant in `AGENT_RULES.md`.
 
 ## Release gates
+
+Final CI correction: `src/hooks/__tests__/useInboundsVoice.test.tsx` uses an explicit unknown-argument listener type instead of seven broad `Function` annotations. Keep all lint and test gates; runtime/backend source is unchanged. Verify the fixture and lint every changed TypeScript file before publishing the backend reconciliation.
 
 Release-check follow-up: correct the stale clock in `src/lib/__tests__/dashboardMissedCalls.test.ts`, after reproducing the identical failure on the clean PR base. Freeze Date to the existing fixture day, restore it after each test, and retain an explicitly expired row to verify the real lookback remains enforced. This changes only test determinism; dashboard queries and runtime behavior stay intact.
 

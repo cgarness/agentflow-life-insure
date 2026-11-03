@@ -1,9 +1,11 @@
 {
-  "status": "NOT APPLIED; exact release approval required",
+  "status": "BACKEND APPLIED 2026-11-03; frontend activation and phone-number designation remain separate gates",
   "base": "e02342fa74afddea2342e9640fb18a274da2367a",
   "migration": {
-    "path": "supabase/migrations/pending/20261103170954_inbounds_room_v1.sql",
-    "sha256": "cf5ad21d7f262309de451610de73be18b3d13428df9a4339cbd4e6a81c1ef8e1"
+    "path": "supabase/migrations/20261103191631_inbounds_room_v1.sql",
+    "sha256": "cf5ad21d7f262309de451610de73be18b3d13428df9a4339cbd4e6a81c1ef8e1",
+    "approved_path": "supabase/migrations/pending/20261103170954_inbounds_room_v1.sql",
+    "recorded_version": "20261103191631"
   },
   "edge_bundles": {
     "twilio-token": {
@@ -43,5 +45,6 @@
         "supabase/functions/twilio-voice-inbound/twiml.ts": "87afd997166bb48d23a1b2113082014bb3b0b537305f0a567430a5d21dca4f80"
       }
     }
-  }
+  },
+  "approved_source_commit": "fddab04f8a57e340d8ec84a3588334469edc7cdf"
 }

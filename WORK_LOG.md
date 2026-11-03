@@ -1,5 +1,21 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Inbounds backend released and verified (frontend/number activation pending)
+
+**Approval and scope:** Chris explicitly approved the backend-only package from PR #509 source `fddab04f8a57e340d8ec84a3588334469edc7cdf`: the exact SQL and four full Edge bundles. Executed only on AGENTFLOW CRM `jncvvsvckxhqgqvkppmj`. No main merge, Vercel flag/deployment, number designation or real call test.
+
+**Database:** Applied once through the migration API as history `20261103191631 / inbounds_room_v1`. Approved SQL SHA-256 `cf5ad21d7f262309de451610de73be18b3d13428df9a4339cbd4e6a81c1ef8e1`; recorded full statement MD5 `a36745c9836f3e1f22e468659bf84eb5` matches. Renamed the authored pending file to `supabase/migrations/20261103191631_inbounds_room_v1.sql`, unchanged SQL bytes, and updated the isolated test reference. Its original NOT APPLIED comment is authoring history, not current state; never replay it.
+
+**Edge:** Deployed and read back every source byte: `twilio-token` v58 (1 file), `inbound-call-claim` v63 (3), `twilio-voice-webhook` v61 (2), `twilio-voice-inbound` v72 (11). All ACTIVE, `verify_jwt=false`, no import map, matching the approved manifest.
+
+**Verification:** All 15 installed function bodies, owners, search paths and execution grants match the expected package. Three tables have RLS and no anonymous/authenticated direct access; three triggers enabled, index ready/valid, dedicated-number constraint validated, new flag NOT NULL/default false. All 21 phone numbers remain non-Inbounds; zero room sessions/calls/targets. Unsigned HTTP checks return token 401 and three webhook 403 responses, with no real call. Advisors add only the expected three RPC-only/no-policy INFO findings and five intentional authenticated, organization-scoped DEFINER RPC warnings; pre-existing unrelated findings are unchanged. Details/remediation links: `docs/plans/2026-11-03-inbounds-room/backend-release.json`.
+
+**Files:** Migration rename, `scripts/tests/inbounds/run.mjs`, focused plan/verification/manifest/release record, this log and the Inbounds invariant in `AGENT_RULES.md`. Runtime application/Edge bytes are unchanged by this reconciliation.
+
+**Frontend gate follow-up:** Full Reports comparison on `fddab04f` passed its type/test/runtime-error baseline comparisons and build, then stopped on seven broad `Function` annotations in the room voice test fixture. Replaced them with an explicit `(...args: unknown[]) => void` test listener in `src/hooks/__tests__/useInboundsVoice.test.tsx`. No runtime or approved backend bytes changed; no CI rule was relaxed. Rerun the gate on the reconciled head before frontend merge.
+
+**Next:** Complete frontend comparison/merge gate, obtain separate frontend activation approval, then designate an explicitly selected dedicated agency number and perform controlled real-call/media acceptance. Backend deployment is not evidence of real ringing/audio.
+
 ## 2026-11-03 — Inbounds release preparation and CI type correction (PR #509; NOT released)
 
 **Status:** Chris said “proceed” after review-branch publication. Continued branch verification and read-only production preflight; no merge, migration, Edge deployment, flag change, number designation or real call.

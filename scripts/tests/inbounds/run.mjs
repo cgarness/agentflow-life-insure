@@ -23,7 +23,7 @@ try{
  await source('supabase/tests/inbounds/extension.sql');
  for(const f of JSON.parse(await read('supabase/tests/inbounds/live-routing-preimage.json')))await exec(f.definition);
  await exec(JSON.parse(await read('supabase/tests/inbounds/live-claim-preimage.json')).definition);
- await source('supabase/migrations/pending/20261103170954_inbounds_room_v1.sql');
+ await source('supabase/migrations/20261103191631_inbounds_room_v1.sql');
  await source('supabase/tests/inbounds/scenarios.sql');
  console.log('PASS: room SQL tenant isolation, dedicated DID, leases, busy/reservation, claim, refresh/disposition and report scenarios');
  if(pg){await import('./concurrency.mjs').then(m=>m.run(pg));console.log('PASS: real PostgreSQL simultaneous planner / outbound contention');}
