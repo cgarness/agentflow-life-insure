@@ -50,6 +50,7 @@ vi.mock("@/contexts/AuthContext", () => ({
   }),
 }));
 vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: ORG, role: "Agent", isSuperAdmin: false }) }));
+vi.mock("@/contexts/BrandingContext", () => ({ useBranding: () => ({ branding: { companyName: "Example Agency" } }) }));
 vi.mock("@/contexts/TwilioContext", () => ({ useTwilio: () => ({ selectedCallerNumber: null }) }));
 vi.mock("@/lib/supabase-email", () => ({ emailSupabaseApi: { getMyConnections: async () => [], sendContactEmail: async () => ({ success: true }) } }));
 vi.mock("@/lib/supabase-users", () => ({ usersSupabaseApi: { getAgentScopeIds: async () => [AGENT] } }));
