@@ -11,7 +11,8 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { CalendarProvider } from "@/contexts/CalendarContext";
 import { BrandingProvider } from "@/contexts/BrandingContext";
-import { TwilioProvider } from "@/contexts/TwilioContext";
+import {InboundsVoiceBoundary,InboundsDocument} from "@/components/inbounds/InboundsVoiceBoundary";
+import InboundsPage from "@/pages/InboundsPage";
 import { PendingSmsAuthorityBridge } from "@/components/messaging/PendingSmsAuthorityBridge";
 import AppLayout from "@/components/layout/AppLayout";
 import Dashboard from "./pages/Dashboard";
@@ -110,7 +111,7 @@ const App = () => (
           <BrandingProvider>
             <NotificationProvider>
               <CalendarProvider>
-                <TwilioProvider>
+                <InboundsVoiceBoundary>
                 <SidebarProvider>
                   <Toaster />
                   <Sonner />
@@ -139,6 +140,7 @@ const App = () => (
                         <Route path="/logintest1" element={<Navigate to="/login" replace />} />
                         <Route path="/pricing" element={<PricingPage />} />
                         <Route path="/contact" element={<ContactPage />} />
+                        <Route path="/inbounds" element={<ProtectedRoute><PageGuard pageName="Dialer"><InboundsDocument><InboundsPage /></InboundsDocument></PageGuard></ProtectedRoute>} />
                         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                           <Route path="/dashboard" element={<PageGuard pageName="Dashboard"><Dashboard /></PageGuard>} />
                           <Route path="/dialer" element={<PageGuard pageName="Dialer"><DialerPage /></PageGuard>} />
@@ -180,7 +182,7 @@ const App = () => (
                     </AppErrorBoundaryWrapper>
                   </BrowserRouter>
                 </SidebarProvider>
-                </TwilioProvider>
+                </InboundsVoiceBoundary>
               </CalendarProvider>
             </NotificationProvider>
           </BrandingProvider>

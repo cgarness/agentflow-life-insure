@@ -1,0 +1,66 @@
+name: Inbounds room checks
+on:
+  pull_request:
+    paths:
+      - 'src/**/inbounds/**'
+      - 'src/**/Inbounds*'
+      - 'src/hooks/use*Inbounds*'
+      - 'src/hooks/useRoomDisposition*'
+      - 'supabase/**/inbounds*'
+      - 'supabase/tests/inbounds/**'
+      - 'supabase/functions/_shared/inbounds-room.ts'
+      - 'supabase/functions/twilio-voice-inbound/**'
+      - 'supabase/functions/inbound-call-claim/**'
+      - 'supabase/functions/twilio-token/**'
+      - 'supabase/functions/twilio-voice-webhook/**'
+      - 'scripts/tests/inbounds/**'
+      - 'scripts/*deno-ci*'
+      - '.github/workflows/inbounds-room.yml'
+permissions:
+  contents: read
+jobs:
+  edge-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated pinned Deno checker
+        run: npm install --prefix "$RUNNER_TEMP/inbounds-edge-tools" --no-package-lock --no-audit --no-fund deno@2.5.2
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node scripts/verify-deno-ci-dependency.mjs
+      - name: Check complete phone handlers with the frozen dependency lock
+        run: >-
+          "$RUNNER_TEMP/inbounds-edge-tools/node_modules/.bin/deno" check --frozen --import-map scripts/deno-ci-import-map.json
+          supabase/functions/twilio-token/index.ts
+          supabase/functions/twilio-voice-inbound/index.ts
+          supabase/functions/inbound-call-claim/index.ts
+          supabase/functions/twilio-voice-webhook/index.ts
+  isolated-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: synthetic_local_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Isolated schema, permissions and true simultaneous transaction tests
+        env:
+          PGURL: postgresql://postgres:synthetic_local_password@127.0.0.1:5432/postgres
+        run: node scripts/tests/inbounds/run.mjs
+      - name: Inbound browser and routing regression tests
+        run: npx vitest run src/lib/__tests__/inbound src/hooks/__tests__/useInboundsVoice.test.tsx src/hooks/__tests__/useRoomDisposition.test.tsx src/components/inbounds/__tests__
+      - name: Build gated frontend
+        env:
+          VITE_INBOUNDS_ROOM: 'true'
+        run: npm run build

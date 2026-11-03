@@ -4422,6 +4422,7 @@ export type Database = {
           forwarding_number: string | null
           friendly_name: string | null
           id: string
+          inbounds_only: boolean
           inbound_routing_mode: string | null
           is_default: boolean | null
           is_direct_line: boolean
@@ -4466,6 +4467,7 @@ export type Database = {
           forwarding_number?: string | null
           friendly_name?: string | null
           id?: string
+          inbounds_only?: boolean
           inbound_routing_mode?: string | null
           is_default?: boolean | null
           is_direct_line?: boolean
@@ -4510,6 +4512,7 @@ export type Database = {
           forwarding_number?: string | null
           friendly_name?: string | null
           id?: string
+          inbounds_only?: boolean
           inbound_routing_mode?: string | null
           is_default?: boolean | null
           is_direct_line?: boolean

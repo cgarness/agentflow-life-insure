@@ -1,5 +1,47 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Inbounds backend released and verified (frontend/number activation pending)
+
+**Approval and scope:** Chris explicitly approved the backend-only package from PR #509 source `fddab04f8a57e340d8ec84a3588334469edc7cdf`: the exact SQL and four full Edge bundles. Executed only on AGENTFLOW CRM `jncvvsvckxhqgqvkppmj`. No main merge, Vercel flag/deployment, number designation or real call test.
+
+**Database:** Applied once through the migration API as history `20261103191631 / inbounds_room_v1`. Approved SQL SHA-256 `cf5ad21d7f262309de451610de73be18b3d13428df9a4339cbd4e6a81c1ef8e1`; recorded full statement MD5 `a36745c9836f3e1f22e468659bf84eb5` matches. Renamed the authored pending file to `supabase/migrations/20261103191631_inbounds_room_v1.sql`, unchanged SQL bytes, and updated the isolated test reference. Its original NOT APPLIED comment is authoring history, not current state; never replay it.
+
+**Edge:** Deployed and read back every source byte: `twilio-token` v58 (1 file), `inbound-call-claim` v63 (3), `twilio-voice-webhook` v61 (2), `twilio-voice-inbound` v72 (11). All ACTIVE, `verify_jwt=false`, no import map, matching the approved manifest.
+
+**Verification:** All 15 installed function bodies, owners, search paths and execution grants match the expected package. Three tables have RLS and no anonymous/authenticated direct access; three triggers enabled, index ready/valid, dedicated-number constraint validated, new flag NOT NULL/default false. All 21 phone numbers remain non-Inbounds; zero room sessions/calls/targets. Unsigned HTTP checks return token 401 and three webhook 403 responses, with no real call. Advisors add only the expected three RPC-only/no-policy INFO findings and five intentional authenticated, organization-scoped DEFINER RPC warnings; pre-existing unrelated findings are unchanged. Details/remediation links: `docs/plans/2026-11-03-inbounds-room/backend-release.json`.
+
+**Files:** Migration rename, `scripts/tests/inbounds/run.mjs`, focused plan/verification/manifest/release record, this log and the Inbounds invariant in `AGENT_RULES.md`. Runtime application/Edge bytes are unchanged by this reconciliation.
+
+**Frontend gate follow-up:** Full Reports comparison on `fddab04f` passed its type/test/runtime-error baseline comparisons and build, then stopped on seven broad `Function` annotations in the room voice test fixture. Replaced them with an explicit `(...args: unknown[]) => void` test listener in `src/hooks/__tests__/useInboundsVoice.test.tsx`. No runtime or approved backend bytes changed; no CI rule was relaxed. Rerun the gate on the reconciled head before frontend merge.
+
+**Next:** Complete frontend comparison/merge gate, obtain separate frontend activation approval, then designate an explicitly selected dedicated agency number and perform controlled real-call/media acceptance. Backend deployment is not evidence of real ringing/audio.
+
+## 2026-11-03 — Inbounds release preparation and CI type correction (PR #509; NOT released)
+
+**Status:** Chris said “proceed” after review-branch publication. Continued branch verification and read-only production preflight; no merge, migration, Edge deployment, flag change, number designation or real call.
+
+**Remaining build check:** Added `.github/workflows/inbounds-room.yml` cloud compilation for all four full Edge handlers using pinned Deno 2.5.2 and the frozen dependency lock, because the local remote import was refused. Also covers token/outbound-handler path changes. This is a secret-free source check, not a deployment. Result required before backend release.
+
+**Cloud follow-up:** Fixed two Deno nullable-type mismatches in `twilio-voice-inbound/request.ts` and refreshed its release-manifest hash; 39 request-deadline/stage tests pass. Audited both CDN versions of `tslib@2.8.1`: six redundant parentheses differ; parsed normalized output is identical. Because the CDN serves both versions, `deno.lock` remains identical to base. The A2P, SMS and Inbounds CI workflows use a narrowly scoped import map to the original ESM module of the existing npm-locked tslib 2.8.1, with an explicit version check. All 33 exports match the CDN module; no stub or production import-map change. Additional files: `request.ts`, `release-hashes.json`, `scripts/{deno-ci-import-map.json,verify-deno-ci-dependency.mjs}`, and three CI workflows. Final cloud results remain required.
+
+**Dashboard test correction:** The broader dashboard gate exposed the same failure on clean base `e02342f`: October 29 fixture calls had expired from the widget's real-time lookback. `src/lib/__tests__/dashboardMissedCalls.test.ts` now freezes only Date to the fixture day and restores it after each test; an explicitly expired call still must be excluded. No dashboard production behavior changed. This test-only correction is part of completing the existing release checks.
+
+**Correction:** Final broader CI exposed a pre-existing `NumberReputation` cast error whose diagnostic text changed when the generated phone row gained `inbounds_only`. Raw database rows do not yet contain calculated `calls_today` or `last_outbound_shaken_stir`. Removed the premature assertion and typed the final query result as `Promise<PhoneNumber[]>`; calculations, queries and UI are unchanged. Neither baseline comparison was relaxed. Files: `src/components/settings/NumberReputation.tsx`, `implementation_plan.md`, this log and the Inbounds verification record.
+
+**Verification:** Root TypeScript and scoped ESLint pass. Exact-base application comparison: base 80, candidate 79, new 0. Inbounds PostgreSQL concurrency/build CI passed on `ba3150e` (run `41694451928`); cloud rerun on the correction is required. The separate SMS job hit an upstream `tslib@2.8.1` integrity mismatch; a fresh download again matches the unchanged tracked SHA-256 `c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9`. No dependency or lockfile edits.
+
+**Production preflight:** All three guarded SQL definitions match their expected md5; no room schema exists. All 15 live Edge source files match the reviewed base (token v57, inbound v71, claim v62, outbound v60; `verify_jwt=false`). All 17 unique release-manifest files match their SHA-256. Vercel production is READY on main `e02342f`. Pending migration/Edge approval, full cloud results and controlled Twilio testing remain release gates. Do not infer activation from this record.
+
+## 2026-11-03 — Inbounds room V1 (approved build; branch only)
+
+**Status:** Chris approved the bright-font concept and requested the build. Implemented on `feat/inbounds-room-20261103` and published as PR #509 after explicit approval; production migration, Edge deployment, frontend activation and number designation remain separate exact release gates. Nothing was merged or applied live.
+
+**Behavior:** The Inbounds sidebar entry opens a separate document with its own receive-only phone identity. Dedicated DIDs bypass CRM owner/group routing and ring all eligible room participants, first Twilio-confirmed answer wins. Shared database locks exclude agents occupied by an ordinary call or a room reservation. Canonical disposition receipts keep answered agents unavailable after hang-up, refresh or rejoin. Collapsible agency scripts, configured outcomes, required notes/callback/appointment behavior and existing conversion/policy flows are reused. Agents see their own counts/recipient records; admins see room totals, agent breakdown and missed/voicemail records. New phone-number settings designate active, nondefault agency DIDs. UI uses white text and green/blue/violet/amber accents.
+
+**Integrity:** No browser ownership or call-duration writes; signed callbacks retain authority. Frozen per-call room targets survive reconnects. RPCs derive the organization/actor and deny cross-tenant access; new tables have RLS and no direct browser grants. Provider ingestion owns room tags. Outbound number selection and bridge-time checks exclude dedicated DIDs. New explicit caller-details RPC updates contact fields only. The pending SQL guards the three modified live-function preimages; full Edge baselines were compared read-only.
+
+**Validation:** Production frontend build and 288 routing/UI/hook/disposition tests pass. The local SQL fixture passes; true PostgreSQL contention is separately checked in CI. Actual components passed an isolated synthetic browser flow and mobile-width check. Root TypeScript passes; application TypeScript retains the base's 80 known diagnostics. See `docs/plans/2026-11-03-inbounds-room/verification.md` for exact evidence, limits and release sequence. No real calls or customer data were used.
+
 ## 2026-11-03 — SMS/Email editable template preview and expanding composer (branch-only, CI pending)
 
 **Status:** Implemented on `fix/editable-template-preview-composer-20261103`. Chris explicitly approved the revised template workflow and requested direct fixes. **No merge, production deployment, backend commands, migrations, schema/RLS change, outbound SMS/email or telephony modification.**

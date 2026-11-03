@@ -136,6 +136,14 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     );
 
+    // Recheck dedicated DID at bridge time, including calls created before a settings change.
+    const { data: sourceCall, error: sourceError } = await supabase.from("calls")
+      .select("organization_id").eq("id", params["CallRowId"] || "").maybeSingle();
+    if (sourceError || !sourceCall?.organization_id) return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+    const { data: dedicated, error: numberError } = await supabase.from("phone_numbers")
+      .select("inbounds_only").eq("organization_id", sourceCall.organization_id).eq("phone_number", outboundCallerId).maybeSingle();
+    if (numberError || dedicated?.inbounds_only) return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
+
     const admitted = await verifyOutboundDncAdmission(params, (args) =>
       supabase.rpc("admit_twilio_outbound", args),
     );

@@ -252,8 +252,8 @@ export function deadlineBoundStageDeps(deps: StageDeps, deadline: RequestDeadlin
       if (r.kind === "expired") throw new StageReadError("inbound_route_attempts", "request deadline reached");
       return r.value;
     },
-    resolveIdentities: async (agentIds) => {
-      const r = await bound("read:profiles", () => deps.resolveIdentities(agentIds));
+    resolveIdentities: async (agentIds, callRowId) => {
+      const r = await bound("read:profiles", () => deps.resolveIdentities(agentIds, callRowId));
       if (r.kind === "expired") throw new StageReadError("profiles", "request deadline reached");
       return r.value;
     },
@@ -279,7 +279,7 @@ export interface StageRequestDeps {
   /** Builds the (unbounded) stage dependencies once the settings are known; the sequence binds them to the deadline. */
   buildDeps(phoneSettings: unknown, v2: V2RoutingSettings): StageDeps;
   /** parses Twilio's DialBridged field for the owner-mobile return */
-  parseDialBridged: (raw: string | undefined) => boolean | null;
+  parseDialBridged: (raw: string | null | undefined) => boolean | null;
   failure: (callRowId: string, orgId: string) => InfrastructureFailureDeps;
   twiml: { empty: string; sorry: string; whisperReject: (message?: string) => string };
   log(message: string, meta?: Record<string, unknown>): void;
@@ -340,7 +340,7 @@ export async function runStageRequest(deps: StageRequestDeps, deadline: RequestD
       : null;
     const verdict = verifyCallbackIdentity({
       stage, params, orgId, stored,
-      attempt: attemptForIdentity ? { mobile_number_dialed: attemptForIdentity.mobile_number_dialed, mobile_child_call_sid: attemptForIdentity.mobile_child_call_sid } : null,
+      attempt: attemptForIdentity ? { mobile_number_dialed: attemptForIdentity.mobile_number_dialed, mobile_child_call_sid: attemptForIdentity.mobile_child_call_sid ?? null } : null,
     });
     if (verdict.ok === false) {
       deps.log("stage callback identity refused — no writes", {

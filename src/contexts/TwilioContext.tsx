@@ -458,7 +458,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     supabase
       .from("phone_numbers")
       .select(
-        "id, phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit, is_direct_line, status, assignment_type, assigned_to",
+        "*",
       )
       .eq("organization_id", organizationId)
       .in("status", ["active", "Active"])
@@ -492,7 +492,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     let cancelled = false;
 
     const poolSelect =
-      "id, phone_number, is_default, spam_status, area_code, friendly_name, daily_call_count, daily_call_limit, status, assignment_type, assigned_to";
+      "*";
 
     const fetchOrgPool = async (): Promise<any[]> => {
       const { data, error } = await supabase

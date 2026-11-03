@@ -1,3 +1,4 @@
+import { parseRoomRoute } from "../_shared/inbounds-room.ts";
 // inbound-call-claim — the Twilio-authoritative inbound ANSWER-CLAIM webhook (plan rev5 §4.4, R13).
 //
 // This function is NO LONGER a browser API. Ownership of an inbound call is written exclusively when
@@ -201,10 +202,14 @@ Deno.serve(async (req) => {
     // twilio_client_identity. Missing, empty, or mismatched identity is a 2xx business rejection
     // with zero RPC/write activity — a signed callback can never claim without proving which
     // client leg answered.
+    const { data: routeData, error: routeError } = await supabase.rpc("inbounds_room_route", { p_call: ids.callRowId, p_org: row.organization_id });
+    if (routeError) return respond(503, { claimed: false, reason: "transient" });
+    const room = parseRoomRoute(routeData);
+    const expectedIdentity = room.room ? room.targets.find(t => t.agentId === ids.agentId)?.identity ?? null : prof.twilio_client_identity;
     const identityCheck = checkAnsweredClientIdentity({
       calledParam: params["Called"],
       toParam: params["To"],
-      profileIdentity: prof.twilio_client_identity,
+      profileIdentity: expectedIdentity,
     });
     if (identityCheck !== "match") {
       console.warn("[inbound-call-claim] rejected", {
