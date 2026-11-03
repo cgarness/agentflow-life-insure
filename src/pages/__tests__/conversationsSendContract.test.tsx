@@ -90,6 +90,7 @@ vi.mock("@/contexts/AuthContext", () => ({
 vi.mock("@/hooks/useOrganization", () => ({
   useOrganization: () => ({ organizationId: ORG, role: "Agent", isSuperAdmin: false }),
 }));
+vi.mock("@/contexts/BrandingContext", () => ({ useBranding: () => ({ branding: { companyName: "Example Agency" } }) }));
 vi.mock("@/contexts/TwilioContext", () => ({
   useTwilio: () => ({ selectedCallerNumber: sendState.callerNumber }),
 }));
