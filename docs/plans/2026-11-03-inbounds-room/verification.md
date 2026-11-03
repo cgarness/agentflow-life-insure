@@ -1,3 +1,17 @@
+## 2026-11-03 — Inbounds frontend released (PR #509; numbers not assigned)
+
+**Approval:** Chris approved the frontend release and Vercel dashboard fallback. Created only `VITE_INBOUNDS_ROOM=true` in AgentFlow Production; dashboard confirmed the save. Merged reviewed head `01a30ba3b886df9472d1004ddc0d1e55572c0218` as `afe309723d8a50b1e58466cf7bbd3816c43cfb68`, with identical tree `a5840f3df3fd3a68cf956c362deaa396e054c01d`.
+
+**Deployment:** `agentflow`, Vercel `dpl_FSuKKb5L3x98tKYFUbduCQRakKE7`, READY and aliased to `www.fflagent.com`/`fflagent.com`. Public `/inbounds` returns HTTP 200 and the browser reaches the expected authenticated sign-in boundary. Served entry `/assets/index-Ev2y2KNa.js` SHA-256 `070672d0d25e7031d441064fe0a012ea159e5ad4d12626f7e692374f207fd967` contains the room and enabled separate-document boundary; the flag-disabled message is compiled away.
+
+**Verification:** All ten cloud workflows passed on the exact reviewed head. Reports frontend run `41703378175`: base 6,694 / branch 6,707 passing tests, one pre-existing failed test, zero new failures, 79 existing application type diagnostics with no new diagnostics, zero unhandled errors, lint/build pass. No CI rule relaxed. Root `npx tsc --noEmit` passes. Backend migration and Edge bundles were already verified; none were replayed.
+
+**Documentation files:** `WORK_LOG.md`, `AGENT_RULES.md`, focused Inbounds `implementation_plan.md`, `verification.md`, and `frontend-release.json`. This release-record follow-up changes documentation only.
+
+**Remaining:** No numbers designated, real calls placed, or media tested. Signed-in room walkthrough needs a secure AgentFlow sign-in; public route/authentication and enabled served bundle are verified. Select an eligible dedicated agency number and authorize controlled calling separately. Do not infer audio/ringing acceptance from a successful build.
+
+See [frontend-release.json](frontend-release.json) for exact CI/deployment and served-asset evidence. The historical backend/build notes below remain preserved.
+
 # Inbounds room V1 verification and release boundary
 
 Status: **backend applied and source-verified on November 3, 2026 after Chris's exact approval**. Frontend not merged or activated. All 21 phone numbers remain non-Inbounds and no customer calls were placed. Feature flag `VITE_INBOUNDS_ROOM` defaults off.

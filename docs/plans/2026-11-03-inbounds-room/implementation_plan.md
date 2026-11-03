@@ -1,3 +1,9 @@
+## November 3 frontend release completed
+
+Chris explicitly approved merging PR #509 and enabling `VITE_INBOUNDS_ROOM=true` for the AgentFlow Production environment, including the Vercel dashboard fallback after the connector denied environment access. The flag was saved successfully in the dashboard before the merge; environment changes only affect a new build. All ten cloud workflows passed on reviewed head `01a30ba3b886df9472d1004ddc0d1e55572c0218`. PR #509 merged as `afe309723d8a50b1e58466cf7bbd3816c43cfb68`; production deployment `dpl_FSuKKb5L3x98tKYFUbduCQRakKE7` is READY and its enabled served bundle and authentication boundary are verified. See `frontend-release.json`. Do not assign numbers or place real calls. Backend SQL and Edge bundles are already applied and must not be replayed.
+
+Release documentation files: this plan, `verification.md`, `frontend-release.json`, `AGENT_RULES.md`, and `WORK_LOG.md`. No runtime source edits are planned.
+
 # Inbounds room V1 — backend released; frontend activation pending
 
 November 3 backend gate: Chris explicitly approved the exact package at `fddab04f`. Migration applied once as `20261103191631` with unchanged SQL bytes; token v58, inbound v72, claim v63 and outbound webhook v61 deployed and read back. RLS/grants, all 15 function bodies, schema and unsigned-request rejection verified. The migration filename and isolated harness reference are reconciled to recorded history. See `backend-release.json`. Frontend, dedicated numbers and real-call testing remain separately gated.
