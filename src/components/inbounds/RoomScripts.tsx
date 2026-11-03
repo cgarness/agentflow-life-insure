@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { panel, field } from "./styles";
+import { panel, field, textButton } from "./styles";
 type Script = { id: string; name: string; content: string | null };
 export function RoomScripts({
   org,
@@ -66,10 +66,10 @@ export function RoomScripts({
   const script = scripts.find((s) => s.id === selected) || scripts[0];
   return (
     <section className={panel}>
-      <details open>
-        <summary className="flex cursor-pointer list-none items-center justify-between p-5 font-bold text-white">
+      <details open className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between p-5 font-bold text-white transition-colors hover:bg-blue-500/15 hover:text-blue-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-300 motion-reduce:transition-none">
           Call script
-          <ChevronDown className="h-4 w-4" />
+          <ChevronDown className="h-4 w-4 -rotate-90 transition-transform duration-200 group-open:rotate-0 motion-reduce:transition-none" />
         </summary>
         <div className="px-5 pb-6">
           {loading ? (
@@ -79,7 +79,7 @@ export function RoomScripts({
               Scripts unavailable.{" "}
               <button
                 onClick={() => setRetry((x) => x + 1)}
-                className="underline"
+                className={textButton}
               >
                 Retry
               </button>

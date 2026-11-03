@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { RoomSnapshot } from "@/lib/inbounds/contracts";
 import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
 import { panel, button } from "./styles";
+import { cn } from "@/lib/utils";
 export function RoomRecords({ data }: { data: RoomSnapshot }) {
   const [tab, setTab] = useState<"missed" | "voicemail" | "agents">("missed");
 
@@ -18,10 +19,10 @@ export function RoomRecords({ data }: { data: RoomSnapshot }) {
             <button
               key={t}
               aria-pressed={tab === t}
-              className={
-                button +
-                (tab === t ? " border-blue-300 bg-blue-950 text-blue-200" : "")
-              }
+              className={cn(
+                button,
+                tab === t && "border-blue-300 bg-blue-950 text-blue-200",
+              )}
               onClick={() => setTab(t)}
             >
               {t === "missed"

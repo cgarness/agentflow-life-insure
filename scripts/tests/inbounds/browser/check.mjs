@@ -14,6 +14,20 @@ await page.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:4176')
 await page.addInitScript(()=>{Object.defineProperty(navigator,'mediaDevices',{value:{getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})}});});
 await page.goto('http://127.0.0.1:4176');await page.getByRole('button',{name:'Enter room'}).waitFor();
 await page.getByRole('button',{name:'Enter room'}).click();await page.getByRole('heading',{name:'Ready for calls'}).waitFor();
+await page.evaluate(()=>Promise.all(document.getAnimations().filter(a=>a.effect.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))));
+const stats=page.getByRole('region',{name:"Today's performance"});
+const statusBox=await page.getByRole('heading',{name:'Ready for calls'}).locator('xpath=ancestor::section').boundingBox();
+const statsBox=await stats.boundingBox(),scriptBox=await page.locator('summary').filter({hasText:'Call script'}).boundingBox();
+assert.ok(Math.abs(statsBox.width-statusBox.width)<2,'Metrics span the enter-room section width');
+assert.ok(statsBox.y>=statusBox.y+statusBox.height && statsBox.y+statsBox.height<=scriptBox.y,'Metrics sit between entry and script');
+const outcomes=stats.getByRole('heading',{name:'Disposition counts'}).locator('..').locator('div').first();
+const outcomesBox=await outcomes.boundingBox(),lastOutcome=await outcomes.locator(':scope > div').last().boundingBox();
+assert.ok(Math.abs(outcomesBox.x+outcomesBox.width-lastOutcome.x-lastOutcome.width)<2,'Outcome tiles fill their row');
+const activityButton=page.getByRole('button',{name:'Voicemail',exact:true});
+const beforeHover=await activityButton.evaluate(el=>getComputedStyle(el).backgroundColor);
+await activityButton.hover();await page.waitForTimeout(250);
+assert.notEqual(await activityButton.evaluate(el=>getComputedStyle(el).backgroundColor),beforeHover,'Button hover adds color');
+await page.mouse.move(0,0);
 await page.screenshot({path:'/tmp/inbounds-ui-ready.png',fullPage:true});
 await page.locator('summary').filter({hasText:'Call script'}).click();assert.equal(await page.locator('#room-script').isVisible(),false);await page.locator('summary').filter({hasText:'Call script'}).click();
 await page.evaluate(()=>window.demoRing());await page.getByRole('button',{name:'Answer call'}).click();await page.getByRole('heading',{name:'On a call',exact:true}).waitFor();
@@ -22,4 +36,14 @@ assert.equal(await page.getByRole('button',{name:'Start receiving'}).isDisabled(
 await page.screenshot({path:'/tmp/inbounds-ui-wrap.png',fullPage:true});
 await page.getByLabel('Call outcome').selectOption('a3000000-0000-0000-0000-000000000001');await page.getByLabel('Notes (required)').fill('Requested a follow-up.');await page.getByRole('button',{name:'Save disposition'}).click();await page.getByRole('heading',{name:'Ready for calls'}).waitFor();
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:'/tmp/inbounds-ui-mobile.png',fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+await page.emulateMedia({reducedMotion:'reduce'});
+assert.equal(await stats.locator('div').first().evaluate(el=>getComputedStyle(el).animationName),'none');
+assert.equal(await page.evaluate(()=>document.getAnimations().filter(a=>a.playState==='running').length),0,'Reduced motion disables room animations');
+await page.goto('http://127.0.0.1:4176/?agent=true');await page.getByRole('heading',{name:'My performance'}).waitFor();
+await page.setViewportSize({width:1440,height:1050});
+const agentStats=page.getByRole('region',{name:"Today's performance"});
+const agentCards=agentStats.getByText('My answered calls',{exact:true}).locator('..').locator('..');
+const agentGridBox=await agentCards.boundingBox(),agentLastBox=await agentCards.locator(':scope > div').last().boundingBox();
+assert.equal(await agentCards.locator(':scope > div').count(),2);
+assert.ok(Math.abs(agentGridBox.x+agentGridBox.width-agentLastBox.x-agentLastBox.width)<2,'Both agent cards fill the row');
 assert.deepEqual(errors,[]);console.log('PASS: actual room components — join, collapsible scripts, receive/answer/end, mandatory wrap-up, save/unlock, responsive width; no external requests.');} finally { await browser.close(); server.kill(); }
