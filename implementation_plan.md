@@ -2,7 +2,7 @@
 
 Additional verification file: `.github/workflows/inbounds-room.yml`. Run a frozen-lock, pinned Deno check of all four full Edge handlers in cloud CI to close the local dependency-network limitation before backend approval. No deployed function or dependency bytes change.
 
-Cloud-check corrections: `supabase/functions/twilio-voice-inbound/request.ts` (nullable parser contract and absent child SID normalization), `deno.lock` (one audited CDN checksum; six redundant parentheses only), and the focused `release-hashes.json` (new request module digest). Preserve frozen dependency checks, signature validation and route behavior. Run inbound regressions and full cloud compilation before the exact backend release request.
+Cloud-check corrections: `supabase/functions/twilio-voice-inbound/request.ts` (nullable parser contract and absent child SID normalization) and the focused `release-hashes.json` (new request module digest). The CDN serves two equivalent tslib minifications, so preserve the original `deno.lock` and use `scripts/deno-ci-import-map.json` plus `scripts/verify-deno-ci-dependency.mjs` in the A2P, SMS and Inbounds workflows to resolve only that URL to the existing npm-locked tslib 2.8.1 ESM module. This map is CI-only; deployed bundles are unchanged. Preserve frozen dependency checks, signature validation and route behavior. Run inbound regressions and full cloud compilation before the exact backend release request.
 
 Chris approved the brighter room concept and branch implementation. Detailed plan and intended files: [Inbounds room plan](docs/plans/2026-11-03-inbounds-room/implementation_plan.md). Existing plans below are preserved. No production mutation or release.
 

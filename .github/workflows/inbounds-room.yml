@@ -14,6 +14,7 @@ on:
       - 'supabase/functions/twilio-token/**'
       - 'supabase/functions/twilio-voice-webhook/**'
       - 'scripts/tests/inbounds/**'
+      - 'scripts/*deno-ci*'
       - '.github/workflows/inbounds-room.yml'
 permissions:
   contents: read
@@ -27,9 +28,11 @@ jobs:
           node-version: '22'
       - name: Install isolated pinned Deno checker
         run: npm install --prefix "$RUNNER_TEMP/inbounds-edge-tools" --no-package-lock --no-audit --no-fund deno@2.5.2
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node scripts/verify-deno-ci-dependency.mjs
       - name: Check complete phone handlers with the frozen dependency lock
         run: >-
-          "$RUNNER_TEMP/inbounds-edge-tools/node_modules/.bin/deno" check --frozen
+          "$RUNNER_TEMP/inbounds-edge-tools/node_modules/.bin/deno" check --frozen --import-map scripts/deno-ci-import-map.json
           supabase/functions/twilio-token/index.ts
           supabase/functions/twilio-voice-inbound/index.ts
           supabase/functions/inbound-call-claim/index.ts
