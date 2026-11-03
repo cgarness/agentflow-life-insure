@@ -8,6 +8,8 @@ Desktop and mobile screenshots in this folder use synthetic demo data from the i
 
 ### November 3 release-preparation update
 
+The dashboard missed-call test failed identically on a clean `e02342f` worktree: fixed October 29 rows were outside the widget's moving lookback. Its test clock is now anchored to the fixture day and restored afterward; an additional expired row must still be excluded. All seven tests pass. Dashboard production logic is unchanged.
+
 Cloud Deno compilation identified two nullable-type mismatches in `twilio-voice-inbound/request.ts`: the dependency signature now accepts the same null input as the existing parser, and an absent child SID is passed as null to the existing identity verifier (which already treats null/undefined identically). The release manifest includes the updated request module hash. No deployed source changed.
 
 The CDN serves two minifications of `tslib@2.8.1` at the same URL: SHA-256 `c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9` and `ebce3cd5facb654623020337f867b426ba95f71596ba87acc9e6c6f4e55905ca`. They differ only by six redundant grouping parentheses and normalize to the same 14,644-byte module (`b3841065312ee10cfd92df0ecd3616306b5c42fdddc8e8765ede04ee6433a30c`). **The final `deno.lock` is unchanged from base.** To avoid unstable CDN bytes, the A2P, SMS and Inbounds CI commands use `scripts/deno-ci-import-map.json`, mapping only that URL to `node_modules/tslib/tslib.es6.mjs`. `npm ci` verifies the existing package-lock integrity; the guard requires version 2.8.1. The original npm module exposes the same 33 exports. This is CI-only, with no fake library or production import-map change, and all other remote dependency checks remain intact.

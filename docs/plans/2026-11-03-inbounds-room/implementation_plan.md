@@ -21,4 +21,6 @@ Chris approved the brighter interactive concept and said â€œproceed with buildâ€
 
 ## Release gates
 
+Release-check follow-up: correct the stale clock in `src/lib/__tests__/dashboardMissedCalls.test.ts`, after reproducing the identical failure on the clean PR base. Freeze Date to the existing fixture day, restore it after each test, and retain an explicitly expired row to verify the real lookback remains enforced. This changes only test determinism; dashboard queries and runtime behavior stay intact.
+
 Build/review first, feature flag off by default. Before production: approve exact migration plus backend bundle hashes, deploy compatible backend, verify advisors and controlled synthetic behavior, then separately approve frontend release/flag and exact experiment phone numbers. No configuration or build success is evidence that real ringing/audio has been tested.
