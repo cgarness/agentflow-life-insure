@@ -1,5 +1,15 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Inbounds full-width metrics, hover color and motion
+
+**Request/change:** Chris requested full-width metrics and disposition counts below the enter-room section, colored button hovers and livelier animation. Moved stats out of the script column; admin metrics use four columns, agents two, and outcome tiles automatically fill each row. Added metric accent borders, blue neutral/emerald primary/rose call-action hover feedback, gentle panel entrances, count-update emphasis, ready/incoming pulses and script-chevron transitions. All motion respects reduced-motion preferences; counts remain the exact server values.
+
+**Files:** `src/components/inbounds/{RoomWorkspace,RoomStats,RoomStatus,RoomCallStation,RoomScripts,RoomRecords}.tsx`, `styles.ts`; `scripts/tests/inbounds/browser/check.mjs`; focused `implementation_plan.md`; this log.
+
+**Verification:** Nine existing room/voice/disposition tests pass. Isolated actual-component browser flow passes enter/answer/hang-up/mandatory wrap-up/save, full-width ordering and outcome distribution, agent two-card width, real button hover color change, 390px no-overflow layout and reduced-motion checks. Desktop/mobile screenshots reviewed with synthetic data only. `npx tsc --noEmit`, scoped ESLint, production build and whitespace checks pass. Existing bundle-size warning remains. React review: no new fetches, timers, subscriptions or dependencies; handlers/keys/focus retained; presentation only.
+
+**Delivery/boundaries:** Frontend-only PR and linked Vercel production delivery; exact commit/deployment evidence recorded in the PR. No backend migration/deploy, env/routing change, number assignment or real calls. A successful synthetic phone flow is not live media acceptance.
+
 ## 2026-11-03 — Inbounds navigation moved to the bottom
 
 **Request/change:** Chris requested moving the Inbounds button to the bottom of navigation. Moved the existing item after the other main/admin links, immediately before the collapse footer; the shared sidebar covers desktop, collapsed and mobile navigation. Flag/permission/View As checks and new-tab behavior are unchanged.

@@ -1,3 +1,9 @@
+## Full-width metrics and motion — November 3
+
+Chris requested full-width metrics/counts immediately below the enter-room section, colorful button hovers, and subtle animation. Move the existing stats component above the script/call grid, use four full-width admin cards or two full-width agent cards, distribute outcome tiles responsively, add Tailwind-only entrance/count/presence motion and semantic hover colors, and honor reduced motion. Preserve all data, telephony state, callbacks, focus and availability guards.
+
+Intended files: `RoomWorkspace.tsx`, `RoomStats.tsx`, `RoomStatus.tsx`, `RoomCallStation.tsx`, `RoomScripts.tsx`, `RoomRecords.tsx`, shared `styles.ts`, the existing isolated browser harness, this plan and `WORK_LOG.md`. Check desktop/mobile layout and reduced-motion behavior in the synthetic harness, existing room tests, TypeScript, scoped lint and production build. No backend, routing, settings or real-call changes.
+
 ## Navigation placement follow-up — November 3
 
 Chris requested moving Inbounds to the bottom of navigation. Move the existing `InboundsNavItem` from the first item to the last item in the main navigation branch, after any administrative links and before the collapse footer. Preserve its existing flag, permission, View As, new-tab and mobile-close behavior. Intended files: `src/components/layout/Sidebar.tsx`, this plan, and `WORK_LOG.md`. Validate with existing sidebar/room tests, root TypeScript, scoped lint and production build. No backend or configuration changes.

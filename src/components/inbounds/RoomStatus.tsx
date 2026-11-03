@@ -42,7 +42,7 @@ export function RoomStatus({
             className={
               "h-3 w-3 rounded-full " +
               (available
-                ? "bg-emerald-300 shadow-[0_0_12px_#6ee7b7]"
+                ? "bg-emerald-300 shadow-[0_0_12px_#6ee7b7] motion-safe:animate-pulse"
                 : pending
                   ? "bg-amber-300"
                   : "bg-slate-400")

@@ -10,11 +10,8 @@ import { RoomDisposition } from "@/components/inbounds/RoomDisposition";
 import { RoomHeader } from "@/components/inbounds/RoomHeader";
 import { RoomStatus } from "@/components/inbounds/RoomStatus";
 import { RoomCallStation } from "@/components/inbounds/RoomCallStation";
-export function RoomWorkspace({
-  org,
-  user,
-  name,
-}: {
+import { textButton } from "./styles";
+export function RoomWorkspace({ org, user, name }: {
   org: string;
   user: string;
   name: string;
@@ -146,13 +143,14 @@ export function RoomWorkspace({
           }}
           state={voice.state}
         />
+        {s && <RoomStats data={s} />}
         {(room.error || voice.error || error) && (
           <div
             role="alert"
             className="rounded-xl border border-rose-400/60 bg-rose-950/40 p-4 text-rose-100"
           >
             {error || room.error || voice.error}{" "}
-            <button className="underline" onClick={() => void room.refresh()}>
+            <button className={textButton} onClick={() => void room.refresh()}>
               Refresh status
             </button>
           </div>
@@ -165,7 +163,7 @@ export function RoomWorkspace({
             {config.status === "loading"
               ? "Loading call outcomes…"
               : "Call outcomes are unavailable. Configure them in AgentFlow Settings, then retry."}{" "}
-            <button className="underline" onClick={config.retry}>
+            <button className={textButton} onClick={config.retry}>
               Reload outcomes
             </button>
           </div>
@@ -173,7 +171,6 @@ export function RoomWorkspace({
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]">
           <div className="order-2 space-y-6 lg:order-1">
             <RoomScripts org={org} onReady={setScriptReady} />
-            {s && <RoomStats data={s} />}
           </div>
           <div className="order-1 space-y-5 lg:order-2">
             <RoomCallStation {...{ voice, inCall, pending, available }} />

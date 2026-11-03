@@ -1,6 +1,6 @@
 import { Phone, PhoneOff, Mic, MicOff } from "lucide-react";
 import type { useInboundsVoice } from "@/hooks/useInboundsVoice";
-import { panel, button, primary } from "./styles";
+import { panel, button, primary, danger } from "./styles";
 export function RoomCallStation({
   voice,
   inCall,
@@ -14,7 +14,12 @@ export function RoomCallStation({
 }) {
   return (
     <section className={panel + " p-6 text-center"}>
-      <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-emerald-300/40 bg-emerald-300/10 text-emerald-300">
+      <div
+        className={
+          "mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-emerald-300/40 bg-emerald-300/10 text-emerald-300 " +
+          (voice.state === "incoming" ? "motion-safe:animate-pulse" : "")
+        }
+      >
         <Phone className="h-8 w-8" />
       </div>
       <h2 className="mt-5 text-xl font-bold text-white">
@@ -38,7 +43,7 @@ export function RoomCallStation({
           <button className={primary} onClick={voice.answer}>
             Answer call
           </button>
-          <button className={button} onClick={voice.decline}>
+          <button className={danger} onClick={voice.decline}>
             Decline
           </button>
         </div>
@@ -53,12 +58,7 @@ export function RoomCallStation({
           >
             {voice.muted ? <MicOff /> : <Mic />}
           </button>
-          <button
-            className={
-              button + " border-rose-400 bg-rose-600 hover:bg-rose-500"
-            }
-            onClick={voice.hangup}
-          >
+          <button className={danger} onClick={voice.hangup}>
             <PhoneOff className="mr-2 inline h-4 w-4" />
             End call
           </button>
