@@ -1750,6 +1750,157 @@ Base for comparison: `6e39c15`, or the exact base of each package branch. Pre-ex
 - **Next step.** PKG-A Batch 1: list the exact files, add the failing contract tests (BC4 truth table, registries, privilege classes), then implement the foundation migration until they pass.
 
 
+## 14. Phase B design delta: the maintained identity-pointer layer (Batch 7 checkpoint review, 2026-11-03; PROPOSAL ONLY: nothing approved, built or applied)
+
+This updates the Batch 7 proposal's §3 pointer layer and does not restate it.
+
+**Unchanged from §3 of that proposal:**
+- one row per organization and pointer (`contact` or `membership`), holding the identity kind, uuid and resolution;
+- maintenance triggers on `recruits`, `clients`, `leads`, `campaign_leads` and `private.dialer_conversion_lineage` only, and **no trigger on `public.calls`**;
+- organization-scoped, sealed `private` objects with RLS on and no client grants;
+- set-based maintenance under row locks taken in key order;
+- the same rules 1–8 and current-state semantics; payloads identical in stored and live mode.
+
+Where this section differs from that proposal, this section governs. It does not repurpose `…17`, shift enable versions, add a first-contact cache or authorize any implementation.
+
+### 14.A Performance justification (the three misses)
+
+| Miss (CI run 41541165337, run 2, AMD EPYC 7763) | Measured p95 | Gap to target | Pointer cost the layer can remove (local instrumented plans of `66663f4`; timings overlap) | Estimate after the layer (not measured) |
+|---|---|---|---|---|
+| summary agency-366 | 2,770.9 ms | 771 ms (28%) | building the contact-pointer (82,812) and membership-pointer (16,376) maps: 394 + 146 ms. Attaching them to 457,311 calls (about 390 ms) stays, as a lookup in the stored rows. | −0.25 to −0.45 s: **still over 2 s** |
+| state agency-366 | 2,752.9 ms | 753 ms (27%) | the same two maps (401 + 125 ms). The identity-state resolver (about 0.47 s), sale facts (about 0.29 s) and the per-call pass (about 1.4 s) are untouched. | −0.3 to −0.45 s: **still over 2 s** |
+| journey agency-366 | 4,426.8 ms | 427 ms (10%) | inside the parallel history pass, each process builds its own maps (489 + 118 ms; about 0.6 s wall) | −0.35 to −0.5 s wall: **borderline, around 4 s** |
+
+- **Measured:** the p95 values (CI), and the node times listed (local PostgreSQL 16.15, instrumented). Instrumented timings overlap and inflate many-row nodes; they are not additive or end-to-end.
+- **Estimated:** the "after" column. Reading the stored rows still costs a scan and hash of the organization's pointer rows (about 225k in the fixture), which the estimate charges at 0.1–0.2 s.
+- **Conclusion:** the layer alone is not expected to clear summary or state. The rest of their cost is the base pass over about 457k calls (about 0.9 s instrumented) and grouping (about 0.5 s). For the journey it is plausible but unproven.
+- **Proposed isolated experiment X1** (needs approval; disposable databases only; no migration file):
+  - In the 500k fixture database, create a scratch schema holding a pointer table filled from the live resolver, and scratch copies of the three readers' statements that read it.
+  - Prove the payloads equal the current code for every differential case and the scale cases.
+  - Measure a same-session interleaved A/B with 20 samples under production session settings: locally on PostgreSQL 16.15, and on PostgreSQL 17.6 only if a scratch CI mode is separately approved.
+  - Until X1 is measured, the benefit is a hypothesis.
+
+### 14.B Correctness under failure
+
+**B1. Maintenance and marker failing together** (supersedes §3.5 "only the warning remains").
+- **Pending journal.** Each maintenance trigger first appends the affected keys to `private.report_v3_identity_journal`, in the CRM statement's own transaction and outside any exception handler.
+- **Maintenance.** It then runs in a `BEGIN … EXCEPTION WHEN OTHERS` block and, on success, deletes exactly the journal rows it appended.
+  - If maintenance fails, its subtransaction rolls back, those deletes with it, so the journal rows commit together with the CRM write.
+  - If the append itself fails, it is uncaught, so the CRM statement fails.
+- **Result:** no committed state exists in which the base change is present while both the mapping and its pending marker are absent.
+- **Reader rule.** A reader uses stored mappings for an organization only when it has no pending journal row and no unresolved global row (B6).
+
+**B2. Exact failure boundary.**
+- **Caught, CRM write commits:** everything `WHEN OTHERS` catches. That includes `lock_not_available` (55P03), serialization failures, deadlock victims (40P01), constraint and data errors, and bugs.
+- **Not caught:** PL/pgSQL's `OTHERS` does **not** catch `QUERY_CANCELED` (57014: statement timeout or a cancel) or `ASSERT_FAILURE` (P0004). These propagate and abort the CRM statement, as the cancel itself already would.
+- Maintenance code therefore uses no `ASSERT`; invariant checks `RAISE` a SQLSTATE that `OTHERS` catches.
+- **The append's own failure classes** (it can fail the CRM write): out-of-memory or out-of-disk, cancellation, and a lock wait on the journal table. Only explicit `LOCK` or DDL conflicts with its RowExclusiveLock, so repair never takes one.
+- An insert without a unique key can still wait: on relation extension, on DDL, or on I/O. It has no foreign key, so it never waits on a referenced row.
+
+**B3. Triggers disabled and later re-enabled, bypassed writes, restores.**
+- The freshness check includes `pg_trigger.tgenabled = 'O'` for every maintenance trigger. A disabled trigger makes every organization live.
+- **Not detectable after re-enable:** writes made while the triggers were disabled, writes under `session_replication_role = replica`, and restores loaded with triggers off.
+- Mitigations, each a decision (E-list):
+  - (i) an event trigger on `ddl_command_end` for `ALTER TABLE … DISABLE/ENABLE TRIGGER` on the five tables appends a global journal row. It cannot see `session_replication_role` or restores, and hosted support must be confirmed;
+  - (ii) a runbook rule: any restore, replica-mode load or trigger change is followed by a global journal row, then repair and verify;
+  - (iii) an optional scheduled verify.
+- **Verify does not protect a report read before it runs.** The read path does not verify, so the exposure window after an undetected bypass lasts until the next verify and repair.
+
+**B4. Snapshot consistency.**
+- Freshness is evaluated **inside the reader's single statement**, not in an earlier statement as §3.7 proposed. That statement takes one READ COMMITTED snapshot.
+- The statement contains a stored branch gated by `fresh` and a live branch gated by `NOT fresh`. Both are planned; one-time filters execute only one of them.
+- So the decision and the mapping rows come from the same snapshot. A concurrent, uncommitted maintenance or base change is invisible to both.
+
+**B5. Concurrent repair and new structural writes.**
+- Repair records the organization's journal high-water mark (the largest committed journal id) before it starts.
+- It then recomputes in key-ordered batches under the maintenance lock protocol: row locks `FOR UPDATE`, then a fresh READ COMMITTED recompute.
+  - So it waits for in-flight maintenance and never overwrites a newer mapping with an older snapshot.
+- Finally it deletes only journal rows with id ≤ the high-water mark. Rows appended during repair remain, and the organization stays live until they clear.
+- Repair takes no table lock, so CRM writes never wait on it beyond one row's lock.
+
+**B6. Global stale rows when one organization is repaired.**
+- A global journal row (`organization_id` NULL: TRUNCATE, trigger-state events or a restore rule) makes every organization live.
+- Repairing organization X records `repairs(X, hwm, completed_at)`. X is fresh only when it has no pending row of its own and every global row's id is ≤ X's recorded high-water mark.
+- A global row is deleted only after every organization's high-water mark has passed it, or after a full repair.
+
+**B7. Missing layer tables or functions.**
+- The reader's PL/pgSQL checks `to_regclass` and `to_regprocedure` for every layer object before choosing its statement. If any is missing, it runs the live statement's constant text, which never mentions the layer.
+- A drop that races with a running stored statement must wait for the reader's AccessShareLock, or the reader errors with an undefined object. It never returns a wrong payload.
+- The enable and the read-back refuse a partial layer.
+
+### 14.C CRM and dialing-workflow impact
+
+- **"No calls trigger" does not mean "no dialing impact".** Dialing workflows write triggered tables:
+  - inbound auto-create inserts a lead while the caller is ringing;
+  - a converting disposition runs `convert_lead_to_client_atomic`, which inserts a client, deletes the lead (cascading SET NULL to memberships, plus a lineage insert), and re-points calls (not maintained);
+  - campaign attach inserts memberships, 500 per call.
+  - `advance_campaign_lead`'s queue updates set no key column, so they do not fire `AFTER UPDATE OF <key columns> … WHEN (changed)`. This is still measured.
+- **Total budget, not per-lock.**
+  - `lock_timeout = 200ms` bounds each wait, not the total: a statement can wait once per key, and a speculative-insert `ON CONFLICT` wait on another transaction counts as a separate wait.
+  - Maintenance therefore processes at most K keys per statement and checks a deadline B, measured from `statement_timestamp()`, between batches. Over either limit, it stops and leaves its journal rows: the organization goes live until repair.
+  - So the extra latency per triggered statement is at most B plus one lock wait (≤ 200 ms). K and B are decisions, proposed at K = 1,000 keys and B = 50 ms.
+- **Subtransactions.** Each triggered statement opens one subtransaction. A transaction with many triggered statements (imports, undo, bulk deletes) can overflow the per-backend subtransaction cache (64), which slows snapshots for every session. This is measured, not assumed.
+- **Contention and latency tests (X2, needs approval).** Run with prototype triggers in a disposable 500k database, comparing with and without the layer: p50, p95 and max latency, lock waits (`log_lock_waits`), deadlocks and subtransaction overflow.
+  - single-row lead, client and recruit writes;
+  - inbound auto-create bursts;
+  - conversion: single, and concurrent on the same and on different leads;
+  - CSV import of 1,000 and 10,000 rows;
+  - membership attach of 500;
+  - import undo;
+  - delete-all-matching in 1,000-row statements;
+  - campaign-delete and lead-delete cascades;
+  - concurrent repair under write load;
+  - fault injection (maintenance forced to fail; the journal append forced to fail).
+
+### 14.D Installation and recovery
+
+- **Lock duration.** `CREATE TRIGGER` takes ShareRowExclusiveLock on each of the five tables, which blocks their writes until commit.
+  - **Smallest safe rollout:** one short transaction (lock_timeout 2 s, retried) creates the tables, functions and enabled triggers, plus one global journal row, so every organization reads live.
+  - Backfill then runs **online**, per organization, through the repair procedure (B5): row locks only, no table lock.
+  - Each organization becomes fresh only after its own verify returns 0.
+  - The table-lock window is thus trigger creation alone. It is not yet measured, so it is measured on the 500k fixture and on a production-sized copy before approval is requested.
+  - The §3.6 single-transaction backfill (pausing writes for the whole backfill) is dropped.
+- **Rollback and repair are built and rehearsed with the implementation, not deferred** (supersedes §3.9's deferral). The rehearsal, in a disposable database, covers:
+  - install, then write load, then repair under load;
+  - fault injection, readers going live, repair, readers going stored;
+  - trigger disable and re-enable with the runbook rule;
+  - a restore drill;
+  - rollback: drop the layer with v3 disabled, readers return to the live statement, and v2 is untouched;
+  - re-install.
+
+### 14.E Approval list (nothing here is approved)
+
+1. **Version placement** (decision). The layer must precede enable, `…17` cannot be repurposed and enable versions cannot shift, so either:
+   - (a) fold the layer into an unpublished PKG-A file, whose stage then gains table locks and a rollback scope; or
+   - (b) give it its own later range, installed after enable, with readers running live until it is verified; or
+   - (c) renumber the placeholders in a later, separately approved filename-only commit.
+2. **Proposed files:**
+   - the layer migration and `supabase/migrations/rollback/…_reports_v3_identity_pointers.rollback.sql`, versions per decision 1;
+   - changes to `…15` (in-statement freshness and the live fallback; the readers' bodies otherwise unchanged);
+   - `supabase/tests/reports_v3_identity_pointers.sql`;
+   - `scripts/reports_v3_identity_concurrency.sh`;
+   - `supabase/ops/reports_v3_identity_verify.sql` and `supabase/ops/reports_v3_identity_repair.sql`;
+   - the differential (stored-versus-live equality), the fixture script, the static contract test, and the workflow lines to run them;
+   - D1, D3, D5, `backend_actions.md` and `tests.md`.
+3. **Database objects:**
+   - tables `private.report_v3_identity_pointers`, `…_identity_layer`, `…_identity_journal` and `…_identity_repairs`;
+   - functions for the universe, resolve, maintenance triggers, freshness, verify and repair;
+   - triggers on the five tables;
+   - optionally the event trigger (B3 i).
+4. **Isolated experiments:** X1 (benefit, payload equality) and X2 (write path, contention, fault injection), plus the install-lock measurement (D).
+5. **Maintenance mechanisms to approve:** the journal in the outer transaction; the WHEN OTHERS boundary (57014 and P0004 propagate); the key order; K and B; online repair; the global-row rule; the restore runbook; whether to add a scheduled verify.
+6. **Acceptance criteria:**
+   - stored and live payloads are identical in every differential case;
+   - verify returns 0 after every X2 scenario;
+   - every injected fault leaves the affected organization live, never stale-stored;
+   - write-path p95 increases within bounds approved with X2's results;
+   - no deadlock, and no unbounded wait;
+   - the install lock duration is measured and approved;
+   - rollback and repair are rehearsed;
+   - the unchanged two-run, 147-combination acceptance passes.
+
+   Phase B is not implemented, and no first-contact cache is proposed.
+
 ## Appendices
 
 **In the repository** (`docs/plans/2026-10-31-reports-v2/appendix/`, added 2026-11-01 under Chris's documentation approval). These are the current implementation references. They agree with §2–§13, and revision 2.1 applied BC1–BC5 to D1, D3, D4 and D6.

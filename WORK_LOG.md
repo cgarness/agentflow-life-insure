@@ -1,5 +1,75 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Reports V2 PKG-A Batch 7 checkpoint review: verification hardening, differential-job allowance, parallel-safety review and the Phase B design delta (branch `claude/great-goodall-911azc`; documentation and one workflow timeout only; NOT merged, applied, enabled or deployed)
+
+**Status.**
+- Batch 7 (Phase E, Phase A, KPI 24) is a completed branch checkpoint at `d2bba9e`. **Performance acceptance remains failed**, and PKG-A is not release-ready.
+- No SQL, schema, trigger, reader or planner-setting change. No hosted mutation, migration, grant, enablement, release runner, deploy or settings change. No telephony, TwilioContext, duration-writer or v2 change. `…17` is untouched and Phase B is not implemented.
+- **Still pending:** ★1, ★4, E1–E6 acceptance, the campaign-copy fallback security review, the named reviewer and the PKG-A production approval. No agency-only fallback.
+
+**Changed.**
+- `.github/workflows/reports-backend.yml`: the `differential` job's `timeout-minutes` 45 → 60. The CI run of `66663f4` used 36 m 37 s. All other workflow values are unchanged: the 8 s request timeout, the 2 s and 4 s targets, 147 combinations, 20 samples, and two passing runs.
+- `implementation_plan.md`: the checkpoint authorization (written first), the verification procedure and the outcome.
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md` §14: the Phase B design delta.
+- D1 §3.9, D3 §3.2, D5 §3.3: the parallel-safety findings.
+
+**Verification hardening.**
+- Every required check runs with `pipefail`. Its status comes from `PIPESTATUS[0]` or `wait PID` and goes into a ledger. The commit and push stage runs only when every required step shows 0.
+- Demonstrated without committing:
+  - a deliberate foreground failure, a background failure and a missing step each stopped the stage;
+  - a passing run reached it (dry-run stand-in);
+  - the old `| tail` pattern let the failure through, which was the `3dd8f87` slip.
+- No new tracked script; the procedure is recorded in the plan.
+
+**Parallel-safety findings.**
+- **Reviewed:** the six helpers marked in Batch 7, all PARALLEL RESTRICTED:
+  - `local_day_start(date,text)`;
+  - `identity_receipts(uuid,uuid[])`;
+  - `identity_numbers(uuid,text[])`;
+  - `sale_call_links(uuid,timestamptz)`;
+  - `first_sales(uuid,timestamptz)`;
+  - `identity_states_by_id(uuid,uuid[],uuid[])`.
+
+  And their callees: `client_identity_key`, `phone_last10` (SAFE), `state_classify` (SAFE) and `normalize_us_state`.
+- **No actually unsafe operation** in the transitive closure: no write, sequence, subtransaction or `set_config`; only reads and constant `EXECUTE … USING`.
+- **Plans** (VERBOSE, 500k fixture): the journey statement's only Gather covers the history pass, with no `report_v3_*` call beneath it; every helper runs in the leader. The state statement is serial: `report_v3_sale_facts` is UNSAFE.
+- **Forced-parallel check** (parallel costs 0, `debug_parallel_query = on`, isolated functional database): the payloads of ADM1, A1, A2 and A3 were byte-identical to the normal plans, and the seal held.
+- **Label mismatch, not an unsafe dependency:** the production `public.normalize_us_state` (pure, md5 `c80ff9ad…`, UNSAFE by default) sits under the SAFE `state_classify`. It is left unchanged because it is protected.
+- **Replacements:**
+  - PKG-C `…32` replaces `sale_call_links`. Its preimage includes PARALLEL RESTRICTED; the replacement keeps the marking only after review, and the rollback restores it.
+  - PKG-B replaces `report_v3_sale_premium` (`…21`), which sits under `sale_facts`, outside the restricted set.
+  - After any replacement, rerun the pins and tests listed in D3 and D5.
+
+**Phase B design delta** (proposal; §14).
+- **Benefit** (measured CI p95, overlapping instrumented node times, estimates labelled):
+  - the layer alone is **not** expected to clear summary (2,770.9 ms) or state (2,752.9 ms) at agency-366, with estimates of −0.25 to −0.45 s;
+  - journey (4,426.8 ms) is borderline (−0.35 to −0.5 s);
+  - an isolated experiment X1 is proposed before any claim.
+- **Correctness:**
+  - a pending journal committed together with the CRM write, so maintenance and marker cannot both be lost;
+  - the WHEN OTHERS boundary, under which 57014 cancellation and P0004 assertion propagate;
+  - freshness evaluated inside the reader's one snapshot;
+  - online, high-water-mark repair;
+  - per-organization clearing of global rows;
+  - a live fallback when objects are missing;
+  - trigger-disable detection, with the bypass and restore exposure window stated (the read path does not verify).
+- **CRM impact:** conversion, inbound auto-create, cascades, imports and bulk deletes are in scope. The total budget is a key cap plus a deadline, because a per-lock timeout is not a budget. Subtransaction overflow is to be measured (X2).
+- **Install and recovery:** a lock window for trigger creation only, then online per-organization backfill. Rollback and repair are built and rehearsed with any implementation.
+- **Approval list:** version placement (a, b or c, since `…17` cannot move), files, objects, experiments X1 and X2, mechanisms and acceptance criteria.
+
+**Checks** (ledger, all exit 0):
+- YAML validity, and a one-line workflow diff;
+- `reportsV3Contracts.test.ts`: 40 of 40, as at baseline;
+- `git diff --check`;
+- the path-scope check;
+- the push-automation check: only `s1-plan-verify.yml` runs on push, and only for `main`.
+
+The acceptance matrix was not rerun, which this documentation and timeout change does not require.
+
+**Next.** Stopped before further performance implementation. Chris's decisions:
+- the §14 approval list (placement, X1 and X2 first);
+- whether summary and state need non-Phase-B work, since the layer alone is not expected to clear them.
+
 ## 2026-11-02 — Reports V2 PKG-A Batch 7: Phase E (evidence and acceptance), Phase A (SQL performance) and the KPI 24 pre-release amendment; performance acceptance NOT passed (branch `claude/great-goodall-911azc`; NOT merged, applied, enabled or deployed)
 
 **Status.**

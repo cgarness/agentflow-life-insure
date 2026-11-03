@@ -124,7 +124,7 @@ jobs:
     # Correctness evidence: the code under test against the reviewed baseline (4236b8a), fixtures and the 500k scale
     # organization. Runs on pull requests and manual dispatch.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:17.6

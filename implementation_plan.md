@@ -1,3 +1,49 @@
+## 2026-11-03 — Reports V2 PKG-A Batch 7 checkpoint review: verification hardening, differential-job allowance, parallel-safety review and the Phase B design delta (branch `claude/great-goodall-911azc`; documentation and one workflow timeout only; nothing applied, merged, enabled or deployed)
+
+**Authorization:** Chris's Batch 7 checkpoint-review message of 2026-11-03. Batch 7 Phase E, Phase A and KPI 24 are a completed branch-development checkpoint at the reviewed remote head `d2bba9e8e302a8b618b4f83661925319580c1b09`. Performance acceptance remains failed, and PKG-A is not release-ready.
+- **Base:** branch and remote at `d2bba9e`; `main` `6e39c15` (unchanged). The newest open PR is still #486 (2026-10-23), so there is no conflicting work. Re-read for this entry: `AGENT_RULES.md`, `VISION.md`, the Batch 7 `WORK_LOG.md` entry, both plans, and D1, D3 and D5.
+- **Authorized tracked changes (exact paths):**
+  1. `.github/workflows/reports-backend.yml`: the `differential` job's `timeout-minutes` 45 → 60, and nothing else.
+  2. `implementation_plan.md`: this entry.
+  3. `docs/plans/2026-10-31-reports-v2/implementation_plan.md`: the Phase B design delta (an update of the Batch 7 pointer-layer proposal, §3).
+  4. `docs/plans/2026-10-31-reports-v2/appendix/D1.md`, `D3.md`, `D5.md`: the parallel-safety findings and the design notes only.
+  5. `WORK_LOG.md`: a newest-first entry.
+- **Not authorized:** SQL implementation, new schema, a maintained table, triggers, reader rewrites, planner-setting changes, new scripts or tooling, any other path, and backend commands outside the existing isolated-test scope. No PR, `main` push, force push or merge. No hosted mutation, production migration, grant, enablement, release runner, deployment promotion or settings change. No telephony, TwilioContext, duration-writer or v2 change. `…17` is not repurposed, enable versions do not shift, and Phase B is not implemented. No first-contact cache.
+- **Unchanged acceptance:** the 8 s request timeout, the 2 s and 4 s p95 targets, 147 combinations, 20 measured samples, and two independent passing runs. No runner selection, no excluded combinations, and no conversion of an enforced failure into a diagnostic success. The full acceptance matrix is not rerun for this documentation and timeout change.
+- **Still pending:** ★1 and ★4; E1–E6 acceptance; the campaign-copy fallback security review; the named reviewer; the PKG-A production approval. No agency-only fallback. The `3dd8f87` follow-up stays; no history rewriting.
+- **Stop:** before any further performance implementation.
+
+**Verification procedure** (it replaces "pipe to `tail` and read the text"; used for this checkpoint and for every later batch):
+- Every required check runs as its own step, in bash with `set -o pipefail`. A logged step is `cmd 2>&1 | tee LOG | tail -n N`, and its status is taken from `PIPESTATUS[0]`: the command's own exit code, never `tail`'s or `tee`'s. Each step appends `NAME RC` to a status ledger.
+- A background step keeps its PID. Completion and status come from `wait PID` alone, never from a log line or the absence of output. A step that has not been waited for counts as a failure.
+- The commit and push stage runs only when the ledger lists every required step with status 0. Any other value, a missing step, or an empty ledger stops the stage before `git commit`.
+- Failures are compared with the recorded baseline by identity (failing files and test names), not by counts or summary text.
+- No new script: the procedure is a short inline shell sequence, recorded in the outcome below with the demonstration.
+
+**Outcome (2026-11-03).**
+- **The procedure, exactly** (bash, run inline; no tracked script):
+  ```bash
+  set -o pipefail; L=<ledger>; : > "$L"
+  step()     { n=$1; shift; "$@" 2>&1 | tee "<dir>/$n.log" | tail -n 4; rc=${PIPESTATUS[0]}; echo "$n $rc" >> "$L"; }
+  bg_start() { n=$1; shift; ( "$@" > "<dir>/$n.log" 2>&1 ) & eval "PID_$n=$!"; }
+  bg_wait()  { n=$1; eval "p=\$PID_$n"; wait "$p"; echo "$n $?" >> "$L"; }
+  gate()     { [ -s "$L" ] || return 1; for n in "$@"; do [ "$(awk -v n=$n '$1==n{print $2}' "$L")" = 0 ] || return 1; done; }
+  gate <every required step> && git commit … && git push …   # otherwise the stage is not reached
+  ```
+- **Demonstrated without a commit** (disposable scratch directory; `HEAD` stayed `d2bba9e`):
+  - a deliberate `exit 3` through `| tee | tail` was recorded as status 3 and stopped the stage;
+  - a background `exit 4` was recorded through `wait PID` and stopped the stage;
+  - a required step that never ran was recorded as missing and stopped the stage;
+  - all-zero statuses reached the stage, where a dry-run stand-in ran instead of `git commit`;
+  - the old pattern (`cmd | tail -n 2 && …`, no `pipefail`) let the same failing command through. That was the `3dd8f87` slip.
+- **Differential allowance:** the `differential` job's `timeout-minutes` is 60, and nothing else in the workflow changed.
+- **Parallel-safety review:** recorded in D3 §3.2, D5 §3.3 and D1 §3.9. No actually unsafe dependency was found. One label mismatch: the unchanged production `public.normalize_us_state` is pure but labelled UNSAFE by default, under the SAFE `report_v3_state_classify`. No marking changed.
+- **Phase B design delta:** `docs/plans/2026-10-31-reports-v2/implementation_plan.md` §14 (proposal only).
+- **Checks:** YAML validity and the one-line workflow diff; the static contract tests (40 of 40, as at baseline); `git diff --check`; the path-scope check; the push-automation check. All exited 0 through the ledger. The acceptance matrix was not rerun.
+- **Stopped** before further performance implementation.
+
+---
+
 ## 2026-11-02 — Reports V2 PKG-A Batch 7: Phase E (evidence and acceptance), Phase A (SQL only) and the KPI 24 pre-release amendment (branch `claude/great-goodall-911azc`; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's Batch 7 message of 2026-11-02 approves branch-only implementation of Phase E, Phase A and the KPI 24 pre-release amendment from the Batch 7 proposal. **Phase B is not authorized.**
