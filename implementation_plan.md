@@ -7,8 +7,8 @@
 - `-pkg-b`, `-pkg-c`, `-pkg-d` and `-pkg-f` do not exist yet; each is created from the foundation head when its first batch starts.
 
 **Completion checklist** (dependency order; the production order stays A → B → policy classifications → C/D → F).
-1. [ ] **F preview** (`-pkg-f`): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
-2. [ ] **A support** (foundation): the v3 payload writer (D1 X9: `run_reports_v3_tests.sh` / `reports_v3_fixture.py`).
+1. [~] **F preview** (`-pkg-f`; F-1 `06e4537` and F-2 `969a2fa` done: lib layer, sections 1–2, harness, screenshots; next F-3 sections 3–7 and the three v2-page test rewrites): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
+2. [x] **A support** (foundation; `1334657`, `d52d4db`): the v3 payload writer (D1 X9: `run_reports_v3_tests.sh` / `reports_v3_fixture.py`).
 3. [ ] **B** (`-pkg-b`, D2): audited correction ledger, the correction workflow, history display, effective original-sale premium; Reports, Leaderboard and Dashboard consistency.
 4. [ ] **C** (`-pkg-c`, D3): producing-call capture, supported inbound integration, failure handling and recovery for 1 Call Close. `TwilioContext.tsx` is read before any approved telephony-adjacent edit.
 5. [ ] **D** (`-pkg-d`, D4): classification, occurrence and outcome evidence, assignment-at-start credit (BC3), optional closing-appointment attribution, recovery.
