@@ -1,5 +1,59 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Reports V2 PKG-A Batch 8: query-only optimization after X1; no reader change retained; journey reader scale coverage added (branch `claude/great-goodall-911azc`; tests and documentation only; NOT merged, applied, enabled or deployed)
+
+**Status.**
+- Chris accepted stopping the maintained pointer layer. X2 and Phase B are off the path, and nothing of them was built.
+- **No query-only optimization was worth keeping.** `…12`, `…14` and `…15` are byte-identical to `bf7d5d6`. The enforced two-run acceptance was not rerun on unchanged code, so **performance acceptance remains failed** (summary and state at agency-366; journey at agency-366 on the slower CI runner), and PKG-A is not release-ready. No other cache architecture is proposed; the next step is Chris's decision.
+- No migration, reader, helper, workflow, runner, reference-source, telephony, `TwilioContext`, duration-writer or v2 change. No hosted command, production grant, enablement, release runner or deployment. `…17` is untouched.
+- **Still pending:** ★1, ★4, E1–E6 acceptance, the campaign-copy fallback security review, the named reviewer and the PKG-A production approval. No agency-only fallback.
+
+**Changed (tracked).**
+- `supabase/tests/reference/reports_v3_reference_manifest.json`: `scale_cases` 19 → 25 (six journey reader cases) and `scale_note`. The pinned sources, the reference-only repair and `generated_sha256` are unchanged, so the frozen reference implementation is unchanged.
+- `supabase/tests/reports_v3_differential.sql` (part 2): the journey reader cases run only with `REPORTS_V3_DX_JOURNEY_SCALE=1` (`\getenv`). It always asserts the variable's value and that the six cases are pinned, and requires `6/6` payload_equal when enabled and `0/0` otherwise. It prints and records `journey_reader_cases` as `compared` or `not run`.
+- `src/lib/__tests__/reportsV3Contracts.test.ts`: pins the 25 scale cases, the six journey cases in order, and the gate's text in the differential.
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md` §14.G; D1 §3.11, D3 and D5 §3.3 notes; `appendix/tests.md` (the differential row; total 276).
+- `implementation_plan.md`: the scope entry (written first, pushed as `80c1ba6`) and its outcome. This entry.
+
+**Candidates** (scratch schemas in a disposable 500k database, PostgreSQL 16.15, diagnostic only; each copy differs from the installed function only in its `@call-pointers` block, with byte identity asserted).
+- **Q1** (summary, state, journey rows): one `MATERIALIZED` pass over the window's calls collects both pointer kinds instead of one DISTINCT pass per kind. The window bound is kept, so no scope becomes organization-wide.
+- **JU** (journey rows only): the pointer sets are the CRM tables' ids in the organization, resolved live, so the history pass needs no pointer pass over the calls.
+- **Equivalence before timing: 1,448 comparisons with the current code, 0 differences** (Q1: 816 reader cases and 180 journey-helper cases; JU: 272 reader cases and 180 journey-helper cases).
+
+**Measurements** (interleaved in one session, arm order rotated, 0 timeouts; p95, paired median in brackets).
+
+| Reader | Combination | Current | Q1 |
+|---|---|---|---|
+| summary | agency-366 (miss) | 2,316.5 ms | 2,334.4 ms (−16.0) |
+| summary | agency-30 / personal-366 / agency-366 one agent | 606 / 243 / 269 ms | −54 / −46 / −65 ms |
+| state | agency-366 (miss) | 2,346.5 ms | 2,344.4 ms (−27.1) |
+| state | team-30 / agency-366 one agent | 495 / 463 ms | −80 / −64 ms |
+| journey | agency-366 (miss) | 4,330.6 ms | 4,898.7 ms (+687.7) |
+
+- Summary and state: 20 samples after warm-up over eight combinations each, narrow and wide. Journey: an 8-sample screen over seven combinations; both candidates regressed every combination (Q1 +745 to +798 ms, JU +849 to +994 ms paired), so no 20-sample run was spent on them.
+- **Rejected, per reader:** summary and state, because the miss does not move and the gains fall only where the reader already passes (keeping them would split the shared `@call-pointers` text for no gate effect); journey, both candidates, as repeatable regressions. A `MATERIALIZED` CTE and the CRM-universe union are parallel-restricted and remove the history pass's Gather; JU's universe resolution (465 + 160 ms) also costs as much as the calls pass it removes (457 + 121 ms).
+
+**Journey reader scale coverage** (local, PostgreSQL 16.15).
+- **Opt-in: 4 of the 6 journey cases compared, all `payload_equal`** (identical payload hashes): agency 1 day, team 30, personal 366, and agency 366 for one agent. Each ran in its own REPEATABLE READ transaction (public and baseline on one snapshot) with the differential's exact `rt.dx_case` expression, six in parallel on the surviving database of the full run. Reader grants were committed once around the runs instead of being toggled per transaction, because parallel `GRANT`s on the same functions would serialize.
+- Baseline-dominated wall times in parallel: 3,012 s, 3,934 s, 7,327 s and 7,317 s. Alone, the baseline's agency-1 call took 1,880 s; the public reader 1,424 ms.
+- **Agency 30 and agency 366 days were not compared.** The full gated opt-in run (started 08:40 UTC) and two per-case attempts were each lost when the session's container restarted (about 13:50, 16:24 and 18:48 UTC); the uncommitted transaction goes with it. These two baseline calls ran more than 2 h 20 min on each attempt, on one CPU each, without finishing, so they cannot complete in this environment. **They remain unverified at scale** and are not counted as compared.
+- The texts that said "about 31 minutes per baseline call" were corrected to "31 minutes to more than 2 hours", and the default path was rerun on the corrected files.
+- The default path (the variable unset, as CI runs it) passed through the gated runner: fixtures 0 mismatches (1,428 payloads, 708 refusals, 180 journey, 120 by-agent, 55 resolver); scale 0 mismatches (19 reader payloads, call facts 2, resolver 1, journey helpers 1); `journey_reader_cases: not run (REPORTS_V3_DX_JOURNEY_SCALE unset)`.
+- **CI coverage of the six cases needs an approved workflow change** (for example a dispatch-only job with a longer limit). The differential job's 60-minute limit already holds a 36.6-minute run.
+
+**Checks** (hardened exit-status ledger).
+- The differential, default path, on the final files: exit 0, 0 mismatches (fixtures: 1,428 payloads, 708 refusals, 180 journey, 120 by-agent, 55 resolver; scale: 19 reader payloads, call facts 2, resolver 1, journey helpers 1), `journey_reader_cases: not run`.
+- SQL suites: `reports_rpc` 0, `reports_v3` 0, `profile_rpc` 0. `reports_integrity` failed (exit 3, "Selective date-window index was not used") while it ran beside the multi-hour REPEATABLE READ differential, whose snapshot holds back the xmin the new index needs; **rerun alone on an idle cluster: exit 0**, with no file left in the checkout.
+- Vitest, on an idle machine: 6,767 tests, 6,730 passed; the 13 failing files and 2 failing tests are identical by identity to the Batch 7 baseline. A run under the journey queries' CPU load showed three extra timing failures in untouched files (a 5.1 s timeout against 5 s); they did not recur idle.
+- Contract test 41/41; scoped eslint 0; `npx tsc --noEmit` 0; build 0; `npx tsc -p tsconfig.app.json --noEmit` exit 2, 222 lines, byte-identical to the baseline.
+
+**Evidence:** the bundle `reports_v3_b8_evidence_80c1ba6.tar.gz` (sha256 `7e17f9153bfa3ea605c769d18dc9d7af1596241cde1bd858566278b5ff6aef28`), delivered to Chris outside the repository: the scripts, generated SQL, equivalence outputs, raw samples, plans, the differential and journey-case outputs (including the lost runs' logs) and the check logs.
+
+**Blockers and next steps.**
+- Performance acceptance is not passed, and no remedy is proposed; the next step is Chris's decision.
+- The journey reader's agency 30 and 366 day cases are unverified at scale. Comparing them needs a run longer than this environment allows, for example an approved dispatch-only CI job with a longer limit.
+- ★1, ★4, E1–E6, the fallback review, the named reviewer and the PKG-A production approval remain pending.
+
 ## 2026-11-03 — Reports V2 PKG-A X1: isolated pointer-map read-path experiment; recommendation: stop the maintained layer (branch `claude/great-goodall-911azc`; documentation only; NOT merged, applied, enabled or deployed)
 
 **Status.**

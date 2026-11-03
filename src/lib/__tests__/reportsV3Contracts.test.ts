@@ -624,7 +624,31 @@ describe("Reports v3 performance acceptance and differential evidence", () => {
     expect(manifest.reference_only_repair.from).toBe("ck.lead_id = substr(r.identity_key, 6)::uuid");
     expect(manifest.case_inventory.expected_totals).toEqual({ cases: 2136, payload: 1428, refusal: 708 });
     expect(manifest.case_inventory.retained_totals).toEqual({ state_resolver: 55, journey: 180, journey_by_agent: 120 });
-    expect(manifest.case_inventory.scale_cases).toHaveLength(19);
+    expect(manifest.case_inventory.scale_cases).toHaveLength(25);
+    type ScaleCase = { reader: string; persona: number; scope: string; days: number | null; filter_agent: number | null; expected: string };
+    const journeyScale = (manifest.case_inventory.scale_cases as ScaleCase[])
+      .filter((c) => c.reader === "journey")
+      .map((c) => `${c.persona}:${c.scope}:${c.days}:${c.filter_agent ?? "-"}:${c.expected}`);
+    expect(journeyScale).toEqual([
+      "0:agency:1:-:payload",
+      "0:agency:30:-:payload",
+      "0:agency:366:-:payload",
+      "1:team:30:-:payload",
+      "7:personal:366:-:payload",
+      "0:agency:366:7:payload",
+    ]);
     expect(manifest.approved_differences).toEqual(["kpi24-quality-a1"]);
+  });
+
+  it("compares the journey reader with the baseline at scale only on explicit opt-in, and never reports skipped cases as compared", () => {
+    const dx = read("supabase/tests/reports_v3_differential.sql");
+    const scale = dx.slice(dx.indexOf("-- @@differential-scale@@"));
+    expect(scale).toContain("\\getenv dx_journey_scale REPORTS_V3_DX_JOURNEY_SCALE");
+    expect(scale).toContain(":'dx_journey_scale' IN ('0', '1'), true);");
+    expect(scale).toContain("WHERE e.reader <> 'journey' OR :'dx_journey_scale' = '1'");
+    expect(scale).toContain("CASE WHEN :'dx_journey_scale' = '1' THEN '6/6' ELSE '0/0' END");
+    expect(scale).toContain("journey reader cases NOT RUN (6 pinned; set REPORTS_V3_DX_JOURNEY_SCALE=1");
+    expect(scale).toContain("'0:agency:1:-:payload 0:agency:30:-:payload 0:agency:366:-:payload 0:agency:366:7:payload 1:team:30:-:payload 7:personal:366:-:payload'");
+    expect(scale).toContain("'journey_reader_cases'");
   });
 });

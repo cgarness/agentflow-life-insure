@@ -31,6 +31,20 @@
 - **Still pending:** ★1, ★4, E1–E6, the campaign-copy fallback review, the named security reviewer and the PKG-A production approval. No agency-only fallback.
 - **Stop:** after this batch, whether it passes or still misses. No other cache architecture is proposed.
 
+**Outcome (2026-11-03).** The full result is in `docs/plans/2026-10-31-reports-v2/implementation_plan.md` §14.G.
+- **No query-only change retained.** Q1 (one pointer pass instead of two) and JU (journey pointer sets from the CRM universe) were each proven equal to the current code (1,448 comparisons, 0 differences) and measured.
+  - Neither moves a miss: summary agency-366 +18 ms p95, state −2 ms p95.
+  - Both regress the journey (Q1 +745 to +798 ms, JU +849 to +994 ms paired) by losing its parallel plan.
+- **`…12`, `…14` and `…15` are unchanged,** so the two-run acceptance was not rerun on unchanged code. The gate stays **not passed**; no remedy is proposed.
+- **Journey reader scale coverage added** to the differential inventory: six public-against-baseline cases, pinned by the contract test.
+- **Deviation from the scope entry:** the six cases run only with `REPORTS_V3_DX_JOURNEY_SCALE=1`. The baseline's journey reader takes 31 minutes (agency, 1 day) to more than 2 hours (agency 30 and 366 days) per call, beyond the CI job's 60-minute limit, and the workflow is outside this batch. Without the variable, the cases are reported as not run, never as compared. Running them in CI needs an approved workflow change.
+- **Results** (local PostgreSQL 16.15):
+  - The default path (variable unset, as CI runs it): fixtures and scale 0 mismatches; `journey_reader_cases: not run`.
+  - Opt-in: **4 of the 6 journey cases compared, all `payload_equal`**: agency 1 day, team 30, personal 366, and agency 366 for one agent.
+  - **Agency 30 and agency 366 days were not compared.** Their baseline calls ran more than 2 h 20 min on two attempts, and the session's container restarted each time before they finished, which loses the uncommitted transaction. They remain unverified at scale; they are not counted as compared.
+  - The integrity suite, rerun alone, passes; its first failure was caused by a concurrent multi-hour snapshot. Vitest failures match the Batch 7 baseline by identity.
+- **Not changed:** the migrations, the reference sources and repair, `scripts/reports_v3_reference.py`, `scripts/reports_v3_fixture.py`, the runner, the workflow, `…17`, telephony and v2. No hosted command, grant outside the disposable harness, enablement or deployment.
+
 ## 2026-11-03 — Reports V2 PKG-A X1: isolated pointer-map read-path experiment (branch `claude/great-goodall-911azc`; measurement and documentation only; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's X1 message of 2026-11-03. It approves X1 as an isolated, reproducible experiment, starting from the reviewed head `772e88327efe76a9e9c211c08eb330e2da5f56fa`. **Phase B implementation and X2 are not approved.**

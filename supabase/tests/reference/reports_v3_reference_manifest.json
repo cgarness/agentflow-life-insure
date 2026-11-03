@@ -445,9 +445,57 @@
         "days": null,
         "filter_agent": null,
         "expected": "payload"
+      },
+      {
+        "reader": "journey",
+        "persona": 0,
+        "scope": "agency",
+        "days": 1,
+        "filter_agent": null,
+        "expected": "payload"
+      },
+      {
+        "reader": "journey",
+        "persona": 0,
+        "scope": "agency",
+        "days": 30,
+        "filter_agent": null,
+        "expected": "payload"
+      },
+      {
+        "reader": "journey",
+        "persona": 0,
+        "scope": "agency",
+        "days": 366,
+        "filter_agent": null,
+        "expected": "payload"
+      },
+      {
+        "reader": "journey",
+        "persona": 1,
+        "scope": "team",
+        "days": 30,
+        "filter_agent": null,
+        "expected": "payload"
+      },
+      {
+        "reader": "journey",
+        "persona": 7,
+        "scope": "personal",
+        "days": 366,
+        "filter_agent": null,
+        "expected": "payload"
+      },
+      {
+        "reader": "journey",
+        "persona": 0,
+        "scope": "agency",
+        "days": 366,
+        "filter_agent": 7,
+        "expected": "payload"
       }
     ],
     "outcome_source": "Each persona's outcome types were taken from the reviewed baseline (rtref) on 2026-11-02 and checked against the authorization rules: agents cannot filter to others or request team scope; an Admin cannot filter to another organization's agent or to an agent outside an empty team; a Team Leader cannot reach agency scope or agents outside the downline; O2's B1 has no Reports access (42501); O3 has no configured time zone (55000). The scope reader takes no agent filter.",
-    "scale_note": "Scale personas are reports_v3_performance.sql agents: 0 Admin (agency), 1 Team Leader (team), 7 Agent (personal); windows end on the fixture's end date. Chosen so the reviewed baseline finishes in minutes (its state reader takes about 150 s at agency 30 days; its 366-day call readers about 27 s each); the journey is compared through its helpers at scale."
+    "scale_note": "Scale personas are reports_v3_performance.sql agents: 0 Admin (agency), 1 Team Leader (team), 7 Agent (personal); windows end on the fixture's end date. Chosen so the reviewed baseline finishes in minutes (its state reader takes about 150 s at agency 30 days; its 366-day call readers about 27 s each). The six journey reader cases are pinned here too (the three windows; agency, team, personal and one agent-filtered agency case, including the annual agency case), but the reviewed baseline's journey reader takes 31 minutes (1,880 s at agency 1 day) to more than 2 hours (agency 30 and 366 days) per call at this scale on PostgreSQL 16.15, so reports_v3_differential.sql runs them only when REPORTS_V3_DX_JOURNEY_SCALE=1 and otherwise reports them as not run; the journey helpers are compared at scale on every run."
   }
 }

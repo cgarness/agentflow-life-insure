@@ -1990,6 +1990,66 @@ Each arm copies the installed function and replaces only its `@call-pointers` bl
 - Pursuing it would be separate read-path performance work under its own approval; nothing is started.
 - A PostgreSQL 17.6 rerun of X1 needs a CI experiment mode and tracked scripts. It is returned as a proposed change only (`scripts/proposed_ci_x1_mode.patch` in the bundle) and is not needed for the no-go.
 
+### 14.G Batch 8 query-only result (2026-11-03; no reader change retained)
+
+**Decision recorded.** Chris accepted the §14.F recommendation. The maintained pointer layer, X2 and Phase B are off the implementation path; §14 and the X1 evidence are kept as history and are not built. Batch 8 tried only query-shape changes to the redundant pointer pass that X1 identified, with live structural identity resolution kept.
+
+**Candidates** (scratch schemas in a disposable 500k database on PostgreSQL 16.15, the same 4-vCPU machine as X1, built from `80c1ba6`, which has the same code as `bf7d5d6`). Each copies the installed function and changes only its `@call-pointers` block, with byte identity asserted:
+- **Q1 (summary, state, journey rows):** one `MATERIALIZED` pass over the window's calls collects both pointer kinds, instead of one DISTINCT pass per kind. It keeps the window bound, so no scope gets an organization-wide scan.
+- **JU (journey rows only):** the pointer sets are every id the rules can match in the organization (the CRM tables' ids), resolved live, so the history pass needs no pointer pass over the calls. The journey is already organization-wide (the full lookback), so this widens nothing.
+
+**Equivalence before timing: 1,448 comparisons with the current code, 0 differences.**
+- Q1: 816 reader cases (fixture and scale; 552 payloads, 264 refusals) and 180 journey-helper cases.
+- JU: 272 reader cases (184 payloads, 88 refusals) and 180 journey-helper cases.
+
+**Measurements** (interleaved, same session, the arm order rotated each round, 0 timeouts; p95 in ms):
+
+| Reader | Combination | Current | Q1 | Change (paired median) |
+|---|---|---|---|---|
+| summary | agency-366 (miss) | 2,316.5 | 2,334.4 | +17.9 (−16.0) |
+| summary | agency-30 | 606.4 | 552.0 | −54.4 (−68.5) |
+| summary | personal-366 | 243.4 | 197.2 | −46.2 (−45.8) |
+| summary | agency-366, one agent | 268.7 | 203.5 | −65.2 (−46.1) |
+| state | agency-366 (miss) | 2,346.5 | 2,344.4 | −2.1 (−27.1) |
+| state | team-30 | 494.9 | 415.2 | −79.7 (−40.8) |
+| state | agency-366, one agent | 463.4 | 399.6 | −63.8 (−80.5) |
+| journey | agency-366 (miss) | 4,330.6 | 4,898.7 | **+568.1 (+687.7)** |
+
+- Summary and state: 20 samples after warm-up over eight combinations each (agency 1/30/366, agency-366 with one agent, personal 1/366, team 30/366).
+- Journey: a screen of 8 samples over seven combinations. Both candidates regressed every combination, so no 20-sample run was spent on them:
+  - Q1: +745 to +798 ms paired;
+  - JU: +849 to +994 ms paired.
+
+**Per reader:**
+- **Summary:**
+  - Q1 gives repeatable gains of 10–70 ms at narrow and medium scopes.
+  - At the agency-366 miss its p95 is +18 ms (paired −16 ms), which is noise.
+  - **Rejected:** it does not move the miss, and it would split the shared `@call-pointers` text into two variants for the gain at scopes that already pass.
+- **State:**
+  - The same pattern: −2 ms p95 (paired −27 ms) at the miss, with gains only where the reader already passes.
+  - **Rejected.**
+- **Journey:**
+  - Both candidates remove the history pass's parallel plan (one Gather with one worker becomes none), as X1's F did: a `MATERIALIZED` CTE and the CRM-universe union are parallel-restricted.
+  - JU's universe resolution (465 + 160 ms) also costs as much as the calls pass it removes (457 + 121 ms).
+  - **Both rejected** as repeatable regressions.
+
+**Outcome.** No reader or helper is changed. `…12`, `…14` and `…15` are byte-identical to `bf7d5d6`, so the enforced two-run acceptance was not rerun on unchanged code. The gate result stands as reported in Batch 7: **not passed** (summary and state at agency-366; journey at agency-366 on the slower CI runner). With the maintained layer stopped, no remedy is named here. The next step is Chris's decision.
+
+**Journey reader scale coverage (permanent).**
+- The scale inventory gains six public journey-reader cases compared with the frozen baseline's reader:
+  - agency at 1, 30 and 366 days;
+  - team 30;
+  - personal 366;
+  - agency 366 filtered to one agent.
+- The baseline's journey reader takes **31 minutes to more than 2 hours per call** at this scale (1,880 s at agency 1 day alone; agency 30 and 366 days did not finish in 2.4 hours, locally). Six cases exceed the CI differential job's 60-minute limit, which already holds a 36.6-minute run, and the workflow is outside this batch.
+- `reports_v3_differential.sql` therefore runs them only with `REPORTS_V3_DX_JOURNEY_SCALE=1`. Without it:
+  - it asserts that the six cases are pinned;
+  - it prints and records `journey_reader_cases: not run`;
+  - it never counts them as compared.
+- The candidate's 8 s acceptance timeout is unchanged.
+- Running them in CI needs an approved workflow change, for example a separate dispatch-only job with a longer limit.
+- The local opt-in result is recorded in the Batch 8 `WORK_LOG.md` entry.
+
 ## Appendices
 
 **In the repository** (`docs/plans/2026-10-31-reports-v2/appendix/`, added 2026-11-01 under Chris's documentation approval). These are the current implementation references. They agree with §2–§13, and revision 2.1 applied BC1–BC5 to D1, D3, D4 and D6.

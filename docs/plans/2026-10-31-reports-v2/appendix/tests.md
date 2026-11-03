@@ -1,9 +1,9 @@
 # All test cases (revision 2)
 
 Generated from the six reconciled sections. The main plan §10 maps them to brief §14 and §21.
-Total: 275 test cases.
+Total: 276 test cases.
 
-## D1 (32)
+## D1 (33)
 
 | Name | File | Kind | Package | Covers |
 |---|---|---|---|---|
@@ -27,6 +27,7 @@ Total: 275 test cases.
 | Release and recovery proofs | supabase/tests/reports_v3_release.sql | sql | PKG-A | replay/drift refusal; created sealed; the enable grants exactly the 15 readers; refusals on v2/closure/v3 drift, extra helper, inherited grants; pin list equals harness list; integrity enable after v3 = (true,false); reports_disable.sql after v3 enable = (false,true); v3 disable = (true,false); all-disable = (false,false); rollback refuses while enabled and drops only v3; fingerprint unchanged |
 | Negative controls | supabase/tests/reports_v3_negative.sql | sql | PKG-A | removed narrowing guard, other-agent rows, unavailable emitted as 0, GRANT to anon, v2 policy fields in a call reader, a non-attempt or unverified row counted in Calls made, an in-progress value blanked, a pre-rounded value: each fails |
 | Performance gate | supabase/tests/reports_v3_performance.sql | sql | PKG-A | 500k calls, 5k sales, 10k appointments per org under SET LOCAL statement_timeout='8s': p95 <= 2s for scope, summary, state, sales_appointments and the four call readers, <= 4s for journey; EXPLAIN (ANALYZE, BUFFERS) recorded |
+| Differential against the reviewed baseline | supabase/tests/reports_v3_differential.sql | sql | PKG-A | scripts/run_reports_v3_differential.sh: the code under test compared with the frozen baseline 4236b8a (rtref, pinned sources and the one reference-only repair) in the same snapshot. On the fixtures: 2,136 inventory reader cases, plus the journey, journey_by_agent and state-resolver helpers and three planted controls. On the 500k scale organization: every pinned reader case, the v2 and baseline call rows, the resolver sample and the journey helpers. The six journey reader cases at scale (agency 1/30/366, team 30, personal 366, agency 366 with one agent) run only with REPORTS_V3_DX_JOURNEY_SCALE=1; otherwise they are asserted pinned and reported as not run. The only approved difference is kpi24-quality-a1 |
 | Call readers (D3 owner; D1 cases) | supabase/tests/reports_v3_call_readers.sql | sql | PKG-A | D1's cases in D3's file: v3 meta and reader literals on the four call readers; call-only field set (no policies, premium, policies_in_period, *_attribution_unavailable, leads_dialed, contacted_leads or converted_leads); exact contact-rate numerator/denominator; 42501 → 22023 → 55000 order; 'Other campaigns' carries Calls made, Contacted calls and the rate counts, with no campaign name, type or id (RL-49) |
 | Release runner rehearsal | scripts/tests/reports_release_test.py | python | PKG-A | main-only, confirm=stage, byte/sha gates, identity gate, ordered PKG-A state machine, apply-index-concurrently indisvalid check and invalid-leftover refusal, record-history digest per file, rollback and emergency stages, and the machinery later packages use (their constants and cases are added by PKG-B/C/D, X7) |
 | Static SQL contract and privilege classes | src/lib/__tests__/reportsV3Contracts.test.ts | vitest | PKG-A | search_path on every CREATE FUNCTION; REVOKE ALL per created function; the §2.8 file → class map (keyed by suffix) parsing every GRANT: C and rollback files none, E exactly the 15 report readers TO authenticated, service_role after the pattern REVOKE, W exactly the per-file allowlist TO authenticated only (…31 incl. get_policy_sale_call_link_status(uuid[]); …41/…42 with D4's exact signatures), R REVOKE only or no privilege statement (incl. every read-only script); a missing, extra, broader or narrower GRANT fails; no GRANT to anon or PUBLIC and none on rpc_report_% anywhere; unmapped *reports_v3*.sql fails; highest-version release-enable bytes == ops, earlier ones == runner sha256 |

@@ -362,6 +362,20 @@ SELECT rt.dx_summary('fixtures') AS differential_fixtures;
 \else
 \set dx_scale_summary /dev/null
 \endif
+-- The journey reader cases of the inventory compare the public reader with the reviewed baseline's reader. The
+-- baseline's journey reader takes 31 minutes (agency, 1 day) to more than 2 hours (agency 30 and 366 days) per call at
+-- this scale, more than the CI job's remaining time, so they run only when REPORTS_V3_DX_JOURNEY_SCALE=1; otherwise
+-- they are reported as not run (never as compared).
+\getenv dx_journey_scale REPORTS_V3_DX_JOURNEY_SCALE
+\if :{?dx_journey_scale}
+\else
+\set dx_journey_scale 0
+\endif
+SELECT rt.eq('differential at scale: REPORTS_V3_DX_JOURNEY_SCALE is unset, 0 or 1', :'dx_journey_scale' IN ('0', '1'), true);
+SELECT rt.eq('differential at scale: the journey reader cases pinned (windows, scopes, the agent filter, annual agency)',
+  (SELECT string_agg(concat_ws(':', e.persona, e.scope, e.days, coalesce(e.filter_agent::text, '-'), e.expected), ' ' ORDER BY e.persona, e.days, e.filter_agent NULLS FIRST)
+     FROM rt.dx_scale_expected e WHERE e.reader = 'journey'),
+  '0:agency:1:-:payload 0:agency:30:-:payload 0:agency:366:-:payload 0:agency:366:7:payload 1:team:30:-:payload 7:personal:366:-:payload');
 SET statement_timeout = 0;
 SET jit = off;
 BEGIN ISOLATION LEVEL REPEATABLE READ;
@@ -371,7 +385,9 @@ SELECT count(*) AS scale_reader_cases FROM (
                                        coalesce(e.days || 'd', '-')),
                     rt.perf_agent(e.persona), m.org, e.reader, m.end_date - (e.days - 1), m.end_date,
                     CASE WHEN e.filter_agent IS NOT NULL THEN rt.perf_agent(e.filter_agent) END, e.scope, e.expected)
-    FROM rt.dx_scale_expected e, rt.perf_meta m ORDER BY e.reader, e.persona, e.days) x;
+    FROM rt.dx_scale_expected e, rt.perf_meta m
+   WHERE e.reader <> 'journey' OR :'dx_journey_scale' = '1'
+   ORDER BY e.reader, e.persona, e.days, e.filter_agent NULLS FIRST) x;
 -- Call facts over the 366-day window: the code under test against the pinned v2 rows on every carried column, and
 -- against the baseline's v3 rows on every column.
 CREATE TEMP TABLE dx_window AS SELECT w.start_at, w.end_at FROM rt.perf_meta m, LATERAL private.report_window(m.org, m.end_date - 365, m.end_date) w;
@@ -436,8 +452,15 @@ SELECT rt.dx_grants(false);
 COMMIT;
 
 SELECT part, kind, label, reader, expected, cand, ref, detail FROM rt.dx_results WHERE part = 'scale' AND (outcome = 'mismatch' OR kind <> 'reader') ORDER BY kind, label;
-SELECT rt.eq('differential at scale: every pinned scale reader case ran',
-  (SELECT count(*) FROM rt.dx_results WHERE part = 'scale' AND kind = 'reader'), (SELECT count(*) FROM rt.dx_scale_expected));
+SELECT rt.eq('differential at scale: every pinned scale reader case ran (the journey reader cases when enabled)',
+  (SELECT count(*) FROM rt.dx_results WHERE part = 'scale' AND kind = 'reader'),
+  (SELECT count(*) FROM rt.dx_scale_expected e WHERE e.reader <> 'journey' OR :'dx_journey_scale' = '1'));
+SELECT rt.eq('differential at scale: the journey reader cases compared equal when enabled, and absent otherwise',
+  (SELECT count(*) FILTER (WHERE r.outcome = 'payload_equal') || '/' || count(*) FROM rt.dx_results r WHERE r.part = 'scale' AND r.kind = 'reader' AND r.reader = 'journey'),
+  CASE WHEN :'dx_journey_scale' = '1' THEN '6/6' ELSE '0/0' END);
+SELECT CASE WHEN :'dx_journey_scale' = '1' THEN 'differential at scale: journey reader cases compared with the baseline: 6 of 6 payload_equal'
+            ELSE 'differential at scale: journey reader cases NOT RUN (6 pinned; set REPORTS_V3_DX_JOURNEY_SCALE=1, 31 minutes to more than 2 hours per baseline call)'
+       END AS journey_reader_scale;
 SELECT rt.eq('differential at scale: the pinned v2 call rows, the baseline v3 rows, the resolver sample and the journey helpers all compared',
   (SELECT count(*) FROM rt.dx_results WHERE part = 'scale' AND kind <> 'reader'), 4::bigint);
 SELECT rt.eq('differential at scale: no mismatch', (SELECT count(*) FROM rt.dx_results WHERE part = 'scale' AND outcome = 'mismatch'), 0::bigint);
@@ -449,8 +472,10 @@ SELECT rt.assert_sealed_v3(true, false);
 SELECT row_to_json(r) FROM (SELECT part, kind, label, reader, expected, cand, ref, outcome, cand_sha256, ref_sha256, detail
                               FROM rt.dx_results WHERE part = 'scale' ORDER BY kind, label) r;
 \o :dx_scale_summary
-SELECT jsonb_pretty(rt.dx_summary('scale'));
+SELECT jsonb_pretty(rt.dx_summary('scale') || jsonb_build_object('journey_reader_cases',
+         CASE WHEN :'dx_journey_scale' = '1' THEN 'compared' ELSE 'not run (REPORTS_V3_DX_JOURNEY_SCALE unset)' END));
 \o
 \pset tuples_only off
 \pset format aligned
-SELECT rt.dx_summary('scale') AS differential_scale;
+SELECT rt.dx_summary('scale') || jsonb_build_object('journey_reader_cases',
+         CASE WHEN :'dx_journey_scale' = '1' THEN 'compared' ELSE 'not run (REPORTS_V3_DX_JOURNEY_SCALE unset)' END) AS differential_scale;
