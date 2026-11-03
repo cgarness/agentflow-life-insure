@@ -62,6 +62,7 @@ vi.mock("@/hooks/useOrganization", () => ({
     isSuperAdmin: authState.isSuperAdmin || authState.isImpersonating,
   }),
 }));
+vi.mock("@/contexts/BrandingContext", () => ({ useBranding: () => ({ branding: { companyName: "Example Agency" } }) }));
 vi.mock("@/contexts/TwilioContext", () => ({ useTwilio: () => ({ selectedCallerNumber: "+15550001111" }) }));
 vi.mock("@/lib/supabase-email", () => ({ emailSupabaseApi: { getMyConnections: () => Promise.resolve([]) } }));
 vi.mock("@/integrations/supabase/client", () => {
