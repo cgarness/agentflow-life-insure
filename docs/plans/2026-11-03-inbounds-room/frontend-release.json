@@ -1,0 +1,135 @@
+{
+  "date": "2026-11-03",
+  "scope": "Approved frontend merge and AgentFlow Production flag activation; no number designation or real calls.",
+  "pr": 509,
+  "tested_head": "01a30ba3b886df9472d1004ddc0d1e55572c0218",
+  "base": "e02342fa74afddea2342e9640fb18a274da2367a",
+  "merge": "afe309723d8a50b1e58466cf7bbd3816c43cfb68",
+  "tree": "a5840f3df3fd3a68cf956c362deaa396e054c01d",
+  "flag": {
+    "key": "VITE_INBOUNDS_ROOM",
+    "value": "true",
+    "project": "agentflow",
+    "target": "production",
+    "method": "Vercel dashboard; save success confirmed. No other environment changed."
+  },
+  "deployment": {
+    "id": "dpl_FSuKKb5L3x98tKYFUbduCQRakKE7",
+    "name": "agentflow",
+    "url": "agentflow-otcosxnab-cgarness-projects.vercel.app",
+    "type": "LAMBDAS",
+    "state": "READY",
+    "createdAt": 1793735288249,
+    "creator": {
+      "uid": "B7CgJADiZNh6moCZg6TMPBCc",
+      "username": "cgarness"
+    },
+    "project": {
+      "id": "prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc",
+      "name": "agentflow",
+      "framework": "vite"
+    },
+    "meta": {
+      "githubCommitRef": "main",
+      "githubCommitSha": "afe309723d8a50b1e58466cf7bbd3816c43cfb68",
+      "githubCommitMessage": "feat: dedicated Inbounds room with mandatory dispositions (#509)\n\n* Build isolated Inbounds pilot room with mandatory wrap-up and scoped reporting\n\n* Preserve exact reviewed documentation bytes\n\n* Reserve SQL harness connection for migration transactions\n\n* Correct phone reputation result typing ...",
+      "githubRepo": "agentflow-life-insure",
+      "githubOrg": "cgarness"
+    },
+    "alias": [
+      "www.fflagent.com",
+      "agentflow-eta.vercel.app",
+      "fflagent.com",
+      "agentflow-cgarness-projects.vercel.app",
+      "agentflow-git-main-cgarness-projects.vercel.app"
+    ],
+    "target": "production",
+    "regions": [
+      "iad1"
+    ],
+    "buildingAt": 1793735290520,
+    "ready": 1793735355611,
+    "readyState": "READY",
+    "source": "git",
+    "aliasError": null
+  },
+  "ci": [
+    {
+      "name": "Inbounds room checks",
+      "id": 41703378244,
+      "conclusion": "success"
+    },
+    {
+      "name": "Onboarding emails",
+      "id": 41703378315,
+      "conclusion": "success"
+    },
+    {
+      "name": "Reporting integrity",
+      "id": 41703378385,
+      "conclusion": "success"
+    },
+    {
+      "name": "Commission grids verification",
+      "id": 41703378157,
+      "conclusion": "success"
+    },
+    {
+      "name": "A2P registration",
+      "id": 41703378159,
+      "conclusion": "success"
+    },
+    {
+      "name": "UV profile sync verification",
+      "id": 41703378328,
+      "conclusion": "success"
+    },
+    {
+      "name": "Dialer DNC integrity",
+      "id": 41703378288,
+      "conclusion": "success"
+    },
+    {
+      "name": "SMS consent integration",
+      "id": 41703378277,
+      "conclusion": "success"
+    },
+    {
+      "name": "Dashboard G3 premium frontend verification",
+      "id": 41703378320,
+      "conclusion": "success"
+    },
+    {
+      "name": "Reports frontend verification",
+      "id": 41703378175,
+      "conclusion": "success"
+    }
+  ],
+  "frontend_comparison": {
+    "base_passed": 6694,
+    "branch_passed": 6707,
+    "preexisting_failed_tests": 1,
+    "app_type_errors": 79,
+    "new_type_errors": 0,
+    "unhandled_errors": 0,
+    "lint_exit": 0,
+    "build_exit": 0
+  },
+  "production_evidence": {
+    "url": "https://www.fflagent.com/inbounds",
+    "http_status": 200,
+    "browser_redirect": "https://www.fflagent.com/login",
+    "entry": "/assets/index-Ev2y2KNa.js",
+    "entry_sha256": "070672d0d25e7031d441064fe0a012ea159e5ad4d12626f7e692374f207fd967",
+    "room_title_present": true,
+    "disabled_room_message_present": false,
+    "compiled_room_boundary": "window.location.pathname.replace(/\\/+$/, \"\") === \"/inbounds\" (feature-flag conditional compiled away)"
+  },
+  "limits": {
+    "signed_in_walkthrough": false,
+    "number_assignments": false,
+    "real_calls": false,
+    "media_acceptance": false
+  },
+  "backend": "Already released and verified; see backend-release.json. No SQL or Edge deployment performed during frontend activation."
+}
