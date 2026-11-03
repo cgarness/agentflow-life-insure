@@ -31,7 +31,7 @@ const viewports = (process.env.SMS_VIEWPORTS || "1440x900,390x844").split(",").m
 const expectBlocked = new Set((process.env.SMS_EXPECT_BLOCKED ?? "conversations@390x844,contact@390x844").split(",").filter(Boolean));
 // The scroll containers holding each surface's messages (unchanged between base and candidate).
 const REGION = { conversations: ".flex-1.overflow-y-auto.p-6", contact: ".flex-col-reverse.overflow-y-auto" };
-const INPUT = 'input[placeholder="Type SMS message…"]';
+const INPUT = 'textarea[placeholder="Type SMS message…"]';
 const SEND = 'button[title="Send SMS"]';
 const VISIBLE_WAIT_MS = 3_000;
 // Deferred-history case: history reads slowed to this many ms, Send clicked while the first load is
@@ -153,7 +153,7 @@ try {
             const p = window.__smsProbe;
             const event = p.events.filter((e) => Math.abs(e.startTime - p.marks.click) < 5).pop() ?? null;
             const shownTimes = (document.querySelector(r)?.textContent ?? "").split(t).length - 1;
-            const composer = document.querySelector('input[placeholder="Type SMS message…"]')?.value ?? null;
+            const composer = document.querySelector('textarea[placeholder="Type SMS message…"]')?.value ?? null;
             return { marks: { ...p.marks }, event, shownTimes, composer, firstChange: p.firstChange, firstRenderVisibility: p.firstRenderVisibility, lastVisibility: p.lastVisibility };
           }, [text, REGION[surface]]);
           const m = sample.marks;
@@ -278,7 +278,7 @@ try {
           return {
             marks: { ...p.marks },
             shownTimes: (document.querySelector(r)?.textContent ?? "").split(t).length - 1,
-            composer: document.querySelector('input[placeholder="Type SMS message…"]')?.value ?? null,
+            composer: document.querySelector('textarea[placeholder="Type SMS message…"]')?.value ?? null,
             pendingLeft: !!document.querySelector('[data-testid="pending-sms"], [data-testid="pending-sms-status"]'),
           };
         }, [text, REGION[surface]]);
