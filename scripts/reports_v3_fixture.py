@@ -263,12 +263,13 @@ PAYLOAD_READERS = [  # (payload key, reader, scope-only) in REPORT_RPC_V3 order;
 
 def payloads_part():
     """The payload file (D1 X9): every report reader's real response for one synthetic actor (the scale organization's
-    Admin, persona 0) over the 30 days ending on the fixture's end date, at agency, team and personal scope. One
+    Admin, persona 0) over the 30 days ending on the agency's today (the page's default "Last 30 days"), at agency, team
+    and personal scope. One
     REPEATABLE READ snapshot; the sealed v3 readers are granted only inside it and the transaction rolls back, so the
     database is unchanged. Synthetic data only; the file is a test input, never part of a production build."""
     def call(reader, scope_only, scope):
         args = f"'{scope}'" if scope_only else f"%L::date, %L::date, NULL, '{scope}'"
-        sql = f"format($q$SELECT public.{reader}({args})$q$, m.end_date - 29, m.end_date)" if not scope_only \
+        sql = f"format($q$SELECT public.{reader}({args})$q$, (now() AT TIME ZONE m.tz)::date - 29, (now() AT TIME ZONE m.tz)::date)" if not scope_only \
             else f"$q$SELECT public.{reader}({args})$q$"
         return f"rt.call(rt.perf_agent(0), m.org, {sql})"
     def bundle(scope):
@@ -290,7 +291,7 @@ SELECT jsonb_pretty({bundle('agency')} || jsonb_build_object(
          'scopes', jsonb_build_object('team', {bundle('team')}, 'personal', {bundle('personal')}),
          'fixture', jsonb_build_object('source', 'reports_v3_performance.sql scale organization (synthetic)',
                                        'actor', rt.perf_agent(0), 'organization', m.org, 'time_zone', m.tz,
-                                       'start_date', m.end_date - 29, 'end_date', m.end_date)))
+                                       'start_date', (now() AT TIME ZONE m.tz)::date - 29, 'end_date', (now() AT TIME ZONE m.tz)::date)))
   FROM rt.perf_meta m;
 \\o
 ROLLBACK;
