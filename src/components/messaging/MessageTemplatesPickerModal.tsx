@@ -1,10 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useEffect, useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,43 +7,45 @@ import { toast } from "@/hooks/use-toast";
 import {
   applyMessageTemplateMerge,
   unresolvedTemplateFields,
-  templateMatchesChannel,
   type MessageTemplateMergeInput,
 } from "@/lib/messageTemplateMerge";
-
-type TemplateRow = {
-  id: string;
-  name: string;
-  type: string | null;
-  subject: string | null;
-  content: string;
-  scope: string | null;
-  sms_purpose?: "informational" | "marketing" | null;
-};
+import {
+  MessageTemplatePickerList,
+  type MessageTemplateRow,
+} from "@/components/messaging/MessageTemplatePickerList";
+import { MessageTemplateEditPreview } from "@/components/messaging/MessageTemplateEditPreview";
 
 export interface MessageTemplatesPickerModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** SMS vs Email tab — only matching template types are listed. */
   channel: "sms" | "email";
   mergeInput: MessageTemplateMergeInput;
+  hasDraft?: boolean;
   onApply: (payload: { body: string; subject: string | null; purpose?: "informational" | "marketing" | null }) => void;
 }
 
+interface PreviewDraft {
+  identityKey: string;
+  template: MessageTemplateRow;
+  body: string;
+  subject: string;
+  missingFields: string[];
+}
+
 export function MessageTemplatesPickerModal({
-  open,
-  onOpenChange,
-  channel,
-  mergeInput,
-  onApply,
+  open, onOpenChange, channel, mergeInput, hasDraft = false, onApply,
 }: MessageTemplatesPickerModalProps) {
   const { organizationId } = useOrganization();
   const { user } = useAuth();
   const currentUserId = user?.id ?? null;
+  const contactId = mergeInput.contact?.id ?? mergeInput.contact?.contact_id ?? null;
+  const identityKey = [organizationId, currentUserId, channel, contactId].join(":");
 
-  const [templates, setTemplates] = useState<TemplateRow[]>([]);
+  const [templates, setTemplates] = useState<MessageTemplateRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [preview, setPreview] = useState<PreviewDraft | null>(null);
+  const activePreview = preview?.identityKey === identityKey ? preview : null;
 
   useEffect(() => {
     if (!open) return;
@@ -60,8 +57,7 @@ export function MessageTemplatesPickerModal({
     let cancelled = false;
     setLoading(true);
     void (async () => {
-      // Show Agency templates for active org + current user's Personal templates.
-      // RLS enforces the same; the explicit filter is defense-in-depth.
+      // RLS and the explicit query limit to current-org agency + the actor's personal templates.
       let q = supabase
         .from("message_templates")
         .select("id, name, type, subject, content, scope, sms_purpose")
@@ -78,120 +74,94 @@ export function MessageTemplatesPickerModal({
           console.error(error);
           setTemplates([]);
         } else {
-          setTemplates((data || []) as TemplateRow[]);
+          setTemplates((data || []) as MessageTemplateRow[]);
         }
         setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [open, organizationId, currentUserId]);
 
   useEffect(() => {
-    if (!open) setSearch("");
+    if (!open) {
+      setSearch("");
+      setPreview(null);
+    }
   }, [open]);
 
-  const channelFiltered = useMemo(
-    () => templates.filter((t) => templateMatchesChannel(t.type, channel)),
-    [templates, channel],
-  );
+  useEffect(() => { setPreview(null); }, [identityKey]);
 
-  const searchLower = search.trim().toLowerCase();
-  const visible = useMemo(() => {
-    if (!searchLower) return channelFiltered;
-    return channelFiltered.filter((t) => t.name.toLowerCase().includes(searchLower));
-  }, [channelFiltered, searchLower]);
-
-  function handlePick(t: TemplateRow) {
-    const trimmedSubject = channel === "email" ? (t.subject?.trim() ?? "") : "";
-    const body = t.content ?? "";
-    const missing = unresolvedTemplateFields(
-      channel === "email" ? `${trimmedSubject}\n${body}` : body,
-      mergeInput,
-    );
-    onApply({
-      purpose: t.sms_purpose,
-      body: applyMessageTemplateMerge(body, mergeInput),
-      subject: channel === "email"
-        ? (trimmedSubject ? applyMessageTemplateMerge(trimmedSubject, mergeInput) : "")
-        : null,
-    });
+  function close() {
+    setPreview(null);
     onOpenChange(false);
-    if (missing.length) {
+  }
+
+  function pick(template: MessageTemplateRow) {
+    const rawSubject = channel === "email" ? (template.subject?.trim() ?? "") : "";
+    const rawBody = template.content ?? "";
+    setPreview({
+      identityKey,
+      template,
+      body: applyMessageTemplateMerge(rawBody, mergeInput),
+      subject: channel === "email" ? applyMessageTemplateMerge(rawSubject, mergeInput) : "",
+      missingFields: unresolvedTemplateFields(
+        channel === "email" ? `${rawSubject}\n${rawBody}` : rawBody,
+        mergeInput,
+      ),
+    });
+  }
+
+  function apply() {
+    if (!activePreview || !activePreview.body.trim()) return;
+    onApply({
+      body: activePreview.body,
+      subject: channel === "email" ? activePreview.subject : null,
+      purpose: activePreview.template.sms_purpose,
+    });
+    close();
+    if (activePreview.missingFields.length) {
       toast({
         title: "Check template before sending",
-        description: `Missing or unknown fields: ${missing.slice(0, 4).join(", ")}${missing.length > 4 ? ` (+${missing.length - 4} more)` : ""}. Edit your message before sending.`,
+        description: `Missing or unknown fields: ${activePreview.missingFields.slice(0, 4).join(", ")}${activePreview.missingFields.length > 4 ? ` (+${activePreview.missingFields.length - 4} more)` : ""}. Edit your message before sending.`,
         variant: "destructive",
       });
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md gap-4 sm:max-w-md" aria-describedby={undefined}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) setPreview(null); onOpenChange(next); }}>
+      <DialogContent
+        className="flex min-h-0 max-h-[calc(100dvh-2rem)] w-[calc(100vw-1.5rem)] max-w-xl flex-col gap-4 sm:max-w-xl"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
-          <DialogTitle>Message templates</DialogTitle>
+          <DialogTitle>{activePreview ? "Preview & edit template" : "Message templates"}</DialogTitle>
         </DialogHeader>
-
-        <input
-          type="search"
-          autoComplete="off"
-          placeholder="Search templates..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-border bg-accent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-        />
-
-        <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
-          {loading ? (
-            <div className="space-y-2 p-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-12 animate-pulse rounded-md bg-accent" />
-              ))}
-            </div>
-          ) : !organizationId ? (
-            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-              Select an organization to see templates.
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-              {channelFiltered.length === 0 ? (
-                <>
-                  No {channel.toUpperCase()} templates yet.
-                  <br />
-                  Add them under Settings → Email & SMS Templates.
-                </>
-              ) : (
-                <>No templates match your search.</>
-              )}
-            </div>
-          ) : (
-            <ul className="divide-y divide-border p-1">
-              {visible.map((t) => (
-                <li key={t.id}>
-                  <button
-                    type="button"
-                    onClick={() => handlePick(t)}
-                    className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-accent"
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate font-medium text-foreground">{t.name}</span>
-                      {t.scope === "personal" && (
-                        <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[9px] font-semibold uppercase text-muted-foreground">
-                          Personal
-                        </span>
-                      )}
-                    </span>
-                    <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-primary">
-                      {t.type || "Any"}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        {activePreview ? (
+          <MessageTemplateEditPreview
+            name={activePreview.template.name}
+            channel={channel}
+            body={activePreview.body}
+            subject={activePreview.subject}
+            missingFields={activePreview.missingFields}
+            hasDraft={hasDraft}
+            onBodyChange={(body) => setPreview((prev) => prev?.identityKey === identityKey ? { ...prev, body } : prev)}
+            onSubjectChange={(subject) => setPreview((prev) => prev?.identityKey === identityKey ? { ...prev, subject } : prev)}
+            onBack={() => setPreview(null)}
+            onCancel={close}
+            onApply={apply}
+          />
+        ) : (
+          <MessageTemplatePickerList
+            templates={templates}
+            loading={loading}
+            organizationId={organizationId}
+            channel={channel}
+            search={search}
+            onSearchChange={setSearch}
+            onPick={pick}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
