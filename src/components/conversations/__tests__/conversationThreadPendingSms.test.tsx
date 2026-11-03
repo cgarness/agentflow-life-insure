@@ -130,7 +130,7 @@ const saved = (body: string) => ({
 const RECEIPT = { success: true, message_id: SAVED, provider_message_id: "SM1", status: "queued" };
 
 const page = () => (<><PendingSmsAuthorityBridge /><Conversations /></>);
-const composer = () => document.querySelector('input[placeholder="Type SMS message…"]') as HTMLInputElement;
+const composer = () => document.querySelector('textarea[placeholder="Type SMS message…"]') as HTMLTextAreaElement;
 const sendButton = () => screen.getByRole("button", { name: /^send$/i });
 const bubbles = () => screen.queryAllByTestId("pending-sms");
 const status = () => bubbles()[0]?.querySelector('[role="status"]')?.textContent ?? "";
