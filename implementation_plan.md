@@ -1,3 +1,63 @@
+## 2026-11-04 (late night) — Reports V2 final build integration: B + C + D + F on one branch (branch-only; nothing merged to main, applied, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("Final build integration").
+- **Approved protected changes**, branch-only and limited to the exact integration change:
+  - C: `DialerPage` producing `sourceCallId`; `FloatingDialer` call-context props; `ConvertLeadModal` `sourceCallId` and chip.
+  - D: `AppointmentModal` outcome panel and link prompt; `CalendarSettings` category control; `ConvertLeadModal` closing-appointment field; `DialerPage` appointment `type`.
+- **Still not approved:** any other file outside the lists below, any backend action beyond the disposable synthetic test databases and the existing CI dispatch, `TwilioContext` edits, main, production migrations, RPC enablement, deploys and settings.
+
+**Conflict check (read-only):**
+- `main` is `2b6f5cef` (toll-free purchasing #513). The hosted head `20261104041151` stays below our `20261104120010+`, so no renumbering is needed.
+- `main` (already merged into `-pkg-f`) changed `TwilioContext.tsx` (two `select("*")` lines) and `DialerPage.tsx` (one `hasDraft` prop) relative to the B/C/D base. Both are kept as on main; the C/D byte pins are regenerated against main's files.
+- Package F's Zod contract accepts any `3.x` contract version and both basis values, so F needs no change.
+- No other open work touches these files.
+
+**Step 1, `-pkg-d`: remaining evidence and privacy tests (D4 §7 files only):**
+- `supabase/tests/appointment_occurrence_evidence.sql`: E9 (conversion `contact_id` move) and E11 (drift).
+- `supabase/tests/policy_appointment_attributions.sql`: E12 (concurrent first links).
+- `scripts/tests/appointment-evidence-failure-boundaries.mjs`: the two-session E11/E12 races.
+- `supabase/tests/reports_v3_security.sql` or `supabase/tests/reports_v3_appointment_facts.sql`: the S14a/S14b KPI 12 and 18 privacy fixtures.
+
+**Step 2, approved protected mounts:**
+- **`-pkg-c`:**
+  - `src/pages/DialerPage.tsx` (`sourceCallId={currentCallId}` only);
+  - `src/components/layout/FloatingDialer.tsx` (call-context props only);
+  - `src/components/contacts/ConvertLeadModal.tsx` (`sourceCallId` forward and the `SaleSourceCallChip` mount only);
+  - their existing tests that pin props and mounts (D3 §7 "Ten Vitest files");
+  - `src/pages/__tests__/dialerPageReportsV2Exceptions.test.ts` (create; the DialerPage diff clauses and the TwilioContext byte pin).
+- **`-pkg-d`:**
+  - `src/components/calendar/AppointmentModal.tsx` (outcome panel and link prompt mounts only);
+  - `src/components/settings/CalendarSettings.tsx` (category control mount only);
+  - `ConvertLeadModal.tsx` (`ClosingAppointmentField` mount only);
+  - `DialerPage.tsx` `:4677` (`type: data.type` only);
+  - their D4 §7 tests;
+  - the shared exceptions test.
+
+**Step 3, integration branch `claude/great-goodall-911azc-integration`:**
+- Built from `-pkg-f`, then merges of `origin/main`, the foundation, `-pkg-d` (which contains B) and `-pkg-c`.
+- Conflict resolution keeps both packages in every shared file:
+  - `policySaleRecording.ts`, `ClientPolicies.tsx`, `RecordPolicyModal.tsx`, `ConvertLeadModal.tsx`, `DialerPage.tsx`;
+  - `reports_v3_fixture.py`, `run_reports_v3_tests.sh`, `reportsV3Contracts.test.ts`;
+  - `reports-backend.yml`, `reporting-integrity.yml`, `policy-commission-tracking.yml`;
+  - `implementation_plan.md`, `WORK_LOG.md`, the exceptions test.
+- No other edits.
+
+**Step 4, contract reconciliation (release order B → C → D):**
+- `…21` gives 3.1.0 (`audited_ledger`).
+- `…32` gives 3.2.0 (`sale_call_links` installed; preimage = PKG-B flags `67c6a60a`).
+- `…43` is re-pointed at the PKG-C flags postimage and gives **3.3.0** (all three installed). Its stub preimage (`…13`) is unchanged.
+- `rollback/…43` restores the PKG-C flags.
+- The fixture runs B, C, D forward, the suites, then the rollbacks D, C, B back to the exact PKG-A state.
+- Files: `20261104120043_reports_v3_appointment_facts.sql`, `rollback/20261104120043_*.rollback.sql`, `reports_v3_fixture.py`, `reportsV3Contracts.test.ts`.
+
+**Step 5, workflow tests on the integration branch:**
+- The existing suites: SQL (reports v3, integrity, commission, policy sale) and Vitest.
+- Dialer and FloatingDialer sale-to-capture props, capture and retry, outcomes, classification, closing links.
+- An **integrated review payload** through the existing payload mechanism: `scripts/reports_v3_fixture.py` and `run_reports_v3_tests.sh` gain a mode that keeps B/C/D applied with synthetic correction, link and appointment rows. The existing `scripts/tests/reports-visual/verify.mjs` harness then renders the Reports page from it.
+- No new framework.
+
+**Step 6:** one integrated review package (scratchpad) and the remaining production-release blockers.
+
 ## 2026-11-04 (night) — Reports V2: Package B batches B2 and B3, then Packages C and D (branches `-pkg-b`, then `-pkg-c` and `-pkg-d`; nothing applied, merged, granted, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D").
