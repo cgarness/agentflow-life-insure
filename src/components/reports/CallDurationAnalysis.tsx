@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCount, formatElapsed } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
+import { roundHalfUp } from "@/lib/reports-kpi-format";
 import type { ReportDispositionsV3 as ReportDispositions } from "@/lib/reports-v3-schemas";
 import { BAR_GRID, CHART_THEME, CHART_TICK, DIAGNOSTIC_TOOLTIP, SERIES_COLOR } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
@@ -42,7 +43,8 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
           onExport(
             "Call Duration by Disposition",
             ["Disposition", "Calls", "Avg duration (s)"],
-            dispositions.by_disposition.map((d) => [d.name, d.calls, avgSeconds(d)]),
+            // Rounded once (half up, 1 dp) from the exact counts, the v2 precision.
+            dispositions.by_disposition.map((d) => [d.name, d.calls, d.calls > 0 ? roundHalfUp(d.duration_seconds, d.calls, 1) : null]),
           );
         } else {
           onExport("Call Duration Distribution", ["Range", "Calls"], histogram.map((h) => [h.range, h.calls]));

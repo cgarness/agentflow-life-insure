@@ -131,8 +131,8 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
     const text = readFileSync(path, "utf8");
     summary.csv.push({ file: d.suggestedFilename(), bytes: text.length });
     check(`csv ${d.suggestedFilename()}: v3 meta rows`, text.includes('"Basis version","reports_v3"') && text.includes('"Contract version"'));
-    const floats = text.split("\n").filter(l => !l.startsWith('"Note"') && !l.startsWith('"Generated"') && /"-?\d+\.\d{7,}"/.test(l));
-    check(`csv ${d.suggestedFilename()}: every value rounded once (no float artifacts)`, floats.length === 0, floats.slice(0, 2).join(" | "));
+    const floats = text.split("\n").filter(l => !l.startsWith('"Note"') && !l.startsWith('"Generated"') && !l.startsWith('"As of') && /(^|,)"?-?\d+\.\d{3,}"?(,|$)/.test(l));
+    check(`csv ${d.suggestedFilename()}: every value rounded once (at most 2 decimals)`, floats.length === 0, floats.slice(0, 2).join(" | "));
     if (d.suggestedFilename().startsWith("regional-performance-")) {
       const n = text.split("\n").filter(l => l.startsWith('"Note"') && l.includes("not verified as dialed")).length;
       check("csv regional-performance: the unverified-calls notice appears exactly once", n === 1, String(n));

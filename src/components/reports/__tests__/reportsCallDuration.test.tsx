@@ -19,7 +19,7 @@ describe("Call duration (v3)", () => {
     expect(document.body.textContent).not.toMatch(/averaged .* versus/);
     fireEvent.click(screen.getByRole("button", { name: /export call duration csv/i }));
     const rows = onExport.mock.calls[0][2] as unknown[][];
-    expect(rows.find(r => r[0] === "Interested")?.[2]).toBe(20);
-    expect(rows.find(r => r[0] === "No outcome recorded")?.[2]).toBe(12);
+    expect(rows.find(r => r[0] === "Interested")?.[2]).toBe("20.0");
+    expect(rows.find(r => r[0] === "No outcome recorded")?.[2]).toBe("12.0");
   });
 });
