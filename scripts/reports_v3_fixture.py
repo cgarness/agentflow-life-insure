@@ -266,7 +266,7 @@ def _pkg_d_back(v3_on, rb, stub_md5):
     yield 'appointment evidence rollback', rb('appointment_occurrence_evidence')
     yield 'appointment type categories rollback', rb('appointment_type_categories')
 
-def pkg_b_steps(then=lambda: ()):
+def pkg_b_steps(then=lambda: (), keep=None):
     """PKG-B on the v3 readers (D2 §3.7, §6.7, §9, §10): refusals, …20, …21, the suite's v3 section (rolled back), the
     read-only manifest check, the rollback probes, then the empty-ledger rollback, which returns the database to the
     exact PKG-A state so the differential and performance runners that follow keep comparing PKG-A."""
@@ -298,6 +298,10 @@ def pkg_b_steps(then=lambda: ()):
     yield 'sale premium corrections rollback refuses while Reports v3 is enabled', v2.refused(
         v3_on + rollback, 'Sale premium corrections rollback: Reports v3 must be disabled first')
     yield 'v3 sale premium corrections (rolled back)', correction_suite_v3()
+    if keep is not None:
+        # REPORTS_V3_KEEP_PACKAGES=1 (integrated review database only): the later packages forward, nothing rolled back.
+        yield from keep()
+        return
 
     req_a = 'c3f00000-0000-0000-0000-00000000000a'
     req_b = 'c3f00000-0000-0000-0000-00000000000b'
@@ -519,7 +523,9 @@ def steps():
     yield 'v3 reader contract', contract_readers
     yield 'v2 surface unchanged after the v3 readers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
     # Release order B → C → D (D1 §4.1): C forward, D forward on C's flags, then D back and C back to the PKG-B state.
-    yield from pkg_b_steps(then=lambda: itertools.chain(pkg_c_steps(), pkg_d_steps(), pkg_d_steps(back=True), pkg_c_steps(back=True)))
+    yield from pkg_b_steps(then=lambda: itertools.chain(pkg_c_steps(), pkg_d_steps(), pkg_d_steps(back=True), pkg_c_steps(back=True)),
+                           keep=(lambda: itertools.chain(pkg_c_steps(), pkg_d_steps()))
+                           if os.environ.get('REPORTS_V3_KEEP_PACKAGES') == '1' else None)
     # Performance at the required scale, embedded for quick local diagnostics only: always mode diagnostic (report-only,
     # never acceptance evidence) and no restart round. Acceptance runs through scripts/run_reports_v3_perf_acceptance.sh.
     # REPORTS_V3_PERF=0 skips it (the CI functional job). Each sample is its own statement, so the measurement step runs
@@ -651,7 +657,118 @@ SELECT jsonb_pretty(jsonb_build_object('correction', (SELECT jsonb_object_agg(st
 ROLLBACK;
 """
 
+def integrated_data_part():
+    """Integrated review data (B + C + D on the scale organization, last 30 days): written only to the disposable
+    database built with REPORTS_V3_KEEP_PACKAGES=1, after the scale setup. Synthetic data only, through the same
+    guarded paths the packages ship: correction ledger heads (as the table owner, through the insert guard), producing-
+    call links to a call with the buyer before the sale (the link guard checks the sale and the call), and Sales Call /
+    Follow Up appointments written through the live capture trigger, outcomes recorded by their assignees, and
+    closing-appointment links made through the shipped link RPC as the organization's Admin. Committed: the payload part reads it at its own now()."""
+    return r"""\set ON_ERROR_STOP 1
+SET statement_timeout = 0;
+BEGIN;
+SELECT rt.eq('integrated review data needs the kept packages (3.3.0)', private.report_v3_basis_flags() ->> 'contract_version', '3.3.0');
+
+-- B: about one in seven dated sales of the last 30 days was entered $10/mo low; the correction restates it on its
+-- original seller and Sold Date (no sale is inserted or changed).
+INSERT INTO private.policy_sale_premium_corrections (organization_id, win_id, policy_id, policy_source, buyer_id, seller_id,
+  sold_date, revision, previous_effective_monthly, previous_source, corrected_monthly, reason_code, note, book_mode,
+  book_action, actor_id, actor_role, request_id, payload_hash, result)
+SELECT w.organization_id, w.id, w.policy_id, coalesce(i.source, 'primary'), w.contact_id, w.agent_id, w.sold_date, 1,
+       e.monthly, e.source, round(e.monthly + 10, 2), 'entry_error', 'Synthetic integrated review correction', 'keep_current',
+       'kept_current', rt.perf_agent(0), 'Admin', md5('int-corr:' || w.id)::uuid, repeat('0', 64), '{}'::jsonb
+  FROM public.wins w JOIN rt.perf_meta m ON w.organization_id = m.org
+  LEFT JOIN private.policy_identities i ON i.organization_id = w.organization_id AND i.policy_id = w.policy_id
+  LEFT JOIN public.clients c ON c.id = w.contact_id AND c.organization_id = w.organization_id
+ CROSS JOIN LATERAL private.policy_sale_effective_premium(w, c.premium) e
+ WHERE w.policy_id IS NOT NULL AND w.contact_id IS NOT NULL AND w.sold_date BETWEEN m.end_date - 29 AND m.end_date
+   AND e.monthly IS NOT NULL AND rt.perf_hash('int-corr' || w.id, 7) = 0;
+
+-- C: two in three of those sales were made on a call with the buyer: a synthetic producing call by the seller 20
+-- minutes before the sale (a copy of one of the seller's answered calls, re-addressed to the client), linked within the
+-- 24-hour capture rule.
+CREATE TEMP TABLE int_sales AS
+SELECT w.id AS win_id, w.organization_id, w.policy_id, w.contact_id, w.agent_id,
+       coalesce(w.recorded_at, w.created_at) - interval '20 minutes' AS call_at, md5('int-call:' || w.id)::uuid AS call_id,
+       (SELECT k.id FROM public.calls k WHERE k.organization_id = w.organization_id AND k.agent_id = w.agent_id
+           AND lower(k.direction) = 'outbound' AND k.duration >= 120 ORDER BY k.created_at DESC LIMIT 1) AS template_id
+  FROM public.wins w JOIN rt.perf_meta m ON w.organization_id = m.org
+ WHERE w.policy_id IS NOT NULL AND w.agent_id IS NOT NULL AND w.contact_id IS NOT NULL
+   AND w.sold_date BETWEEN m.end_date - 29 AND m.end_date AND rt.perf_hash('int-link' || w.id, 3) <> 0;
+INSERT INTO public.calls
+SELECT (jsonb_populate_record(NULL::public.calls, to_jsonb(k) || jsonb_build_object('id', s.call_id, 'contact_id', s.contact_id,
+          'contact_type', 'client', 'campaign_id', NULL, 'campaign_lead_id', NULL, 'created_at', s.call_at, 'started_at', s.call_at))).*
+  FROM int_sales s JOIN public.calls k ON k.id = s.template_id;
+INSERT INTO private.policy_sale_call_links (organization_id, win_id, policy_id, client_id, call_id, call_direction, link_source,
+  sale_kind, operation_key, request_id, actor_id, evidence_hash)
+SELECT s.organization_id, s.win_id, s.policy_id, s.contact_id, s.call_id, 'outbound', 'sale_entry', 'record', 'int:' || s.win_id,
+       NULL, s.agent_id, repeat('0', 64)
+  FROM int_sales s WHERE s.template_id IS NOT NULL;
+
+-- D: the organization's appointment types (seeded names carry their category), continuous capture back 40 days, then
+-- 120 appointments over the last 28 days for the agents' clients (one in six a Follow Up), written as the Admin
+-- through the capture trigger, with outcomes recorded by their assignees after the start.
+SELECT public.seed_default_appointment_types(org) FROM rt.perf_meta;
+INSERT INTO private.appointment_evidence_capture_windows (capture_kind, started_at, ended_at, ended_reason)
+SELECT w.capture_kind, now() - interval '40 days', w.started_at, 'synthetic_history'
+  FROM private.appointment_evidence_capture_windows w WHERE w.ended_at IS NULL;
+CREATE TEMP TABLE int_appts AS
+SELECT a.n, md5('int-appt:' || a.n)::uuid AS id, c.id AS contact_id, rt.perf_agent(6 + rt.perf_hash('int-aa' || a.n, 50)) AS agent,
+       CASE WHEN a.n % 6 = 0 THEN 'Follow Up' ELSE 'Sales Call' END AS type,
+       rt.perf_ts(1 + rt.perf_hash('int-ad' || a.n, 27), 54000) AS start_at,
+       CASE WHEN rt.perf_hash('int-ao' || a.n, 10) < 6 THEN 'held' WHEN rt.perf_hash('int-ao' || a.n, 10) < 8 THEN 'no_show' END AS outcome
+  FROM generate_series(1, 120) a(n)
+  JOIN LATERAL (SELECT c.id FROM public.clients c, rt.perf_meta m WHERE c.organization_id = m.org
+                 ORDER BY md5('int-ac' || a.n || c.id) LIMIT 1) c ON true;
+DO $appts$
+DECLARE r record; v_admin uuid := rt.perf_agent(0); v_org uuid := (SELECT org FROM rt.perf_meta);
+BEGIN
+  FOR r IN SELECT * FROM int_appts ORDER BY n LOOP
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated',
+      'app_metadata', json_build_object('organization_id', v_org, 'role', 'Admin'))::text, true);
+    INSERT INTO public.appointments (id, organization_id, title, contact_id, type, status, start_time, created_by, user_id, created_at, booking_kind)
+    VALUES (r.id, v_org, 'Integrated review ' || r.n, r.contact_id, r.type, 'Scheduled', r.start_at, r.agent, r.agent,
+            r.start_at - interval '3 days', 'appointment');
+    IF r.outcome IS NOT NULL THEN
+      PERFORM set_config('request.jwt.claims', json_build_object('sub', r.agent, 'role', 'authenticated',
+        'app_metadata', json_build_object('organization_id', v_org, 'role', 'Agent'))::text, true);
+      -- The outcome the RPC writes (status Completed / No Show), under the assignee's claims through the capture
+      -- trigger, as the D4 suites record it (the harness grants authenticated no profiles read).
+      UPDATE public.appointments SET status = CASE r.outcome WHEN 'held' THEN 'Completed' ELSE 'No Show' END WHERE id = r.id;
+    END IF;
+  END LOOP;
+END $appts$;
+
+-- D: closing-appointment links, as the Admin, for held Sales Calls whose client bought within 30 days after the start.
+DO $links$
+DECLARE r record; v_admin uuid := rt.perf_agent(0); v_org uuid := (SELECT org FROM rt.perf_meta);
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated',
+    'app_metadata', json_build_object('organization_id', v_org, 'role', 'Admin'))::text, true);
+  FOR r IN SELECT DISTINCT ON (w.id) w.id AS win_id, a.id AS appt_id
+             FROM int_appts a JOIN public.wins w ON w.organization_id = v_org AND w.contact_id = a.contact_id AND w.policy_id IS NOT NULL
+            WHERE a.type = 'Sales Call' AND a.outcome = 'held'
+              AND w.sold_date BETWEEN (a.start_at AT TIME ZONE 'America/Los_Angeles')::date
+                                  AND (a.start_at AT TIME ZONE 'America/Los_Angeles')::date + 30
+            ORDER BY w.id, a.start_at DESC LOOP
+    SET LOCAL ROLE authenticated;
+    PERFORM public.link_policy_appointment(md5('int-link:' || r.win_id)::uuid, r.win_id, r.appt_id, NULL, 'appointment', 'sale_entry');
+    RESET ROLE;
+  END LOOP;
+END $links$;
+SELECT rt.eq('integrated review data written', (SELECT count(*) > 0 FROM private.policy_sale_premium_corrections)::text || '/'
+  || (SELECT count(*) > 0 FROM private.policy_sale_call_links)::text || '/' || (SELECT count(*) = 120 FROM int_appts)::text, 'true/true/true');
+COMMIT;
+\echo integrated review data: corrections, links, appointments
+SELECT (SELECT count(*) FROM private.policy_sale_premium_corrections) AS corrections,
+       (SELECT count(*) FROM private.policy_sale_call_links) AS call_links,
+       (SELECT count(*) FROM private.policy_appointment_attributions) AS appointment_links;
+"""
+
 if __name__ == '__main__':
+    if '--part' in sys.argv and sys.argv[sys.argv.index('--part') + 1] == 'integrated-data':
+        print('\\echo integrated review data (B + C + D, scale organization)\n' + integrated_data_part())
+        sys.exit(0)
     if '--part' in sys.argv and sys.argv[sys.argv.index('--part') + 1] == 'correction-payloads':
         print('\\echo PKG-B correction payload bundles\n' + correction_payloads_part())
         sys.exit(0)

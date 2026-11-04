@@ -86,3 +86,26 @@ for scope in ('agency', 'team', 'personal'):
 print('Wrote the v3 payload file (synthetic):', sys.argv[1])
 PY
 fi
+# Optional integrated review payload file: REPORTS_V3_INTEGRATED_PAYLOADS=<absolute path> builds a separate disposable
+# database with Packages B, C and D kept applied (REPORTS_V3_KEEP_PACKAGES=1, release order B → C → D), loads the scale
+# organization, writes the synthetic integrated review data (corrections, producing-call links, appointments, outcomes
+# and closing-appointment links) and writes every report reader's real response for the scale Admin. Test input only.
+if [[ -n "${REPORTS_V3_INTEGRATED_PAYLOADS:-}" ]]; then
+  REPORTS_INT_DB="reports_v3_int_$(date +%s)_$$"
+  createdb --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_INT_DB"
+  trap 'cleanup; dropdb --if-exists --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_INT_DB"' EXIT
+  REPORTS_V3_KEEP_PACKAGES=1 REPORTS_V3_PERF=0 python3 scripts/reports_v3_fixture.py > "$REPORTS_TEST_SQL"
+  psql "$REPORTS_TEST_BASE/$REPORTS_INT_DB" -X -q -v ON_ERROR_STOP=1 -f "$REPORTS_TEST_SQL" > /dev/null
+  for part in setup integrated-data; do
+    python3 scripts/reports_v3_fixture.py --part "$part" > "$REPORTS_TEST_SQL"
+    psql "$REPORTS_TEST_BASE/$REPORTS_INT_DB" -X -q -v ON_ERROR_STOP=1 -f "$REPORTS_TEST_SQL" > /dev/null
+  done
+  python3 scripts/reports_v3_fixture.py --part payloads > "$REPORTS_TEST_SQL"
+  psql "$REPORTS_TEST_BASE/$REPORTS_INT_DB" -X -q -v ON_ERROR_STOP=1 -v payloads="$REPORTS_V3_INTEGRATED_PAYLOADS" -f "$REPORTS_TEST_SQL"
+  python3 -c "
+import json, sys
+p = json.load(open(sys.argv[1]))
+for k in ('summaryV3', 'journeyV3', 'salesAppointmentsV3'):
+    assert p[k]['contract_version'] == '3.3.0' and set(p[k]['basis'].values()) == {'audited_ledger', 'installed'}, k
+print('Wrote the integrated review payload file (synthetic, 3.3.0):', sys.argv[1])" "$REPORTS_V3_INTEGRATED_PAYLOADS"
+fi
