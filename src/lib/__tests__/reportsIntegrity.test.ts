@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { reportCampaignsSchema, reportDispositionsSchema, reportLeadSourcesSchema, reportScopeSchema, reportSummarySchema, reportVolumeSchema } from "@/lib/reports-schemas";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { formatHours, formatPremium, groupDailySeries } from "@/lib/reports-format";
 import { integrityExportNotes, qualityNotes } from "@/lib/reports-integrity-text";
 import type { ReportQuality } from "@/lib/reports-schemas";

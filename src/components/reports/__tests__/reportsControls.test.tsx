@@ -1,9 +1,12 @@
 import React from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import ReportScopeTabs from "../ReportScopeTabs";
 import ReportsToolbar from "../ReportsToolbar";
 import { reportScope, reportSummary } from "@/lib/__tests__/reportsFixtures";
+import { buildV3Bundle } from "@/lib/__tests__/reportsV3Fixtures";
+import { ALL_LOADING, type Panels } from "@/lib/reports-panels";
 import { installJsdomPolyfills } from "@/pages/__tests__/onboardingTestUtils";
 
 installJsdomPolyfills(); // Radix Select probes pointer capture and scrollIntoView on open
@@ -177,7 +180,7 @@ describe("Report period select", () => {
 describe("Report context line", () => {
   it("shows period and zone, not the scope words; the as-of only when the page passes a current summary's", () => {
     const summary = reportSummary();
-    const props = { ...toolbarProps(), dataBasis: { summary: { status: "ready" as const, data: summary }, timeZone: "America/Los_Angeles", today: "2026-07-20" } };
+    const props = { ...toolbarProps(), dataBasis: { panels: { ...ALL_LOADING, summary: { status: "ready", data: buildV3Bundle({ requestedScope: "agency", startDate: "2026-07-01", endDate: "2026-07-14" }).summaryV3 } } as unknown as Panels, timeZone: "America/Los_Angeles", today: "2026-07-20" } };
     const { rerender } = render(<ReportsToolbar {...props} />);
     expect(screen.queryByText(/Your team/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("report-as-of")).not.toBeInTheDocument();

@@ -63,7 +63,7 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
       const order = await page.evaluate(() => [...new Set([...document.querySelectorAll("[data-report-group]")].map(e => e.getAttribute("data-report-group")))]);
       check(`${tag}: brief order`, JSON.stringify(order) === JSON.stringify(["production", "effort", "trends", "agent_performance_cards", "regional_performance", "calling_heatmap", "breakdowns"]), order.join(","));
     }
-    if (width === 1440 || width === 390) await page.screenshot({ path: join(OUT, "screens", `${tag}.png`), fullPage: true });
+    if (width === 1440 || width === 390) await page.screenshot({ path: join(OUT, "screens", `${tag}.png`), fullPage: true, timeout: 180000 });
     if (scenario === "complete" && dark && width === 390) {
       const ap = await page.locator("[data-kpi-id='1']").boundingBox(), pol = await page.locator("[data-kpi-id='2']").boundingBox();
       check("390x844: AP and Policies sold end by y600 (first screen)", ap.y + ap.height <= 600 && pol.y + pol.height <= 600, `${ap.y + ap.height}/${pol.y + pol.height}`);
@@ -91,7 +91,7 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
     const reqs = await requests(page);
     check(`${scope}: requests carry the scope`, reqs.filter(r => r.panel !== "scopeV3").some(r => r.args.p_requested_scope === scope.toLowerCase()));
     if (scope === "Personal") check("Personal: no agent table", (await page.locator("[data-report-group='agent_performance_cards']").count()) === 0);
-    await page.screenshot({ path: join(OUT, "screens", `complete-${scope.toLowerCase()}-1440-dark.png`), fullPage: true });
+    await page.screenshot({ path: join(OUT, "screens", `complete-${scope.toLowerCase()}-1440-dark.png`), fullPage: true, timeout: 180000 });
     await context.close();
   }
   const { context, page } = await open({ scenario: "missing-premiums" });
