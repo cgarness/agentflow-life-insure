@@ -1,3 +1,64 @@
+## 2026-11-04 (evening) — Reports V2: replace the two unfinishable agency journey reference comparisons (verification only; foundation branch)
+
+**Authorization:** Chris's message of 2026-11-04 ("Replace the two unfinishable reference comparisons").
+- **Approved:** replacing only the two acceptance checks `0:agency:30:-` and `0:agency:366:-` with the bounded method below.
+- **Status of the old checks:** run `41753175853` is recorded as unresolved and superseded, not passed. Its evidence is kept, and it is not retried or re-dispatched.
+- **Not authorized:** any reader change, relaxed performance target, schema change, workflow change, PR, merge, hosted action or release. The performance gate, the 8 s timeout, the privacy decisions and the security review stay unchanged.
+
+**Replacement criteria.**
+1. **Exact comparison at a bounded size.** The size is chosen now and is not changed after running.
+   - **Fixture:** the deterministic scale fixture with `rt.perf_divisor = 50`, which gives:
+     - 10,000 calls over the same 400 days;
+     - 1,200 leads over 760 days;
+     - 100 clients (90 converted and 10 hand-entered), with 200 policies and one sale each;
+     - 200 appointments and 10 recruits;
+     - the same 64 people, 30 campaigns and dialer sessions.
+   - **History:** both windows keep every earlier call, because the history is not trimmed by date.
+   - **Cases:** the public journey reader against the unchanged frozen reference (`rtref`, `4236b8a` plus the documented repair), agency scope, 30 and 366 days ending on the fixture's end date.
+   - **Rule:** in one REPEATABLE READ snapshot with the same `now()`, complete payloads must be jsonb-equal (agent rows, numerators, denominators, coverage, reasons, maturity and ordering). The only allowed differences are the approved ones in the manifest, which are unchanged.
+   - **Coverage assertions:** the bounded fixture must actually contain:
+     - identities called by two or more agents;
+     - clients with two policies;
+     - first contacts and non-buyers;
+     - inbound evidence;
+     - unresolved calls (dangling and numberless pointers);
+     - missing history (hand-entered clients, deleted converted leads);
+     - KPI 19 maturity boundaries (pending members in the 30-day window, mature members in the 366-day window).
+   - **Self-control:** a planted difference in the public reader must be reported as a mismatch.
+2. **Independent assertions at full scale** (the existing 500,000-call fixture, public journey reader, agency 30 and 366 days). Expected values come only from the fixture's construction and base tables, never from the candidate's journey helpers. The assertions are:
+   - the first-time-buyer population per window, from wins and clients ordered by `(sold_date, coalesce(recorded_at, created_at), id)`;
+   - deduplication of the two policies per client;
+   - the KPI 14 `hand_entered_client` count, which is the first gate;
+   - original-seller credit: each agent row's KPI 14 eligible count equals that agent's independent first-sale count, compared row by row and never summed;
+   - KPI 38 `unavailable/sale_call_link_not_captured` (PKG-A basis flag);
+   - scope isolation: team and personal scope give `journey_scope_restricted`, and other organizations' rows do not count.
+3. **Invariants at full scale,** labelled separately from the independent assertions:
+   - eligible = assessable + unassessable;
+   - the coverage reasons sum to unassessable;
+   - KPI 19: numerator = `successes_to_date`, denominator = assessable, value = numerator × 100 ÷ denominator;
+   - maturity: `members` = eligible, `pending` + `mature_members` = `members`, `state` agrees with `pending`, and `fully_mature_on` lies within the window end plus 31 days;
+   - the 30-day populations are no larger than the 366-day ones.
+4. **Incorrect-result control:** the same checks run against payloads with one planted error (eligible + 1, and one agent's credit moved) must fail.
+5. **What this is not:** full-scale baseline equality is not claimed. The six pinned scale journey inventory cases stay "not run".
+
+**Files** (existing journey/differential test, fixture, static-test and documentation files only):
+- `supabase/tests/reports_v3_performance.sql`:
+  - the setup reads `rt.perf_divisor`, defaulting to 1, at which the fixture is byte-for-byte today's;
+  - the size assertion becomes divisor-aware, and at 1 it keeps `500000|5000|10000|10000|5000|10000`;
+  - the measure stage refuses any divisor other than 1.
+- `supabase/tests/reports_v3_differential.sql`:
+  - a new bounded part (criteria 1);
+  - full-scale independent assertions, invariants and the control in part 2 (criteria 2–4).
+- `scripts/run_reports_v3_differential.sh`: a second disposable database for the bounded part.
+- `src/lib/__tests__/reportsV3Contracts.test.ts`: static pins, as follows:
+  - the divisor is 50;
+  - the bounded cases are exactly agency 30 and 366;
+  - measurement refuses a divisor other than 1;
+  - the old case mode is still present but labelled superseded.
+- `implementation_plan.md`, `WORK_LOG.md`, `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (a §14 note).
+
+**Route:** the existing ordinary Reports backend dispatch (PostgreSQL 17.6), whose `differential` job runs `run_reports_v3_differential.sh`. Its 60-minute job limit is unchanged. If the bounded part does not fit, the precise issue is reported; the workflow is not changed.
+
 ## 2026-11-04 (later) — Reports V2: Package F closeout, branch-only migration renumbering, Package B batch B1 (branches `claude/great-goodall-911azc`, `-pkg-f` and a new `-pkg-b`; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-04 ("Close Package F, then continue Package B").
