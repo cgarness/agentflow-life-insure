@@ -508,4 +508,58 @@ if [ "${PC_MEASURE:-}" = 1 ]; then
   insights_db measure_center
   DB_URL="$DB_URL" bash "$ROOT/scripts/tests/policy_commission/measure_center_reads.sh"
 fi
+# ── 6. Reports V2 PKG-C producing-call capture (D3 §3.6, §7): guards, suite L1-L16, rollback, regressions, boundaries ──
+CALL_LINKS="$ROOT/supabase/migrations/20261104120030_policy_sale_call_links.sql"
+CALL_CAPTURE="$ROOT/supabase/migrations/20261104120031_policy_sale_call_link_capture.sql"
+CALL_CAPTURE_ROLLBACK="$ROOT/supabase/migrations/rollback/20261104120031_policy_sale_call_link_capture.rollback.sql"
+# The production column calls.voicemail_id (20260915053646) is not in the commission fixture; added for these proofs.
+voicemail_column() { sql -c "ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS voicemail_id uuid" >/dev/null; }
+pkgc_db() { new_db "$1" ${2:-}; voicemail_column; sql -1 -f "$CALL_LINKS" >/dev/null; sql -1 -f "$CALL_CAPTURE" >/dev/null; }
+new_db call_link_guards
+voicemail_column
+expect_fail 'the link table (…30) must be applied first' "$CALL_CAPTURE"
+sql -1 -f "$CALL_LINKS" >/dev/null
+expect_fail 'Sale call links: refusing replay' "$CALL_LINKS"
+sql -c "ALTER FUNCTION public.record_client_policy_handoff(uuid,uuid,jsonb,boolean,jsonb) COST 101" >/dev/null
+expect_fail 'sale handoff preimage drift' "$CALL_CAPTURE"
+sql -c "ALTER FUNCTION public.record_client_policy_handoff(uuid,uuid,jsonb,boolean,jsonb) COST 100" >/dev/null
+sql -c "ALTER TABLE public.calls DROP COLUMN voicemail_id" >/dev/null
+expect_fail 'dependency column missing: public.calls.voicemail_id' "$CALL_CAPTURE"
+voicemail_column
+sql -1 -f "$CALL_CAPTURE" >/dev/null
+expect_fail 'Sale call link capture: refusing replay' "$CALL_CAPTURE"
+echo 'PASS producing-call capture guards: order, replay, handoff preimage drift, dependency column'
+pkgc_db call_links
+run_suite "$ROOT/supabase/tests/policy_sale_call_links.sql"
+DB_URL="$DB_URL" node "$ROOT/scripts/tests/sale-call-link-failure-boundaries.mjs"
+pkgc_db handoff_with_call_links
+run_suite "$ROOT/supabase/tests/policy_commission_handoff.sql"
+pkgc_db tracking_with_call_links applied
+run_suite "$ROOT/supabase/tests/policy_commission_tracking.sql"
+echo 'PASS the existing handoff and tracking suites with the producing-call capture installed'
+# L11 rollback: capture disabled, sales still saved, retry and status sealed, links and failure rows kept.
+pkgc_db call_links_rollback
+sql -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+INSERT INTO clients(organization_id, first_name, last_name, assigned_agent_id) VALUES (test_id(1), 'RolledBack', 'Synthetic', test_id(11));
+INSERT INTO calls(id, organization_id, agent_id, contact_id, direction, created_at)
+SELECT test_id(8901), test_id(1), test_id(11), id, 'outbound', now() - interval '1 hour' FROM clients WHERE first_name = 'RolledBack';
+SELECT pc_login(11); SET ROLE authenticated;
+SELECT test_assert(record_client_policy_handoff_v2(test_id(8902), (SELECT id FROM clients WHERE first_name = 'RolledBack'),
+  '{"policy_type":"Term","carrier":"Synthetic Life","premium":20,"sold_date":"2026-10-02"}', true, NULL, test_id(8901)) -> 'source_call_link' ->> 'status' = 'linked', 'linked before rollback');
+SQL
+sql -1 -f "$CALL_CAPTURE_ROLLBACK" >/dev/null
+sql -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+SELECT pc_login(11); SET ROLE authenticated;
+SELECT test_assert(record_client_policy_handoff_v2(test_id(8903), (SELECT id FROM clients WHERE first_name = 'RolledBack'),
+  '{"policy_type":"Term","carrier":"Synthetic Life","premium":21,"sold_date":"2026-10-02"}', false, NULL, test_id(8901)) -> 'source_call_link' ->> 'status' = 'disabled', 'disabled after rollback; the sale saves');
+RESET ROLE;
+SELECT test_assert((SELECT count(*) FROM wins WHERE idempotency_key = 'policy:' || test_id(8903)) = 1
+  AND (SELECT count(*) FROM private.policy_sale_call_links) = 1
+  AND NOT has_function_privilege('authenticated', 'public.retry_policy_sale_call_link(uuid)', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.get_policy_sale_call_link_status(uuid[])', 'EXECUTE')
+  AND has_function_privilege('authenticated', 'public.record_client_policy_handoff_v2(uuid,uuid,jsonb,boolean,jsonb,uuid)', 'EXECUTE'),
+  'rollback keeps links, keeps the sale path, seals retry and status');
+SQL
+echo 'PASS producing-call capture rollback (L11): disabled capture, sales unaffected, links kept'
+
 echo 'PASS policy commission tracking database proofs'
