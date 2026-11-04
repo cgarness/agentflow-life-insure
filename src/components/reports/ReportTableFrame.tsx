@@ -10,6 +10,8 @@ interface Props {
   tableClassName?: string;
   /** thead, tbody and tfoot. */
   children: React.ReactNode;
+  /** A keyboard grid (the heatmap, D6 §4.7): the table takes role="grid" and the scroller drops its own tab stop. */
+  focus?: "grid";
 }
 
 /** True while the scroller can still scroll right: columns remain beyond its right edge. */
@@ -41,14 +43,14 @@ function useMoreToTheRight(ref: React.RefObject<HTMLDivElement>): boolean {
  * right, a right-edge fade (a sibling of the scroller, so it never scrolls away) says there is more; it
  * leaves once the last column is in view, so it never claims columns that are not there.
  */
-const ReportTableFrame: React.FC<Props> = ({ label, caption, tableClassName, children }) => {
+const ReportTableFrame: React.FC<Props> = ({ label, caption, tableClassName, children, focus }) => {
   const scroller = useRef<HTMLDivElement>(null);
   const more = useMoreToTheRight(scroller);
   return (
     <div className="relative min-w-0">
-      <div ref={scroller} role="region" aria-label={label} tabIndex={0}
+      <div ref={scroller} role="region" aria-label={label} tabIndex={focus === "grid" ? undefined : 0}
         className="min-w-0 overflow-x-auto overscroll-x-contain rounded-lg border border-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <table className={cn("w-full border-separate border-spacing-0 text-sm [&>tbody>tr:last-child>*]:border-b-0", tableClassName)}>
+        <table role={focus === "grid" ? "grid" : undefined} className={cn("w-full border-separate border-spacing-0 text-sm [&>tbody>tr:last-child>*]:border-b-0", tableClassName)}>
           <caption className="sr-only">{caption ?? label}</caption>
           {children}
         </table>

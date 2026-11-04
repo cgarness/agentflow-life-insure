@@ -104,6 +104,11 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
   await state.focus(); const first = await state.getAttribute("aria-label"); await page.keyboard.press("ArrowRight");
   const next = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
   check("map arrows move focus by name", !!first && !!next && first !== next);
+  const cell = page.locator("[role='grid'] [role='gridcell'][tabindex='0']");
+  check("heatmap is one grid with one tab stop", (await cell.count()) === 1);
+  await cell.focus(); await page.keyboard.press("ArrowRight"); await page.keyboard.press("Enter");
+  check("heatmap arrows move and Enter pins a cell", (await page.locator("[role='gridcell'][aria-selected='true']").count()) === 1
+    && (await page.locator("[data-heatmap-status]").innerText()).includes("calls made"));
   const animating = await page.evaluate(() => document.getAnimations().filter(a => a.playState === "running").length);
   check("reduced motion: nothing animates", animating === 0, String(animating));
   const downloads = [];

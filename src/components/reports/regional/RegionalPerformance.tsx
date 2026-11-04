@@ -42,7 +42,7 @@ const RegionalPerformance: React.FC<{ data: ReportStateBreakdownV3; onExport?: (
     <ReportSection title="Regional performance" onExport={onExport}>
       <div className="space-y-3" data-report-section="regional_performance">
         <div className="flex flex-wrap items-center gap-2">
-          <ReportSegmented ariaLabel="Map metric" value={mode} onChange={v => setMode(v as RegionalMode)} options={REGIONAL_MODES.map(m => [m, REGIONAL_MODE_LABELS[m]] as const)} />
+          <ReportSegmented className="max-w-full overflow-x-auto" ariaLabel="Map metric" value={mode} onChange={v => setMode(v as RegionalMode)} options={REGIONAL_MODES.map(m => [m, REGIONAL_MODE_LABELS[m]] as const)} />
           <ReportSegmented ariaLabel="View" value={view} onChange={v => setView(v as "map" | "table")} options={[["map", "Map"], ["table", "Table"]] as const} />
           {status.status === "partial" && status.reason && <KpiStatusNote label={CHIP_PARTIAL} tone="partial" lines={[fillNotice(REASON_NOTICES[status.reason], { n })]} />}
           {cue && <span className="text-xs text-muted-foreground">{cue}</span>}
