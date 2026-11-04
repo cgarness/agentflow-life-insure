@@ -4,6 +4,16 @@ import { credentials } from "./auth.ts";
 import { TwilioA2p } from "./provider.ts";
 /** Explicit rollout only. No missing-table/error fallback after rollout. */
 export async function registeredSender(db: Db, org: string, from: string, actorId?: string) {
+  // Toll-free verification is separate from 10DLC and Trust Hub. This voice-only
+  // release has no verified toll-free senders, including in legacy SMS agencies.
+  const normalized = from.replace(/[\s().-]/g, "");
+  if (/^(?:\+?1)?(?:800|833|844|855|866|877|888)\d{7}$/.test(normalized)) {
+    throw new A2pError(
+      "TOLL_FREE_SMS_DISABLED",
+      "Texting is unavailable for toll-free numbers until toll-free verification is supported and approved.",
+      409,
+    );
+  }
   const a = await account(db, org);
   if (!a?.sms_enforced) return null;
   const r = await registration(db, org);

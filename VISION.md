@@ -64,7 +64,7 @@ If a life insurance agent cannot make **300+ dials per day** while feeling energ
 - **Roles:** Super Admin (platform) → Admin → Team Leader → Agent.
 - **Hierarchy:** `ltree` for upline/downline where policies require it.
 - **Agency Groups:** Optional peer orgs share **leaderboard-visible** metrics (`calls`, `wins`, `agent_scorecards`) — not full CRM data sharing.
-- **Telephony:** Per-org Twilio **subaccounts** for numbers/CNAM; **master** TwiML App + Voice JWT for WebRTC registration.
+- **Telephony:** Purchased outbound caller-ID numbers, the TwiML App, and Voice JWT use the Twilio **master** account (AGENT_RULES invariant 24); organization subaccounts remain part of the existing provisioning and account-specific compliance flows.
 
 ---
 

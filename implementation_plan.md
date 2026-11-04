@@ -1,3 +1,13 @@
+# 2026-11-03 Pacific — Toll-Free Number Purchasing release approved; backend verified
+
+Chris approved the concrete implementation, exact migration, six complete Edge payloads and frontend release. PR #513 publishes the approved source tree. Production migration `20261104041151_phone_number_purchase_operations` is applied once and read back; the pending file was renamed with identical SQL bytes. SMS v61, workflow v50, consent worker v26, ClearPath v25, search v59 and buy v65 are live with all source bytes and configuration verified. Existing phone ownership/routing/policies remain unchanged; no number purchase, designation, call or SMS occurred.
+
+The native PostgreSQL 17.6 cloud suite passed 131 SQL assertions and 12 concurrent scenarios. The final frontend check is completing after two test-environment corrections: execute the strict loopback runner inside the PostgreSQL service, and detect browser-fixture readiness through HTTP rather than ANSI-colored startup text. No application/Edge/SQL byte change. Final-head CI and frontend merge/deployment remain to finish under the existing approval.
+
+[Full implementation and file boundary](docs/plans/2026-11-03-toll-free-number-purchasing/implementation_plan.md) · [Verification](docs/plans/2026-11-03-toll-free-number-purchasing/verification.md) · [Approved payload hashes](docs/plans/2026-11-03-toll-free-number-purchasing/release-manifest.json) · [Production release evidence](docs/plans/2026-11-03-toll-free-number-purchasing/production-release.json).
+
+---
+
 # 2026-11-03 — Inbounds room V1 (build approved; production gated)
 
 Additional verification file: `.github/workflows/inbounds-room.yml`. Run a frozen-lock, pinned Deno check of all four full Edge handlers in cloud CI to close the local dependency-network limitation before backend approval. No deployed function or dependency bytes change.
