@@ -273,9 +273,14 @@ SELECT rt.expect_sql_failure($$SELECT private.report_v3_metric(9,'partial',0,0,2
 SELECT rt.expect_sql_failure($$SELECT private.report_v3_metric(5,'partial',0,NULL,NULL,
   jsonb_build_object('eligible',3,'assessable',0,'unassessable',3,'reasons',jsonb_build_object('attempt_unverified',3)),NULL,'attempt_unverified',NULL)$$,
   'reports v3 metric 5: unknown numerator evidence never becomes 0');
+-- KPI 16 decides on its resolved outcomes (as KPI 1 on its assessable premiums): 0 held is refused only when no outcome
+-- is resolved, and accepted as a known 0 when some are.
 SELECT rt.expect_sql_failure($$SELECT private.report_v3_metric(16,'partial',0,NULL,NULL,
-  jsonb_build_object('eligible',7,'assessable',5,'unassessable',2,'reasons',jsonb_build_object('outcomes_unresolved',2)),NULL,'outcomes_unresolved',NULL)$$,
+  jsonb_build_object('eligible',2,'assessable',0,'unassessable',2,'reasons',jsonb_build_object('outcomes_unresolved',2)),NULL,'outcomes_unresolved',NULL)$$,
   'reports v3 metric 16: unknown numerator evidence never becomes 0');
+SELECT rt.eq('KPI 16: 0 held is a known 0 when outcomes are resolved', rt.svr(private.report_v3_metric(16,'partial',0,NULL,NULL,
+  jsonb_build_object('eligible',7,'assessable',5,'unassessable',2,'reasons',jsonb_build_object('outcomes_unresolved',2)),NULL,'outcomes_unresolved',NULL)),
+  'partial|outcomes_unresolved|0');
 SELECT rt.expect_sql_failure($$SELECT private.report_v3_metric(4,'unavailable',NULL,0,0,
   jsonb_build_object('eligible',2,'assessable',0,'unassessable',2,'reasons',jsonb_build_object('premium_invalid',1,'premium_missing',1)),NULL,'premium_not_entered',NULL)$$,
   'reports v3 metric 4: premium_not_entered requires every unusable premium to be missing');
@@ -393,8 +398,10 @@ SELECT rt.eq('KPI 17: no resolved outcome (X3)', rt.svr(private.report_v3_rate(1
 SELECT rt.eq('KPI 17: nothing held over resolved outcomes, some unresolved',
   rt.svr(private.report_v3_rate(17, 0, 5, rt.cov(7, 5, 2, '{"outcomes_unresolved":2}'))), 'partial|outcomes_unresolved|0');
 SELECT rt.eq('KPI 17: nothing due', rt.svr(private.report_v3_rate(17, 0, 0, rt.cov(0, 0, 0))), 'unavailable|no_due_sales_appointments|null');
-SELECT rt.eq('KPI 16: nothing held while outcomes are missing (never 0)',
-  rt.svr(private.report_v3_total(16, 0, rt.cov(7, 5, 2, '{"outcomes_unresolved":2}'))), 'unavailable|outcomes_unresolved|null');
+SELECT rt.eq('KPI 16: nothing held of 5 resolved, 2 unresolved (a known 0, partial)',
+  rt.svr(private.report_v3_total(16, 0, rt.cov(7, 5, 2, '{"outcomes_unresolved":2}'))), 'partial|outcomes_unresolved|0');
+SELECT rt.eq('KPI 16: no outcome resolved, some unresolved (never 0)',
+  rt.svr(private.report_v3_total(16, 0, rt.cov(2, 0, 2, '{"outcomes_unresolved":2}'))), 'unavailable|outcomes_unresolved|null');
 SELECT rt.eq('KPI 16: every due outcome resolved', rt.svr(private.report_v3_total(16, 0, rt.cov(5, 5, 0))), 'available|-|0');
 SELECT rt.eq('KPI 18: candidates only', rt.svr(private.report_v3_rate(18, 0, 0, rt.cov(1, 0, 1, '{"capture_gap":1}'))),
   'unavailable|capture_gap|null');

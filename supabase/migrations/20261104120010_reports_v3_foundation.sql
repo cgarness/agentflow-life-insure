@@ -470,7 +470,7 @@ BEGIN
            (v_has_den AND coalesce(p_denominator, 0) = 0 AND v_d_unknown > 0)
         OR (v_kind IN ('ratio', 'rate') AND coalesce(p_denominator, 0) > 0 AND coalesce(p_numerator, 0) = 0 AND v_n_unknown > 0)
         OR (NOT v_has_den AND v_n_unknown > 0
-            AND (p_id <> 1 OR (p_coverage ->> 'assessable')::numeric = 0))) THEN
+            AND (p_id NOT IN (1, 16) OR (p_coverage ->> 'assessable')::numeric = 0))) THEN
         RAISE EXCEPTION 'reports v3 metric %: a coverage reason makes the value unavailable only when nothing on the deciding side is known', p_id
           USING ERRCODE = 'P0001';
       END IF;
@@ -513,7 +513,7 @@ BEGIN
     END IF;
     -- BC4: unknown numerator evidence never becomes 0.
     v_n_known := CASE WHEN v_kind IN ('ratio', 'rate') THEN p_numerator
-                      WHEN p_id = 1 AND p_coverage IS NOT NULL THEN (p_coverage ->> 'assessable')::numeric
+                      WHEN p_id IN (1, 16) AND p_coverage IS NOT NULL THEN (p_coverage ->> 'assessable')::numeric
                       WHEN v_kind = 'median' THEN NULL
                       ELSE p_value END;
     IF v_n_known = 0 AND v_n_unknown > 0 THEN
@@ -749,7 +749,7 @@ BEGIN
     RAISE EXCEPTION 'reports v3 metric %: known parts must be non-negative', p_id USING ERRCODE = 'P0001';
   END IF;
   v_eval := private.report_v3_evaluate(p_id, p_reason,
-              CASE WHEN p_id = 1 AND p_coverage IS NOT NULL THEN (p_coverage ->> 'assessable')::numeric ELSE p_value END,
+              CASE WHEN p_id IN (1, 16) AND p_coverage IS NOT NULL THEN (p_coverage ->> 'assessable')::numeric ELSE p_value END,
               NULL, p_coverage);
   IF v_eval ->> 'status' = 'unavailable' AND private.report_v3_reason_kind(v_eval ->> 'reason') = 'config' THEN
     RETURN private.report_v3_metric(p_id, 'unavailable', NULL, NULL, NULL, NULL, NULL, v_eval ->> 'reason', p_detail);

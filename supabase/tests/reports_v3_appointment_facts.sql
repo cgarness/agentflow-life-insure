@@ -297,3 +297,57 @@ SELECT rt.eq('outcome_capture_not_started before the capture start',
 SELECT rt.eq('every reason is a registered code', (SELECT bool_and(e ->> 'reason' IS NULL OR e ->> 'reason' = ANY (private.report_v3_reason_codes()))
   FROM pdr, jsonb_array_elements(p -> 'metrics') e), true);
 ROLLBACK TO SAVEPOINT pd_facts;
+
+-- KPI 16 (Sales Appointments held) decides availability on its resolved outcomes, as KPI 1 decides on its assessable
+-- premiums (integration defect 2026-11-04): a resolved No Show is known evidence, so a held count of 0 with resolved
+-- outcomes is a known 0. Four agents, fresh October Sales Calls (rolled back):
+--   A1:  two No Shows + one unresolved  → Partial 0
+--   A2:  no resolved outcome + one unresolved → Unavailable, null
+--   A3:  two No Shows, none unresolved  → Available 0
+--   TL1: one Held + one unresolved      → Partial 1
+--   agency: 1 held of 5 resolved, 3 unresolved → Partial 1
+SAVEPOINT pd_k16;
+GRANT USAGE ON SCHEMA rt TO authenticated; GRANT SELECT ON rt.v3_ids TO authenticated;
+INSERT INTO private.appointment_evidence_capture_windows (capture_kind, started_at, ended_at, ended_reason)
+SELECT 'appointment_outcomes', '2026-09-01 00:00+00', w.started_at, 'synthetic_history' FROM private.appointment_evidence_capture_windows w
+ WHERE w.capture_kind = 'appointment_outcomes' AND w.ended_at IS NULL;
+SELECT rt.pd_appt('k16a1', 'C2', 'A1', 'Sales Call', '2026-10-13 17:00+00', '2026-10-10 17:00+00', 'No Show', 'A1'),
+       rt.pd_appt('k16a2', 'C3', 'A1', 'Sales Call', '2026-10-14 17:00+00', '2026-10-10 17:00+00', 'No Show', 'A1'),
+       rt.pd_appt('k16a3', 'C4', 'A1', 'Sales Call', '2026-10-15 17:00+00', '2026-10-10 17:00+00', 'Scheduled', 'A1'),
+       rt.pd_appt('k16b1', 'C5', 'A2', 'Sales Call', '2026-10-16 17:00+00', '2026-10-10 17:00+00', 'Scheduled', 'A2'),
+       rt.pd_appt('k16c1', 'C6', 'A3', 'Sales Call', '2026-10-17 17:00+00', '2026-10-10 17:00+00', 'No Show', 'A3'),
+       rt.pd_appt('k16c2', 'C7', 'A3', 'Sales Call', '2026-10-18 17:00+00', '2026-10-10 17:00+00', 'No Show', 'A3'),
+       rt.pd_appt('k16d1', 'C8', 'TL1', 'Sales Call', '2026-10-19 17:00+00', '2026-10-10 17:00+00', 'Completed', 'TL1'),
+       rt.pd_appt('k16d2', 'C9', 'TL1', 'Sales Call', '2026-10-20 17:00+00', '2026-10-10 17:00+00', 'Scheduled', 'TL1');
+CREATE TEMP TABLE k16 AS SELECT private.report_v3_appointment_facts(rt.v3('O1'), NULL,
+  ARRAY[rt.v3('A1'), rt.v3('A2'), rt.v3('A3'), rt.v3('TL1')], '2026-10-01 07:00+00', '2026-11-01 07:00+00',
+  'America/Los_Angeles', clock_timestamp()) AS p;
+SELECT rt.eq('KPI 16 per agent: A1 Partial 0, A2 Unavailable, A3 Available 0, TL1 Partial 1',
+  (SELECT concat_ws(' ; ', rt.pd_agent(p, 'A1', 16), rt.pd_agent(p, 'A2', 16), rt.pd_agent(p, 'A3', 16), rt.pd_agent(p, 'TL1', 16)) FROM k16),
+  'partial|outcomes_unresolved|0|-|- ; unavailable|outcomes_unresolved|-|-|- ; available|-|0|-|- ; partial|outcomes_unresolved|1|-|-');
+SELECT rt.eq('KPI 16 per agent coverage: resolved outcomes are the assessable items',
+  (SELECT string_agg(concat_ws('/', r -> 'coverage' ->> 'eligible', r -> 'coverage' ->> 'assessable', r -> 'coverage' ->> 'unassessable'), ' ' ORDER BY o)
+     FROM k16, LATERAL (SELECT e AS r, o FROM jsonb_array_elements(p -> 'by_agent') WITH ORDINALITY a(b, o),
+                        jsonb_array_elements(b -> 'metrics') e WHERE (e ->> 'id')::int = 16) x),
+  '3/2/1 1/0/1 2/2/0 2/1/1');
+SELECT rt.eq('KPI 16 agency total: 1 held of 5 resolved, 3 unresolved → Partial 1',
+  (SELECT rt.pd_kpi(p, 16) || ' ' || (e -> 'coverage' ->> 'assessable') || '/' || (e -> 'coverage' ->> 'unassessable')
+     FROM k16, jsonb_array_elements(p -> 'metrics') e WHERE (e ->> 'id')::int = 16),
+  'partial|outcomes_unresolved|1|-|- 5/3');
+SELECT rt.eq('KPI 17 agrees: 1 held of 5 resolved (20 %), Partial', (SELECT rt.pd_kpi(p, 17) FROM k16), 'partial|outcomes_unresolved|20|1|5');
+-- The builder alone, with the same four coverages.
+SELECT rt.eq('builder: KPI 16 decides on resolved outcomes (0 held is known when outcomes are resolved)',
+  (SELECT string_agg(concat_ws('|', m ->> 'status', coalesce(m ->> 'value', 'null')), ' ' ORDER BY o)
+     FROM (VALUES (1, private.report_v3_total(16, 0, '{"eligible": 3, "assessable": 2, "unassessable": 1, "reasons": {"outcomes_unresolved": 1}}'::jsonb)),
+                  (2, private.report_v3_total(16, 0, '{"eligible": 1, "assessable": 0, "unassessable": 1, "reasons": {"outcomes_unresolved": 1}}'::jsonb)),
+                  (3, private.report_v3_total(16, 0, '{"eligible": 2, "assessable": 2, "unassessable": 0, "reasons": {}}'::jsonb)),
+                  (4, private.report_v3_total(16, 1, '{"eligible": 2, "assessable": 1, "unassessable": 1, "reasons": {"outcomes_unresolved": 1}}'::jsonb))) v(o, m)),
+  'partial|0 unavailable|null available|0 partial|1');
+-- The validator refuses an unavailable KPI 16 with resolved outcomes; other counts keep the value rule (BC4).
+SELECT rt.expect_sql_failure($q$SELECT private.report_v3_metric(16, 'unavailable', NULL, NULL, NULL,
+  '{"eligible": 3, "assessable": 2, "unassessable": 1, "reasons": {"outcomes_unresolved": 1}}'::jsonb, NULL, 'outcomes_unresolved', NULL)$q$,
+  'nothing on the deciding side is known');
+SELECT rt.expect_sql_failure($q$SELECT private.report_v3_metric(15, 'partial', 0, NULL, NULL,
+  '{"eligible": 3, "assessable": 2, "unassessable": 1, "reasons": {"appointment_type_unclassified": 1}}'::jsonb, NULL, 'appointment_type_unclassified', NULL)$q$,
+  'unknown numerator evidence never becomes 0');
+ROLLBACK TO SAVEPOINT pd_k16;
