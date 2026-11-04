@@ -13,6 +13,15 @@ describe("layout v5 normalization (read-only)", () => {
   it("R23: an untouched v4 default deep-equals the v5 default", () => {
     expect(normalizeReportLayout(v4Default())).toEqual(DEFAULT_LAYOUT);
   });
+  it("R23 applies only to the untouched v4 default: a reordered default or one more visible stat is mapped through V4_TO_V5", () => {
+    const reordered = v4Default();
+    reordered.sections.unshift(...reordered.sections.splice(2, 1));
+    expect(strip(normalizeReportLayout(reordered))).toEqual(["kpi_8", "kpi_5", "kpi_6", "kpi_24", "kpi_25"]);
+    const extra = v4Default();
+    extra.sections.find(s => s.id === "stat_inbound")!.visible = true;
+    expect(normalizeReportLayout(extra)).not.toEqual(DEFAULT_LAYOUT);
+    expect(strip(normalizeReportLayout(extra))).toEqual(["kpi_5", "kpi_6", "kpi_8", "kpi_24", "kpi_25"]);
+  });
   it("maps customized v4 stats in saved order; stat_total_dials before stat_outbound (first wins); fixed and retired ids drop", () => {
     const l = normalizeReportLayout({ version: 4, sections: [
       { id: "stat_total_talk_time", visible: true }, { id: "stat_total_dials", visible: true }, { id: "stat_outbound", visible: false },

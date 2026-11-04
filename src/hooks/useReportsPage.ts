@@ -39,8 +39,10 @@ export function useReportsPage(viewerKey: string | null) {
     fetchReportScopeV3(controller.signal, requestedScope)
       .then(data => {
         if (controller.signal.aborted) return;
-        // A scope for another person is never this viewer's scope.
-        setScopeStore({ key: scopeKey, state: data.self_id === viewerId ? { status: "ready", data } : { status: "error", kind: "unavailable" } });
+        // A scope for another person, or an answer to a different explicit scope request (a broader one), is never
+        // this viewer's scope.
+        const own = data.self_id === viewerId && (!requestedScope || data.requested_scope === requestedScope);
+        setScopeStore({ key: scopeKey, state: own ? { status: "ready", data } : { status: "error", kind: "unavailable" } });
       })
       .catch(e => { if (!controller.signal.aborted) setScopeStore({ key: scopeKey, state: { status: "error", kind: kindOf(e) } }); });
     return () => controller.abort();

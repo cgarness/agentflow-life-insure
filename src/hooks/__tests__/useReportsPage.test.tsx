@@ -135,3 +135,107 @@ describe("useReportsPage: scope and request identity", () => {
     expect(result.current.exportable("summary")).toBe(false);
   });
 });
+
+// Cases carried over from the retired useReportsData hook (its 20 cases are mapped in WORK_LOG 2026-11-04).
+describe("useReportsPage: carried-over request-lifetime cases", () => {
+  it("a scope failure is shown, and Refresh retries it on demand", async () => {
+    const { result } = renderHook(() => useReportsPage(`${A}|org`));
+    await flush();
+    await act(async () => { last("scope").reject(new ReportsQueryError("timeout")); });
+    await flush();
+    expect(result.current.scope).toEqual({ status: "error", kind: "timeout" });
+    act(() => result.current.refresh());
+    await flush();
+    expect(pending("scope")).toHaveLength(2);
+    await resolveScope(A);
+    expect(result.current.scope.status).toBe("ready");
+  });
+
+  it("an unconfigured agency time zone is a configuration error and requests no panel", async () => {
+    const { result } = renderHook(() => useReportsPage(`${A}|org`));
+    await flush();
+    await act(async () => { last("scope").reject(new ReportsQueryError("configuration")); });
+    await flush();
+    expect(result.current.scope).toEqual({ status: "error", kind: "configuration" });
+    expect(panelCalls()).toHaveLength(0);
+  });
+
+  it("refuses a scope answer whose requested scope differs from the explicit request (a broader answer is never adopted)", async () => {
+    const { result } = renderHook(() => useReportsPage(`${A}|org`));
+    await flush(); await resolveScope(A, "agency");
+    act(() => result.current.onScope("personal"));
+    await flush();
+    expect(last("scope").args.requestedScope).toBe("personal");
+    const before = panelCalls().length;
+    await act(async () => { last("scope").resolve(scopeFor(A, "agency")); });
+    await flush();
+    expect(result.current.scope.status).toBe("error");
+    expect(result.current.scopeData).toBeNull();
+    expect(panelCalls()).toHaveLength(before);
+  });
+
+  it("Refresh masks the loaded scope and values in the same render and never re-commits the previous payload", async () => {
+    const { result } = renderHook(() => useReportsPage(`${A}|org`));
+    await flush(); await resolveScope(A); await resolvePanels();
+    act(() => result.current.refresh());
+    expect(result.current.scopeData).toBeNull();
+    expect(result.current.panels.summary.status).toBe("loading");
+    expect(result.current.exportable("summary")).toBe(false);
+    await flush(); await resolveScope(A);
+    expect(result.current.panels.summary.status).toBe("loading");
+  });
+
+  it("after A → B → A, A's earlier panels are not exportable until A's new answers arrive", async () => {
+    const { result } = renderHook(() => useReportsPage(`${A}|org`));
+    await flush(); await resolveScope(A); await resolvePanels();
+    expect(result.current.exportable("summary")).toBe(true);
+    act(() => result.current.setAgentId(AGENT));
+    await flush();
+    act(() => result.current.setAgentId(null));
+    await flush();
+    expect(result.current.panels.summary.status).toBe("loading");
+    expect(result.current.exportable("summary")).toBe(false);
+    await resolvePanels();
+    expect(result.current.exportable("summary")).toBe(true);
+  });
+
+  it("one failed panel keeps the others, and Retry re-requests only that panel", async () => {
+    const { result } = renderHook(() => useReportsPage(`${A}|org`));
+    await flush(); await resolveScope(A);
+    await act(async () => {
+      for (const k of PANEL_KEYS) { const c = last(k); if (k === "journey") c.reject(new ReportsQueryError("timeout")); else c.resolve(panelFor(c.args)); }
+    });
+    await flush();
+    expect(result.current.panels.journey).toEqual({ status: "error", kind: "timeout" });
+    expect(result.current.panels.summary.status).toBe("ready");
+    const counts = Object.fromEntries(PANEL_KEYS.map(k => [k, pending(k).length]));
+    act(() => result.current.retryPanel("journey"));
+    await flush();
+    for (const k of PANEL_KEYS) expect(pending(k).length).toBe(counts[k] + (k === "journey" ? 1 : 0));
+    expect(result.current.panels.journey.status).toBe("loading");
+    expect(result.current.panels.summary.status).toBe("ready");
+    await act(async () => { const c = last("journey"); c.resolve(panelFor(c.args)); });
+    await flush();
+    expect(result.current.panels.journey.status).toBe("ready");
+  });
+
+  it("requests nothing on its own after loading (no polling)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useReportsPage(`${A}|org`));
+      await flush(); await resolveScope(A); await resolvePanels();
+      const n = calls.length;
+      await act(async () => { vi.advanceTimersByTime(30 * 60_000); });
+      expect(calls).toHaveLength(n);
+      expect(result.current.panels.summary.status).toBe("ready");
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("unmount cancels every in-flight request (logout, navigation)", async () => {
+    const { unmount } = renderHook(() => useReportsPage(`${A}|org`));
+    await flush(); await resolveScope(A);
+    const inFlight = PANEL_KEYS.map(k => last(k));
+    unmount();
+    expect(inFlight.every(c => c.signal?.aborted)).toBe(true);
+  });
+});

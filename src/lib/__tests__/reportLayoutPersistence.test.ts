@@ -68,6 +68,16 @@ describe("Reports personal persistence", () => {
     expect(h.queries[1].filters).toEqual([["eq", "id", "layout-1"], ["eq", "organization_id", owner.orgId], ["eq", "user_id", owner.userId]]);
     expect(h.queries[1].returning).toBe("id");
   });
+  it("normalizes before every write, so a stored layout is always version 5", async () => {
+    h.responses.push(ok({ id: "layout-1" }), ok({ id: "layout-1" }));
+    const legacy = { version: 4, sections: [{ id: "stat_total_talk_time", visible: true }] } as unknown as Parameters<typeof saveUserLayout>[1];
+    const saved = await saveUserLayout(owner, legacy);
+    const written = (h.queries[1].value as { layout: { version: number; sections: { id: string; visible: boolean }[] } }).layout;
+    expect(written.version).toBe(5);
+    expect(written).toEqual(saved);
+    expect(written.sections[0]).toEqual({ id: "kpi_24", visible: true });
+    expect(written.sections.some(s => s.id.startsWith("stat_"))).toBe(false);
+  });
   it("inserts a non-null personal owner and surfaces unique first-save conflicts", async () => {
     h.responses.push(ok(null), { data: null, error: { code: "23505" } });
     await expect(saveUserLayout(owner, getDefaultLayout())).rejects.toThrow("another tab");

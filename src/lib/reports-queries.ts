@@ -56,6 +56,12 @@ export function isReportsQueryError(e: unknown): e is ReportsQueryError {
   return e instanceof ReportsQueryError;
 }
 
+/** A panel's load state for `ReportPanelState`: loading, ready with data, or a typed Reports error (never a zero). */
+export type LoadState<T> =
+  | { status: "loading" }
+  | { status: "ready"; data: T }
+  | { status: "error"; error: ReportsQueryError };
+
 /** Bound on a single report request; afterwards it is reported as `timeout`, never left spinning. */
 export const REPORT_REQUEST_TIMEOUT_MS = 25_000;
 

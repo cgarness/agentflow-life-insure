@@ -131,6 +131,10 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
     const text = readFileSync(path, "utf8");
     summary.csv.push({ file: d.suggestedFilename(), bytes: text.length });
     check(`csv ${d.suggestedFilename()}: v3 meta rows`, text.includes('"Basis version","reports_v3"') && text.includes('"Contract version"'));
+    if (d.suggestedFilename().startsWith("regional-performance-")) {
+      const n = text.split("\n").filter(l => l.startsWith('"Note"') && l.includes("not verified as dialed")).length;
+      check("csv regional-performance: the unverified-calls notice appears exactly once", n === 1, String(n));
+    }
   }
   check("every export downloaded a file", downloads.length === count + 3, `${downloads.length} of ${count + 3}`);
   for (const f of ["regional-performance-", "agent-performance-", "report-summary-", "journey-", "sales-appointments-"])
