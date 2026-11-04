@@ -24,7 +24,7 @@ const additions = new Set([
   ...['contracts', 'auth', 'inventory', 'pricing', 'purchase'].map((name) => `${shared}phoneNumbers/${name}.ts`),
   `${shared}twilioOutboundCreds.ts`, `${shared}twilioSubaccountCreds.ts`, `${shared}twilioNumberConfig.ts`,
 ]);
-const migration = 'supabase/migrations/pending/20261104005554_phone_number_purchase_operations.sql';
+const migration = 'supabase/migrations/20261104041151_phone_number_purchase_operations.sql';
 const frontend = [
   ...['NumberManagementSection.tsx', 'numberSearchSchema.ts', 'NumberPurchaseDialog.tsx', 'NumberPurchaseResults.tsx',
     'NumberPurchaseReview.tsx', 'useNumberPurchase.ts'].map((name) => `src/components/settings/phone/${name}`),

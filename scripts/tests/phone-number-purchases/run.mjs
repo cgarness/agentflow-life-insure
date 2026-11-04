@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = (p) => fs.readFile(path.join(root, p), 'utf8');
-const migration = 'supabase/migrations/pending/20261104005554_phone_number_purchase_operations.sql';
+const migration = 'supabase/migrations/20261104041151_phone_number_purchase_operations.sql';
 let db, pg;
 
 try {

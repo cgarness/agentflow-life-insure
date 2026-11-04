@@ -11,6 +11,7 @@ on:
       - 'supabase/functions/twilio-search-numbers/**'
       - 'supabase/functions/twilio-buy-number/**'
       - 'supabase/migrations/pending/*phone_number_purchase_operations.sql'
+      - 'supabase/migrations/*phone_number_purchase_operations.sql'
       - 'supabase/tests/phone_number_purchases.sql'
       - 'scripts/tests/phone-number-purchases/**'
       - 'scripts/prepare-phone-number-release.mjs'

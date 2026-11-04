@@ -2,15 +2,15 @@
 
 **Prepared:** November 3, 2026, Pacific time
 
-**Status:** IMPLEMENTED AND VERIFIED on the review branch — November 4, 2026 UTC; NOT released
+**Status:** Backend released and verified — November 3, 2026 Pacific; final frontend CI/merge pending
 
 **Repository:** cgarness/agentflow-life-insure
 
 **Reviewed main:** 0e74428259275c9281518832747a627a4f635a80
 
-**Production inspected read-only:** AGENTFLOW CRM / jncvvsvckxhqgqvkppmj
+**Production target:** AGENTFLOW CRM / jncvvsvckxhqgqvkppmj
 
-**Feature branch:** feat/toll-free-number-purchase-20261103. Implementation is local; its remote head and main were rechecked at the reviewed baseline after testing. No branch publication or deployment was triggered.
+**Feature branch:** feat/toll-free-number-purchase-20261103, published as PR #513. Initial published commit 4e0a18ad is tree-identical to the approved local candidate; later release commits change only verification/bookkeeping files.
 
 ## Release execution approval — November 3, 2026 Pacific
 
@@ -22,9 +22,15 @@ Release bookkeeping will touch only: this focused plan; root `implementation_pla
 
 ### Release CI correction before database mutation
 
-The first production-matching PostgreSQL17.6 CI job stopped before fixture SQL because a host-to-Docker forwarded connection reports the container interface from `inet_server_addr()`, while the synthetic runner intentionally requires actual loopback. Correct only `.github/workflows/phone-number-purchases.yml`: copy the reviewed Node runtime, PostgreSQL driver and fixture tree into the disposable PostgreSQL service, then execute the unchanged runner inside it using `127.0.0.1`. Keep every hostname/database/empty-database guard and assertion intact. This is a test-environment correction, with no SQL or application payload changes. Require a successful rerun before applying the approved production migration.
+The first production-matching PostgreSQL 17.6 CI job stopped before fixture SQL because a host-to-Docker forwarded connection reports the container interface from `inet_server_addr()`, while the synthetic runner intentionally requires actual loopback. Correct only `.github/workflows/phone-number-purchases.yml`: copy the reviewed Node runtime, PostgreSQL driver and fixture tree into the disposable PostgreSQL service, then execute the unchanged runner inside it using `127.0.0.1`. Keep every hostname/database/empty-database guard and assertion intact. This is a test-environment correction, with no SQL or application payload changes. Require a successful rerun before applying the approved production migration.
 
-## 1. Approval boundary
+### Browser CI startup correction
+
+The cloud browser job completed its tests/lint/types/build steps but its checker waited for an unformatted `Local:` banner. Reproduction with `GITHUB_ACTIONS=true`, `FORCE_COLOR=1` and no `NO_COLOR` confirms Vite emits ANSI bytes between `Local` and the colon, so the text check never resolves even though the fixture is serving. Add only `scripts/tests/phone-number-purchases/browser/check.mjs` to the release correction boundary: replace banner detection with bounded HTTP readiness for the synthetic fixture and include captured child diagnostics on startup failure. Preserve every interaction, permission, recovery and zero-external-request assertion. Verify locally with CI color settings before the final cloud run. No application or deployed payload change.
+
+Correction verified: `node --check` and the complete browser checker pass with `GITHUB_ACTIONS=true`, `FORCE_COLOR=1` and `NO_COLOR` unset. All existing browser assertions remain intact; zero external requests.
+
+## 1. Original build approval boundary (release approval recorded above)
 
 Chris approved this plan after the read-only inspection and file manifest. Branch implementation, a pending migration, documentation and isolated tests are authorized. Main and the existing feature branch were rechecked at 0e744282; all six live bundle versions/hashes and the open PR list are unchanged from planning. No production operation is authorized by this build approval.
 
@@ -199,7 +205,7 @@ Paths below are the intended edit boundary, subject only to a documented refinem
 
 | Path | Purpose |
 |---|---|
-| supabase/migrations/pending/20261104005554_phone_number_purchase_operations.sql | CLI-generated additive server-only ledger/claim/finalize migration; applied only to isolated synthetic test databases during build. |
+| supabase/migrations/20261104041151_phone_number_purchase_operations.sql | CLI-generated additive ledger migration, authored under pending as 20261104005554 and renamed with identical SQL bytes after its approved production application. |
 | supabase/tests/phone_number_purchases.sql | Synthetic privileges, ownership, state and Inbounds assignment assertions. |
 | scripts/tests/phone-number-purchases/run.mjs | Isolated database fixture runner. |
 | scripts/tests/phone-number-purchases/concurrency.mjs | True concurrent transaction tests. |
@@ -215,7 +221,7 @@ Paths below are the intended edit boundary, subject only to a documented refinem
 | scripts/prepare-phone-number-release.mjs | Prepare full packages from pinned live bundles with an explicit module-change allowlist; no deployment action. |
 | .github/workflows/phone-number-purchases.yml | Secret-free targeted frontend/Edge/native PostgreSQL verification; no deployment. |
 
-After approval, Supabase CLI v2.84.5 generated `20261104005554_phone_number_purchase_operations.sql` with `supabase migration new phone_number_purchase_operations`. Its path is recorded above before SQL implementation; it remains under pending until separate database release authorization. No existing migration is modified or replayed in production.
+After approval, Supabase CLI v2.84.5 generated `20261104005554_phone_number_purchase_operations.sql` with `supabase migration new phone_number_purchase_operations`. Its authored path was recorded before SQL implementation. After separate release approval it was applied once and reconciled to `supabase/migrations/20261104041151_phone_number_purchase_operations.sql`; SQL SHA-256 remains faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8. Do not replay it. No existing migration is modified or replayed in production.
 
 Implementation inspection found one directly relevant defense gap: `selectOutboundCallerId` ends with `phones[0]` after all eligibility tiers reject an all-Inbounds-only input. Existing callers prefilter and the server blocks such calls, but the helper itself could return that dedicated number. The one-return refinement listed above makes the approved outbound exclusion complete without changing ordinary local selection, Voice.js, routing, or telemetry.
 
@@ -226,7 +232,8 @@ Implementation inspection found one directly relevant defense gap: `selectOutbou
 | implementation_plan.md | Newest-first pointer/status; preserve previous plans. |
 | docs/plans/2026-11-03-toll-free-number-purchasing/implementation_plan.md | This complete plan and approval/decision record. |
 | docs/plans/2026-11-03-toll-free-number-purchasing/verification.md | Actual test evidence and limits after implementation. |
-| docs/plans/2026-11-03-toll-free-number-purchasing/release-manifest.json | Exact migration and complete Edge package hashes for separate release review. |
+| docs/plans/2026-11-03-toll-free-number-purchasing/release-manifest.json | Approved payload hashes and reconciled migration path. |
+| docs/plans/2026-11-03-toll-free-number-purchasing/production-release.json | Actual production migration/Edge/CI/frontend evidence and remaining transaction boundaries. |
 | WORK_LOG.md | Newest-first implementation and verification entry; no false release claim. |
 | AGENT_RULES.md | Purchase idempotency, quote compatibility, SMS gate and live-bundle preservation invariant. |
 | VISION.md | One-line correction of caller-ID master ownership versus other subaccount flows. |
@@ -296,10 +303,10 @@ Verification details and commands: [verification.md](verification.md). Exact pen
 
 **Decisions:** Local remains the default and retains subaccount inventory; 800 preferred/888 supported on master; all purchases use master; agency/unassigned saves; irreversible attempted barrier; PN-receipt-only recovery; separate existing authenticated Inbounds designation; toll-free voice only.
 
-**Migrations/deploys/transactions:** One pending migration, applied only to fresh synthetic databases. Six complete Edge packages prepared. Zero production migrations, deployments, assignments, purchases, calls or SMS. No main merge or remote branch push.
+**Migrations/deploys/transactions:** Migration 20261104041151 applied once and verified; search v59, buy v65, SMS v61, workflow v50, consent worker v26 and ClearPath v25 deployed and fully read back. All 71 bundled files match approved payloads; 52 unrelated live module copies remain unchanged. Seven unsigned rejection checks passed. Zero purchases, assignments, calls or SMS. Frontend merge is pending final checks.
 
 **Verification:** 68 frontend/caller-ID/Inbounds tests; 44 mocked purchase tests; 55 SMS/A2P/ClearPath regression tests; 24 additional gate runs against four live-derived sending packages; six full frozen-lock Edge compilations; 131 SQL assertions and 12 real concurrent transaction scenarios; desktop/mobile/keyboard recovery checks. Root TypeScript, scoped lint and production build pass. Exact-main application diagnostics remain 79/79 with zero new errors.
 
-**Blockers:** No remaining implementation blocker. Production inventory and master-account Pricing API access are unverified. Existing application type diagnostics and bundle-size warnings remain outside this scope.
+**Blockers:** Final frontend CI/merge is pending after the documented test-harness corrections. Production inventory and master-account Pricing API access remain unverified. Existing application type diagnostics and bundle-size warnings remain outside this scope.
 
-**Next:** Review the concrete branch, pending SQL and manifest. Refresh live baselines before approving the exact database, six Edge packages and frontend release. Keep any real purchase, Inbounds designation and media test separately authorized.
+**Next:** Complete final-head CI, merge PR #513 under the recorded frontend release approval, verify the resulting Vercel production deployment and append its evidence. Keep any real purchase, Inbounds designation and media test separately authorized.

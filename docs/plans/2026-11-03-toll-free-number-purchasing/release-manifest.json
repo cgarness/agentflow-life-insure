@@ -1,11 +1,14 @@
 {
   "feature": "US toll-free number purchasing",
-  "status": "prepared_for_review_not_deployed",
+  "status": "backend_released_frontend_pending",
   "reviewed_main": "0e74428259275c9281518832747a627a4f635a80",
   "production_project": "jncvvsvckxhqgqvkppmj",
   "migration": {
-    "path": "supabase/migrations/pending/20261104005554_phone_number_purchase_operations.sql",
-    "sha256": "faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8"
+    "path": "supabase/migrations/20261104041151_phone_number_purchase_operations.sql",
+    "sha256": "faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8",
+    "authored_path": "supabase/migrations/pending/20261104005554_phone_number_purchase_operations.sql",
+    "applied_version": "20261104041151",
+    "applied": true
   },
   "frontend": [
     {

@@ -9,12 +9,32 @@ const screenshots = process.env.PHONE_PURCHASE_SCREENSHOTS || '/tmp/phone-number
 await fs.mkdir(screenshots, { recursive: true });
 const server = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--config', path.join(here, 'vite.config.mjs')], { stdio: ['ignore', 'pipe', 'pipe'] });
 process.on('exit', () => server.kill());
-await new Promise((resolve, reject) => {
-  const timeout = setTimeout(() => reject(new Error('Fixture server did not start.')), 20000);
-  server.stdout.on('data', (b) => { if (String(b).includes('Local:')) { clearTimeout(timeout); resolve(); } });
-  server.on('error', (error) => { clearTimeout(timeout); reject(error); });
-  server.on('exit', (code) => { clearTimeout(timeout); reject(new Error(`Fixture server exited ${code}.`)); });
-});
+let stdout = '', stderr = '', serverFailure;
+server.stdout.on('data', (chunk) => { stdout = (stdout + String(chunk)).slice(-8192); });
+server.stderr.on('data', (chunk) => { stderr = (stderr + String(chunk)).slice(-8192); });
+server.on('error', (error) => { serverFailure = error.message; });
+server.on('exit', (code, signal) => { serverFailure = `Fixture server exited ${code ?? signal}.`; });
+const readinessDeadline = Date.now() + 20000;
+let ready = false, readinessFailure = 'Fixture server did not respond.';
+while (Date.now() < readinessDeadline && !serverFailure) {
+  try {
+    const response = await fetch('http://127.0.0.1:4177', {
+      signal: AbortSignal.timeout(Math.max(1, Math.min(1000, readinessDeadline - Date.now()))),
+      redirect: 'error',
+    });
+    const html = await response.text();
+    if (response.ok && html.includes('<title>Phone numbers · synthetic verification</title>')) {
+      ready = !serverFailure;
+      break;
+    }
+    readinessFailure = `Fixture readiness returned HTTP ${response.status} without the expected title.`;
+  } catch (error) { readinessFailure = error.message; }
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(100, readinessDeadline - Date.now()))));
+}
+if (!ready) {
+  server.kill();
+  throw new Error(`Fixture server did not start: ${serverFailure || readinessFailure}\nstdout (tail):\n${stdout}\nstderr (tail):\n${stderr}`);
+}
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });

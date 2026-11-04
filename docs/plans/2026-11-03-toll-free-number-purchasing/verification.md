@@ -1,6 +1,6 @@
 # Toll-Free Number Purchasing — verification and release handoff
 
-**Status:** Implemented and verified on the local review branch; NOT released.
+**Status:** Production backend released and verified; final frontend CI/merge pending.
 
 **Completed:** November 4, 2026 UTC (November 3 Pacific).
 
@@ -8,7 +8,19 @@
 
 **Exact main baseline:** `0e74428259275c9281518832747a627a4f635a80`.
 
-Chris approved branch implementation, a pending migration, documentation and isolated verification after reviewing the plan and intended files. This approval did not authorize a production migration, deployment, number purchase, assignment, call or SMS. None occurred. Main and the remote feature branch still pointed to the exact baseline at the final read-only conflict check. The candidate was not pushed, merged or published; no GitHub/Vercel release workflow was triggered.
+Chris approved branch implementation, a pending migration, documentation and isolated verification after reviewing the plan and intended files. This approval did not authorize a production migration, deployment, number purchase, assignment, call or SMS. None occurred. Main and the remote feature branch still pointed to the exact baseline at the final read-only conflict check. That was the build-stage status. Subsequent explicit release approval and actual backend/publication evidence are recorded below.
+
+## Production backend release — November 3, 2026 Pacific
+
+Chris approved the concrete release package. PR #513 initially published the exact approved tree as `4e0a18ad`; connected GitHub publication changed commit metadata only. After the documented Docker test-topology correction, native PostgreSQL 17.6 job `126382290719` passed all 131 assertions and 12 contention scenarios with 11 observed lock waits. Frozen-lock Edge checks passed on the same head.
+
+Applied the exact SQL once as `20261104041151_phone_number_purchase_operations`; history contains one 19,224-byte statement with matching raw MD5 `abb94ea6f7df6b1b9fbb14c6fdcb548e` and SHA-256 `faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8`. The file moved from pending to its recorded path without changing bytes. Its PENDING comment is authoring history, not deployment state; never replay it.
+
+All 8 new functions, 18 columns, 12 constraints and 5 indexes match the approved SQL. RLS is enabled; no anonymous, authenticated or service-role direct table access exists. All 605 pre-existing public/private functions, 13 relevant policies, Inbounds guards and phone ownership fingerprints remain unchanged. The ledger has zero rows; all 21 existing phone numbers remain non-Inbounds, with zero toll-free numbers. Advisors changed 264→265 solely for the expected private-ledger `rls_enabled_no_policy` INFO; no new WARN/ERROR. The deliberate RPC-only design must retain its no-direct-access boundary. [Advisor explanation](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy).
+
+Released and read back SMS v61, workflow v50, consent worker v26, ClearPath v25, search v59 and buy v65 in that order. All 71 source modules match approved payloads; all 52 unrelated live module copies remain unchanged, including deployed callback/dispatch/signature/alert differences. All retain `verify_jwt=false`, no import map and ACTIVE status. Seven bare POST rejection checks returned expected 401/403/409 responses; no authentication, quote, purchase, worker action or provider transaction was executed.
+
+The final cloud browser check exposed ANSI formatting in the Vite startup banner. The checker now verifies actual fixture HTTP readiness with every UI/security assertion retained; the complete browser check passed locally with CI color settings and zero external requests. Complete final-head CI before frontend merge. The exact backend evidence is in [production-release.json](production-release.json); frontend release evidence will be appended there after deployment. No application/SQL/payload byte change was needed for the CI corrections.
 
 ## Implemented behavior
 
@@ -80,7 +92,7 @@ e437d4ee781aa0ea56b836c00b9dad8bd527a68970a9c9b4786976838f47309b  SQL assertions
 ae16c248e65f74eeab6197194ca5c6ef53dff4681f1a47aedfa354dd44c9a7e3  concurrency.mjs
 ```
 
-The new GitHub workflow specifies native PostgreSQL 17.6 and the same synthetic runner. That workflow is prepared but has not run on GitHub because the candidate has not been published. The successful native run above used PostgreSQL 18.6. Local Deno could not reach its remote dependency URLs; the complete frozen-lock sandbox checks resolved that verification gap without changing the lock. The existing narrowly scoped CI `tslib` import map was retained.
+The initial isolated run used PostgreSQL 18.6. The subsequently published GitHub workflow also passed the same unchanged synthetic runner on production-matching PostgreSQL 17.6; see the release update above. Local Deno could not reach its remote dependency URLs; the complete frozen-lock sandbox checks resolved that verification gap without changing the lock. The existing narrowly scoped CI `tslib` import map was retained.
 
 ## Reproduction
 
@@ -110,7 +122,7 @@ The output must stay outside the checkout. Capture all six functions read-only. 
 
 ## Concrete release candidate
 
-Exact hashes and individual bundled files are in [release-manifest.json](release-manifest.json). The migration remains under `supabase/migrations/pending/20261104005554_phone_number_purchase_operations.sql`, not applied in production. Complete packages were assembled for these inspected live baselines:
+Exact hashes and individual bundled files are in [release-manifest.json](release-manifest.json). The approved migration is now recorded as `supabase/migrations/20261104041151_phone_number_purchase_operations.sql` and applied in production. The earlier pending path and reviewed bytes remain in the release record. Complete packages were assembled for these inspected live baselines:
 
 | Function | Live baseline | Final files | Approved module replacement |
 |---|---:|---:|---|
