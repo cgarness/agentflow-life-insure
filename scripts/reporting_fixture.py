@@ -60,6 +60,29 @@ def sold_date_steps():
   ('sold-date rollback replay refuses',"SELECT test_reject($rollback$"+rollback+"$rollback$,'P0001');"),
   ('sold-date forward after rollback',forward+index+reread)]
 
+def premium_correction_steps():
+ """PKG-B (D2 §3.3-§3.6, §10): the audited sale premium ledger on the verbatim sale writers, after every other step."""
+ forward=migration('policy_sale_premium_corrections')
+ rollback=migration('policy_sale_premium_corrections.rollback','supabase/migrations/rollback')
+ writer="'public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text)'"
+ choke="'private.performance_sale_monthly(public.wins,numeric)'::regprocedure"
+ probe=("CREATE FUNCTION public.test_probe(q text,checks text) RETURNS void LANGUAGE plpgsql AS $p$ BEGIN "
+  "BEGIN EXECUTE q; EXECUTE checks; RAISE EXCEPTION 'probe-ok'; EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'probe-ok' THEN RAISE; END IF; END; END $p$;")
+ restored=(f"SELECT test_assert(md5(pg_get_functiondef({choke}))='51e06b46a13c3a8eec4d672bec158376' AND to_regprocedure({writer}) IS NULL "
+  "AND to_regprocedure('private.policy_sale_effective_premium(public.wins,numeric)') IS NULL AND to_regclass('private.policy_sale_premium_corrections') IS NOT NULL,"
+  "'empty-ledger rollback restores the exact preimage, drops the readers and RPCs, keeps the ledger');")
+ sealed=(f"SELECT test_assert(md5(pg_get_functiondef({choke}))='ee64ddb694ad2e1b250ba069342c75fa' AND NOT has_function_privilege('authenticated',{writer},'EXECUTE') "
+  "AND (SELECT count(*)>0 FROM private.policy_sale_premium_corrections) AND t_eff('a')=120,'a non-empty ledger: the writer is sealed and corrections stay applied');")
+ return [('sale premium corrections refuse while Reports v3 is enabled',"CREATE FUNCTION public.get_report_probe_v3() RETURNS integer LANGUAGE sql AS 'SELECT 1'; "
+   "GRANT EXECUTE ON FUNCTION public.get_report_probe_v3() TO authenticated; SELECT test_reject($f$"+forward+"$f$,'55000'); DROP FUNCTION public.get_report_probe_v3();"),
+  ('sale premium corrections refuse on choke-point drift',"SELECT test_reject($f$ALTER FUNCTION private.performance_sale_monthly(public.wins,numeric) COST 101;"+forward+"$f$,'P0001');"),
+  ('sale premium corrections migration',forward),
+  ('sale premium corrections replay refuses',"SELECT test_reject($f$"+forward+"$f$,'P0001');"),
+  ('sale premium corrections: an empty-ledger rollback restores the exact preimage (probe, rolled back)',probe+"SELECT test_probe($r$"+rollback+"$r$,$c$"+restored+"$c$);"),
+  ('sale premium correction regressions',read('supabase/tests/policy_sale_premium_correction.sql')),
+  ('sale premium corrections rollback with a non-empty ledger seals the writer only',rollback+sealed),
+  ('sale premium corrections rollback replay seals again',rollback+sealed)]
+
 def steps(mode):
  if mode=='booking':
   harness=read('supabase/tests/dialer_dnc_harness.sql').replace('CREATE TABLE public.appointments(id uuid DEFAULT gen_random_uuid(),contact_id uuid,organization_id uuid);',table('appointments')+'\nALTER TABLE appointments ADD PRIMARY KEY(id);\n'+table('recruits'))
@@ -75,7 +98,7 @@ def steps(mode):
   ('previous group repair',migration('group_leaderboard_repair_membership_setter_credit')),('performance contract',migration('performance_reporting_contract')),('scoped summaries',migration('performance_scoped_summaries')),
   ('duration provenance',migration('call_attempt_duration_provenance')),('reader indexes',migration('performance_reader_indexes')),
   ('original dialer reader',table('dispositions')+table('dialer_sessions')+block(base,'CREATE OR REPLACE FUNCTION "public"."get_trusted_today_dialer_stats"(')+"\nREVOKE ALL ON FUNCTION public.get_trusted_today_dialer_stats(uuid,timestamptz,timestamptz) FROM PUBLIC; GRANT EXECUTE ON FUNCTION public.get_trusted_today_dialer_stats(uuid,timestamptz,timestamptz) TO anon,authenticated,service_role;"),
-  ('canonical dialer reader',migration('trusted_dialer_canonical_counts')),('performance regressions',read('supabase/tests/performance_reporting_contract.sql'))]+sold_date_steps()+repair_steps()+reconciliation_steps()
+  ('canonical dialer reader',migration('trusted_dialer_canonical_counts')),('performance regressions',read('supabase/tests/performance_reporting_contract.sql'))]+sold_date_steps()+repair_steps()+reconciliation_steps()+premium_correction_steps()
 if __name__=='__main__':
  mode=sys.argv[1]
  if '--json' in sys.argv:print(json.dumps(steps(mode)))

@@ -678,3 +678,65 @@ describe("Reports v3 performance acceptance and differential evidence", () => {
     expect(job("perf-acceptance")).toContain("inputs.performance_acceptance && !inputs.journey_comparisons");
   });
 });
+
+describe("PKG-B sale premium corrections (D2 §3.3-§3.7): …20 and its rollback are class C", () => {
+  const FORWARD = `${MIGRATIONS}/20261104120020_policy_sale_premium_corrections.sql`;
+  const ROLLBACK = `${ROLLBACKS}/20261104120020_policy_sale_premium_corrections.rollback.sql`;
+  const forward = stripSqlComments(read(FORWARD));
+  const rollback = stripSqlComments(read(ROLLBACK));
+
+  it("is numbered after every PKG-A file and above the production head 20261103191631", () => {
+    const versions = readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /_reports_v3_|_policy_sale_premium_corrections/.test(n)).sort();
+    expect(versions.at(-1)).toBe("20261104120020_policy_sale_premium_corrections.sql");
+    expect(Number("20261104120020")).toBeGreaterThan(20261103191631);
+  });
+
+  it("grants nothing, in the migration or its rollback", () => {
+    expect(grants(forward)).toEqual([]);
+    expect(grants(rollback)).toEqual([]);
+  });
+
+  it("creates every new function sealed with a pinned search_path; private helpers run with invoker rights", () => {
+    const created = createdFunctions(forward).filter((fn) => fn.name !== "private.performance_sale_monthly");
+    expect(created.map((fn) => fn.name).sort()).toEqual([
+      "private.guard_policy_sale_premium_correction", "private.policy_sale_book_monthly", "private.policy_sale_effective_premium",
+      "private.policy_sale_original_premium", "public.correct_policy_sale_premium", "public.get_client_policy_sale_premiums",
+    ]);
+    const revoked = revokes(forward);
+    for (const fn of created) {
+      expect(fn.header, `${fn.name} search_path`).toMatch(/SET search_path = pg_catalog, pg_temp/);
+      if (fn.name.startsWith("private.")) expect(fn.header, `${fn.name} must run with invoker rights`).not.toMatch(/SECURITY\s+DEFINER/i);
+      else expect(fn.header, `${fn.name} is definer-rights`).toMatch(/SECURITY\s+DEFINER/i);
+      const match = revoked.find((r) => r.name === fn.name && r.types.join(",") === fn.types.join(","));
+      expect(match, `${fn.name}(${fn.types.join(", ")}) has no REVOKE ALL`).toBeDefined();
+      expect(match!.roles, `${fn.name} REVOKE roles`).toEqual(SEALED_ROLES);
+    }
+    expect(forward).toMatch(/REVOKE ALL ON private\.policy_sale_premium_corrections FROM PUBLIC, anon, authenticated, service_role;/);
+    expect(forward).toMatch(/ALTER TABLE private\.policy_sale_premium_corrections ENABLE ROW LEVEL SECURITY;/);
+    expect(forward).not.toMatch(/CREATE\s+POLICY/i);
+  });
+
+  it("replaces only performance_sale_monthly, behind its md5 preimage, and proves every sale unchanged before commit", () => {
+    const replaced = [...forward.matchAll(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-z_]+\.[a-z0-9_]+)/gi)].map((m) => m[1]);
+    expect(replaced).toEqual(["private.performance_sale_monthly"]);
+    expect(forward.trimStart()).toMatch(/^SET LOCAL lock_timeout = '2s';/);
+    expect(forward).toContain("'51e06b46a13c3a8eec4d672bec158376'");
+    expect(forward).toContain("refusing replay");
+    expect(forward).toContain("Reports v3 must be disabled first");
+    expect(forward).toContain("a sale premium changed at the switch");
+    expect(forward).toContain("performance_sale_monthly attributes changed");
+  });
+
+  it("never writes a sale, a commission row or a notification", () => {
+    expect(forward).not.toMatch(/INSERT\s+INTO\s+public\.wins|UPDATE\s+public\.wins|DELETE\s+FROM\s+public\.wins/i);
+    expect(forward).not.toMatch(/policy_commission|notify_win|pg_notify/i);
+  });
+
+  it("the rollback refuses while v3 is enabled, always seals the writer, restores only the exact preimage and never drops the ledger", () => {
+    expect(rollback).toContain("Reports v3 must be disabled first");
+    expect(rollback).toMatch(/REVOKE ALL ON FUNCTION public\.correct_policy_sale_premium\([^)]*\)\s+FROM PUBLIC, anon, authenticated, service_role;/);
+    expect(rollback).toContain("'51e06b46a13c3a8eec4d672bec158376'");
+    expect(rollback).not.toMatch(/DROP\s+TABLE/i);
+    expect(rollback).not.toMatch(/DROP\s+FUNCTION\s+private\.guard_policy_sale_premium_correction/i);
+  });
+});
