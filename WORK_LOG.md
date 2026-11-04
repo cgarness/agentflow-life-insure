@@ -1,5 +1,90 @@
 # AgentFlow Work Log
 
+## 2026-11-04 — Reports V2 PKG-F batches F-3 and F-4 and verification Batch V: the seven-section v3 page and its review package (branches `claude/great-goodall-911azc` at `2b3c326` and `-pkg-f` at `ca9b2cc`; branch only; nothing merged, applied, enabled or deployed)
+
+**Request:** Chris's message of 2026-11-04 ("continue F-3/F-4 and complete the feature build"). The file lists are in this day's `implementation_plan.md` entry.
+
+**Status.** Package F is not complete.
+- **Done on `-pkg-f`:**
+  - all seven Example 2 sections in brief order;
+  - the request-identity state safety;
+  - layout v5 and its customizer;
+  - How it's calculated;
+  - the section and summary CSVs;
+  - the v3 visual gate;
+  - a synthetic review package.
+- **Still open in F:**
+  - the Regional (D5 `buildStateCsv`) and agent-performance CSVs; the Regional export control is not wired yet;
+  - the journey and sales-appointment KPI CSV files;
+  - the `App.tsx` lazy route;
+  - `CustomizerGroup` and the D6 test files `reportsLayoutV5` and `useReportsData`;
+  - removing the old `useReportsData.ts`;
+  - bundle budgets;
+  - the CSV golden rebaseline (BA-F6).
+- B, C and D have not started.
+
+**Changed on `-pkg-f`** (after the merges of `main` at `0e74428` and of the foundation):
+- **`1211a1a` F-3a, state safety:**
+  - Scope and panel state are stored by exact request identity, so a stale response never renders under the current labels.
+  - The scope covers a null viewer, logout, an organization change and View As (nothing is sent).
+  - Superseded requests are aborted, and late responses are ignored.
+  - Panel metadata is matched against the request; a mismatch is withheld as drift.
+  - No panel is requested while the scope is unresolved.
+  - Export eligibility is per panel.
+  - `useReportsPage.test.tsx` (7 cases) was written first and failed 4 of 7 before the change.
+- **`871faea` F-3b and F-3c:**
+  - Sections 3–7: Trends and call outcomes, the agent table, Regional (map with small-state tiles, details, table and unmapped notice), the calling heatmap and the breakdowns.
+  - The US map is generated from `us-atlas@3.0.1` with pinned SHA-256s by `scripts/geo/build-us-state-paths.mjs`. Its provenance is in `evidence/map-provenance.md`, and its notice is in `THIRD_PARTY_NOTICES.md`.
+  - The three v2-page tests were rewritten for v3: `reportsPage`, `reportsScopeIntegration` and `reportsDialerIntelligence`.
+- **`5fb4a18` layout v5:**
+  - Activity holds at most six items, sections are visibility only, and breakdowns have visibility and order.
+  - The frozen `V4_TO_V5` map covers 38 ids, and an untouched v4 default normalizes to the v5 default.
+  - The v2-only client computations and components were removed.
+- **`92e32f8`:**
+  - The exports carry v3 meta rows. `buildKpiCoverageRows` has 21 columns.
+  - How it's calculated uses the approved wording: definitions, basis, coverage from current envelopes only, quality lines and freshness.
+- **`1580d7f`, `7565cb0`, `798e549`, `6aca77d`, `ca9b2cc`:**
+  - the v3 visual gate (`scripts/tests/reports-visual/verify.mjs`);
+  - the "Synthetic review package" upload step in `reports-backend.yml`;
+  - colour-contrast and 320 px overflow fixes;
+  - the heatmap keyboard grid and status line;
+  - reduced motion;
+  - the CSV report names "Production trend" and "Call outcomes".
+
+**Batch V (foundation `2b3c326`).**
+- `reports-backend.yml` has a dispatch-only `journey_comparisons` input with its own concurrency group. A `journey-comparison` matrix job runs one pinned case per job: `0:agency:30:-` and `0:agency:366:-`, with a 350-minute job limit and a 320-minute statement deadline.
+- `run_reports_v3_differential.sh` validates the selector, and `reports_v3_differential.sql` adds the `dx_journey_case` mode. The contract test passes 42/42.
+- Local check: the default path passes, and a bad selector fails closed.
+- Dispatched once as run `41753175853` at 01:18 UTC. Both jobs were still in progress at 02:20 UTC. Each will be attempted once and never retried.
+
+**Verification** (on `-pkg-f`).
+- **Visual gate, 448 of 448 on `6aca77d`:**
+  - only v3 readers are requested, and v3 off requests no panel;
+  - exactly 23 metrics;
+  - brief section order;
+  - no page overflow at 1440, 1024, 768, 390 and 320 px (light and dark) or at 720×450 DSF 2;
+  - first-screen budgets;
+  - keyboard: chip, map and heatmap;
+  - nothing animates under reduced motion;
+  - axe: 0 violations at 1440 and 390 px, light and dark;
+  - 10 CSV downloads with v3 meta rows.
+- **Reports tests:** all pass at `ca9b2cc`. The only failures in the run are the baseline ones.
+- **Full Vitest:** 6,736 tests: 6,699 passed, 1 failed, 36 skipped. Compared by identity with the B7 baseline, there are no new failing files or tests, and `dashboardMissedCalls` is now fixed.
+- **Typecheck and build:** `tsc --noEmit` 0. `tsc -p tsconfig.app.json` exits 2 with no new diagnostics; one baseline diagnostic, NumberReputation, is gone. Build 0.
+- **Review package** `reports_v3_review_ca9b2ccd.zip`: 31 screenshots, 10 CSVs, `summary.json`, README and SHA256SUMS. Synthetic data only. It was delivered as a local file; it is not hosted.
+
+**Hosting.** The automatic Vercel branch previews remain SSO-protected. Hosted `/reports` fails closed with "Reports unavailable" because hosted v3 is not released. Nothing was created, enabled or changed.
+
+**Release blockers (unchanged, all open):**
+- the performance acceptance gate;
+- ★1, ★4, E1–E6 and the fallback privacy decisions;
+- the security review;
+- the AGENT_RULES amendments;
+- policy classifications;
+- Census provenance item 7 (census.gov unreachable from this environment);
+- migration ordering against the hosted head;
+- final approval.
+
 ## 2026-11-03 — Reports V2 PKG-F preview batches F-1 and F-2: the first Example 2 page on the v3 contract (branch `claude/great-goodall-911azc-pkg-f` at `969a2fa`; branch only; nothing merged, applied, enabled or deployed)
 
 **Status.** The private preview's first two sections are real, reusable D6 components. They run in the isolated harness on real v3 SQL payloads plus labelled synthetic variants.
