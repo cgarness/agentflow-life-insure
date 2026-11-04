@@ -29,9 +29,13 @@ CREATE FUNCTION rt.perf_hash(k text, n integer) RETURNS integer LANGUAGE sql IMM
   SELECT ((hashtextextended(k, 0) % n + n) % n)::integer $$;
 CREATE FUNCTION rt.perf_id(k text) RETURNS uuid LANGUAGE sql IMMUTABLE AS $$ SELECT md5(k)::uuid $$;
 
+-- Size divisor (rt.perf_divisor): 1 is the required 500,000-call fixture, the only size the performance gate measures;
+-- 50 is the bounded journey reference comparison (10,000 calls, same 400 days of history, same people and campaigns).
 CREATE TABLE rt.perf_meta AS
 SELECT rt.perf_id('perf-org') AS org, 'America/Los_Angeles'::text AS tz,
-       ((now() AT TIME ZONE 'America/Los_Angeles')::date - 1) AS end_date;
+       ((now() AT TIME ZONE 'America/Los_Angeles')::date - 1) AS end_date,
+       coalesce(nullif(current_setting('rt.perf_divisor', true), ''), '1')::integer AS divisor;
+SELECT rt.eq('performance fixture: the size divisor is 1 (full size) or 50 (bounded comparison)', (SELECT divisor IN (1, 50) FROM rt.perf_meta), true);
 CREATE FUNCTION rt.perf_ts(p_day_offset integer, p_seconds integer) RETURNS timestamptz LANGUAGE sql STABLE AS $$
   SELECT ((m.end_date - p_day_offset)::timestamp + p_seconds * interval '1 second') AT TIME ZONE m.tz FROM rt.perf_meta m $$;
 
@@ -84,8 +88,8 @@ SELECT l.n, rt.perf_id('perf-lead-' || l.n) AS id, rt.perf_hash('ld' || l.n, 760
        (ARRAY['CA','TX','FL','NV','AZ','OR','WA','NY','GA','IL','OH','PA','NC','MI','NJ','VA','CO','TN','IN','MO','',''])[1 + rt.perf_hash('ls' || l.n, 22)] AS state,
        (ARRAY['Facebook','Google','Referral','Web','Direct Mail','TV','Radio','Partner',''])[1 + rt.perf_hash('lsrc' || l.n, 9)] AS source,
        CASE WHEN rt.perf_hash('la' || l.n, 20) = 0 THEN NULL ELSE rt.perf_agent(6 + rt.perf_hash('lag' || l.n, 54)) END AS agent,
-       (l.n % 13 = 0 AND l.n / 13 <= 4500 AND (l.n / 13) % 5 = 0) AS deleted
-  FROM generate_series(1, 60000) l(n);
+       (l.n % 13 = 0 AND l.n / 13 <= 4500 / m.divisor AND (l.n / 13) % 5 = 0) AS deleted
+  FROM rt.perf_meta m, generate_series(1, 60000 / m.divisor) l(n);
 ALTER TABLE rt.perf_leads ADD PRIMARY KEY (n);
 INSERT INTO public.leads (id, organization_id, first_name, last_name, phone, status, lead_source, assigned_agent_id, user_id, created_at, state)
 SELECT l.id, m.org, 'Perf', 'Lead ' || l.n, l.phone, 'New', l.source, l.agent, l.agent,
@@ -105,19 +109,19 @@ INSERT INTO private.dialer_conversion_lineage (organization_id, campaign_lead_id
 SELECT m.org, rt.perf_id('perf-cl-' || l.n), l.id FROM rt.perf_leads l, rt.perf_meta m WHERE l.deleted;
 
 INSERT INTO public.recruits (id, phone, organization_id, state)
-SELECT rt.perf_id('perf-recruit-' || r.n), '725' || lpad(r.n::text, 7, '0'), m.org, 'NV' FROM generate_series(1, 500) r(n), rt.perf_meta m;
+SELECT rt.perf_id('perf-recruit-' || r.n), '725' || lpad(r.n::text, 7, '0'), m.org, 'NV' FROM rt.perf_meta m, generate_series(1, 500 / m.divisor) r(n);
 
 -- 5,000 clients: 4,500 converted from leads 13, 26, ... (lead_id lineage), 500 hand-entered.
 CREATE TABLE rt.perf_clients AS
 SELECT c.n, rt.perf_id('perf-client-' || c.n) AS id,
-       CASE WHEN c.n <= 4500 THEN rt.perf_id('perf-lead-' || (c.n * 13)) END AS lead_id,
-       CASE WHEN c.n <= 4500 THEN (SELECT l.day_off FROM rt.perf_leads l WHERE l.n = c.n * 13) END AS lead_day_off,
-       CASE WHEN c.n <= 4500 THEN greatest((SELECT l.day_off FROM rt.perf_leads l WHERE l.n = c.n * 13) - 1 - rt.perf_hash('cv' || c.n, 60), 0)
+       CASE WHEN c.n <= 4500 / m.divisor THEN rt.perf_id('perf-lead-' || (c.n * 13)) END AS lead_id,
+       CASE WHEN c.n <= 4500 / m.divisor THEN (SELECT l.day_off FROM rt.perf_leads l WHERE l.n = c.n * 13) END AS lead_day_off,
+       CASE WHEN c.n <= 4500 / m.divisor THEN greatest((SELECT l.day_off FROM rt.perf_leads l WHERE l.n = c.n * 13) - 1 - rt.perf_hash('cv' || c.n, 60), 0)
             ELSE rt.perf_hash('cvh' || c.n, 420) END AS conv_off,
-       CASE WHEN c.n > 4500 OR rt.perf_hash('cp' || c.n, 10) = 0 THEN '808' || lpad(c.n::text, 7, '0')
+       CASE WHEN c.n > 4500 / m.divisor OR rt.perf_hash('cp' || c.n, 10) = 0 THEN '808' || lpad(c.n::text, 7, '0')
             ELSE '702' || lpad((c.n * 13)::text, 7, '0') END AS phone,
        rt.perf_agent(6 + rt.perf_hash('cag' || c.n, 54)) AS agent
-  FROM generate_series(1, 5000) c(n);
+  FROM rt.perf_meta m, generate_series(1, 5000 / m.divisor) c(n);
 ALTER TABLE rt.perf_clients ADD PRIMARY KEY (n);
 INSERT INTO public.clients (id, organization_id, first_name, last_name, premium, lead_id, assigned_agent_id, created_at, phone, state,
                             lead_conversion, primary_policy_id)
@@ -152,14 +156,14 @@ SELECT rt.perf_id('perf-win-' || c.n || '-' || k.k), m.org,
 INSERT INTO public.appointments (id, title, type, status, created_by, user_id, created_at, organization_id)
 SELECT rt.perf_id('perf-appt-' || a.n), 'Appointment', 'Sales Call', 'Scheduled', rt.perf_agent(6 + rt.perf_hash('aa' || a.n, 54)),
        rt.perf_agent(6 + rt.perf_hash('aa' || a.n, 54)), rt.perf_ts(rt.perf_hash('ad' || a.n, 400), 36000), m.org
-  FROM generate_series(1, 10000) a(n), rt.perf_meta m;
+  FROM rt.perf_meta m, generate_series(1, 10000 / m.divisor) a(n);
 
 -- 500,000 calls over 400 days (business hours, agency zone).
 CREATE TABLE rt.perf_calls AS
 SELECT g, rt.perf_hash('cd' || g, 400) AS d, rt.perf_hash('ck' || g, 100) AS b, rt.perf_hash('cdur' || g, 100) AS db,
-       CASE WHEN rt.perf_hash('cl' || g, 2) = 0 THEN 1 + rt.perf_hash('cl1' || g, 60000) ELSE 1 + rt.perf_hash('cl2' || g, 6000) END AS li,
-       1 + rt.perf_hash('cc' || g, 5000) AS ci, rt.perf_hash('cag' || g, 100) AS ag, rt.perf_hash('cx' || g, 1000) AS x
-  FROM generate_series(1, 500000) g;
+       CASE WHEN rt.perf_hash('cl' || g, 2) = 0 THEN 1 + rt.perf_hash('cl1' || g, 60000 / m.divisor) ELSE 1 + rt.perf_hash('cl2' || g, 6000 / m.divisor) END AS li,
+       1 + rt.perf_hash('cc' || g, 5000 / m.divisor) AS ci, rt.perf_hash('cag' || g, 100) AS ag, rt.perf_hash('cx' || g, 1000) AS x
+  FROM rt.perf_meta m, generate_series(1, 500000 / m.divisor) g;
 INSERT INTO public.calls (id, organization_id, agent_id, direction, contact_id, contact_type, contact_phone, campaign_id, campaign_lead_id,
                           created_at, started_at, duration, disposition_id, disposition_name, status, duration_source, duration_conflict,
                           answered_by_agent_id, outcome, voicemail_id, dialer_admission_required)
@@ -174,7 +178,7 @@ SELECT rt.perf_id('perf-call-' || c.g), m.org,
             WHEN c.b < 70 THEN rt.perf_id('perf-client-' || c.ci)
             WHEN c.b < 76 THEN NULL
             WHEN c.b < 80 THEN rt.perf_id('perf-cl-' || c.li)
-            WHEN c.b = 80 THEN rt.perf_id('perf-recruit-' || (1 + c.g % 500))
+            WHEN c.b = 80 THEN rt.perf_id('perf-recruit-' || (1 + c.g % (500 / m.divisor)))
             WHEN c.b < 83 THEN rt.perf_id('perf-dangling-' || c.g)
             WHEN c.b < 93 THEN NULL
             WHEN c.b < 97 THEN rt.perf_id('perf-lead-' || c.li)
@@ -186,7 +190,7 @@ SELECT rt.perf_id('perf-call-' || c.g), m.org,
               CASE c.x % 3 WHEN 0 THEN '702' || lpad(c.li::text, 7, '0') WHEN 1 THEN '+1702' || lpad(c.li::text, 7, '0')
                    ELSE '(702) ' || substr(lpad(c.li::text, 7, '0'), 1, 3) || '-' || substr(lpad(c.li::text, 7, '0'), 4) END
             WHEN c.b < 70 OR c.b BETWEEN 97 AND 98 THEN (SELECT pc.phone FROM rt.perf_clients pc WHERE pc.n = c.ci)
-            WHEN c.b = 80 THEN '725' || lpad((1 + c.g % 500)::text, 7, '0')
+            WHEN c.b = 80 THEN '725' || lpad((1 + c.g % (500 / m.divisor))::text, 7, '0')
             WHEN c.b < 83 OR c.b BETWEEN 90 AND 92 THEN '909' || lpad((c.g % 9999999)::text, 7, '0')
             WHEN c.b < 85 THEN NULL
             WHEN c.b < 90 THEN '+1702' || lpad(c.li::text, 7, '0')
@@ -220,7 +224,7 @@ SELECT m.org, rt.perf_id('perf-call-' || c.g), 'CA' || md5('perf-adm-' || c.g), 
   FROM rt.perf_calls c, rt.perf_meta m WHERE c.b < 93 AND c.d < 120 AND c.x % 100 < 98;
 INSERT INTO private.performance_duplicate_rows (organization_id, kind, duplicate_id, canonical_id, evidence_hash, reviewed_at)
 SELECT m.org, 'call', rt.perf_id('perf-call-' || g), rt.perf_id('perf-call-' || (g - 1)), md5('perf-dup-' || g), now()
-  FROM generate_series(1667, 500000, 1667) g, rt.perf_meta m;
+  FROM rt.perf_meta m, generate_series(1667, 500000 / m.divisor, 1667) g;
 
 -- Dialer sessions: most working days per person, with stale, late-ended and overlapping sessions.
 INSERT INTO public.dialer_sessions (id, organization_id, agent_id, campaign_id, started_at, ended_at, last_heartbeat_at, status)
@@ -257,12 +261,12 @@ INSERT INTO public.import_history (id, imported_lead_ids, created_at, organizati
 SELECT rt.perf_id('perf-import-' || k), (SELECT jsonb_agg(l.id) FROM rt.perf_leads l WHERE l.n BETWEEN k * 300 + 1 AND k * 300 + 300),
        rt.perf_ts((SELECT max(l.day_off) FROM rt.perf_leads l WHERE l.n BETWEEN k * 300 + 1 AND k * 300 + 300), 30000), m.org, 'completed',
        CASE WHEN k % 30 = 7 THEN 'undone' END
-  FROM generate_series(0, 149) k, rt.perf_meta m;
+  FROM rt.perf_meta m, generate_series(0, 150 / m.divisor - 1) k;
 INSERT INTO private.google_sheets_receipts (organization_id, user_id, spreadsheet_id, sheet_id, receipt_key, outcome, lead_id, fingerprint,
                                             row_number, created_at)
 SELECT m.org, rt.perf_agent(6), 'perf-sheet', 1, 'perf-receipt-' || l.n, 'imported', l.id, md5('perf-fp-' || l.n), l.n,
        rt.perf_ts(l.day_off, 30000)
-  FROM rt.perf_leads l, rt.perf_meta m WHERE l.n BETWEEN 45001 AND 48000 AND NOT l.deleted;
+  FROM rt.perf_leads l, rt.perf_meta m WHERE l.n BETWEEN 45000 / m.divisor + 1 AND 48000 / m.divisor AND NOT l.deleted;
 
 
 -- -----------------------------------------------------------------------------------------------------
@@ -479,11 +483,12 @@ $$;
 SELECT rt.eq('performance fixture: 500,000 calls, 5,000 clients, 10,000 policy objects, 10,000 sale events (5,000 buyers) and 10,000 appointments',
   (SELECT concat_ws('|', f ->> 'calls', f ->> 'clients', f ->> 'policy_objects', f ->> 'sale_events', f ->> 'buyers', f ->> 'appointments')
      FROM rt.perf_fixture() f),
-  '500000|5000|10000|10000|5000|10000');
+  (SELECT CASE m.divisor WHEN 1 THEN '500000|5000|10000|10000|5000|10000' ELSE '10000|100|200|200|100|200' END FROM rt.perf_meta m));
 SELECT rt.eq('performance matrix: 147 combinations', (SELECT count(*) FROM rt.perf_combos), 147::bigint);
 SELECT 'performance fixture' AS evidence, version() AS server, rt.perf_fixture() AS sizes, current_setting('shared_buffers') AS shared_buffers;
 
 -- @@performance-measure@@
+SELECT rt.eq('performance measurement runs only on the full-size fixture (rt.perf_divisor = 1)', (SELECT divisor FROM rt.perf_meta), 1);
 -- One warm-up round, then :perf_samples measured rounds, interleaved over the run's plan. Each sample autocommits as
 -- its own statement under the production session settings and the 8 s statement_timeout.
 \if :{?perf_samples}

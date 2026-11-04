@@ -5,7 +5,11 @@
 # Builds a fresh database with the functional v3 suites, installs the frozen reviewed baseline as schema rtref
 # (scripts/reports_v3_reference.py, every hash checked against the manifest), compares the code under test with it on
 # the fixtures (supabase/tests/reports_v3_differential.sql part 1), loads the 500k scale fixture of
-# reports_v3_performance.sql and compares again (part 2).
+# reports_v3_performance.sql and compares again (part 2), with the full-scale journey replacement checks (independent
+# assertions and invariants; not a baseline comparison). A second disposable database then builds the same functional
+# state, reference and part 1, loads the scale fixture at rt.perf_divisor = 50, and compares the public journey reader
+# with the baseline's on complete payloads for agency 30 and 366 days (part 3, the bounded exact comparison that
+# replaces the two unfinishable full-scale ones).
 #
 # Evidence is sanitized (outcomes, counts and sha256 digests; no payload bodies) and goes to
 # $REPORTS_V3_EVIDENCE_DIR/differential (default: a new temporary directory), never into the working tree.
@@ -44,11 +48,14 @@ case "$(cd "$EVIDENCE" && pwd -P)/" in
   "$(pwd -P)/"*) echo 'REFUSING: the evidence directory must be outside the working tree.'; exit 2 ;;
 esac
 DB="reports_v3_dx_$(date +%s)_$$"
+BDB="${DB}_bounded"
 WORK="$(mktemp -d)"
 CREATED=false
+BCREATED=false
 cleanup() {
   rm -rf "$WORK"
   if "$CREATED"; then dropdb --if-exists --maintenance-db="$BASE/postgres" "$DB"; fi
+  if "$BCREATED"; then dropdb --if-exists --maintenance-db="$BASE/postgres" "$BDB"; fi
 }
 trap cleanup EXIT
 createdb --maintenance-db="$BASE/postgres" "$DB"
@@ -60,11 +67,13 @@ python3 scripts/reports_v3_fixture.py --part setup > "$WORK/scale.sql"
 python3 - "$WORK" <<'PY'
 import sys
 text = open('supabase/tests/reports_v3_differential.sql', encoding='utf-8').read()
-marker = '-- @@differential-scale@@'
-assert text.count(marker) == 1, marker
-part1, part2 = text.split(marker)
+marker, bounded = '-- @@differential-scale@@', '-- @@differential-bounded@@'
+assert text.count(marker) == 1 and text.count(bounded) == 1 and text.index(marker) < text.index(bounded), (marker, bounded)
+part1, rest = text.split(marker)
+part2, part3 = rest.split(bounded)
 open(sys.argv[1] + '/part1.sql', 'w', encoding='utf-8').write(part1)
 open(sys.argv[1] + '/part2.sql', 'w', encoding='utf-8').write(part2)
+open(sys.argv[1] + '/part3.sql', 'w', encoding='utf-8').write(part3)
 PY
 
 run() { psql "$BASE/$DB" -X -q -v ON_ERROR_STOP=1 "$@"; }
@@ -79,6 +88,22 @@ echo '== scale fixture (500,000 calls)'
 run -f "$WORK/scale.sql" > "$WORK/scale.log" 2>&1 || { tail -40 "$WORK/scale.log"; exit 1; }
 echo '== differential, part 2: scale organization'
 run -v dx_scale_cases="$EVIDENCE/scale-cases.jsonl" -v dx_scale_summary="$EVIDENCE/scale-summary.json" -f "$WORK/part2.sql"
+
+# Part 3: the bounded exact comparison, in its own disposable database (the divisor is fixed at 50; never changed to
+# make a failure disappear).
+createdb --maintenance-db="$BASE/postgres" "$BDB"
+BCREATED=true
+brun() { psql "$BASE/$BDB" -X -q -v ON_ERROR_STOP=1 "$@"; }
+echo '== bounded database: functional v3 suites, frozen reference, part 1'
+brun -f "$WORK/functional.sql" > "$WORK/bounded-functional.log" 2>&1 || { tail -40 "$WORK/bounded-functional.log"; exit 1; }
+brun -f "$WORK/reference.sql" > /dev/null
+brun -c 'ANALYZE'
+brun -f "$WORK/part1.sql" > "$WORK/bounded-part1.log" 2>&1 || { tail -40 "$WORK/bounded-part1.log"; exit 1; }
+echo '== bounded scale fixture (rt.perf_divisor = 50: 10,000 calls, same 400 days)'
+PGOPTIONS='-c rt.perf_divisor=50' brun -f "$WORK/scale.sql" > "$WORK/bounded-scale.log" 2>&1 || { tail -40 "$WORK/bounded-scale.log"; exit 1; }
+brun -c 'ANALYZE'
+echo '== differential, part 3: bounded agency journey comparison (30 and 366 days)'
+brun -v dx_bounded_cases="$EVIDENCE/bounded-cases.jsonl" -v dx_bounded_summary="$EVIDENCE/bounded-summary.json" -f "$WORK/part3.sql"
 
 python3 - "$EVIDENCE" "$(psql "$BASE/$DB" -XAt -c 'SHOW server_version')" <<'PY'
 import hashlib, json, os, subprocess, sys

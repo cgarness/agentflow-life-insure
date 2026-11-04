@@ -1,3 +1,200 @@
+## 2026-11-04 (late night) — Reports V2 final build integration: B + C + D + F on one branch (branch-only; nothing merged to main, applied, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("Final build integration").
+- **Approved protected changes**, branch-only and limited to the exact integration change:
+  - C: `DialerPage` producing `sourceCallId`; `FloatingDialer` call-context props; `ConvertLeadModal` `sourceCallId` and chip.
+  - D: `AppointmentModal` outcome panel and link prompt; `CalendarSettings` category control; `ConvertLeadModal` closing-appointment field; `DialerPage` appointment `type`.
+- **Still not approved:** any other file outside the lists below, any backend action beyond the disposable synthetic test databases and the existing CI dispatch, `TwilioContext` edits, main, production migrations, RPC enablement, deploys and settings.
+
+**Conflict check (read-only):**
+- `main` is `2b6f5cef` (toll-free purchasing #513). The hosted head `20261104041151` stays below our `20261104120010+`, so no renumbering is needed.
+- `main` (already merged into `-pkg-f`) changed `TwilioContext.tsx` (two `select("*")` lines) and `DialerPage.tsx` (one `hasDraft` prop) relative to the B/C/D base. Both are kept as on main; the C/D byte pins are regenerated against main's files.
+- Package F's Zod contract accepts any `3.x` contract version and both basis values, so F needs no change.
+- No other open work touches these files.
+
+**Step 1, `-pkg-d`: remaining evidence and privacy tests (D4 §7 files only):**
+- `supabase/tests/appointment_occurrence_evidence.sql`: E9 (conversion `contact_id` move) and E11 (drift).
+- `supabase/tests/policy_appointment_attributions.sql`: E12 (concurrent first links).
+- `scripts/tests/appointment-evidence-failure-boundaries.mjs`: the two-session E11/E12 races.
+- `supabase/tests/reports_v3_security.sql` or `supabase/tests/reports_v3_appointment_facts.sql`: the S14a/S14b KPI 12 and 18 privacy fixtures.
+
+**Step 2, approved protected mounts:**
+- **`-pkg-c`:**
+  - `src/pages/DialerPage.tsx` (`sourceCallId={currentCallId}` only);
+  - `src/components/layout/FloatingDialer.tsx` (call-context props only);
+  - `src/components/contacts/ConvertLeadModal.tsx` (`sourceCallId` forward and the `SaleSourceCallChip` mount only);
+  - their existing tests that pin props and mounts (D3 §7 "Ten Vitest files");
+  - `src/pages/__tests__/dialerPageReportsV2Exceptions.test.ts` (create; the DialerPage diff clauses and the TwilioContext byte pin).
+- **`-pkg-d`:**
+  - `src/components/calendar/AppointmentModal.tsx` (outcome panel and link prompt mounts only);
+  - `src/components/settings/CalendarSettings.tsx` (category control mount only);
+  - `ConvertLeadModal.tsx` (`ClosingAppointmentField` mount only);
+  - `DialerPage.tsx` `:4677` (`type: data.type` only);
+  - their D4 §7 tests;
+  - the shared exceptions test.
+
+**Step 3, integration branch `claude/great-goodall-911azc-integration`:**
+- Built from `-pkg-f`, then merges of `origin/main`, the foundation, `-pkg-d` (which contains B) and `-pkg-c`.
+- Conflict resolution keeps both packages in every shared file:
+  - `policySaleRecording.ts`, `ClientPolicies.tsx`, `RecordPolicyModal.tsx`, `ConvertLeadModal.tsx`, `DialerPage.tsx`;
+  - `reports_v3_fixture.py`, `run_reports_v3_tests.sh`, `reportsV3Contracts.test.ts`;
+  - `reports-backend.yml`, `reporting-integrity.yml`, `policy-commission-tracking.yml`;
+  - `implementation_plan.md`, `WORK_LOG.md`, the exceptions test.
+- No other edits.
+
+**Step 4, contract reconciliation (release order B → C → D):**
+- `…21` gives 3.1.0 (`audited_ledger`).
+- `…32` gives 3.2.0 (`sale_call_links` installed; preimage = PKG-B flags `67c6a60a`).
+- `…43` is re-pointed at the PKG-C flags postimage and gives **3.3.0** (all three installed). Its stub preimage (`…13`) is unchanged.
+- `rollback/…43` restores the PKG-C flags.
+- The fixture runs B, C, D forward, the suites, then the rollbacks D, C, B back to the exact PKG-A state.
+- Files: `20261104120043_reports_v3_appointment_facts.sql`, `rollback/20261104120043_*.rollback.sql`, `reports_v3_fixture.py`, `reportsV3Contracts.test.ts`.
+
+**Step 5, workflow tests on the integration branch:**
+- The existing suites: SQL (reports v3, integrity, commission, policy sale) and Vitest.
+- Dialer and FloatingDialer sale-to-capture props, capture and retry, outcomes, classification, closing links.
+- An **integrated review payload** through the existing payload mechanism: `scripts/reports_v3_fixture.py` and `run_reports_v3_tests.sh` gain a mode that keeps B/C/D applied with synthetic correction, link and appointment rows. The existing `scripts/tests/reports-visual/verify.mjs` harness then renders the Reports page from it.
+- No new framework.
+
+**Step 6:** one integrated review package (scratchpad) and the remaining production-release blockers.
+
+## 2026-11-04 (night) — Reports V2: Package B batches B2 and B3, then Packages C and D (branches `-pkg-b`, then `-pkg-c` and `-pkg-d`; nothing applied, merged, granted, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D").
+- **Approved:**
+  - B2;
+  - B3, including the single `onPolicyRecordChanged` prop on `FullScreenContactView`, the D2 exception, on the branch only;
+  - then the D3/D4 Package C and D branch work.
+- **Deferred:**
+  - `…22`, the ops-enable pins and the release-runner constants (`reports_release.py` and its test). They wait for the Package A release files.
+  - The B6 divergence manifest (real-policy classifications).
+- **No:** production mutation, real correction, merge, migration application, RPC enablement, RLS change, deploy or settings change.
+
+**B2, backend (`-pkg-b`):**
+- `supabase/migrations/20261104120021_reports_v3_sale_premium_basis.sql` (create, class W). It contains:
+  - the guards: v3 disabled, the `…20` objects present, the PKG-A postimages of `report_v3_sale_premium` (`37800ccc…`) and `report_v3_basis_flags` (`e446177c…`) by `md5(pg_get_functiondef)`, and a refused replay;
+  - a snapshot of every sale;
+  - the stub that reads the effective premium: monthly still comes from `performance_sale_monthly`, with source, state and revision from the ledger head;
+  - `basis_flags` 3.1.0 / `audited_ledger`;
+  - the identity proof (equal to the snapshot and to `policy_sale_effective_premium` for every sale);
+  - the two grants to `authenticated` only, with an exact-ACL postcondition.
+- **Recorded deviation from D2's literal body:** a PL/pgSQL stub instead of a call of the set-returning effective reader. This is the same reason as B1: the per-sale set-returning call is costly. Equality is proved for every sale.
+- `supabase/migrations/rollback/20261104120020_policy_sale_premium_corrections.rollback.sql` (modify). With an empty ledger and the PKG-B postimages in place, it also restores the PKG-A postimages of the stub and `basis_flags` before dropping the readers. When `basis_flags` is neither the PKG-A nor the PKG-B postimage, it seals only.
+- `supabase/tests/policy_sale_premium_correction.sql` (modify). A `-- @@v3@@` section, run by the v3 fixture inside a savepoint that is rolled back, covers:
+  - a direct ledger head (the RPC's own paths stay in the reporting fixture section);
+  - KPI 1 and 4, `by_agent`, `production_by_date` and state AP restated by exactly 12 × the difference;
+  - KPI 2 unchanged;
+  - the source/revision details;
+  - the freeze removing a legacy fallback;
+  - a correction to unknown → `premium_missing`;
+  - choke point = stub = effective reader for every sale;
+  - payload `meta` 3.1.0 / `audited_ledger`;
+  - the class W ACL matrix.
+- `scripts/reports_v3_fixture.py` (modify): the PKG-B step set after the v3 suites:
+  - refusals: `…21` before `…20`; while v3 is enabled; stub drift; `basis_flags` drift; replay;
+  - `…20`, `…21` and the v3 section;
+  - the rollback probes: non-empty ledger; `basis_flags` replaced by a later package;
+  - the empty-ledger rollback, which returns the database to the exact PKG-A state, so the differential and performance runners keep comparing PKG-A;
+  - the read-only manifest check.
+- `scripts/reporting_fixture.py` (modify): runs only the section before the marker.
+- `supabase/ops/reporting-accuracy/check_sale_correction_manifest.sql` (ops_create, read-only, D2 §6.7).
+- `scripts/tests/sale-premium-correction-concurrency.mjs` (test_create): two-backend races on the reporting fixture's policy database:
+  - the same request gives one row;
+  - two requests at the same revision give one success and one PT409;
+  - a correction racing `update_client_with_policy_sale` serializes.
+- `scripts/run_reports_v3_tests.sh` (modify): builds that disposable policy database and runs the script.
+- `src/lib/__tests__/reportsV3Contracts.test.ts` (modify): `…21` is class W, with exactly the two allowlisted GRANTs.
+- `.github/workflows/reports-backend.yml` (modify): paths for the correction suite, the concurrency script, the manifest check, `reporting_fixture.py` and `correctedPremiumSurfaces.test.tsx`.
+
+**B3, correction UI (`-pkg-b`, D2 §5 and §6.2–§6.4):**
+- **Create:**
+  - `src/lib/policySaleCorrection.ts`;
+  - `src/hooks/usePolicySalePremiums.ts`;
+  - `src/hooks/usePremiumCorrectionSubmission.ts`;
+  - `src/components/contacts/policy-correction/{PolicySalePremiumSection,CorrectSalePremiumDialog,SalePremiumHistory}.tsx`.
+- **Modify:**
+  - `src/components/contacts/ClientPolicies.tsx`;
+  - `src/components/contacts/FullScreenContactView.tsx`: the one prop only (approved exception).
+- **Tests:**
+  - `src/lib/__tests__/policySaleCorrection.test.ts`;
+  - `src/hooks/__tests__/usePremiumCorrectionSubmission.test.tsx`;
+  - `src/components/contacts/__tests__/correctSalePremiumDialog.test.tsx`;
+  - `src/components/contacts/__tests__/clientPolicies.test.tsx` (modify);
+  - `src/components/leaderboard/__tests__/{recentWinsPremium,correctedPremiumSurfaces}.test.tsx`;
+  - `src/lib/__tests__/rawPremiumConsumers.test.ts`.
+- **Correction bundles for `correctedPremiumSurfaces`:** `correction.before` and `correction.after` come from the reporting fixture's policy database (the Leaderboard snapshot, performance summary and recent wins, one actor, rolled back). They are written into the payload file by `run_reports_v3_tests.sh` through `scripts/reports_v3_fixture.py --part correction-payloads`.
+- **Still PKG-F:** the v3 summary/state correction scenario in `verify.mjs`.
+- **Must not touch:** the D2 §7 list, including edit paths, sale modals, `DialerPage`, `TwilioContext`, the performance readers, `RecentWinsPanel` and the Leaderboard hooks.
+
+**Packages C and D:** a separate file list is recorded before their first edit, after reading `TwilioContext.tsx`.
+
+## 2026-11-04 (evening) — Reports V2: replace the two unfinishable agency journey reference comparisons (verification only; foundation branch)
+
+**Authorization:** Chris's message of 2026-11-04 ("Replace the two unfinishable reference comparisons").
+- **Approved:** replacing only the two acceptance checks `0:agency:30:-` and `0:agency:366:-` with the bounded method below.
+- **Status of the old checks:** run `41753175853` is recorded as unresolved and superseded, not passed. Its evidence is kept, and it is not retried or re-dispatched.
+- **Not authorized:** any reader change, relaxed performance target, schema change, workflow change, PR, merge, hosted action or release. The performance gate, the 8 s timeout, the privacy decisions and the security review stay unchanged.
+
+**Replacement criteria.**
+1. **Exact comparison at a bounded size.** The size is chosen now and is not changed after running.
+   - **Fixture:** the deterministic scale fixture with `rt.perf_divisor = 50`, which gives:
+     - 10,000 calls over the same 400 days;
+     - 1,200 leads over 760 days;
+     - 100 clients (90 converted and 10 hand-entered), with 200 policies and one sale each;
+     - 200 appointments and 10 recruits;
+     - the same 64 people, 30 campaigns and dialer sessions.
+   - **History:** both windows keep every earlier call, because the history is not trimmed by date.
+   - **Cases:** the public journey reader against the unchanged frozen reference (`rtref`, `4236b8a` plus the documented repair), agency scope, 30 and 366 days ending on the fixture's end date.
+   - **Rule:** in one REPEATABLE READ snapshot with the same `now()`, complete payloads must be jsonb-equal (agent rows, numerators, denominators, coverage, reasons, maturity and ordering). The only allowed differences are the approved ones in the manifest, which are unchanged.
+   - **Coverage assertions:** the bounded fixture must actually contain:
+     - identities called by two or more agents;
+     - clients with two policies;
+     - first contacts and non-buyers;
+     - inbound evidence;
+     - unresolved calls (dangling and numberless pointers);
+     - missing history (hand-entered clients, deleted converted leads);
+     - KPI 19 maturity boundaries (pending members in the 30-day window, mature members in the 366-day window).
+   - **Self-control:** a planted difference in the public reader must be reported as a mismatch.
+2. **Independent assertions at full scale** (the existing 500,000-call fixture, public journey reader, agency 30 and 366 days). Expected values come only from the fixture's construction and base tables, never from the candidate's journey helpers. The assertions are:
+   - the first-time-buyer population per window, from wins and clients ordered by `(sold_date, coalesce(recorded_at, created_at), id)`;
+   - deduplication of the two policies per client;
+   - the KPI 14 `hand_entered_client` count, which is the first gate;
+   - original-seller credit: each agent row's KPI 14 eligible count equals that agent's independent first-sale count, compared row by row and never summed;
+   - KPI 38 `unavailable/sale_call_link_not_captured` (PKG-A basis flag);
+   - scope isolation: team and personal scope give `journey_scope_restricted`, and other organizations' rows do not count.
+3. **Invariants at full scale,** labelled separately from the independent assertions:
+   - eligible = assessable + unassessable;
+   - the coverage reasons sum to unassessable;
+   - KPI 19: numerator = `successes_to_date`, denominator = assessable, value = numerator × 100 ÷ denominator;
+   - maturity: `members` = eligible, `pending` + `mature_members` = `members`, `state` agrees with `pending`, and `fully_mature_on` lies within the window end plus 31 days;
+   - the 30-day populations are no larger than the 366-day ones.
+4. **Incorrect-result control:** the same checks run against payloads with one planted error (eligible + 1, and one agent's credit moved) must fail.
+5. **What this is not:** full-scale baseline equality is not claimed. The six pinned scale journey inventory cases stay "not run".
+
+**Files** (existing journey/differential test, fixture, static-test and documentation files only):
+- `supabase/tests/reports_v3_performance.sql`:
+  - the setup reads `rt.perf_divisor`, defaulting to 1, at which the fixture is byte-for-byte today's;
+  - the size assertion becomes divisor-aware, and at 1 it keeps `500000|5000|10000|10000|5000|10000`;
+  - the measure stage refuses any divisor other than 1.
+- `supabase/tests/reports_v3_differential.sql`:
+  - a new bounded part (criteria 1);
+  - full-scale independent assertions, invariants and the control in part 2 (criteria 2–4).
+- `scripts/run_reports_v3_differential.sh`: a second disposable database for the bounded part.
+- `src/lib/__tests__/reportsV3Contracts.test.ts`: static pins, as follows:
+  - the divisor is 50;
+  - the bounded cases are exactly agency 30 and 366;
+  - measurement refuses a divisor other than 1;
+  - the old case mode is still present but labelled superseded.
+- `implementation_plan.md`, `WORK_LOG.md`, `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (a §14 note).
+
+**Outcome:** passed on PostgreSQL 17.6 (run `41796758878`, `6b2356b`):
+- bounded comparison 2/2 `payload_equal`;
+- full scale: 16 independent assertions, 54 invariants and 2 controls passed.
+
+The blocker is closed by replacement (see the WORK_LOG).
+
+**Route:** the existing ordinary Reports backend dispatch (PostgreSQL 17.6), whose `differential` job runs `run_reports_v3_differential.sh`. Its 60-minute job limit is unchanged. If the bounded part does not fit, the precise issue is reported; the workflow is not changed.
+
 ## 2026-11-04 (later) — Reports V2: Package F closeout, branch-only migration renumbering, Package B batch B1 (branches `claude/great-goodall-911azc`, `-pkg-f` and a new `-pkg-b`; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-04 ("Close Package F, then continue Package B").
@@ -97,6 +294,12 @@
   - B2: `…21`, `…22`, the enable pins and the release constants;
   - B3: the frontend (D2 §5).
 - The `FullScreenContactView.tsx` one-prop change is a protected-file exception. **It needs Chris's approval** and is not part of B1–B3.
+- **Outcome** (recorded in the WORK_LOG):
+  - F is implementation ready for review at `37595c6`.
+  - R was done at `a3d28dd`/`933e464`.
+  - B1 is at `-pkg-b` `0a44605`, and it touched `scripts/reporting_fixture.py` instead of the v3 fixture.
+  - The v3-fixture step, the concurrency script and the workflow paths move to B2, whose file list will be recorded before editing.
+  - `scripts/reports_v3_fixture.py`, `scripts/run_reports_v3_tests.sh` and `.github/workflows/reports-backend.yml` were not changed in B1.
 - No real policy is classified or corrected; no commission, sale or notification is touched.
 
 ## 2026-11-04 — Reports V2: F-3/F-4 and the two isolated journey comparisons (branches `claude/great-goodall-911azc` and `-pkg-f`; nothing applied, merged, enabled or deployed)
@@ -153,9 +356,9 @@
 - `-pkg-b`, `-pkg-c`, `-pkg-d` and `-pkg-f` do not exist yet; each is created from the foundation head when its first batch starts.
 
 **Completion checklist** (dependency order; the production order stays A → B → policy classifications → C/D → F).
-1. [~] **F preview** (`-pkg-f`; F-1 `06e4537`, F-2 `969a2fa`, F-3/F-4 through `10e8d5e` done: all seven sections, state safety, layout v5, How it's calculated, every section CSV including Regional and agent performance, the Export menu KPI files, lazy route, v3 visual gate 459/459, review package; open: old `useReportsData.ts` removal (needs approval), `CustomizerGroup` split, D6 tests `reportsLayoutV5`/`useReportsData`, separate geometry chunk, CSV golden rebaseline): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
+1. [x] **F preview: implementation ready for review** (`-pkg-f` `37595c6`; visual, CSV and release approval pending) (`-pkg-f`; F-1 `06e4537`, F-2 `969a2fa`, F-3/F-4 through `10e8d5e` done: all seven sections, state safety, layout v5, How it's calculated, every section CSV including Regional and agent performance, the Export menu KPI files, lazy route, v3 visual gate 459/459, review package; open: old `useReportsData.ts` removal (needs approval), `CustomizerGroup` split, D6 tests `reportsLayoutV5`/`useReportsData`, separate geometry chunk, CSV golden rebaseline): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
 2. [x] **A support** (foundation; `1334657`, `d52d4db`): the v3 payload writer (D1 X9: `run_reports_v3_tests.sh` / `reports_v3_fixture.py`).
-3. [ ] **B** (`-pkg-b`, D2): audited correction ledger, the correction workflow, history display, effective original-sale premium; Reports, Leaderboard and Dashboard consistency.
+3. [~] **B** (`-pkg-b`, D2; B1 `0a44605` ledger and effective reader, sealed and unapplied; next B2 `…21`/`…22` and B3 frontend): audited correction ledger, the correction workflow, history display, effective original-sale premium; Reports, Leaderboard and Dashboard consistency.
 4. [ ] **C** (`-pkg-c`, D3): producing-call capture, supported inbound integration, failure handling and recovery for 1 Call Close. `TwilioContext.tsx` is read before any approved telephony-adjacent edit.
 5. [ ] **D** (`-pkg-d`, D4): classification, occurrence and outcome evidence, assignment-at-start credit (BC3), optional closing-appointment attribution, recovery.
 6. [ ] **F integration** with the completed B, C and D contracts; the integrated review build.
@@ -168,7 +371,7 @@
 - Migrations: each package adds only its own numbered files. No renumbering.
 
 **Release checklist** (blockers; none of them blocks branch development).
-- [ ] The two unfinished agency journey comparisons (30 and 366 days); needs one bounded verification-infrastructure request.
+- [x] ~~The two unfinished agency journey comparisons (30 and 366 days)~~ **Closed by replacement 2026-11-04** (bounded exact comparison and full-scale independent checks, run `41796758878`; the original comparisons stay unresolved and superseded); needs one bounded verification-infrastructure request. **2026-11-04:** run `41753175853` attempted each once on PostgreSQL 17.6. Both hit the 320-minute statement deadline inside the frozen baseline reader (`rtref.get_report_journey_v3`), so they are unresolved, not matches. The next approach needs Chris's decision.
 - [ ] The failed performance acceptance gate (no remedy approved).
 - [ ] ★1, ★4, E1–E6 and the campaign-copy fallback privacy decisions.
 - [ ] The named security review of the exact reader implementation.
