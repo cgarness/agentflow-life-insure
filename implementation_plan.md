@@ -1,3 +1,70 @@
+## 2026-11-04 (evening) — Reports V2: replace the two unfinishable agency journey reference comparisons (verification only; foundation branch)
+
+**Authorization:** Chris's message of 2026-11-04 ("Replace the two unfinishable reference comparisons").
+- **Approved:** replacing only the two acceptance checks `0:agency:30:-` and `0:agency:366:-` with the bounded method below.
+- **Status of the old checks:** run `41753175853` is recorded as unresolved and superseded, not passed. Its evidence is kept, and it is not retried or re-dispatched.
+- **Not authorized:** any reader change, relaxed performance target, schema change, workflow change, PR, merge, hosted action or release. The performance gate, the 8 s timeout, the privacy decisions and the security review stay unchanged.
+
+**Replacement criteria.**
+1. **Exact comparison at a bounded size.** The size is chosen now and is not changed after running.
+   - **Fixture:** the deterministic scale fixture with `rt.perf_divisor = 50`, which gives:
+     - 10,000 calls over the same 400 days;
+     - 1,200 leads over 760 days;
+     - 100 clients (90 converted and 10 hand-entered), with 200 policies and one sale each;
+     - 200 appointments and 10 recruits;
+     - the same 64 people, 30 campaigns and dialer sessions.
+   - **History:** both windows keep every earlier call, because the history is not trimmed by date.
+   - **Cases:** the public journey reader against the unchanged frozen reference (`rtref`, `4236b8a` plus the documented repair), agency scope, 30 and 366 days ending on the fixture's end date.
+   - **Rule:** in one REPEATABLE READ snapshot with the same `now()`, complete payloads must be jsonb-equal (agent rows, numerators, denominators, coverage, reasons, maturity and ordering). The only allowed differences are the approved ones in the manifest, which are unchanged.
+   - **Coverage assertions:** the bounded fixture must actually contain:
+     - identities called by two or more agents;
+     - clients with two policies;
+     - first contacts and non-buyers;
+     - inbound evidence;
+     - unresolved calls (dangling and numberless pointers);
+     - missing history (hand-entered clients, deleted converted leads);
+     - KPI 19 maturity boundaries (pending members in the 30-day window, mature members in the 366-day window).
+   - **Self-control:** a planted difference in the public reader must be reported as a mismatch.
+2. **Independent assertions at full scale** (the existing 500,000-call fixture, public journey reader, agency 30 and 366 days). Expected values come only from the fixture's construction and base tables, never from the candidate's journey helpers. The assertions are:
+   - the first-time-buyer population per window, from wins and clients ordered by `(sold_date, coalesce(recorded_at, created_at), id)`;
+   - deduplication of the two policies per client;
+   - the KPI 14 `hand_entered_client` count, which is the first gate;
+   - original-seller credit: each agent row's KPI 14 eligible count equals that agent's independent first-sale count, compared row by row and never summed;
+   - KPI 38 `unavailable/sale_call_link_not_captured` (PKG-A basis flag);
+   - scope isolation: team and personal scope give `journey_scope_restricted`, and other organizations' rows do not count.
+3. **Invariants at full scale,** labelled separately from the independent assertions:
+   - eligible = assessable + unassessable;
+   - the coverage reasons sum to unassessable;
+   - KPI 19: numerator = `successes_to_date`, denominator = assessable, value = numerator × 100 ÷ denominator;
+   - maturity: `members` = eligible, `pending` + `mature_members` = `members`, `state` agrees with `pending`, and `fully_mature_on` lies within the window end plus 31 days;
+   - the 30-day populations are no larger than the 366-day ones.
+4. **Incorrect-result control:** the same checks run against payloads with one planted error (eligible + 1, and one agent's credit moved) must fail.
+5. **What this is not:** full-scale baseline equality is not claimed. The six pinned scale journey inventory cases stay "not run".
+
+**Files** (existing journey/differential test, fixture, static-test and documentation files only):
+- `supabase/tests/reports_v3_performance.sql`:
+  - the setup reads `rt.perf_divisor`, defaulting to 1, at which the fixture is byte-for-byte today's;
+  - the size assertion becomes divisor-aware, and at 1 it keeps `500000|5000|10000|10000|5000|10000`;
+  - the measure stage refuses any divisor other than 1.
+- `supabase/tests/reports_v3_differential.sql`:
+  - a new bounded part (criteria 1);
+  - full-scale independent assertions, invariants and the control in part 2 (criteria 2–4).
+- `scripts/run_reports_v3_differential.sh`: a second disposable database for the bounded part.
+- `src/lib/__tests__/reportsV3Contracts.test.ts`: static pins, as follows:
+  - the divisor is 50;
+  - the bounded cases are exactly agency 30 and 366;
+  - measurement refuses a divisor other than 1;
+  - the old case mode is still present but labelled superseded.
+- `implementation_plan.md`, `WORK_LOG.md`, `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (a §14 note).
+
+**Outcome:** passed on PostgreSQL 17.6 (run `41796758878`, `6b2356b`):
+- bounded comparison 2/2 `payload_equal`;
+- full scale: 16 independent assertions, 54 invariants and 2 controls passed.
+
+The blocker is closed by replacement (see the WORK_LOG).
+
+**Route:** the existing ordinary Reports backend dispatch (PostgreSQL 17.6), whose `differential` job runs `run_reports_v3_differential.sh`. Its 60-minute job limit is unchanged. If the bounded part does not fit, the precise issue is reported; the workflow is not changed.
+
 ## 2026-11-04 (later) — Reports V2: Package F closeout, branch-only migration renumbering, Package B batch B1 (branches `claude/great-goodall-911azc`, `-pkg-f` and a new `-pkg-b`; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-04 ("Close Package F, then continue Package B").
@@ -97,6 +164,12 @@
   - B2: `…21`, `…22`, the enable pins and the release constants;
   - B3: the frontend (D2 §5).
 - The `FullScreenContactView.tsx` one-prop change is a protected-file exception. **It needs Chris's approval** and is not part of B1–B3.
+- **Outcome** (recorded in the WORK_LOG):
+  - F is implementation ready for review at `37595c6`.
+  - R was done at `a3d28dd`/`933e464`.
+  - B1 is at `-pkg-b` `0a44605`, and it touched `scripts/reporting_fixture.py` instead of the v3 fixture.
+  - The v3-fixture step, the concurrency script and the workflow paths move to B2, whose file list will be recorded before editing.
+  - `scripts/reports_v3_fixture.py`, `scripts/run_reports_v3_tests.sh` and `.github/workflows/reports-backend.yml` were not changed in B1.
 - No real policy is classified or corrected; no commission, sale or notification is touched.
 
 ## 2026-11-04 — Reports V2: F-3/F-4 and the two isolated journey comparisons (branches `claude/great-goodall-911azc` and `-pkg-f`; nothing applied, merged, enabled or deployed)
@@ -153,9 +226,9 @@
 - `-pkg-b`, `-pkg-c`, `-pkg-d` and `-pkg-f` do not exist yet; each is created from the foundation head when its first batch starts.
 
 **Completion checklist** (dependency order; the production order stays A → B → policy classifications → C/D → F).
-1. [~] **F preview** (`-pkg-f`; F-1 `06e4537`, F-2 `969a2fa`, F-3/F-4 through `10e8d5e` done: all seven sections, state safety, layout v5, How it's calculated, every section CSV including Regional and agent performance, the Export menu KPI files, lazy route, v3 visual gate 459/459, review package; open: old `useReportsData.ts` removal (needs approval), `CustomizerGroup` split, D6 tests `reportsLayoutV5`/`useReportsData`, separate geometry chunk, CSV golden rebaseline): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
+1. [x] **F preview: implementation ready for review** (`-pkg-f` `37595c6`; visual, CSV and release approval pending) (`-pkg-f`; F-1 `06e4537`, F-2 `969a2fa`, F-3/F-4 through `10e8d5e` done: all seven sections, state safety, layout v5, How it's calculated, every section CSV including Regional and agent performance, the Export menu KPI files, lazy route, v3 visual gate 459/459, review package; open: old `useReportsData.ts` removal (needs approval), `CustomizerGroup` split, D6 tests `reportsLayoutV5`/`useReportsData`, separate geometry chunk, CSV golden rebaseline): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
 2. [x] **A support** (foundation; `1334657`, `d52d4db`): the v3 payload writer (D1 X9: `run_reports_v3_tests.sh` / `reports_v3_fixture.py`).
-3. [ ] **B** (`-pkg-b`, D2): audited correction ledger, the correction workflow, history display, effective original-sale premium; Reports, Leaderboard and Dashboard consistency.
+3. [~] **B** (`-pkg-b`, D2; B1 `0a44605` ledger and effective reader, sealed and unapplied; next B2 `…21`/`…22` and B3 frontend): audited correction ledger, the correction workflow, history display, effective original-sale premium; Reports, Leaderboard and Dashboard consistency.
 4. [ ] **C** (`-pkg-c`, D3): producing-call capture, supported inbound integration, failure handling and recovery for 1 Call Close. `TwilioContext.tsx` is read before any approved telephony-adjacent edit.
 5. [ ] **D** (`-pkg-d`, D4): classification, occurrence and outcome evidence, assignment-at-start credit (BC3), optional closing-appointment attribution, recovery.
 6. [ ] **F integration** with the completed B, C and D contracts; the integrated review build.
@@ -168,7 +241,7 @@
 - Migrations: each package adds only its own numbered files. No renumbering.
 
 **Release checklist** (blockers; none of them blocks branch development).
-- [ ] The two unfinished agency journey comparisons (30 and 366 days); needs one bounded verification-infrastructure request.
+- [x] ~~The two unfinished agency journey comparisons (30 and 366 days)~~ **Closed by replacement 2026-11-04** (bounded exact comparison and full-scale independent checks, run `41796758878`; the original comparisons stay unresolved and superseded); needs one bounded verification-infrastructure request. **2026-11-04:** run `41753175853` attempted each once on PostgreSQL 17.6. Both hit the 320-minute statement deadline inside the frozen baseline reader (`rtref.get_report_journey_v3`), so they are unresolved, not matches. The next approach needs Chris's decision.
 - [ ] The failed performance acceptance gate (no remedy approved).
 - [ ] ★1, ★4, E1–E6 and the campaign-copy fallback privacy decisions.
 - [ ] The named security review of the exact reader implementation.

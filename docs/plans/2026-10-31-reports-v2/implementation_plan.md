@@ -2065,3 +2065,12 @@ Each arm copies the installed function and replaces only its `@call-pointers` bl
 **Plan package only** (history, not build input, not committed): `reconciliation_log.md`, the structured JSON sources of §7, §8 and the indexes, revision 1 arbitration (`A_arbitration.md`), and the verifier and critic outputs (`verifier.json`, `critics_summary.md`). Where history conflicts with revision 2.1, revision 2.1 governs.
 
 ★1 and ★4 remain pending, and every AGENT_RULES text in §6 remains proposed. Adding these documents approves neither privacy option nor the proposed agency-only fallback in §5.1.
+
+### 14.H Agency journey reader verification replaced (2026-11-04; verification only)
+- **Superseded, not passed.** The full-scale baseline comparisons (agency 30 and 366 days) could not finish: run `41753175853` hit the 320-minute deadline inside the baseline reader. They remain unresolved and superseded.
+- **Replacement, approved by Chris:**
+  - an exact complete-payload comparison with the frozen reference on the same fixture at `rt.perf_divisor = 50` (10,000 calls, full 400-day history);
+  - independent assertions and invariants on the full 500,000-call fixture, with planted-error controls.
+- **Result:** both passed on PostgreSQL 17.6 (run `41796758878`).
+- **Unchanged:** no reader, target or timeout. Full-scale baseline equality is not claimed. Details are in the WORK_LOG.
+

@@ -652,6 +652,45 @@ describe("Reports v3 performance acceptance and differential evidence", () => {
     expect(scale).toContain("'journey_reader_cases'");
   });
 
+  it("replaces the two unfinishable agency journey comparisons with a bounded exact comparison at divisor 50 (fixed before running)", () => {
+    const dx = read("supabase/tests/reports_v3_differential.sql");
+    const bounded = dx.slice(dx.indexOf("-- @@differential-bounded@@"));
+    expect(dx.indexOf("-- @@differential-scale@@")).toBeLessThan(dx.indexOf("-- @@differential-bounded@@"));
+    expect(bounded).toContain("SELECT rt.eq('bounded comparison: the scale fixture at divisor 50', (SELECT divisor FROM rt.perf_meta), 50);");
+    expect(bounded).toContain("'10000|100|200|200|100|200'");
+    expect(bounded).toContain("FROM rt.perf_meta m, (VALUES (30), (366)) v(days) ORDER BY v.days) x;");
+    expect(bounded).toContain("'persona-0:agency:-:journey:30d=payload_equal,persona-0:agency:-:journey:366d=payload_equal'");
+    expect(bounded).toContain("every difficult case is present in the bounded fixture");
+    expect(bounded).toContain("'ORDER BY lower(r.name) DESC NULLS LAST, r.agent_id'");
+    const runner = read("scripts/run_reports_v3_differential.sh");
+    expect(runner).toContain("PGOPTIONS='-c rt.perf_divisor=50' brun -f \"$WORK/scale.sql\"");
+    expect(runner).toContain("part2, part3 = rest.split(bounded)");
+    const perf = read("supabase/tests/reports_v3_performance.sql");
+    expect(perf).toContain("coalesce(nullif(current_setting('rt.perf_divisor', true), ''), '1')::integer AS divisor;");
+    expect(perf).toContain("the size divisor is 1 (full size) or 50 (bounded comparison)', (SELECT divisor IN (1, 50) FROM rt.perf_meta), true);");
+    expect(perf).toContain("WHEN 1 THEN '500000|5000|10000|10000|5000|10000'");
+    // The performance gate measures only the full-size fixture.
+    const measure = perf.slice(perf.indexOf("-- @@performance-measure@@"));
+    expect(measure).toContain("performance measurement runs only on the full-size fixture (rt.perf_divisor = 1)', (SELECT divisor FROM rt.perf_meta), 1);");
+  });
+
+  it("checks the full-scale agency journey reader with independent assertions, invariants and planted-error controls (never a baseline claim)", () => {
+    const dx = read("supabase/tests/reports_v3_differential.sql");
+    const scale = dx.slice(dx.indexOf("-- @@differential-scale@@"), dx.indexOf("-- @@differential-bounded@@"));
+    expect(scale).toContain("check_kind text NOT NULL CHECK (check_kind IN ('independent', 'invariant', 'control'))");
+    // Independent expectations read base tables only, never the candidate's journey helpers.
+    const buyers = scale.slice(scale.indexOf("CREATE FUNCTION rt.jx_first_buyers"), scale.indexOf("-- Every check for one agency"));
+    expect(buyers).toContain("FROM public.wins w JOIN public.clients c");
+    expect(buyers).not.toMatch(/report_v3_|rtref\./);
+    const checks = scale.slice(scale.indexOf("CREATE FUNCTION rt.jx_checks"), scale.indexOf("SET statement_timeout = 0;\nBEGIN ISOLATION LEVEL REPEATABLE READ;\nSELECT rt.dx_grants(true);\nCREATE TEMP TABLE jx_payloads"));
+    expect(checks).not.toMatch(/private\.report_v3_|rtref\./);
+    expect(scale).toContain("('agency 30 days', 0, 'agency', m.end_date - 29, m.end_date, NULL::uuid)");
+    expect(scale).toContain("('agency 366 days', 0, 'agency', m.end_date - 365, m.end_date, NULL::uuid)");
+    expect(scale).toContain("'planted KPI 14 eligible + 1 is caught'");
+    expect(scale).toContain("'planted credit moved between two agent rows is caught'");
+    expect(scale).toContain("(not a baseline comparison)");
+  });
+
   it("verifies one pinned journey case in isolation: exact selector, bounded statement, never counted unless it compared equal", () => {
     const dx = read("supabase/tests/reports_v3_differential.sql");
     const scale = dx.slice(dx.indexOf("-- @@differential-scale@@"));
