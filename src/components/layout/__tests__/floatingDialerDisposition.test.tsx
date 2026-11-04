@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   queries: [] as Query[], inserts: [] as Array<{ table: string; rows: Row[] }>,
   execute: vi.fn<(q: Query, reply: Reply) => Promise<Reply>>(),
   conversionSuccess: null as null | ((clientId: string) => void),
+  conversionSourceCallIds: [] as Array<string | null | undefined>,
 }));
 const user = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", first_name: "A", last_name: "Agent" };
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { ...user, id: h.userId }, profile: user }) }));
@@ -25,8 +26,9 @@ vi.mock("@/components/shared/DateInput", () => ({
     <input type="date" aria-label="Callback date" value={value} onChange={e => onChange(e.target.value)} />,
 }));
 vi.mock("@/components/contacts/ConvertLeadModal", () => ({ default:
-  ({ open, onSuccess, onClose }: { open: boolean; onSuccess: (id: string) => void; onClose: () => void }) => {
+  ({ open, onSuccess, onClose, sourceCallId }: { open: boolean; onSuccess: (id: string) => void; onClose: () => void; sourceCallId?: string | null }) => {
     if (!open) return null;
+    h.conversionSourceCallIds.push(sourceCallId);
     h.conversionSuccess = onSuccess;
     return <div role="dialog"><button onClick={() => { onSuccess("client-a"); onClose(); }}>Complete conversion</button></div>;
   },
@@ -80,7 +82,7 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: {
 import FloatingDialer from "../FloatingDialer";
 beforeEach(() => {
   h.rpc.mockReset().mockResolvedValue({ data: { call_id: "call-a", contact_id: "lead-a", contact_type: "lead", dnc_suppressed: true, lock_released: true, replayed: false }, error: null });
-  h.makeCall.mockReset().mockResolvedValue("call-a"); h.error.mockClear(); h.win.mockClear();
+  h.makeCall.mockReset().mockResolvedValue("call-a"); h.error.mockClear(); h.win.mockClear(); h.conversionSourceCallIds = [];
   h.state = "idle"; h.converting = false; h.notes = false; h.callback = false;
   h.failedTable = ""; h.empty = false; h.organizationId = "org-a"; h.userId = user.id;
   h.queries = []; h.inserts = []; h.conversionSuccess = null;
@@ -126,6 +128,8 @@ it("a converting disposition waits for ConvertLeadModal and retains that client 
   await waitFor(() => expect(h.rpc).toHaveBeenCalledTimes(2));
   expect(h.rpc.mock.calls.map(c => c[1].p_input.p_converted_client_id)).toEqual(["client-a", "client-a"]);
   expect(h.win).not.toHaveBeenCalled(); // Modal owns the conversion win.
+  // Reports V2 PKG-C: the conversion modal receives the call's id as its producing call (forwarded unchanged).
+  expect(new Set(h.conversionSourceCallIds)).toEqual(new Set(["call-a"]));
 });
 
 function save() { fireEvent.click(screen.getByRole("button", { name: "Save & Close" })); }

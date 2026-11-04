@@ -4694,6 +4694,7 @@ export default function DialerPage() {
         lead={currentLead ? mapDialerLeadToContactLead(lockMode ? withTeamOpenMasterLead(currentLead, teamOpenMaster.master) : currentLead) : null}
         onSuccess={handleConversionSuccess}
         campaignId={selectedCampaignId}
+        sourceCallId={currentCallId}
       />
 
 

@@ -54,10 +54,10 @@ vi.mock("@/integrations/supabase/client", () => {
     if (name === "get_contact_scope_agents") return { data: [], error: null };
     if (name === "notify_win") return { data: 1, error: null };
     if (name === "get_policy_sale_operation_status") return { data: { state: "committed", same_payload: false, this_request: true }, error: null };
-    if (!name.endsWith("_handoff") && !["update_client_with_policy_sale"].includes(name)) return { data: null, error: null };
+    if (!name.endsWith("_handoff") && !name.endsWith("_handoff_v2") && !["update_client_with_policy_sale"].includes(name)) return { data: null, error: null };
     const queued = h.saleResponses.shift();
     if (queued) return queued;
-    const clientId = name === "convert_lead_to_client_with_sales_handoff" ? h.ids.newClient : h.ids.client;
+    const clientId = name.startsWith("convert_lead_to_client_with_sales_handoff") ? h.ids.newClient : h.ids.client;
     return { data: { client: { id: clientId }, client_id: clientId, win_ids: ["00000000-0000-4000-8000-000000000101"], idempotent: false,
       commission: h.commission }, error: null, status: 200 };
   };
@@ -402,5 +402,56 @@ describe("RecordPolicyModal commission payload", () => {
     const [args] = sent("record_client_policy_handoff");
     expect(args).toMatchObject({ p_client_id: CLIENT_ID, p_primary: false });
     expect(slotsOf(args)).toEqual([expect.objectContaining({ slot: "primary", credited_agent_id: B })]);
+  });
+});
+
+// ── Reports V2 PKG-C: the producing call forwarded by the Dialer (currentCallId) and FloatingDialer (call context) ──
+describe("producing call from the Dialer and FloatingDialer (D3 §4, §7)", () => {
+  const CALL = "00000000-0000-4000-8000-0000000000c9";
+  const CONVERT_V2 = "convert_lead_to_client_with_sales_handoff_v2";
+  const RECORD_V2 = "record_client_policy_handoff_v2";
+
+  it("a Dialer conversion sends the call id to the _v2 handoff; it stays frozen on Retry; no chip is shown", async () => {
+    h.saleResponses = [lost];
+    const onSuccess = vi.fn();
+    mount(<ConvertLeadModal open lead={LEAD} onSuccess={onSuccess} onClose={vi.fn()} campaignId={null} sourceCallId={CALL} />);
+    await fillPolicy(0, "Term", "100");
+    expect(screen.queryByTestId("sale-source-call")).toBeNull();
+    expect(screen.queryByTestId("sale-source-call-offers")).toBeNull();
+    convert();
+    expect((await screen.findByRole("alert")).textContent).toMatch(/couldn't confirm/);
+    convert();
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    const attempts = sent(CONVERT_V2);
+    expect(attempts).toHaveLength(2);
+    expect(attempts.map((args) => args.p_source_call_id)).toEqual([CALL, CALL]);
+    expect(new Set(attempts.map((args) => JSON.stringify(args))).size).toBe(1);
+    expect(sent(CONVERT)).toEqual([]);
+  });
+
+  it("a FloatingDialer Record Policy sends its call context to the _v2 handoff and reuses it on Retry", async () => {
+    h.saleResponses = [lost];
+    const onSaved = vi.fn();
+    mount(<RecordPolicyModal open clientId={CLIENT_ID} onClose={vi.fn()} onSaved={onSaved} sourceCallId={CALL} />);
+    await pickCarrier(NORTH);
+    fireEvent.change(screen.getByLabelText("Monthly premium"), { target: { value: "100" } });
+    fireEvent.change(screen.getByLabelText("Sold Date"), { target: { value: "2026-10-03" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record Policy" }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/couldn't confirm/);
+    fireEvent.click(screen.getByRole("button", { name: "Record Policy" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    const attempts = sent(RECORD_V2);
+    expect(attempts.map((args) => args.p_source_call_id)).toEqual([CALL, CALL]);
+    expect(new Set(attempts.map((args) => JSON.stringify(args))).size).toBe(1);
+  });
+
+  it("FloatingDialer's conversion without a call context (null) uses the unchanged handoff", async () => {
+    const onSuccess = vi.fn();
+    mount(<ConvertLeadModal open lead={LEAD} onSuccess={onSuccess} onClose={vi.fn()} campaignId={null} sourceCallId={null} />);
+    await fillPolicy(0, "Term", "100");
+    convert();
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(sent(CONVERT_V2)).toEqual([]);
+    expect(sent(CONVERT)[0]).not.toHaveProperty("p_source_call_id");
   });
 });
