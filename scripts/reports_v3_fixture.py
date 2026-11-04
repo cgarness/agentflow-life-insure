@@ -600,6 +600,12 @@ if __name__ == '__main__':
         print('\\echo v3 performance ' + stage + '\n' + ('BEGIN;\n' + sql + '\nCOMMIT;\n' if stage == 'setup' else sql))
         sys.exit(0)
     data = list(steps())
+    if '--until' in sys.argv:
+        # Every step up to and including the first whose label contains the text (a live intermediate state for the
+        # PKG-D multi-session script; disposable databases only).
+        until = sys.argv[sys.argv.index('--until') + 1]
+        cut = next(i for i, (label, _) in enumerate(data) if until in label)
+        data = data[:cut + 1]
     if '--json' in sys.argv:
         print(json.dumps([[label, sql[1] if isinstance(sql, tuple) else sql, not isinstance(sql, tuple)] for label, sql in data]))
     else:

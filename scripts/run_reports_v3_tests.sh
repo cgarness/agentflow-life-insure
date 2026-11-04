@@ -28,6 +28,7 @@ cleanup() {
   rm -f "$REPORTS_TEST_SQL"
   if "$REPORTS_TEST_CREATED"; then dropdb --if-exists --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_TEST_DB"; fi
   if "$REPORTS_RACE_CREATED"; then dropdb --if-exists --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_RACE_DB"; fi
+  dropdb --if-exists --maintenance-db="$REPORTS_TEST_BASE/postgres" "${REPORTS_LINKS_DB:-reporting_pkgd_links_none}" 2>/dev/null || true
 }
 trap cleanup EXIT
 createdb --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_TEST_DB"
@@ -43,6 +44,14 @@ python3 scripts/reporting_fixture.py policy > "$REPORTS_TEST_SQL"
 psql "$REPORTS_TEST_BASE/$REPORTS_RACE_DB" -X -q -v ON_ERROR_STOP=1 -f "$REPORTS_TEST_SQL" > /dev/null
 REPORTING_TEST_URL="$REPORTS_TEST_BASE/$REPORTS_RACE_DB" node scripts/tests/sale-premium-correction-concurrency.mjs
 echo 'Sale premium correction races passed.'
+# PKG-D concurrent first links (D4 §7 E12): a disposable database stopped right after the attribution suite, with …42 live.
+REPORTS_LINKS_DB="reporting_pkgd_links_$(date +%s)_$$"
+createdb --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_LINKS_DB"
+REPORTS_V3_PERF=0 python3 scripts/reports_v3_fixture.py --until 'policy appointment attribution regressions' > "$REPORTS_TEST_SQL"
+psql "$REPORTS_TEST_BASE/$REPORTS_LINKS_DB" -X -q -v ON_ERROR_STOP=1 -f "$REPORTS_TEST_SQL" > /dev/null
+REPORTING_TEST_URL="$REPORTS_TEST_BASE/$REPORTS_LINKS_DB" node scripts/tests/appointment-evidence-failure-boundaries.mjs links
+dropdb --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_LINKS_DB"
+echo 'Appointment link races passed.'
 # Optional correction bundles (D2 §6.5 step 2, RL-17): REPORTS_V3_CORRECTION_PAYLOADS=<absolute path> writes the seller's
 # Leaderboard snapshot, performance summary and Recent Wins before and after a synthetic correction (rolled back).
 if [[ -n "${REPORTS_V3_CORRECTION_PAYLOADS:-}" ]]; then

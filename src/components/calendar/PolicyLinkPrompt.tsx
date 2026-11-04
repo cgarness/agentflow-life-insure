@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Component, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { LINK_REASON_TEXT, LinkTransportError, fetchPolicyAppointmentLinks, linkPolicyAppointment } from "@/lib/policyAppointmentLinks";
@@ -7,7 +7,17 @@ import { LINK_REASON_TEXT, LinkTransportError, fetchPolicyAppointmentLinks, link
  * After a held sales appointment (D4 §4): link a sale of the same client to it (source outcome_entry). Lists only
  * policies the server returns without an effective link. Mounted from the outcome flow (protected AppointmentModal).
  */
-export function PolicyLinkPrompt({ clientId, appointmentId, occurrenceStart }: { clientId: string; appointmentId: string; occurrenceStart: string }) {
+type PromptProps = { clientId: string; appointmentId: string; occurrenceStart: string };
+class PromptBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() { return this.state.failed ? null : this.props.children; }
+}
+export function PolicyLinkPrompt(props: PromptProps) {
+  return <PromptBoundary><PromptBody {...props} /></PromptBoundary>;
+}
+
+function PromptBody({ clientId, appointmentId, occurrenceStart }: PromptProps) {
   const [requestId] = useState(() => crypto.randomUUID());
   const [done, setDone] = useState<Set<string>>(new Set());
   const links = useQuery({ queryKey: ["policy-appointment-links", clientId, "prompt"], retry: false,

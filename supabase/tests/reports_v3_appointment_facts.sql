@@ -257,6 +257,29 @@ SELECT rt.eq('the agency unattributed counts', (SELECT e -> 'detail' -> 'unattri
 SELECT rt.eq('personal scope (A1) carries no unattributed detail', (SELECT e -> 'detail' ? 'unattributed'
   FROM jsonb_array_elements(rt.pd_facts(ARRAY['A1']) -> 'metrics') e WHERE (e ->> 'id')::int = 16), false);
 
+-- S14a / S14b (D4 §3.7, privacy option a, ★1 pending): A1's personal payload.
+CREATE TEMP TABLE pd_s14 AS SELECT rt.pd_facts(ARRAY['A1']) -> 'metrics' AS m;
+SAVEPOINT pd_s14a;
+-- S14a: A2's held appointment on an unrelated identity (C15) and its sale change nothing for A1.
+SELECT rt.pd_appt('s14a', 'C15', 'A2', 'Sales Call', '2026-10-11 17:00+00', '2026-10-03 17:00+00', 'Completed', 'A2');
+SELECT rt.eq('S14a: out-of-scope activity on an unrelated identity leaves A1''s payload byte-identical',
+  rt.pd_facts(ARRAY['A1']) -> 'metrics', (SELECT m FROM pd_s14));
+ROLLBACK TO SAVEPOINT pd_s14a;
+SAVEPOINT pd_s14b;
+-- S14b (E3): A1 held a sales appointment with C14 on Oct 20; A2 sold C14 on Oct 31 (W14, within 30 days).
+SELECT rt.pd_appt('s14b', 'C14', 'A1', 'Sales Call', '2026-10-20 17:00+00', '2026-10-03 17:00+00', 'Completed', 'A1');
+SELECT rt.eq('S14b unlinked: the out-of-scope purchase leaves A1''s member unresolved',
+  rt.pd_kpi(rt.pd_facts(ARRAY['A1']), 18), 'partial|attribution_unresolved|100|1|1');
+-- Linked to another appointment (A2's, same buyer): A1's member is resolved as no sale.
+SELECT rt.pd_appt('s14b2', 'C14', 'A2', 'Sales Call', '2026-10-21 17:00+00', '2026-10-03 17:00+00', 'Completed', 'A2');
+SELECT rt.eq('the link to A2''s appointment', rt.pd_link('ADM1', 's14b', 'W14', md5('pkgd:s14b2')::uuid) ->> 'status', 'linked');
+SELECT rt.eq('S14b linked elsewhere: A1''s member resolves as no sale',
+  rt.pd_kpi(rt.pd_facts(ARRAY['A1']), 18), 'available|-|50|1|2');
+SELECT rt.eq('S14b exposes no other agent''s or buyer''s id in A1''s metrics',
+  (rt.pd_facts(ARRAY['A1']) -> 'metrics')::text ~ ('(' || rt.v3('A2') || '|' || rt.v3('C14') || ')'), false);
+ROLLBACK TO SAVEPOINT pd_s14b;
+SELECT rt.eq('removing the S14 activity restores A1''s payload byte-identically', rt.pd_facts(ARRAY['A1']) -> 'metrics', (SELECT m FROM pd_s14));
+
 -- Reconciliation: AP1's status changes while capture is off → a capture_gap, unassessable for 16-18.
 ALTER TABLE public.appointments DISABLE TRIGGER appointments_v3_evidence_capture;
 UPDATE public.appointments SET status = 'No Show' WHERE id = (SELECT ap1 FROM pd2);

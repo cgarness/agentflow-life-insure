@@ -146,6 +146,27 @@ SELECT test_assert((SELECT count(*) = 1 FROM private.appointment_occurrences o W
                       AND (SELECT count(*) FROM private.appointment_outcome_events e WHERE e.occurrence_id = o.id) = 3),
                    'delete: slot closed, observation and events kept');
 
+-- E9: a lead→client conversion moves contact_id (the conversion function's own statement,
+-- dialer_dnc_harness.sql:1390 / 20261021200000:301). It still succeeds and writes observations only: no new slot, no
+-- outcome, no assignment event.
+CREATE TEMP TABLE e9_before AS SELECT
+  (SELECT count(*) FROM private.appointment_occurrences) AS occ, (SELECT count(*) FROM private.appointment_outcome_events) AS ev,
+  (SELECT count(*) FROM private.appointment_assignment_events) AS asg, (SELECT count(*) FROM private.appointment_evidence_observations) AS obs,
+  (SELECT count(*) FROM appointments WHERE contact_id = test_uuid(201)) AS moved,
+  (SELECT count(*) FROM appointments a WHERE a.contact_id = test_uuid(201)
+      AND NOT EXISTS (SELECT 1 FROM private.appointment_occurrences o WHERE o.appointment_id = a.id)) AS fresh;
+SELECT test_actor(11);
+UPDATE public.appointments SET contact_id = test_uuid(202) WHERE contact_id = test_uuid(201);
+SELECT test_assert((SELECT moved > 0 FROM e9_before)
+                   AND (SELECT count(*) FROM appointments WHERE contact_id = test_uuid(201)) = 0
+                   -- a row that predates capture gets its first (pre_capture) slot on its first captured write
+                   AND (SELECT count(*) FROM private.appointment_occurrences) = (SELECT occ + fresh FROM e9_before)
+                   AND (SELECT count(*) FROM private.appointment_outcome_events) = (SELECT ev FROM e9_before)
+                   AND (SELECT count(*) FROM private.appointment_assignment_events) = (SELECT asg FROM e9_before)
+                   AND (SELECT count(*) FROM private.appointment_evidence_observations) = (SELECT obs + moved FROM e9_before),
+                   'E9: the conversion contact move writes one observation per row and no outcome or assignment');
+UPDATE public.appointments SET contact_id = test_uuid(201) WHERE contact_id = test_uuid(202);
+
 -- E14: every observation's previous state is the prior observation's new state.
 SELECT test_assert(NOT EXISTS (
   SELECT 1 FROM (SELECT appointment_id, prev, lag(next) OVER (PARTITION BY appointment_id ORDER BY id) AS prior_next,
