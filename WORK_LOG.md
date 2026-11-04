@@ -1,5 +1,33 @@
 # AgentFlow Work Log
 
+## 2026-11-03 Pacific — Toll-Free production frontend released after authorized Pro retry
+
+**Changes/status:** Chris reported upgrading Vercel to Pro and explicitly requested a retry. Approved main `2b6f5cefe4f4d7980ab670067a5634e320cd20fd` is now deployed to production as `dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc`, READY at `2026-11-04T06:42:04.207Z` (November 3, 10:42 p.m. Pacific). The earlier rate-limit blocker is resolved. The assistant made no billing or project-settings change. No application, SQL, source hash or package payload changed.
+
+**Verification:** Provider metadata confirms project `agentflow`, target `production`, exact main commit and both `www.fflagent.com` / `fflagent.com` aliases; the apex redirects to `www`. Unauthenticated public HTML and `/assets/index-DFiSUeNt.js` GETs returned 200, and all six purchase/Toll-Free/SMS/protocol markers passed. A Vercel error/fatal query for `2026-11-04T06:41:28Z`–`06:42:59.804Z` returned no matching logs; this excludes browser JavaScript and Supabase Edge Functions. Earlier seven-workflow/eleven-job CI evidence remains unchanged. Public checks did not execute JavaScript or test signed-in UI, actual inventory/account pricing, provisioning or media.
+
+**Migrations/deploys/transactions:** This retry deployed only the approved frontend. Migration 20261104041151 and the six verified Edge releases were not repeated. Purchases, number assignments, calls and SMS remain zero. The ledger, SMS guard and attempted-charge barriers remain intact.
+
+**Files/publication:** Exactly seven bookkeeping files: this log, root implementation_plan.md, the toll-free AGENT_RULES section, and focused implementation_plan.md, verification.md, release-manifest.json and production-release.json. Published on the documentation-only review branch `docs/toll-free-production-release-20261103`; PR #513's body records the live deployment. This bookkeeping does not require a further runtime release. No source, test, workflow or package edits.
+
+**Blockers/next:** No release blocker remains. Refresh older purchasing tabs for the reviewed-quote UI. Documentation review can proceed independently of the completed release. Actual number purchase, Inbounds designation and controlled media remain separately authorized. Real inventory/account-pricing/provisioning and signed-in acceptance remain untested; do not repeat backend releases or reset the ledger to validate them.
+
+## 2026-11-03 Pacific — Toll-Free purchasing merged; frontend quota blocker (historical, RESOLVED)
+
+This entry records the earlier blocked state; the authorized Pro retry and production verification above supersede its wait-window and resumption instructions.
+
+**Changes/status:** PR #513 merged as `2b6f5cefe4f4d7980ab670067a5634e320cd20fd`; its tree matches tested `049750716b1e176d24847722d20078df7405e371`. All seven workflows and eleven jobs passed. No application, approved SQL or deployed payload bytes changed during the release corrections. This entry and final focused/root records are a local documentation follow-up on `docs/toll-free-production-release-20261103`; the merged PR body carries the durable cloud handoff. No additional Git ref is pushed during the provider retry window.
+
+**Verification:** Final phone checks passed 68 focused UI/Inbounds tests, 99 mocked purchase/SMS tests, frozen-lock Edge checks, native PostgreSQL 17.6 with 131 assertions and 12 concurrency scenarios/11 observed waits, and desktop/mobile/keyboard/recovery browser checks with zero external requests. Root TypeScript, changed-TS lint and build pass. The first broad comparison failed an unchanged Google Sheets readiness assertion; source inspection identified a race between control presence and automatic mapping; paired local runs passed 26/26 on both revisions. One unchanged cloud retry passed: base 6,705 passed/3 failed, candidate 6,765 passed/1 pre-existing failed, 35 pending each; app diagnostics 79/79, new 0; runtime errors 1→0. Candidate Google Sheets 26/26; baseline had two readiness failures. Reports-specific 360 passed/1 skipped. No tests or gates were altered for the retry; existing test/environment failures remain documented.
+
+**Migrations/deploys:** Previously verified migration 20261104041151 remains applied once; search v59, buy v65, SMS v61, workflow v50, consent worker v26, ClearPath v25 remain ACTIVE with verify_jwt=false. Fresh pre-merge metadata matched; prior full source readback verified all 71 bundled files and 52 unrelated module copies. All 22 database preservation/access checks passed. Zero purchases, assignments, calls or SMS were executed.
+
+**Blocker and impact:** Vercel returned “Deployment rate limited — retry in 24 hours.” at 2026-11-04T05:05:58Z for Agentflow; the second linked Vercel project also failed. There is no deployment for 2b6f5cef. Production remains 0e744282 / dpl_BuaEcVgyBLJCr2423W3NyXuJ3f1Z. The production frontend is not released, and the old interface's unquoted number purchases are rejected until the approved frontend is deployed and refreshed. No production artifact/real inventory/pricing/media success is claimed. No billing/settings/alias change or automatic retry was made.
+
+**Files:** Root implementation_plan.md, WORK_LOG.md, the toll-free AGENT_RULES section, and focused implementation_plan.md, verification.md, release-manifest.json and production-release.json. No runtime edits.
+
+**Next:** Respect the provider's requested retry window: no earlier than 2026-11-05 05:05:58 UTC / November 4, 9:05:58 p.m. Pacific. Recheck provider availability, Git and live drift; deploy the already-approved 2b6f5cef merge normally; verify READY, production aliases and served purchase assets; publish final bookkeeping. Do not replay SQL/Edge releases, reset the ledger or downgrade to unquoted buying. Real number purchase/designation/media and billing changes remain separately authorized.
+
 ## 2026-11-03 Pacific — Toll-Free purchasing backend released and verified (frontend CI pending)
 
 **Approval:** Chris approved the concrete release package from local candidate `393e7d199cbb3bfa961d080e5af2d80e5d742562`, including exact SQL, six full Edge payloads and frontend release. Published PR #513 through the connected GitHub account as `4e0a18ad`, with identical tree `64d67aed19339e49e3662388176f2700d7495de1`. Main and all six live baselines were rechecked before production changes; no direct code conflict was found.

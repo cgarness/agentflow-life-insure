@@ -2,7 +2,7 @@
 
 **Prepared:** November 3, 2026, Pacific time
 
-**Status:** Backend released and verified — November 3, 2026 Pacific; final frontend CI/merge pending
+**Status:** Backend and production frontend released; public feature assets verified — November 3, 2026 Pacific. Documentation closeout is published on a separate review branch.
 
 **Repository:** cgarness/agentflow-life-insure
 
@@ -16,7 +16,7 @@
 
 Chris approved the concrete review candidate `393e7d199cbb3bfa961d080e5af2d80e5d742562`, its exact pending SQL, six complete Edge payloads and frontend release after receiving the verification/manifest/archive. This approval authorizes review-branch publication, CI, the database and Edge releases, PR merge and linked Vercel production delivery. It does not authorize a real number purchase, Inbounds designation, call or SMS. No additional implementation approval is needed for the approved package.
 
-Fresh preflight re-fetched all six live functions and rebuilt byte-identical approved manifests/payloads. Main and the remote feature branch remain at `0e74428259275c9281518832747a627a4f635a80`; Vercel project `agentflow` on team `team_iPboOWpwdIQRwdxmA5GJp5Rq` currently serves that main commit. Database/advisor and CI preflight complete before the corresponding release step.
+Fresh preflight re-fetched all six live functions and rebuilt byte-identical approved manifests/payloads. At the release preflight, main and the remote feature branch were at `0e74428259275c9281518832747a627a4f635a80`; Vercel project `agentflow` on team `team_iPboOWpwdIQRwdxmA5GJp5Rq` then served that main commit. Database/advisor and CI preflight completed before the corresponding release step.
 
 Release bookkeeping will touch only: this focused plan; root `implementation_plan.md`; focused `verification.md`, `release-manifest.json` and new `production-release.json`; `WORK_LOG.md`; the toll-free section in `AGENT_RULES.md`; the pending migration path (rename to its recorded live timestamp with identical SQL bytes); `scripts/tests/phone-number-purchases/run.mjs` and `scripts/prepare-phone-number-release.mjs` for that exact path; and `.github/workflows/phone-number-purchases.yml` to include the recorded migration path. No approved application/Edge source change is planned. Any actual blocker will be diagnosed before widening that boundary.
 
@@ -29,6 +29,20 @@ The first production-matching PostgreSQL 17.6 CI job stopped before fixture SQL 
 The cloud browser job completed its tests/lint/types/build steps but its checker waited for an unformatted `Local:` banner. Reproduction with `GITHUB_ACTIONS=true`, `FORCE_COLOR=1` and no `NO_COLOR` confirms Vite emits ANSI bytes between `Local` and the colon, so the text check never resolves even though the fixture is serving. Add only `scripts/tests/phone-number-purchases/browser/check.mjs` to the release correction boundary: replace banner detection with bounded HTTP readiness for the synthetic fixture and include captured child diagnostics on startup failure. Preserve every interaction, permission, recovery and zero-external-request assertion. Verify locally with CI color settings before the final cloud run. No application or deployed payload change.
 
 Correction verified: `node --check` and the complete browser checker pass with `GITHUB_ACTIONS=true`, `FORCE_COLOR=1` and `NO_COLOR` unset. All existing browser assertions remain intact; zero external requests.
+
+## Final release state — production frontend verified November 3, 2026 Pacific
+
+All seven workflows and eleven jobs passed on `049750716b1e176d24847722d20078df7405e371`. PR #513 merged as `2b6f5cefe4f4d7980ab670067a5634e320cd20fd`; its tree exactly matches the tested candidate. The full Reports comparison passed on one unchanged rerun after an asynchronous readiness assertion in the unchanged Google Sheets suite. The paired local suite passed 26/26 on both revisions; the cloud retry had 26/26 candidate passes and two Google Sheets readiness failures on the unchanged baseline. No test or comparison rule was changed for this retry.
+
+**Resolved provider blocker:** Vercel rejected the initial automatic deployment at `2026-11-04T05:05:58Z` with a 24-hour retry instruction. Production then remained on `0e744282`, whose old purchase interface could not create the required reviewed quote. Chris subsequently reported upgrading Vercel to Pro and explicitly requested a retry. The approved normal production deployment succeeded; the assistant made no billing or project-settings change.
+
+Deployment `dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc` for project `agentflow`, target `production`, became READY at `2026-11-04T06:42:04.207Z` (November 3, 10:42 p.m. Pacific) on main commit `2b6f5cefe4f4d7980ab670067a5634e320cd20fd`. Both `www.fflagent.com` and `fflagent.com` resolve to this deployment in provider metadata; the apex redirects to `www`. Unauthenticated GETs of the public HTML and `/assets/index-DFiSUeNt.js` returned 200, and all six feature markers passed. This verifies served artifacts, not JavaScript execution or signed-in purchasing.
+
+A Vercel error/fatal log query for `2026-11-04T06:41:28Z` through `2026-11-04T06:42:59.804Z` returned no matching logs. It does not cover browser JavaScript or Supabase Edge Functions. Real inventory, account-pricing access, provisioning, signed-in UI and live media remain untested; purchases, assignments, calls and SMS remain zero. The migration and six Edge releases were not repeated.
+
+The documentation-only closeout edits are exactly this focused plan, root `implementation_plan.md`, `WORK_LOG.md`, the toll-free section of `AGENT_RULES.md`, focused `verification.md`, `release-manifest.json` and `production-release.json`. They are published on the documentation-only review branch `docs/toll-free-production-release-20261103`; PR #513's body already records the live result. No source hashes, approved SQL or deployed package payloads change.
+
+No release blocker remains. The release bookkeeping is available for independent documentation review. Keep actual number purchase, Inbounds designation and controlled media separately authorized. Do not replay the migration or Edge releases, reset purchase barriers or downgrade to unquoted buying. Refresh any older purchasing tab before using the reviewed-quote flow.
 
 ## 1. Original build approval boundary (release approval recorded above)
 
@@ -295,7 +309,7 @@ Pricing uses verified current rental and inbound voice rates. Only wholly absent
 
 The final release assembler verifies pinned live metadata, aggregate source bytes, explicit changed-module allowlists, dependency closure and per-file hashes. All six complete packages compile with the original frozen lock. Their 52 unrelated live modules remain byte-for-byte unchanged. Negative tests reject altered source bytes, versions or JWT settings before package writes. Full provider requests were mocked; no real availability, price access or paid transaction was tested.
 
-Verification details and commands: [verification.md](verification.md). Exact pending SQL, frontend hashes and six complete function payload hashes: [release-manifest.json](release-manifest.json).
+Verification details and commands: [verification.md](verification.md). Exact approved SQL, frontend hashes and six complete function payload hashes: [release-manifest.json](release-manifest.json).
 
 ## 14. Context snapshot
 
@@ -303,10 +317,10 @@ Verification details and commands: [verification.md](verification.md). Exact pen
 
 **Decisions:** Local remains the default and retains subaccount inventory; 800 preferred/888 supported on master; all purchases use master; agency/unassigned saves; irreversible attempted barrier; PN-receipt-only recovery; separate existing authenticated Inbounds designation; toll-free voice only.
 
-**Migrations/deploys/transactions:** Migration 20261104041151 applied once and verified; search v59, buy v65, SMS v61, workflow v50, consent worker v26 and ClearPath v25 deployed and fully read back. All 71 bundled files match approved payloads; 52 unrelated live module copies remain unchanged. Seven unsigned rejection checks passed. Zero purchases, assignments, calls or SMS. Frontend merge is pending final checks.
+**Migrations/deploys/transactions:** Migration 20261104041151 applied once and verified; search v59, buy v65, SMS v61, workflow v50, consent worker v26 and ClearPath v25 deployed and fully read back. All 71 bundled files match approved payloads; 52 unrelated live module copies remain unchanged. Seven unsigned rejection checks passed. The frontend retry did not repeat SQL or Edge releases. Production deployment `dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc` is READY on merged `2b6f5cef`; aliases and public feature assets passed verification. Zero purchases, assignments, calls or SMS.
 
 **Verification:** 68 frontend/caller-ID/Inbounds tests; 44 mocked purchase tests; 55 SMS/A2P/ClearPath regression tests; 24 additional gate runs against four live-derived sending packages; six full frozen-lock Edge compilations; 131 SQL assertions and 12 real concurrent transaction scenarios; desktop/mobile/keyboard recovery checks. Root TypeScript, scoped lint and production build pass. Exact-main application diagnostics remain 79/79 with zero new errors.
 
-**Blockers:** Final frontend CI/merge is pending after the documented test-harness corrections. Production inventory and master-account Pricing API access remain unverified. Existing application type diagnostics and bundle-size warnings remain outside this scope.
+**Blockers:** No release blocker remains; the Vercel rate limit was resolved after Chris's Pro upgrade and authorized retry. Production inventory, master-account Pricing API access, real provisioning, signed-in UI and media remain unverified. Existing application type diagnostics and bundle-size warnings remain outside this scope.
 
-**Next:** Complete final-head CI, merge PR #513 under the recorded frontend release approval, verify the resulting Vercel production deployment and append its evidence. Keep any real purchase, Inbounds designation and media test separately authorized.
+**Next:** Review the documentation-only closeout independently of the completed production release. Keep any real purchase, Inbounds designation and media test separately authorized; do not repeat the completed production releases.

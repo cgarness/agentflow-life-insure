@@ -1,6 +1,6 @@
 {
   "feature": "US toll-free number purchasing",
-  "status": "backend_released_frontend_pending",
+  "status": "backend_and_frontend_released_public_assets_verified",
   "approval_date_pacific": "2026-11-03",
   "approved_local_commit": "393e7d199cbb3bfa961d080e5af2d80e5d742562",
   "approved_tree": "64d67aed19339e49e3662388176f2700d7495de1",
@@ -1527,7 +1527,125 @@
       "observed_lock_waits": 11,
       "result": "passed"
     },
-    "final_head_checks": "pending",
+    "final_head_checks": {
+      "head": "049750716b1e176d24847722d20078df7405e371",
+      "result": "passed",
+      "workflow_count": 7,
+      "job_count": 11,
+      "workflows": [
+        {
+          "id": 41773138459,
+          "name": "Dialer DNC integrity",
+          "conclusion": "success",
+          "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41773138459",
+          "jobs": [
+            {
+              "id": 126387227628,
+              "name": "postgres",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 41773138520,
+          "name": "A2P registration",
+          "conclusion": "success",
+          "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41773138520",
+          "jobs": [
+            {
+              "id": 126387227907,
+              "name": "verify",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 41773138457,
+          "name": "UV profile sync verification",
+          "conclusion": "success",
+          "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41773138457",
+          "jobs": [
+            {
+              "id": 126387227979,
+              "name": "frontend",
+              "conclusion": "success"
+            },
+            {
+              "id": 126387228357,
+              "name": "paired-native",
+              "conclusion": "success"
+            },
+            {
+              "id": 126387228362,
+              "name": "browser",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 41773138996,
+          "name": "SMS consent integration",
+          "conclusion": "success",
+          "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41773138996",
+          "jobs": [
+            {
+              "id": 126387229205,
+              "name": "consent",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 41773138450,
+          "name": "Phone number purchase checks",
+          "conclusion": "success",
+          "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41773138450",
+          "jobs": [
+            {
+              "id": 126387227939,
+              "name": "frontend",
+              "conclusion": "success"
+            },
+            {
+              "id": 126387228280,
+              "name": "database",
+              "conclusion": "success"
+            },
+            {
+              "id": 126387228320,
+              "name": "edge",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 41773138517,
+          "name": "Reporting integrity",
+          "conclusion": "success",
+          "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41773138517",
+          "jobs": [
+            {
+              "id": 126387227921,
+              "name": "native",
+              "conclusion": "success"
+            }
+          ]
+        },
+        {
+          "id": 41773138479,
+          "name": "Reports frontend verification",
+          "conclusion": "success",
+          "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41773138479",
+          "jobs": [
+            {
+              "id": 126394075072,
+              "name": "frontend",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    },
     "browser_ci_readiness_correction": {
       "file": "scripts/tests/phone-number-purchases/browser/check.mjs",
       "cause": "ANSI escape sequence between Local and colon prevented Vite banner matching",
@@ -1540,15 +1658,380 @@
       },
       "external_requests": 0,
       "all_existing_interaction_permission_and_recovery_assertions_retained": true
+    },
+    "final_head_native_database": {
+      "head": "049750716b1e176d24847722d20078df7405e371",
+      "workflow_run": 41773138450,
+      "job": 126387228280,
+      "postgres_version": "17.6",
+      "sql_assertions": 131,
+      "concurrency_scenarios": 12,
+      "observed_lock_waits": 11,
+      "result": "passed"
+    },
+    "reports_comparison": {
+      "run_id": 41773138479,
+      "attempt": 2,
+      "job_id": 126394075072,
+      "result": "passed",
+      "artifact_id": 13297875397,
+      "artifact_sha256": "c6281be32da727962edfb8c53cc3687c93b0dafeff3ac4887811b8f6ca05d960",
+      "workflow_summary": {
+        "head": "049750716b1e176d24847722d20078df7405e371",
+        "base_sha": "0e74428259275c9281518832747a627a4f635a80",
+        "checks": {
+          "base_root_tsc": 0,
+          "base_app_tsc": 2,
+          "base_vitest": 1,
+          "branch_root_tsc": 0,
+          "branch_app_tsc": 2,
+          "branch_vitest": 1,
+          "reports_vitest": 0,
+          "eslint": 0,
+          "build": 0
+        },
+        "base_passed": 6705,
+        "branch_passed": 6765,
+        "preexisting_failed_tests": 1,
+        "preexisting_failed_files": [
+          "src/components/contacts/__tests__/addLeadAssignmentGate.test.ts",
+          "src/hooks/__tests__/dialerCampaignPresenceHook.test.ts",
+          "src/lib/__tests__/contactName.test.ts",
+          "src/lib/__tests__/contactScope.test.ts",
+          "src/lib/__tests__/leadDisposition.test.ts",
+          "src/lib/__tests__/recordingRetentionVoicemail.test.ts",
+          "src/lib/__tests__/userLocalDayBounds.test.ts",
+          "src/lib/control-center/runtimeEventLogger.test.ts",
+          "src/lib/custom-fields-settings.test.ts"
+        ],
+        "app_type_errors": 79,
+        "reported_unhandled_errors": 0
+      },
+      "base": {
+        "tests": {
+          "numTotalTestSuites": 1973,
+          "numPassedTestSuites": 1959,
+          "numFailedTestSuites": 14,
+          "numPendingTestSuites": 0,
+          "numTotalTests": 6743,
+          "numPassedTests": 6705,
+          "numFailedTests": 3,
+          "numPendingTests": 35,
+          "numTodoTests": 0,
+          "success": false
+        },
+        "runtime_errors": {
+          "finished": true,
+          "reason": "failed",
+          "errors": [
+            {
+              "name": "ReferenceError",
+              "message": "window is not defined"
+            }
+          ]
+        },
+        "google_sheets_suite": {
+          "status": "failed",
+          "passed": 24,
+          "failed": 2,
+          "target": {
+            "fullName": "mapping v2 editor shows compact source headers without column letters or sample captions, preserving tooltip and picker targets",
+            "status": "passed",
+            "duration": 171.18452400000024,
+            "failureMessages": []
+          }
+        }
+      },
+      "candidate": {
+        "tests": {
+          "numTotalTestSuites": 1986,
+          "numPassedTestSuites": 1976,
+          "numFailedTestSuites": 10,
+          "numPendingTestSuites": 0,
+          "numTotalTests": 6801,
+          "numPassedTests": 6765,
+          "numFailedTests": 1,
+          "numPendingTests": 35,
+          "numTodoTests": 0,
+          "success": false
+        },
+        "runtime_errors": {
+          "finished": true,
+          "reason": "failed",
+          "errors": []
+        },
+        "google_sheets_suite": {
+          "status": "passed",
+          "passed": 26,
+          "failed": 0,
+          "target": {
+            "fullName": "mapping v2 editor shows compact source headers without column letters or sample captions, preserving tooltip and picker targets",
+            "status": "passed",
+            "duration": 175.60581599999978,
+            "failureMessages": []
+          }
+        }
+      },
+      "added_app_type_errors": [],
+      "removed_app_type_errors": [],
+      "reports_specific_tests": {
+        "passed": 360,
+        "skipped": 1
+      },
+      "eslint": {
+        "errors": 0,
+        "warnings": 1
+      },
+      "first_attempt": {
+        "job_id": 126387407276,
+        "result": "failed",
+        "file": "src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx",
+        "assertion": "shows compact source headers without column letters or sample captions, preserving tooltip and picker targets",
+        "expected": "First Name",
+        "received": "Don't import",
+        "diagnosis": "Control presence can precede the automatic-mapping effect; source, test and related dependencies are unchanged. The precise scheduling sequence was not instrumented.",
+        "base_passed": 6707,
+        "base_failed_tests": 1,
+        "candidate_passed": 6764,
+        "candidate_failed_tests": 2,
+        "reruns_performed": 1,
+        "code_tests_or_gate_rules_changed_for_retry": false
+      },
+      "paired_local_verification": {
+        "description": "One unchanged full Google Sheets UI suite on baseline then candidate; CI=true; shared identical dependencies.",
+        "node": "v24.22.1",
+        "runs": [
+          {
+            "label": "base",
+            "head": "0e74428259275c9281518832747a627a4f635a80",
+            "started_at": "2026-11-04T04:45:42.960986+00:00",
+            "seconds": 7.292,
+            "command": [
+              "npx",
+              "--no-install",
+              "vitest",
+              "run",
+              "src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx",
+              "--maxWorkers=2",
+              "--minWorkers=1",
+              "--reporter=json",
+              "--outputFile=/workspace/scratch/2e1e9c2cf981/toll-free-release-evidence/google-sheets-paired-base-04975071.json"
+            ],
+            "exit": 0,
+            "total": 26,
+            "passed": 26,
+            "failed": 0,
+            "pending": 0,
+            "target": {
+              "fullName": "mapping v2 editor shows compact source headers without column letters or sample captions, preserving tooltip and picker targets",
+              "status": "passed",
+              "duration": 119.59032899999966,
+              "failureMessages": []
+            },
+            "failures": []
+          },
+          {
+            "label": "candidate",
+            "head": "049750716b1e176d24847722d20078df7405e371",
+            "started_at": "2026-11-04T04:45:50.253712+00:00",
+            "seconds": 6.843,
+            "command": [
+              "npx",
+              "--no-install",
+              "vitest",
+              "run",
+              "src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx",
+              "--maxWorkers=2",
+              "--minWorkers=1",
+              "--reporter=json",
+              "--outputFile=/workspace/scratch/2e1e9c2cf981/toll-free-release-evidence/google-sheets-paired-candidate-04975071.json"
+            ],
+            "exit": 0,
+            "total": 26,
+            "passed": 26,
+            "failed": 0,
+            "pending": 0,
+            "target": {
+              "fullName": "mapping v2 editor shows compact source headers without column letters or sample captions, preserving tooltip and picker targets",
+              "status": "passed",
+              "duration": 127.03061600000001,
+              "failureMessages": []
+            },
+            "failures": []
+          }
+        ]
+      }
     }
   },
   "frontend": {
-    "status": "pending_final_ci_and_merge",
+    "status": "production_ready_public_assets_verified",
     "project": "agentflow",
     "project_id": "prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc",
     "team_id": "team_iPboOWpwdIQRwdxmA5GJp5Rq",
     "prior_production_commit": "0e74428259275c9281518832747a627a4f635a80",
-    "prior_production_deployment": "dpl_BuaEcVgyBLJCr2423W3NyXuJ3f1Z"
+    "prior_production_deployment": "dpl_BuaEcVgyBLJCr2423W3NyXuJ3f1Z",
+    "tested_commit": "049750716b1e176d24847722d20078df7405e371",
+    "merge_commit": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
+    "merge_tree_matches_tested_tree": true,
+    "production_deployment": {
+      "id": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc",
+      "url": "agentflow-25fr67i71-cgarness-projects.vercel.app",
+      "state": "READY",
+      "target": "production",
+      "project_id": "prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc",
+      "project_name": "agentflow",
+      "git_ref": "main",
+      "commit": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
+      "ready_at_utc": "2026-11-04T06:42:04.207Z",
+      "aliases": [
+        "www.fflagent.com",
+        "agentflow-eta.vercel.app",
+        "fflagent.com",
+        "agentflow-cgarness-projects.vercel.app",
+        "agentflow-git-main-cgarness-projects.vercel.app"
+      ],
+      "alias_error": null,
+      "metadata_verified_at_utc": "2026-11-04T06:43:35.981Z"
+    },
+    "public_feature_assets_verified": true,
+    "resolved_blockers": [
+      {
+        "provider": "Vercel",
+        "code": "build-rate-limit",
+        "merge_commit": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
+        "description": "Deployment rate limited — retry in 24 hours.",
+        "statuses": [
+          {
+            "context": "Vercel – agentflow-life-insure",
+            "state": "failure",
+            "description": "Deployment rate limited — retry in 24 hours.",
+            "created_at": "2026-11-04T05:05:57Z",
+            "target_url": "https://vercel.com/cgarness-projects?upgradeToPro=build-rate-limit"
+          },
+          {
+            "context": "Vercel – agentflow",
+            "state": "failure",
+            "description": "Deployment rate limited — retry in 24 hours.",
+            "created_at": "2026-11-04T05:05:58Z",
+            "target_url": "https://vercel.com/cgarness-projects?upgradeToPro=build-rate-limit"
+          }
+        ],
+        "provider_requested_retry_not_before_utc": "2026-11-05T05:05:58Z",
+        "provider_requested_retry_not_before_pacific": "2026-11-04 21:05:58 America/Los_Angeles",
+        "automatic_retry_scheduled": false,
+        "status": "resolved",
+        "resolution_verified_at_utc": "2026-11-04T06:42:04.207Z",
+        "resolution": "Chris reported upgrading to Pro and explicitly requested a retry. Normal production deployment of the approved merge succeeded; no assistant billing or project-settings change was made.",
+        "matching_deployment_count_when_blocked": 0,
+        "production_when_blocked": {
+          "id": "dpl_BuaEcVgyBLJCr2423W3NyXuJ3f1Z",
+          "state": "READY",
+          "commit": "0e74428259275c9281518832747a627a4f635a80",
+          "url": "agentflow-i01uobo3x-cgarness-projects.vercel.app",
+          "aliases": [
+            "www.fflagent.com",
+            "agentflow-eta.vercel.app",
+            "fflagent.com",
+            "agentflow-cgarness-projects.vercel.app",
+            "agentflow-git-main-cgarness-projects.vercel.app"
+          ]
+        },
+        "public_feature_verification_when_blocked": "not_run_no_matching_production_deployment",
+        "impact_when_blocked": "Production then served the old unquoted purchase interface, whose purchase requests the new handler rejected until frontend deployment and refresh.",
+        "historical_resumption_plan": "After the provider retry window, recheck live versions and Git state, deploy the approved merge commit through the normal production workflow, then verify READY, aliases and served feature assets. Do not repeat the migration or Edge deployments, upgrade billing or make a real telephony transaction.",
+        "provider_retry_window_superseded_by_authorized_pro_retry": true
+      }
+    ],
+    "production_domains": [
+      {
+        "alias": "fflagent.com",
+        "deploymentId": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc",
+        "projectId": "prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc",
+        "redirect": "www.fflagent.com",
+        "updatedAt": 1793774524357
+      },
+      {
+        "alias": "www.fflagent.com",
+        "deploymentId": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc",
+        "projectId": "prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc",
+        "redirect": null,
+        "updatedAt": 1793774524363
+      }
+    ],
+    "retry_authorization": {
+      "statement": "Chris reported upgrading to Pro and explicitly requested retry of the approved production release.",
+      "assistant_billing_settings_changes": false,
+      "migration_repeated": false,
+      "edge_deployments_repeated": false
+    },
+    "public_feature_verification": {
+      "started_at": "2026-11-04T06:42:59.549483+00:00",
+      "result": "passed",
+      "deployment_reference": {
+        "deployment_id": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc",
+        "commit_sha": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
+        "provenance": "Externally verified metadata supplied by caller; this script does not verify the deployment-to-commit mapping."
+      },
+      "scope": "Public HTML and entry-module feature markers only; no JavaScript execution or authenticated workflow validation.",
+      "marker_reference": "Markers confirmed in local dist/assets/index-BencXYin.js before this script was prepared.",
+      "requests": [
+        {
+          "requested_url": "https://www.fflagent.com/",
+          "effective_url": "https://www.fflagent.com/",
+          "http_status": 200,
+          "started_at": "2026-11-04T06:42:59.557830+00:00",
+          "finished_at": "2026-11-04T06:43:04.827184+00:00",
+          "elapsed_seconds": 5.269,
+          "curl_exit_code": 0,
+          "file": "index.html",
+          "bytes": 1789,
+          "maximum_bytes": 1048576,
+          "sha256": "4f2fc027f0801b62faf1941219de709d634b7448c8dff525edd8a3ac515f87b0",
+          "ok": true
+        },
+        {
+          "requested_url": "https://www.fflagent.com/assets/index-DFiSUeNt.js",
+          "effective_url": "https://www.fflagent.com/assets/index-DFiSUeNt.js",
+          "http_status": 200,
+          "started_at": "2026-11-04T06:43:04.828085+00:00",
+          "finished_at": "2026-11-04T06:43:09.197368+00:00",
+          "elapsed_seconds": 4.369,
+          "curl_exit_code": 0,
+          "file": "entry-module.js",
+          "bytes": 4877571,
+          "maximum_bytes": 12582912,
+          "sha256": "212971f7aa7f3306735152fd09a45bd3852e6d3add5d4032c4c5f1ac1bd0cb58",
+          "ok": true
+        }
+      ],
+      "markers": {
+        "Choose US numbers for your agency": true,
+        "Review purchase": true,
+        "Toll-Free": true,
+        "SMS unavailable": true,
+        "twilio-search-numbers": true,
+        "twilio-buy-number": true
+      },
+      "curl_version": "curl 8.5.0",
+      "finished_at": "2026-11-04T06:43:09.220238+00:00"
+    },
+    "runtime_error_scan": {
+      "start_utc": "2026-11-04T06:41:28Z",
+      "end_utc": "2026-11-04T06:42:59.804Z",
+      "filter": [
+        "error",
+        "fatal"
+      ],
+      "result": "No logs found for the specified criteria.",
+      "limitation": "Vercel runtime logs do not cover browser JavaScript or Supabase Edge Functions."
+    },
+    "current_release_blockers": [],
+    "remaining_integration_uncertainties": [
+      "Actual provider inventory and account-pricing access",
+      "Real number provisioning",
+      "Signed-in production UI",
+      "Live media and telephony transactions"
+    ]
   },
   "transaction_boundaries": {
     "numbers_purchased": 0,
@@ -1556,6 +2039,111 @@
     "calls_placed": 0,
     "sms_sent": 0,
     "live_inventory_or_account_pricing_exercised": false,
-    "purchase_and_designation_require_separate_authorization": true
+    "purchase_and_designation_require_separate_authorization": true,
+    "real_provider_provisioning_exercised": false,
+    "signed_in_production_ui_exercised": false,
+    "live_media_exercised": false
+  },
+  "edge_premerge_recheck": {
+    "checked_at": "2026-11-04 05:04:15 UTC",
+    "functions": [
+      {
+        "name": "twilio-buy-number",
+        "version": 65,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "twilio-search-numbers",
+        "version": 59,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "twilio-sms",
+        "version": 61,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "workflow-executor",
+        "version": 50,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "sms-consent-worker",
+        "version": 26,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "clearpath-lead-alert",
+        "version": 25,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      }
+    ]
+  },
+  "documentation_followup": {
+    "branch": "docs/toll-free-production-release-20261103",
+    "status": "published_documentation_review_branch",
+    "durable_handoff": "https://github.com/cgarness/agentflow-life-insure/pull/513",
+    "runtime_sql_and_deployed_payloads_changed": false,
+    "repository_documentation_published": true,
+    "pr_handoff_records_production_release": true,
+    "branch_url": "https://github.com/cgarness/agentflow-life-insure/tree/docs/toll-free-production-release-20261103",
+    "merged_to_main": false
+  },
+  "backend_production_retry_metadata": {
+    "project_id": "jncvvsvckxhqgqvkppmj",
+    "checked_at": "2026-11-04T06:47:08.596Z",
+    "checked_at_accuracy": "approximate",
+    "checked_at_note": "Exact metadata read time was not captured. checked_at uses the evidence-save time as an approximation; data was reused from the preceding read-only metadata fetch, without a new check.",
+    "verification_scope": "Edge Function metadata and migration history only; no source-code readback or function invocation.",
+    "edge_functions": [
+      {
+        "name": "twilio-search-numbers",
+        "version": 59,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "twilio-buy-number",
+        "version": 65,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "twilio-sms",
+        "version": 61,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "workflow-executor",
+        "version": 50,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "sms-consent-worker",
+        "version": 26,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      },
+      {
+        "name": "clearpath-lead-alert",
+        "version": 25,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      }
+    ],
+    "migration_history": [
+      {
+        "version": "20261104041151",
+        "name": "phone_number_purchase_operations"
+      }
+    ]
   }
 }
