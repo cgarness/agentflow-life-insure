@@ -1,6 +1,6 @@
 # AgentFlow Work Log
 
-## 2026-11-04 — Reports V2 PKG-F batches F-3 and F-4 and verification Batch V: the seven-section v3 page and its review package (branches `claude/great-goodall-911azc` at `2b3c326` and `-pkg-f` at `ca9b2cc`; branch only; nothing merged, applied, enabled or deployed)
+## 2026-11-04 — Reports V2 PKG-F batches F-3 and F-4 and verification Batch V: the seven-section v3 page and its review package (branches `claude/great-goodall-911azc` at `2b3c326` and `-pkg-f` at `10e8d5e`; branch only; nothing merged, applied, enabled or deployed)
 
 **Request:** Chris's message of 2026-11-04 ("continue F-3/F-4 and complete the feature build"). The file lists are in this day's `implementation_plan.md` entry.
 
@@ -13,14 +13,16 @@
   - the section and summary CSVs;
   - the v3 visual gate;
   - a synthetic review package.
+- **Closed later the same day by `10e8d5e`:**
+  - the Regional (D5) and agent-performance CSVs, with their section export controls;
+  - the toolbar Export menu with the Report summary, Journey and Sales appointments KPI files;
+  - the lazy `/reports` route.
 - **Still open in F:**
-  - the Regional (D5 `buildStateCsv`) and agent-performance CSVs; the Regional export control is not wired yet;
-  - the journey and sales-appointment KPI CSV files;
-  - the `App.tsx` lazy route;
-  - `CustomizerGroup` and the D6 test files `reportsLayoutV5` and `useReportsData`;
-  - removing the old `useReportsData.ts`;
-  - bundle budgets;
-  - the CSV golden rebaseline (BA-F6).
+  - D6's structural split differs from the build. The request lifetime lives in `useReportsPage.ts`, not a generic `useReportsData.ts`. The old `useReportsData.ts` and its test remain, used only by a type import in `ReportPanelState.tsx`. Removing them is a deletion outside the recorded file list, so it waits for approval.
+  - `CustomizerGroup` is not split out. `ReportCustomizer` is 148 lines, under the 200-line reason for the split.
+  - D6 test files `reportsLayoutV5` (its V4_TO_V5 and R23 cases are in `reportLayoutNormalization`) and `useReportsData`.
+  - Bundle budgets: the map geometry is inside the Reports chunk, not a separate chunk.
+  - The CSV golden rebaseline (BA-F6; Chris approves the diff).
 - B, C and D have not started.
 
 **Changed on `-pkg-f`** (after the merges of `main` at `0e74428` and of the foundation):
@@ -71,6 +73,13 @@
 - **Reports tests:** all pass at `ca9b2cc`. The only failures in the run are the baseline ones.
 - **Full Vitest:** 6,736 tests: 6,699 passed, 1 failed, 36 skipped. Compared by identity with the B7 baseline, there are no new failing files or tests, and `dashboardMissedCalls` is now fixed.
 - **Typecheck and build:** `tsc --noEmit` 0. `tsc -p tsconfig.app.json` exits 2 with no new diagnostics; one baseline diagnostic, NumberReputation, is gone. Build 0.
+- **`10e8d5e`:**
+  - Reports suites: 422 passed, 2 skipped.
+  - Visual gate: **459 of 459**, adding the Regional and agent exports, the Export menu and 14 downloads.
+  - Full Vitest: 6,747 tests (6,710 passed, 1 failed, 36 skipped). Compared by identity with the B7 baseline, there are no new failing files or tests.
+  - `tsc_app`: no new diagnostics. `tsc` root 0, eslint 0, build 0.
+  - The main entry chunk went from 1,291.04 kB to 1,251.37 kB gzip; the lazy Reports chunk is 44.23 kB gzip.
+  - The updated package is `reports_v3_review_10e8d5ec.zip`.
 - **Review package** `reports_v3_review_ca9b2ccd.zip`: 31 screenshots, 10 CSVs, `summary.json`, README and SHA256SUMS. Synthetic data only. It was delivered as a local file; it is not hosted.
 
 **Hosting.** The automatic Vercel branch previews remain SSO-protected. Hosted `/reports` fails closed with "Reports unavailable" because hosted v3 is not released. Nothing was created, enabled or changed.
@@ -82,7 +91,7 @@
 - the AGENT_RULES amendments;
 - policy classifications;
 - Census provenance item 7 (census.gov unreachable from this environment);
-- migration ordering against the hosted head;
+- migration ordering against the hosted head. The hosted head was refreshed read-only on 2026-11-04 as `20261103191631_inbounds_room_v1`, later than all seven PKG-A files. A renumbering mapping was presented to Chris and not applied;
 - final approval.
 
 ## 2026-11-03 — Reports V2 PKG-F preview batches F-1 and F-2: the first Example 2 page on the v3 contract (branch `claude/great-goodall-911azc-pkg-f` at `969a2fa`; branch only; nothing merged, applied, enabled or deployed)

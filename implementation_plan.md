@@ -52,7 +52,7 @@
 - `-pkg-b`, `-pkg-c`, `-pkg-d` and `-pkg-f` do not exist yet; each is created from the foundation head when its first batch starts.
 
 **Completion checklist** (dependency order; the production order stays A → B → policy classifications → C/D → F).
-1. [~] **F preview** (`-pkg-f`; F-1 `06e4537`, F-2 `969a2fa`, F-3/F-4 through `ca9b2cc` done: all seven sections, state safety, layout v5, How it's calculated, section CSVs, v3 visual gate 448/448, review package; open: Regional and agent CSVs, journey and sales-appointment KPI CSVs, `App.tsx` lazy route, `CustomizerGroup`, D6 tests `reportsLayoutV5`/`useReportsData`, old `useReportsData.ts` removal, bundle budgets, CSV golden rebaseline): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
+1. [~] **F preview** (`-pkg-f`; F-1 `06e4537`, F-2 `969a2fa`, F-3/F-4 through `10e8d5e` done: all seven sections, state safety, layout v5, How it's calculated, every section CSV including Regional and agent performance, the Export menu KPI files, lazy route, v3 visual gate 459/459, review package; open: old `useReportsData.ts` removal (needs approval), `CustomizerGroup` split, D6 tests `reportsLayoutV5`/`useReportsData`, separate geometry chunk, CSV golden rebaseline): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
 2. [x] **A support** (foundation; `1334657`, `d52d4db`): the v3 payload writer (D1 X9: `run_reports_v3_tests.sh` / `reports_v3_fixture.py`).
 3. [ ] **B** (`-pkg-b`, D2): audited correction ledger, the correction workflow, history display, effective original-sale premium; Reports, Leaderboard and Dashboard consistency.
 4. [ ] **C** (`-pkg-c`, D3): producing-call capture, supported inbound integration, failure handling and recovery for 1 Call Close. `TwilioContext.tsx` is read before any approved telephony-adjacent edit.
@@ -74,7 +74,7 @@
 - [ ] The exact AGENT_RULES amendments awaiting approval.
 - [ ] Real-policy classification decisions (Chris/Admin).
 - [ ] Release, enable/disable, rollback, index-validation and recovery proofs.
-- [ ] **New:** migration ordering. Production now has `20261103191631` applied, later than every unapplied Reports migration (`20261101000010`–`…17`). Renumbering is not allowed without approval, so this needs Chris's decision before any release.
+- [ ] **New:** migration ordering. Production now has `20261103191631` applied, later than every unapplied Reports migration (`20261101000010`–`…17`). Renumbering is not allowed without approval, so this needs Chris's decision before any release. Hosted head re-read 2026-11-04 (read-only): still `20261103191631_inbounds_room_v1`. The proposed mapping (`20261101000010`–`…17` → `20261104120010`–`…17`, same order, file content and blob SHAs unchanged) and its reference changes and verification plan were presented to Chris; nothing renamed, applied or repaired.
 - [ ] Map asset provenance and notices recorded (D5, RL-12) before the map merges.
 - [ ] Final cross-surface reconciliation and private visual approval.
 
