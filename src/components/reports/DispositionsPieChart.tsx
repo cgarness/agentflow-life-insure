@@ -77,7 +77,7 @@ const DispositionsPieChart: React.FC<Props> = ({ dispositions, onExport }) => {
   const handleExport = onExport
     ? () =>
         onExport(
-          "Disposition Breakdown",
+          "Call outcomes",
           ["Disposition", "Calls", "Share %", "Counts as contacted", "Converts", "DNC", "Callback", "Appointment"],
           dispositions.by_disposition.map((d) => {
             const share = pct(d.calls, total);

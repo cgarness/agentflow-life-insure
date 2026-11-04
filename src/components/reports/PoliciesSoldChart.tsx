@@ -86,7 +86,7 @@ const PoliciesSoldChart: React.FC<Props> = ({ summary, grouping, onExport }) => 
   const handleExport = onExport
     ? () =>
         onExport(
-          "Policies Sold",
+          "Production trend",
           ["Period", "Policies sold", "Known annual premium", "Policies with known premium", "Policies with unknown premium", "Premium details (% known)"],
           series.map((b) => [periodCell(b.first, b.last), b.policies_sold, b.annual_premium, b.known_count, b.unknown_count, b.coverage_pct]),
         )
