@@ -174,7 +174,7 @@
 - Migrations: each package adds only its own numbered files. No renumbering.
 
 **Release checklist** (blockers; none of them blocks branch development).
-- [ ] The two unfinished agency journey comparisons (30 and 366 days); needs one bounded verification-infrastructure request.
+- [ ] The two unfinished agency journey comparisons (30 and 366 days); needs one bounded verification-infrastructure request. **2026-11-04:** run `41753175853` attempted each once on PostgreSQL 17.6. Both hit the 320-minute statement deadline inside the frozen baseline reader (`rtref.get_report_journey_v3`), so they are unresolved, not matches. The next approach needs Chris's decision.
 - [ ] The failed performance acceptance gate (no remedy approved).
 - [ ] ★1, ★4, E1–E6 and the campaign-copy fallback privacy decisions.
 - [ ] The named security review of the exact reader implementation.

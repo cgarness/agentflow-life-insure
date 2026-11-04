@@ -120,7 +120,12 @@
 
 **Process note.** I stopped the in-progress gate run with `pgrep -f`. The match covered the task's own wrapper shell, `timeout` and node. That was the run I meant to stop, but later cleanups used single exact PIDs.
 
-**Journey comparisons (run `41753175853`, started 01:19 UTC, 320-minute deadline):** both jobs were still in progress at the last check. Their outcome is recorded when the scheduled check runs; nothing is inferred, and nothing is retried.
+**Journey comparisons (run `41753175853`, PostgreSQL 17.6, attempted once each): both unresolved; neither is a match.**
+- `0:agency:30:-` (job `126322952803`) failed at 06:41:42 UTC.
+- `0:agency:366:-` (job `126322951755`) failed at 06:41:35 UTC.
+- **Cause in both:** `ERROR: canceling statement due to statement timeout`, the 320-minute deadline, raised inside the frozen baseline reader `rtref.get_report_journey_v3` (its `report_v3_journey_members` history pass) during `rt.dx_case`.
+- The baseline did not finish within 320 minutes, so the candidate was never compared. The evidence artifacts were uploaded.
+- No retry or re-dispatch was made. The two agency journey comparisons remain an open release blocker, and they need a different approach, which requires Chris's decision.
 
 **Release blockers (unchanged, all open):**
 - the performance acceptance gate;
