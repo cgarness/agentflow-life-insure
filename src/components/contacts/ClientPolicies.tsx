@@ -31,6 +31,20 @@ function PolicyCommission(props: { clientId: string; policyId: string; compact?:
   );
 }
 
+// The closing-appointment status (Reports V2 PKG-D) loads the same way, once per client.
+const PolicyAppointmentLinkStatus = lazy(() =>
+  import("@/components/contacts/PolicyAppointmentLinkStatus").then((module) => ({ default: module.PolicyAppointmentLinkStatus })));
+
+function ClosingAppointmentStatus(props: { clientId: string }) {
+  return (
+    <CommissionLoadBoundary>
+      <Suspense fallback={null}>
+        <PolicyAppointmentLinkStatus {...props} />
+      </Suspense>
+    </CommissionLoadBoundary>
+  );
+}
+
 // The sale premium section (Reports V2 PKG-B) loads the same way; it renders nothing unless the server returns the policy.
 const PolicySalePremiumSection = lazy(() =>
   import("@/components/contacts/policy-correction/PolicySalePremiumSection").then((module) => ({ default: module.PolicySalePremiumSection })));
@@ -77,6 +91,7 @@ export function ClientPolicies({ client, formatDate, onPolicyRecordChanged }: {
         <PolicySalePremium clientId={client.id} policyId={primary.policyId} currentMonthly={primary.premiumMonthly}
           formatDate={formatDate} onPolicyRecordChanged={onPolicyRecordChanged} />
         <PolicyCommission clientId={client.id} policyId={primary.policyId} />
+        <ClosingAppointmentStatus clientId={client.id} />
       </>
     ) : null;
   }
@@ -126,6 +141,7 @@ export function ClientPolicies({ client, formatDate, onPolicyRecordChanged }: {
           );
         })}
       </Accordion>
+      {client.id && <ClosingAppointmentStatus clientId={client.id} />}
     </section>
   );
 }

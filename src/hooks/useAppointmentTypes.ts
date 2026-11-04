@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
-import { AppointmentTypeRecord } from "@/lib/calendar/appointmentTypes";
+import { AppointmentTypeRecord, parseAppointmentBusinessCategory } from "@/lib/calendar/appointmentTypes";
 
 type Row = {
   id: string;
@@ -13,6 +13,7 @@ type Row = {
   is_default: boolean;
   is_locked: boolean;
   is_active: boolean;
+  business_category?: string | null;
   created_by: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -29,6 +30,7 @@ function mapRow(row: Row): AppointmentTypeRecord {
     isDefault: row.is_default,
     isLocked: row.is_locked,
     isActive: row.is_active,
+    businessCategory: parseAppointmentBusinessCategory(row.business_category),
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

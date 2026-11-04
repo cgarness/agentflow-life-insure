@@ -1,3 +1,4 @@
+import { onSaleSaved } from "@/lib/appointmentLinkRetry";
 import { supabase } from "@/integrations/supabase/client";
 import type { CommissionPayload } from "@/lib/commission/capture";
 import {
@@ -68,6 +69,8 @@ export async function sendPreparedSale(prepared: PreparedSale, attempt: SaleAtte
   const result = { ...sale, commission: parseCommissionOutcome((data as Record<string, unknown>).commission) };
   attempt.result = result;
   if (prepared.notify) await notifyRecordedSales(result.winIds);
+  // PKG-D (D4 §4): a registered closing-appointment selection starts linking now; it can never alter the sale.
+  try { void onSaleSaved(prepared.requestId, result.winIds).catch(() => {}); } catch { /* never affects the sale */ }
   return result;
 }
 
