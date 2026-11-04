@@ -17,6 +17,7 @@ on:
       - 'src/pages/Conversations.tsx'
       - 'src/pages/__tests__/conversations*'
       - 'scripts/test-sms-consent.mjs'
+      - 'scripts/*deno-ci*'
       - 'scripts/tests/sms-visual/**'
       - 'scripts/tests/sms-responsiveness/**'
       - '.github/workflows/sms-consent.yml'
@@ -56,6 +57,7 @@ jobs:
           done
           exit 1
       - run: npm ci --no-audit --no-fund
+      - run: node scripts/verify-deno-ci-dependency.mjs
       - run: npm install --prefix "$RUNNER_TEMP/sms-tools" --no-package-lock deno@2.5.2 @electric-sql/pglite@0.3.14 playwright@1.56.1
       - name: Manual SMS composer and request contracts
         run: npx vitest run src/components/messaging/smsConsent.test.tsx src/pages/__tests__/conversationsSendContract.test.tsx src/pages/__tests__/conversationsViewAs.test.tsx src/components/conversations/__tests__/conversationThreadIsolation.test.tsx src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx src/lib/sms-send/__tests__ src/components/messaging/__tests__/pendingSmsStatus.test.tsx src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx src/components/messaging/__tests__/pendingSmsBridgeMount.test.ts
@@ -71,8 +73,8 @@ jobs:
       - name: Edge tests and type checks
         run: |
           cmp supabase/functions/_shared/sms/wire.ts paired-uv/supabase/functions/_shared/sms/wire.ts
-          "$RUNNER_TEMP/sms-tools/node_modules/.bin/deno" test --allow-env supabase/functions/_shared/sms/sms_test.ts supabase/functions/_shared/sms/manual_sender_test.ts supabase/functions/_shared/sms/wire_test.ts supabase/functions/_shared/a2p/workflow_test.ts
-          "$RUNNER_TEMP/sms-tools/node_modules/.bin/deno" check supabase/functions/sms-consent-events/index.ts supabase/functions/sms-consent-worker/index.ts supabase/functions/sms-consent-status/index.ts supabase/functions/twilio-sms/index.ts supabase/functions/twilio-sms-webhook/index.ts supabase/functions/workflow-executor/index.ts paired-uv/supabase/functions/agentflow-consent/index.ts paired-uv/supabase/functions/consent-event-worker/index.ts
+          "$RUNNER_TEMP/sms-tools/node_modules/.bin/deno" test --import-map scripts/deno-ci-import-map.json --allow-env supabase/functions/_shared/sms/sms_test.ts supabase/functions/_shared/sms/manual_sender_test.ts supabase/functions/_shared/sms/wire_test.ts supabase/functions/_shared/a2p/workflow_test.ts
+          "$RUNNER_TEMP/sms-tools/node_modules/.bin/deno" check --import-map scripts/deno-ci-import-map.json supabase/functions/sms-consent-events/index.ts supabase/functions/sms-consent-worker/index.ts supabase/functions/sms-consent-status/index.ts supabase/functions/twilio-sms/index.ts supabase/functions/twilio-sms-webhook/index.ts supabase/functions/workflow-executor/index.ts paired-uv/supabase/functions/agentflow-consent/index.ts paired-uv/supabase/functions/consent-event-worker/index.ts
       - name: Browser fixture
         env:
           SMS_PLAYWRIGHT_MODULE: ${{ runner.temp }}/sms-tools/node_modules/playwright/index.mjs

@@ -1,0 +1,303 @@
+{
+  "source_commit": "fddab04f8a57e340d8ec84a3588334469edc7cdf",
+  "approval": "Chris explicitly approved backend-only release in this conversation on 2026-11-03.",
+  "project_id": "jncvvsvckxhqgqvkppmj",
+  "migration": {
+    "approved_path": "supabase/migrations/pending/20261103170954_inbounds_room_v1.sql",
+    "recorded_path": "supabase/migrations/20261103191631_inbounds_room_v1.sql",
+    "version": "20261103191631",
+    "name": "inbounds_room_v1",
+    "sha256": "cf5ad21d7f262309de451610de73be18b3d13428df9a4339cbd4e6a81c1ef8e1",
+    "history_sql_md5": "a36745c9836f3e1f22e468659bf84eb5"
+  },
+  "functions": {
+    "twilio-token": {
+      "version": 58,
+      "verify_jwt": false,
+      "import_map": false,
+      "status": "ACTIVE",
+      "ezbr_sha256": "4455ffc7a58b1e7868f5d6f8c991385d205db88cbeb952db2128b1a14768c35e",
+      "files": 1,
+      "source_matched": true,
+      "updated_at": 1793733434004
+    },
+    "inbound-call-claim": {
+      "version": 63,
+      "verify_jwt": false,
+      "import_map": false,
+      "status": "ACTIVE",
+      "ezbr_sha256": "ac139c4db0f4a2670d216c5347ff3590ec788038ee418578667f96ff5c2882a9",
+      "files": 3,
+      "source_matched": true,
+      "updated_at": 1793733442199
+    },
+    "twilio-voice-webhook": {
+      "version": 61,
+      "verify_jwt": false,
+      "import_map": false,
+      "status": "ACTIVE",
+      "ezbr_sha256": "38295c0c75dfbda0957e3afdfb889d66f536e823f4f58cac38ca915b66a3a8da",
+      "files": 2,
+      "source_matched": true,
+      "updated_at": 1793733450168
+    },
+    "twilio-voice-inbound": {
+      "version": 72,
+      "verify_jwt": false,
+      "import_map": false,
+      "status": "ACTIVE",
+      "ezbr_sha256": "31898663eb54ee707ca905064ddeea81cc0a96104a50940773237772f066d5b7",
+      "files": 11,
+      "source_matched": true,
+      "updated_at": 1793733457369
+    }
+  },
+  "database": {
+    "tables": [
+      {
+        "rls": true,
+        "table": "inbounds_room_calls",
+        "anon_select": false,
+        "auth_delete": false,
+        "auth_insert": false,
+        "auth_select": false,
+        "auth_update": false
+      },
+      {
+        "rls": true,
+        "table": "inbounds_room_sessions",
+        "anon_select": false,
+        "auth_delete": false,
+        "auth_insert": false,
+        "auth_select": false,
+        "auth_update": false
+      },
+      {
+        "rls": true,
+        "table": "inbounds_room_targets",
+        "anon_select": false,
+        "auth_delete": false,
+        "auth_insert": false,
+        "auth_select": false,
+        "auth_update": false
+      }
+    ],
+    "numbers": {
+      "total": 21,
+      "enabled": 0
+    },
+    "targets": 0,
+    "sessions": 0,
+    "functions": [
+      {
+        "acl": "{postgres=X/postgres}",
+        "md5": "a36cbd67d4e67b9d139b9cd2dc6d2cf8",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "private.inbounds_actor()"
+      },
+      {
+        "acl": "{postgres=X/postgres}",
+        "md5": "0d23f05ef5788559748d4822f7045f98",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "private.inbounds_pending(uuid,uuid)"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "md5": "d0b32e81fe0271f25417c1d8fead68aa",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "plan_inbound_route(uuid,uuid,uuid,text,uuid[],integer)"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "md5": "4102657ac5819ce430bd45fb550a1253",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "claim_inbound_call(uuid,uuid,text,text)"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "md5": "d9a1a41d461f3e45c575fee24bd84972",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "is_agent_busy(uuid,uuid,uuid)"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "md5": "307133f96701cd253a9475f6fc619c07",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "inbounds_room_session(uuid,text,boolean)"
+      },
+      {
+        "acl": "{postgres=X/postgres,service_role=X/postgres}",
+        "md5": "35b35547292a2d500892686fae4d393b",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "inbounds_room_route(uuid,uuid)"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "md5": "8171bd56c55d86765ef4a84ac1991faa",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "inbounds_room_state(timestamp with time zone,timestamp with time zone)"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "md5": "7cdee26b31861ea27322324c499f4d99",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "inbounds_room_call_state(uuid)"
+      },
+      {
+        "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+        "md5": "73a993ee6af172317b9142dfb5acfdfb",
+        "owner": "postgres",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "definer": true,
+        "signature": "inbounds_room_add_contact(uuid,text,text)"
+      }
+    ],
+    "migrations": [
+      {
+        "name": "inbounds_room_v1",
+        "sql_md5": "a36745c9836f3e1f22e468659bf84eb5",
+        "version": "20261103191631",
+        "statements": 1
+      }
+    ],
+    "room_calls": 0
+  },
+  "function_verification": {
+    "mismatches": null,
+    "matched_count": 15,
+    "expected_count": 15
+  },
+  "schema_verification": {
+    "index": true,
+    "column": {
+      "type": "boolean",
+      "default": "false",
+      "not_null": true
+    },
+    "triggers": [
+      {
+        "name": "guard_inbounds_number",
+        "enabled": "O",
+        "definition": "CREATE TRIGGER guard_inbounds_number BEFORE INSERT OR UPDATE ON public.phone_numbers FOR EACH ROW EXECUTE FUNCTION private.guard_inbounds_number()"
+      },
+      {
+        "name": "capture_inbounds_call",
+        "enabled": "O",
+        "definition": "CREATE TRIGGER capture_inbounds_call AFTER INSERT ON public.calls FOR EACH ROW EXECUTE FUNCTION private.capture_inbounds_call()"
+      },
+      {
+        "name": "guard_inbounds_outbound",
+        "enabled": "O",
+        "definition": "CREATE TRIGGER guard_inbounds_outbound BEFORE INSERT ON public.calls FOR EACH ROW EXECUTE FUNCTION private.guard_inbounds_outbound()"
+      }
+    ],
+    "constraint": {
+      "validated": true,
+      "definition": "CHECK (((NOT inbounds_only) OR ((assignment_type = 'agency'::text) AND (NOT COALESCE(is_default, false)) AND (NOT is_direct_line))))"
+    }
+  },
+  "security_advisors": {
+    "new_findings": [
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "detail": "Table \\`public.inbounds_room_calls\\` has RLS enabled, but no policies exist",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "detail": "Table \\`public.inbounds_room_sessions\\` has RLS enabled, but no policies exist",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "name": "rls_enabled_no_policy",
+        "level": "INFO",
+        "detail": "Table \\`public.inbounds_room_targets\\` has RLS enabled, but no policies exist",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "detail": "Function `public.inbounds_room_add_contact(p_call uuid, p_first text, p_last text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/inbounds_room_add_contact`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "detail": "Function `public.inbounds_room_call_state(p_call uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/inbounds_room_call_state`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "detail": "Function `public.inbounds_room_session(p_session uuid, p_action text, p_ready boolean)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/inbounds_room_session`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "detail": "Function `public.inbounds_room_state(p_start timestamp with time zone, p_end timestamp with time zone)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/inbounds_room_state`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "detail": "Function `public.set_inbounds_number(p_number uuid, p_enabled boolean)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_inbounds_number`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      }
+    ],
+    "review": "Expected: three RPC-only tables have RLS/no direct grants/no policies; five explicitly authorized, organization-scoped SECURITY DEFINER RPCs are executable by authenticated. No new anonymous executable function or search-path warning. Existing unrelated findings are not changed."
+  },
+  "http_checks": {
+    "twilio-token": 401,
+    "inbound-call-claim": 403,
+    "twilio-voice-inbound": 403,
+    "twilio-voice-webhook": 403
+  },
+  "scope": {
+    "frontend_merged": false,
+    "inbounds_only_numbers": 0,
+    "real_call_tested": false,
+    "room_sessions": 0,
+    "flag_changed": false
+  }
+}

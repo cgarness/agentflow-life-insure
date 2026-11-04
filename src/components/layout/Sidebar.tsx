@@ -1,3 +1,4 @@
+import {InboundsNavItem} from '@/components/inbounds/InboundsNavItem';
 import React, { useMemo } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import {
@@ -197,6 +198,7 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         )}
+        {!isImpersonating&&!permsLoading&&hasPageAccess("Dialer")&&<InboundsNavItem collapsed={collapsed} onClick={()=>setMobileOpen(false)}/>}
       </>
     )}
   </nav>

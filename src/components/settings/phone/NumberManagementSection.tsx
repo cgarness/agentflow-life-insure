@@ -1,3 +1,4 @@
+import {InboundsNumberSettings} from '@/components/inbounds/InboundsNumberSettings';
 import React, { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ const PERSONAL_ROLE_TOOLTIP =
   "Owner-only manual caller ID. Excluded from automatic rotation.";
 
 export interface PhoneNumberRow {
+  inbounds_only?: boolean;
   id: string;
   phone_number: string;
   friendly_name: string | null;
@@ -483,6 +485,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
 
   return (
     <>
+      <InboundsNumberSettings org={organizationId} numbers={numbers} onRefresh={onRefresh}/>
       <Card className="border-border/80 shadow-sm">
         <CardHeader className="border-b border-border/40 pb-4">
           <div className="flex flex-col gap-3">

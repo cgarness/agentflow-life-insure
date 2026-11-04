@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTwilio } from "@/contexts/TwilioContext";
+import { useBranding } from "@/contexts/BrandingContext";
 import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
 import { useAuth } from "@/contexts/AuthContext";
 import { usersSupabaseApi as usersApi } from "@/lib/supabase-users";
@@ -43,6 +44,7 @@ const ConversationsPage = () => {
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const { selectedCallerNumber } = useTwilio();
+  const { branding } = useBranding();
 
   // ---- Effective viewer + scope ------------------------------------------------------------
   // Identity comes from useAuth().profile via useEffectiveViewer — NEVER useAuth().user, which is
@@ -310,6 +312,20 @@ const ConversationsPage = () => {
             contactName={selectedContact.contact_name}
             // The RESOLVED type, from the table the contact was actually found in — never the URL.
             contactType={selectedContact.contact_type}
+            templateMergeInput={{
+              contact: {
+                id: selectedContact.contact_id,
+                first_name: selectedContact.contact_first_name,
+                last_name: selectedContact.contact_last_name,
+                phone: selectedContact.contact_phone,
+                email: selectedContact.contact_email,
+              },
+              agentFirstName: profile?.first_name,
+              agentLastName: profile?.last_name,
+              agentPhone: profile?.phone,
+              agentEmail: profile?.email,
+              agencyName: branding.companyName,
+            }}
             onSendMessage={handleSendMessage}
             onSubmitSms={handleSubmitSms}
             smsScope={smsScope}

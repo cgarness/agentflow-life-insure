@@ -8,6 +8,7 @@ on:
       - 'supabase/migrations/*a2p*'
       - 'supabase/tests/a2p_registration.sql'
       - 'scripts/*a2p*'
+      - 'scripts/*deno-ci*'
       - 'package*.json'
       - 'deno.lock'
       - '.github/workflows/a2p-registration.yml'
@@ -31,13 +32,14 @@ jobs:
           node-version: '22.16.0'
           cache: npm
       - run: npm ci
+      - run: node scripts/verify-deno-ci-dependency.mjs
       - name: Install isolated verification tools
         run: npm install --prefix "$RUNNER_TEMP/a2p-tools" --no-package-lock deno@2.5.2 @electric-sql/pglite@0.3.14
       - name: Provider, authentication, events and sender checks
-        run: '"$RUNNER_TEMP/a2p-tools/node_modules/.bin/deno" test --allow-env supabase/functions/_shared/a2p/workflow_test.ts'
+        run: '"$RUNNER_TEMP/a2p-tools/node_modules/.bin/deno" test --import-map scripts/deno-ci-import-map.json --allow-env supabase/functions/_shared/a2p/workflow_test.ts'
       - name: Edge bundles type-check
         run: >-
-          "$RUNNER_TEMP/a2p-tools/node_modules/.bin/deno" check
+          "$RUNNER_TEMP/a2p-tools/node_modules/.bin/deno" check --import-map scripts/deno-ci-import-map.json
           supabase/functions/a2p-registration/index.ts
           supabase/functions/a2p-events/index.ts
           supabase/functions/a2p-reconcile/index.ts

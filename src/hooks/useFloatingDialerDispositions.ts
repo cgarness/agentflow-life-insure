@@ -9,6 +9,7 @@ export interface FloatingDisposition {
   require_notes: boolean;
   min_note_chars: number;
   callback_scheduler: boolean;
+  appointment_scheduler?: boolean;
   automation_trigger: boolean;
   automation_id: string | null;
   pipeline_stage_id: string | null;
@@ -54,7 +55,7 @@ export function useFloatingDialerDispositions(organizationId: string | null, use
           dispositions: dispositions.value.map(d => ({
             id: d.id, name: d.name, color: d.color,
             require_notes: d.requireNotes, min_note_chars: d.minNoteChars,
-            callback_scheduler: d.callbackScheduler,
+            callback_scheduler: d.callbackScheduler, appointment_scheduler: d.appointmentScheduler,
             automation_trigger: d.automationTrigger, automation_id: d.automationId ?? null,
             pipeline_stage_id: d.pipelineStageId ?? null,
           })),

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Polish V2 §3.6 — the ONE missed-call contract (widget + detail view): the viewer's organization
@@ -36,8 +36,12 @@ const clearance = (c: { id: string; created_at: string }, n = 1) => ({
 });
 
 beforeEach(() => {
+  // The widget computes its lookback from now; keep it aligned with the fixture dates.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-29T20:00:00.000Z"));
   h.db = createFakeDb({ calls: [], leads: [], clients: [], profiles: [] });
 });
+afterEach(() => vi.useRealTimers());
 
 describe("scope", () => {
   it("reads only the viewer's organization (Agency Group peer calls never appear) with the unchanged routing filter", async () => {
@@ -99,7 +103,7 @@ describe("exact exclusion and totals", () => {
   });
 
   it("the widget: the active list's length IS the exact total when it fits (no count read); otherwise an exact count", async () => {
-    h.db.tables.calls = [call(1), call(2)];
+    h.db.tables.calls = [call(1), call(2), call(3, { created_at: "2026-10-01T19:00:00.000Z" })];
     const signal = new AbortController().signal;
     const small = await loadMissedCallWidget({ userId: ME, organizationId: ORG, isFiltered: true, clearancesEnabled: false, signal });
     expect(small).toMatchObject({ totalCount: 2, clearedCount: 0 });

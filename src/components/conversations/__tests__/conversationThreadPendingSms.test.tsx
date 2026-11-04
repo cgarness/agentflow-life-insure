@@ -50,6 +50,7 @@ vi.mock("@/contexts/AuthContext", () => ({
   }),
 }));
 vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: ORG, role: "Agent", isSuperAdmin: false }) }));
+vi.mock("@/contexts/BrandingContext", () => ({ useBranding: () => ({ branding: { companyName: "Example Agency" } }) }));
 vi.mock("@/contexts/TwilioContext", () => ({ useTwilio: () => ({ selectedCallerNumber: null }) }));
 vi.mock("@/lib/supabase-email", () => ({ emailSupabaseApi: { getMyConnections: async () => [], sendContactEmail: async () => ({ success: true }) } }));
 vi.mock("@/lib/supabase-users", () => ({ usersSupabaseApi: { getAgentScopeIds: async () => [AGENT] } }));
@@ -130,7 +131,7 @@ const saved = (body: string) => ({
 const RECEIPT = { success: true, message_id: SAVED, provider_message_id: "SM1", status: "queued" };
 
 const page = () => (<><PendingSmsAuthorityBridge /><Conversations /></>);
-const composer = () => document.querySelector('input[placeholder="Type SMS message…"]') as HTMLInputElement;
+const composer = () => document.querySelector('textarea[placeholder="Type SMS message…"]') as HTMLTextAreaElement;
 const sendButton = () => screen.getByRole("button", { name: /^send$/i });
 const bubbles = () => screen.queryAllByTestId("pending-sms");
 const status = () => bubbles()[0]?.querySelector('[role="status"]')?.textContent ?? "";
@@ -172,6 +173,17 @@ beforeEach(() => {
 });
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+describe("manual template access", () => {
+  it("opens the template picker without replacing an unsent draft", async () => {
+    await open();
+    fireEvent.change(composer(), { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Templates" }));
+    expect(await screen.findByText("Message templates")).toBeInTheDocument();
+    expect(composer().value).toBe("Keep this draft");
+    expect(screen.queryByRole("button", { name: "Use Template" })).toBeNull();
+  });
+});
 
 describe("the pending bubble is immediate and truthful", () => {
   it("renders on the click, keeps typing open, and becomes the saved row without a reload", async () => {

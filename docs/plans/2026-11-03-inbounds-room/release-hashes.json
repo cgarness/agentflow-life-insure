@@ -1,0 +1,50 @@
+{
+  "status": "BACKEND APPLIED 2026-11-03; frontend activation and phone-number designation remain separate gates",
+  "base": "e02342fa74afddea2342e9640fb18a274da2367a",
+  "migration": {
+    "path": "supabase/migrations/20261103191631_inbounds_room_v1.sql",
+    "sha256": "cf5ad21d7f262309de451610de73be18b3d13428df9a4339cbd4e6a81c1ef8e1",
+    "approved_path": "supabase/migrations/pending/20261103170954_inbounds_room_v1.sql",
+    "recorded_version": "20261103191631"
+  },
+  "edge_bundles": {
+    "twilio-token": {
+      "verify_jwt": false,
+      "files": {
+        "supabase/functions/twilio-token/index.ts": "f3be3e023c658d93c945d9f284662385e0c1cb00ac7066b2e264556c5228e53a"
+      }
+    },
+    "inbound-call-claim": {
+      "verify_jwt": false,
+      "files": {
+        "supabase/functions/_shared/inbounds-room.ts": "b0cc7a0067173ce1db6ff35637b96a8808be9a9872cb040e777d358f3aee9234",
+        "supabase/functions/inbound-call-claim/claim-callback.ts": "65d4b74fb031d1893bd0a8e956e92b050179deb1e4ad0e60f93645bf569e4419",
+        "supabase/functions/inbound-call-claim/index.ts": "29c59031886c7ae2b46cdcd15adb99e2acf1f2e08574354111f5a56893746873"
+      }
+    },
+    "twilio-voice-webhook": {
+      "verify_jwt": false,
+      "files": {
+        "supabase/functions/twilio-voice-webhook/dncGuard.ts": "f0ea6630baee5ca8f006a9e8d7d8ddd07ed052a6c2764ccd166f8207dd81ea0c",
+        "supabase/functions/twilio-voice-webhook/index.ts": "ac99d5cbca9f9c94dd2d559ee9163ce818cba3a2b278fda32ddcf68615f5302f"
+      }
+    },
+    "twilio-voice-inbound": {
+      "verify_jwt": false,
+      "files": {
+        "supabase/functions/_shared/inbounds-room.ts": "b0cc7a0067173ce1db6ff35637b96a8808be9a9872cb040e777d358f3aee9234",
+        "supabase/functions/_shared/notification-recipients.ts": "83ce2be3c56ff16b7e46eb5b10b2faa7fcd6df17d9351af3cbbd38aa2ecef726",
+        "supabase/functions/_shared/notifications.ts": "c853f6820058ef277dc2de853403349d8aa302fe654d1f628350f4563d3c172c",
+        "supabase/functions/twilio-voice-inbound/failure.ts": "7555787d8fa86bdfce997851951ab67fbdcdafe3e5109fc8156dcfb1ae3aae40",
+        "supabase/functions/twilio-voice-inbound/index.ts": "c4e5da7e7cb2b2b228b058f77f3586eaa0aeb41217316d1639e9a1873f58c6de",
+        "supabase/functions/twilio-voice-inbound/planner.ts": "9659164e7f0cdb618c88fb9a539847fc9843b9889a9d4c4fb3ca48d213ac22ee",
+        "supabase/functions/twilio-voice-inbound/request.ts": "b1f7e54ceef67b4fa89719cea5ad7a78cb7bf86e12c24de5456a91eb824575d3",
+        "supabase/functions/twilio-voice-inbound/routing.ts": "da1724c407bcaef17bd52ae29f26aec2d17e8a175d88cebe4efb0a83cd207627",
+        "supabase/functions/twilio-voice-inbound/settings.ts": "a1b47ad960cea5193555d2aaf5eb2220cf7bd532f3ad39f73bc1afe7e619fdab",
+        "supabase/functions/twilio-voice-inbound/stages.ts": "ac465f6055258e080595539875c263840ff8fcab8e540de69088128ed4c7640c",
+        "supabase/functions/twilio-voice-inbound/twiml.ts": "87afd997166bb48d23a1b2113082014bb3b0b537305f0a567430a5d21dca4f80"
+      }
+    }
+  },
+  "approved_source_commit": "fddab04f8a57e340d8ec84a3588334469edc7cdf"
+}

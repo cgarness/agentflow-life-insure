@@ -1,0 +1,46 @@
+## Full-width metrics and motion — November 3
+
+Chris requested full-width metrics/counts immediately below the enter-room section, colorful button hovers, and subtle animation. Move the existing stats component above the script/call grid, use four full-width admin cards or two full-width agent cards, distribute outcome tiles responsively, add Tailwind-only entrance/count/presence motion and semantic hover colors, and honor reduced motion. Preserve all data, telephony state, callbacks, focus and availability guards.
+
+Intended files: `RoomWorkspace.tsx`, `RoomStats.tsx`, `RoomStatus.tsx`, `RoomCallStation.tsx`, `RoomScripts.tsx`, `RoomRecords.tsx`, shared `styles.ts`, the existing isolated browser harness, this plan and `WORK_LOG.md`. Check desktop/mobile layout and reduced-motion behavior in the synthetic harness, existing room tests, TypeScript, scoped lint and production build. No backend, routing, settings or real-call changes.
+
+## Navigation placement follow-up — November 3
+
+Chris requested moving Inbounds to the bottom of navigation. Move the existing `InboundsNavItem` from the first item to the last item in the main navigation branch, after any administrative links and before the collapse footer. Preserve its existing flag, permission, View As, new-tab and mobile-close behavior. Intended files: `src/components/layout/Sidebar.tsx`, this plan, and `WORK_LOG.md`. Validate with existing sidebar/room tests, root TypeScript, scoped lint and production build. No backend or configuration changes.
+
+## November 3 frontend release completed
+
+Chris explicitly approved merging PR #509 and enabling `VITE_INBOUNDS_ROOM=true` for the AgentFlow Production environment, including the Vercel dashboard fallback after the connector denied environment access. The flag was saved successfully in the dashboard before the merge; environment changes only affect a new build. All ten cloud workflows passed on reviewed head `01a30ba3b886df9472d1004ddc0d1e55572c0218`. PR #509 merged as `afe309723d8a50b1e58466cf7bbd3816c43cfb68`; production deployment `dpl_FSuKKb5L3x98tKYFUbduCQRakKE7` is READY and its enabled served bundle and authentication boundary are verified. See `frontend-release.json`. Do not assign numbers or place real calls. Backend SQL and Edge bundles are already applied and must not be replayed.
+
+Release documentation files: this plan, `verification.md`, `frontend-release.json`, `AGENT_RULES.md`, and `WORK_LOG.md`. No runtime source edits are planned.
+
+# Inbounds room V1 — backend released; frontend activation pending
+
+November 3 backend gate: Chris explicitly approved the exact package at `fddab04f`. Migration applied once as `20261103191631` with unchanged SQL bytes; token v58, inbound v72, claim v63 and outbound webhook v61 deployed and read back. RLS/grants, all 15 function bodies, schema and unsigned-request rejection verified. The migration filename and isolated harness reference are reconciled to recorded history. See `backend-release.json`. Frontend, dedicated numbers and real-call testing remain separately gated.
+
+Chris approved the brighter interactive concept and said “proceed with build” on November 3, 2026. This authorizes branch implementation and local verification. No production SQL, Edge deployment, number reassignment, live test calls or merge is authorized by this build step.
+
+## Product contract
+
+- `/inbounds` opens in a new browser tab from the CRM sidebar, outside the CRM shell. One agency room, maximum ten joined agents. Join, pause, resume and leave are explicit; device disconnect and expired heartbeat make a session ineligible.
+- Dedicated Inbounds-only numbers bypass assigned-contact priority and ordinary CRM ringing. Ring every eligible room agent simultaneously; first Twilio-confirmed answer owns the call. No round robin and no mobile forwarding. Unanswered calls use the existing group voicemail pipeline.
+- A server session has a unique Twilio identity; normal CRM registrations never receive room calls. Same-agent duplicate room sessions cannot join concurrently. Server occupancy/reservations coordinate room calls and ordinary calls. An accepted room call remains unavailable until its canonical disposition receipt exists, including across refresh/logout/rejoin.
+- Collapsible active scripts and dispositions read existing organization settings. No demo data in runtime. Required notes, callbacks, DNC and conversion/policy semantics use existing canonical disposition/sale operations.
+- Agents see their own answered calls, disposition counts and missed/voicemail records where they were a recipient. Admin/Super Admin see organization-only room totals, answered/missed, voicemail, disposition counts and agent breakdown. View As is refused. Pending and active calls are separate from missed calls; voicemail is a subset, never added to missed totals. Counts are server aggregates of unique parent call rows, not ringing legs.
+- Adopt approved dark navy surfaces, bright white text and green/blue/violet/amber highlights. Mobile stacks the panels. Settings configuration failure blocks join and disposition save; no fake empty/zero success.
+
+## Implementation and intended files
+
+1. Frontend: `src/pages/InboundsPage.tsx`; `src/components/inbounds/*`; `src/hooks/useInboundsRoom.ts`, `useInboundsVoice.ts`; `src/lib/inbounds/*`; `src/App.tsx`; `src/components/layout/Sidebar.tsx`; phone settings integration in `NumberManagementSection.tsx`; `src/lib/caller-id-selection.ts`, `src/contexts/TwilioContext.tsx` for dedicated-number exclusion.
+2. Database: a pending migration for room number designation, sessions, immutable call/target snapshots, authenticated session/read RPCs and a service-only planner using existing call-row-first/agent-lock ordering. RLS and grants deny anonymous/cross-agency data. Reuse canonical disposition receipts rather than a browser-only flag. No existing production data rewritten.
+3. Telephony: `twilio-token` room identity validation; `twilio-voice-inbound` room routing and frozen target identities; `inbound-call-claim` validates signed room identity against the frozen target; `twilio-voice-webhook` rejects dedicated numbers as outbound caller ID. Preserve JWT/signature validation, single-leg outbound path and canonical duration writers.
+4. Tests: focused room state/identity/disposition/settings/render tests; SQL authorization, concurrent reservations, duplicate sessions, cross-tab busy and reload lock tests; legacy inbound/outbound regression suites. Run root TypeScript, application TypeScript comparison, scoped ESLint and production build. Desktop/mobile browser review uses synthetic fixtures isolated from runtime.
+5. Documentation: this plan, root `implementation_plan.md`, `WORK_LOG.md`, release/verification record and narrow new invariant in `AGENT_RULES.md`.
+
+## Release gates
+
+Final CI correction: `src/hooks/__tests__/useInboundsVoice.test.tsx` uses an explicit unknown-argument listener type instead of seven broad `Function` annotations. Keep all lint and test gates; runtime/backend source is unchanged. Verify the fixture and lint every changed TypeScript file before publishing the backend reconciliation.
+
+Release-check follow-up: correct the stale clock in `src/lib/__tests__/dashboardMissedCalls.test.ts`, after reproducing the identical failure on the clean PR base. Freeze Date to the existing fixture day, restore it after each test, and retain an explicitly expired row to verify the real lookback remains enforced. This changes only test determinism; dashboard queries and runtime behavior stay intact.
+
+Build/review first, feature flag off by default. Before production: approve exact migration plus backend bundle hashes, deploy compatible backend, verify advisors and controlled synthetic behavior, then separately approve frontend release/flag and exact experiment phone numbers. No configuration or build success is evidence that real ringing/audio has been tested.
