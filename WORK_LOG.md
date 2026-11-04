@@ -1,5 +1,89 @@
 # AgentFlow Work Log
 
+## 2026-11-04 (late night) — Reports V2 final build integration: B + C + D + F on `claude/great-goodall-911azc-integration` (branch only; nothing merged to main, applied, enabled or deployed)
+
+**Request:** Chris's message of 2026-11-04 ("Final build integration").
+- It approved the C and D protected mounts, branch-only and limited to the exact change.
+- The file list was recorded before any edit (`fa410489`).
+- AGENT_RULES.md, VISION.md and the WORK_LOG were read first.
+
+**Conflict check:**
+- `main` is `2b6f5cef` (toll-free purchasing #513). Its hosted migration `20261104041151` stays below our `20261104120010+`, so there is no renumbering.
+- `main`'s one-line changes to `TwilioContext` and `DialerPage` are kept as they are on main.
+
+**Package work (commits on the package branches):**
+- **`-pkg-d` `7006d126`:**
+  - E9 (conversion move), E11 (two-session drift) and E12 (concurrent first links), plus the S14a/S14b privacy fixtures for KPIs 12 and 18;
+  - mounts:
+    - `AppointmentModal`: outcome panel and link prompt;
+    - `CalendarSettings`: category control;
+    - `ConvertLeadModal`: closing-appointment field;
+    - `DialerPage` `:4677`: `type: data.type`;
+  - Vitest flows for Held / No show, classification and the closing choice.
+- **`-pkg-c` `c846e6c1`:**
+  - mounts:
+    - `DialerPage`: `sourceCallId={currentCallId}`;
+    - `FloatingDialer`: two call-context props;
+    - `ConvertLeadModal`: `sourceCallId` forward and the chip;
+  - Dialer and FloatingDialer sale tests: the call id reaches the `_v2` handoff and stays frozen on retry.
+- **`TwilioContext.tsx`:** read before each telephony-adjacent edit and never modified.
+
+**Integration branch:**
+- **Commits:**
+  - `59d09d1c`: main merged into `-pkg-f`;
+  - `a2df004d`: the foundation;
+  - `-pkg-d` merged (with B);
+  - `fb7c0d77`: `-pkg-c` merged, with the reconciliation;
+  - `e72a8493`: the review tooling.
+- **Shared-file conflicts:** each kept both packages:
+  - `ClientPolicies` (both status mounts);
+  - `RecordPolicyModal` (field and chip);
+  - `ConvertLeadModal` (both imports; the bodies auto-merged);
+  - the exceptions test (both clauses, TwilioContext pinned to main only);
+  - `reportsV3Contracts` (both blocks);
+  - `reports_v3_fixture.py`.
+- **Reconciliation (release order B → C → D):**
+  - `…43` is now guarded on the PKG-C flags postimage `9c6c9d5e…` and installs **3.3.0** (`audited_ledger`, links installed, evidence installed);
+  - its rollback restores the exact PKG-C flags;
+  - the fixture runs B, C and D forward, the suites, then the D, C and B rollbacks back to the exact PKG-A state (3.0.0), so the differential and performance runners still compare PKG-A.
+- **Integrated review tooling** (existing payload mechanism, test input only):
+  - `REPORTS_V3_KEEP_PACKAGES=1`;
+  - `--part integrated-data`: synthetic corrections, producing calls within the 24-hour rule, appointments through the live capture trigger, outcomes and closing links on the scale organization;
+  - `REPORTS_V3_INTEGRATED_PAYLOADS` in `run_reports_v3_tests.sh`.
+
+**Results:**
+- **Local (PostgreSQL 16.15) on `fb7c0d77`:**
+  - `tsc --noEmit` 0;
+  - app typecheck: no new error against the baseline;
+  - eslint: 0 errors on the 148 changed files;
+  - build 0;
+  - Vitest: 6,918 tests, no new failure by identity (the remaining failures are the known baseline set);
+  - `run_reports_v3_tests.sh` with the RL-17 bundles, the reporting-integrity runner (policy, booking, appointments), the commission runner and the reports-integrity runner: all exit 0.
+- **CI on `e72a8493`, PostgreSQL 17.6:**
+  - Reports backend run `41898128988`: `postgres` and `differential` success;
+  - Reporting integrity run `41898135102`: success;
+  - Policy commission tracking run `41898141335`: both jobs success.
+- **Integrated payload, scale Admin, last 30 days:**
+  - contract 3.3.0, with `audited_ledger` / `installed` / `installed`;
+  - 155 sales read source `correction`;
+  - KPI 38: 303 linked buyers read No, because each had an earlier contact; 87 unlinked read Unclassified, never No;
+  - KPIs 15 = 91, 16 = 61 (partial), 17 = 77.2 %, 18 = 8.2 % and 12 = 8.71, with 20 Follow Ups excluded.
+- **F Zod contract:** 8 of 9 reader payloads parse.
+
+**Defect found (not fixed; needs approval for files outside the list):**
+- The Sales Appointments panel fails closed. An agent with only no-shows plus one unresolved due appointment gets KPI 16 `unavailable/outcomes_unresolved`, although the held count is a known 0. F's contract correctly rejects the envelope.
+- **Root cause:** the PKG-A builder `report_v3_total` decides availability on the value, with a special case only for KPI 1.
+- **Proposed fix:**
+  - `20261104120010_reports_v3_foundation.sql`: change `p_id = 1` to `p_id IN (1, 16)`;
+  - add one D suite case.
+
+**Review:** `reports_v2_integrated_review_e72a8493.zip` (scratchpad): screens from the integrated SQL payloads, the KPI table, the payload file, the gate ledger and SHA256SUMS.
+
+**Migrations and deployments:**
+- None applied.
+- Hosted head `20261104041151` (main).
+- `…22`, `…33` and `…44`, the ops-enable pins and the release-runner constants stay deferred.
+
 ## 2026-11-04 (night) — Reports V2 Package D, batch D1: appointment categories and occurrence evidence (branch `-pkg-d`; nothing applied, merged, granted, enabled or deployed)
 
 **Request:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D"): the D4 implementation on its own branch. The plan entry was committed first (`bb6d348b`).
