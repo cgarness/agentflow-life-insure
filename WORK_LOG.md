@@ -1,5 +1,80 @@
 # AgentFlow Work Log
 
+## 2026-11-04 (night) — Reports V2 KPI 16 integration defect fixed; final review prepared (integration branch `580f206b`; nothing merged, applied or deployed)
+
+**Request:** Chris's message of 2026-11-04 ("Fix the KPI 16 integration defect"), a surgical branch-only change.
+- Read first: AGENT_RULES.md, VISION.md and the WORK_LOG.
+- Conflict check: `main` is still `2b6f5cef`, and no work is newer than the integration branch.
+- No md5 pin covers the builders.
+- The file list was recorded first (`45073de5`).
+
+**Fix (`580f206b`):** in `20261104120010_reports_v3_foundation.sql` (unapplied, branch-only), KPI 16 now decides on its resolved outcomes, as KPI 1 decides on its assessable premiums, at exactly three sites:
+- the `report_v3_total` evaluator input;
+- the `report_v3_metric` BC4 known count;
+- the unavailable-coverage validator.
+
+No other KPI rule changed. At PKG-A, KPI 16 is the config-coded stub, so PKG-A payloads and the differential are unchanged (the CI differential passed).
+
+**Tests:**
+- **`reports_v3_appointment_facts.sql`:** four agents through the real reader, and the builder alone:
+
+  | Case | KPI 16 |
+  |---|---|
+  | Two No Shows + one unresolved | Partial 0 |
+  | None resolved + one unresolved | Unavailable, null |
+  | Two No Shows, none unresolved | Available 0 |
+  | One Held + one unresolved | Partial 1 |
+  | Agency (1 held of 5 resolved, 3 unresolved) | Partial 1; KPI 17 20 % Partial; per-agent coverages asserted |
+
+  Also asserted:
+  - the validator still refuses an unavailable KPI 16 with resolved outcomes;
+  - KPI 15 keeps the value rule.
+- **`reports_v3_contract.sql`:** the two assertions that encoded the old rule for 5 of 7 resolved now expect Partial 0. The refusal and the unavailable case moved to "no outcome resolved".
+- **Red/green:** red before the fix (case 1 came out unavailable); green after.
+
+**Verification on `580f206b`:**
+- **Local (PostgreSQL 16.15):**
+  - `tsc --noEmit` 0;
+  - app typecheck: no new error against the baseline;
+  - eslint: 0 errors;
+  - build 0;
+  - Vitest: 6,918 tests, no new failure by identity;
+  - run_reports_v3_tests.sh (fixture, races, E12, RL-17 bundles, integrated payloads), run_reporting_integrity_tests.sh, run_policy_commission_tests.sh and run_reports_integrity_tests.sh: all exit 0.
+- **Integrated payload:**
+  - all nine readers parse through F's Zod contract at agency scope, and Sales Appointments parses at every scope;
+  - the Sales Appointments section renders (91 booked, 61 completed Partial);
+  - its CSV is enabled and downloads (3.3.0);
+  - the visual gate `verify.mjs`: **474 of 474**.
+- **CI (PostgreSQL 17.6), all success:**
+  - Reports backend run `41913278704`: postgres and differential;
+  - Reporting integrity run `41913284769`;
+  - Policy commission tracking run `41913291169`.
+
+**Pre-existing finding (not this fix; not changed):**
+- The Dispositions reader returns `deep_dive.unattributed: null` at team and personal scope, by design: the unattributed breakdown is agency-only.
+- F's schema (`src/lib/reports-v3-schemas.ts:206`) requires an object, so that panel fails closed at team and personal scope.
+- The same `null` is in the PKG-A/F review payload of 2026-11-03.
+- Proposed: `.nullable()`, which needs approval for an F file.
+
+**Final review:** `reports_v2_final_review_580f206b.zip` (scratchpad): 31 screens, 14 CSVs, the visual summary, the payloads, the RL-17 bundles, the gate ledger and the release-requirements checklist. Feature development is stopped.
+
+**Migrations and deployments:**
+- None applied.
+- Hosted head `20261104041151`.
+
+**Remaining release blockers:**
+1. The Dispositions team/personal schema `.nullable()` (approval).
+2. The release files: `…22`, `…33` and `…44`, the ops-enable pins, and the `reports_release.py` constants and test.
+3. Performance acceptance (two-run enforced PostgreSQL 17.6).
+4. ★1, ★4 and E1–E6 privacy decisions, and the security review.
+5. The AGENT_RULES amendments and size exceptions.
+6. The B6 divergence manifest and ★5.
+7. The PKG-D baseline count (36).
+8. CSV and visual approval.
+9. Census provenance item 7.
+10. Staged backend approvals in release order.
+11. Final production approval.
+
 ## 2026-11-04 (late night) — Reports V2 final build integration: B + C + D + F on `claude/great-goodall-911azc-integration` (branch only; nothing merged to main, applied, enabled or deployed)
 
 **Request:** Chris's message of 2026-11-04 ("Final build integration").
