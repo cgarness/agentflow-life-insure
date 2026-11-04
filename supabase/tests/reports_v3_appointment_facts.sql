@@ -180,3 +180,119 @@ SELECT rt.eq('appointments in the window move no KPI before PKG-D: the payloads 
   (SELECT agency = rt.v3r('ADM1', 'sales_appointments') AND personal = rt.v3r('A1', 'sales_appointments') FROM appt_reader_before), true);
 ROLLBACK TO SAVEPOINT appt_reader;
 SELECT rt.assert_sealed_v3(true, false);
+
+-- @@pkg-d@@
+-- PKG-D Sales Appointments on captured evidence (D4 §3.6, §7), after …43, on the v3 fixture organization O1
+-- (America/Los_Angeles), October 2026. Everything is written inside a savepoint that is rolled back. The capture is
+-- installed "today", so a closed capture window from 2026-09-01 to the install is added first (continuous capture).
+-- Synthetic appointments (contact, assignee at start, type, start, final status):
+--   AP1 C1 A1 Sales Call  Oct 5  Completed  → W17 (A2 → C1, Oct 12, within 30 days) linked to AP1: success
+--   AP2 C3 A2 Sales Call  Oct 2  Completed  → W3 (C3, Oct 3) eligible, unlinked: unresolved
+--   AP3 C5 A1 Sales Call  Oct 6  No Show    (reassigned to A2 after its start: credit stays A1)
+--   AP4 C6 A3 Sales Call  Oct 7  Scheduled  → due without an outcome: unresolved
+--   AP5 C1 A1 Follow Up   Oct 8  Completed  → never a Sales Appointment
+--   AP6 C2 A1 Sales Call  +2 days Scheduled → booked in October, not due
+--   AP7 C9 —  Sales Call  Oct 9  Completed  → no assignee at start: agency totals only; W9 (Oct 7) is before it
+CREATE FUNCTION rt.pd_kpi(p jsonb, p_id int) RETURNS text LANGUAGE sql AS $$
+  SELECT concat_ws('|', e ->> 'status', coalesce(e ->> 'reason', '-'), coalesce(e ->> 'value', '-'), coalesce(e ->> 'numerator', '-'),
+                   coalesce(e ->> 'denominator', '-'))
+    FROM jsonb_array_elements(p -> 'metrics') e WHERE (e ->> 'id')::int = p_id $$;
+-- The helper as the reader calls it, with the as-of at the current instant: this suite writes its evidence in the same
+-- transaction, after now(), so the reader's now() would (correctly) not see it yet. October = the agency month.
+CREATE FUNCTION rt.pd_facts(p_agents text[] DEFAULT NULL, p_start timestamptz DEFAULT '2026-10-01 07:00+00',
+                            p_end timestamptz DEFAULT '2026-11-01 07:00+00') RETURNS jsonb LANGUAGE sql AS $$
+  SELECT private.report_v3_appointment_facts(rt.v3('O1'), (SELECT array_agg(rt.v3(a)) FROM unnest(p_agents) a),
+    ARRAY[rt.v3('A1'), rt.v3('A2'), rt.v3('A3')], p_start, p_end, 'America/Los_Angeles', clock_timestamp()) $$;
+CREATE FUNCTION rt.pd_agent(p jsonb, p_agent text, p_id int) RETURNS text LANGUAGE sql AS $$
+  SELECT rt.pd_kpi(r, p_id) FROM jsonb_array_elements(p -> 'by_agent') r WHERE (r ->> 'agent_id')::uuid = rt.v3(p_agent) $$;
+
+SAVEPOINT pd_facts;
+-- Test-only, rolled back with the savepoint: the synthetic id lookup is readable while a call runs as authenticated.
+GRANT USAGE ON SCHEMA rt TO authenticated; GRANT SELECT ON rt.v3_ids TO authenticated;
+INSERT INTO private.appointment_evidence_capture_windows (capture_kind, started_at, ended_at, ended_reason)
+SELECT 'appointment_outcomes', '2026-09-01 00:00+00', w.started_at, 'synthetic_history' FROM private.appointment_evidence_capture_windows w
+ WHERE w.capture_kind = 'appointment_outcomes' AND w.ended_at IS NULL;
+CREATE TEMP TABLE pd2 AS SELECT
+  rt.pd_appt('ap1', 'C1', 'A1', 'Sales Call', '2026-10-05 17:00+00', '2026-10-02 17:00+00', 'Completed', 'A1') AS ap1,
+  rt.pd_appt('ap2', 'C3', 'A2', 'Sales Call', '2026-10-02 17:00+00', '2026-10-01 17:00+00', 'Completed', 'A2') AS ap2,
+  rt.pd_appt('ap3', 'C5', 'A1', 'Sales Call', '2026-10-06 17:00+00', '2026-10-02 17:00+00', 'No Show', 'A1') AS ap3,
+  rt.pd_appt('ap4', 'C6', 'A3', 'Sales Call', '2026-10-07 17:00+00', '2026-10-02 17:00+00', 'Scheduled', 'A3') AS ap4,
+  rt.pd_appt('ap5', 'C1', 'A1', 'Follow Up', '2026-10-08 17:00+00', '2026-10-02 17:00+00', 'Completed', 'A1') AS ap5,
+  rt.pd_appt('ap6', 'C2', 'A1', 'Sales Call', now() + interval '2 days', '2026-10-03 17:00+00', 'Scheduled', 'A1') AS ap6,
+  rt.pd_appt('ap7', 'C9', NULL, 'Sales Call', '2026-10-09 17:00+00', '2026-10-03 17:00+00', 'Completed', 'ADM1') AS ap7;
+SELECT rt.pd_as('ADM1');
+UPDATE public.appointments SET user_id = rt.v3('A2') WHERE id = (SELECT ap3 FROM pd2);
+SELECT rt.eq('W17 linked to AP1', rt.pd_link('ADM1', 'f1', 'W17', (SELECT ap1 FROM pd2)) ->> 'status', 'linked');
+
+CREATE TEMP TABLE pdr AS SELECT rt.pd_facts() AS p;
+SELECT rt.eq('payload meta: 3.2.0, appointment evidence installed',
+  (SELECT p ->> 'contract_version' || '/' || (p #>> '{basis,appointment_evidence}') || '/' || (p #>> '{basis,corrections}')
+     FROM (SELECT rt.v3r('ADM1', 'sales_appointments') AS p) x),
+  '3.2.0/installed/audited_ledger');
+SELECT rt.eq('KPI 15: six sales bookings in October (Follow Up excluded); complete', (SELECT rt.pd_kpi(p, 15) FROM pdr), 'available|-|6|-|-');
+SELECT rt.eq('KPI 15 disclosures and basis', (SELECT e -> 'detail' -> 'disclosures' ->> 'non_sales_excluded' || '/'
+    || (e -> 'detail' -> 'basis_counts' ->> 'capture') || '/' || (e -> 'detail' -> 'unattributed' ->> 'bookings')
+  FROM pdr, jsonb_array_elements(p -> 'metrics') e WHERE (e ->> 'id')::int = 15), '1/6/1');
+SELECT rt.eq('KPI 16: 3 held; AP4 is due without an outcome', (SELECT rt.pd_kpi(p, 16) FROM pdr), 'partial|outcomes_unresolved|3|-|-');
+SELECT rt.eq('KPI 17: 3 held of 4 resolved', (SELECT rt.pd_kpi(p, 17) FROM pdr), 'partial|outcomes_unresolved|75|3|4');
+SELECT rt.eq('KPI 17 classes', (SELECT e -> 'detail' -> 'classes' FROM pdr, jsonb_array_elements(p -> 'metrics') e WHERE (e ->> 'id')::int = 17),
+  '{"held": 3, "no_show": 1, "unresolved": 1, "cancelled_at_or_after_start": 0}'::jsonb);
+SELECT rt.eq('KPI 18: AP1 succeeded; AP7 resolved without a sale; AP2 unresolved', (SELECT rt.pd_kpi(p, 18) FROM pdr), 'partial|attribution_unresolved|50|1|2');
+SELECT rt.eq('KPI 12: 2 resolved members ÷ 1 attributed policy', (SELECT rt.pd_kpi(p, 12) FROM pdr), 'partial|attribution_unresolved|2|2|1');
+SELECT rt.eq('KPI 18 maturity (pending computed from the as_of)',
+  (SELECT e -> 'maturity' FROM pdr, jsonb_array_elements(p -> 'metrics') e WHERE (e ->> 'id')::int = 18),
+  (SELECT jsonb_build_object('window_days', 30, 'state', CASE WHEN count(*) FILTER (WHERE clock_timestamp() < private.report_v3_local_day_start(d + 31, 'America/Los_Angeles')) > 0
+            THEN 'in_progress' ELSE 'complete' END, 'members', 3,
+          'pending', count(*) FILTER (WHERE clock_timestamp() < private.report_v3_local_day_start(d + 31, 'America/Los_Angeles')),
+          'successes_to_date', 1, 'mature_members', 3 - count(*) FILTER (WHERE clock_timestamp() < private.report_v3_local_day_start(d + 31, 'America/Los_Angeles')),
+          'mature_successes', CASE WHEN clock_timestamp() < private.report_v3_local_day_start('2026-10-05'::date + 31, 'America/Los_Angeles') THEN 0 ELSE 1 END,
+          'fully_mature_on', '2026-11-09')
+     FROM unnest(ARRAY['2026-10-05', '2026-10-02', '2026-10-09']::date[]) d));
+-- Credit: assigned agent at the start (AP3 stays A1's after its reassignment); AP7 credits no one.
+SELECT rt.eq('by_agent 16 and 17', (SELECT concat_ws(' ; ', rt.pd_agent(p, 'A1', 16), rt.pd_agent(p, 'A1', 17), rt.pd_agent(p, 'A2', 16),
+    rt.pd_agent(p, 'A3', 16), rt.pd_agent(p, 'A1', 18), rt.pd_agent(p, 'A1', 15)) FROM pdr),
+  'available|-|1|-|- ; available|-|50|1|2 ; available|-|1|-|- ; unavailable|outcomes_unresolved|-|-|- ; available|-|100|1|1 ; available|-|3|-|-');
+SELECT rt.eq('the agency unattributed counts', (SELECT e -> 'detail' -> 'unattributed' FROM pdr, jsonb_array_elements(p -> 'metrics') e
+  WHERE (e ->> 'id')::int = 16), '{"bookings": 1, "members": 1, "occurrences": 1}'::jsonb);
+SELECT rt.eq('personal scope (A1) carries no unattributed detail', (SELECT e -> 'detail' ? 'unattributed'
+  FROM jsonb_array_elements(rt.pd_facts(ARRAY['A1']) -> 'metrics') e WHERE (e ->> 'id')::int = 16), false);
+
+-- S14a / S14b (D4 §3.7, privacy option a, ★1 pending): A1's personal payload.
+CREATE TEMP TABLE pd_s14 AS SELECT rt.pd_facts(ARRAY['A1']) -> 'metrics' AS m;
+SAVEPOINT pd_s14a;
+-- S14a: A2's held appointment on an unrelated identity (C15) and its sale change nothing for A1.
+SELECT rt.pd_appt('s14a', 'C15', 'A2', 'Sales Call', '2026-10-11 17:00+00', '2026-10-03 17:00+00', 'Completed', 'A2');
+SELECT rt.eq('S14a: out-of-scope activity on an unrelated identity leaves A1''s payload byte-identical',
+  rt.pd_facts(ARRAY['A1']) -> 'metrics', (SELECT m FROM pd_s14));
+ROLLBACK TO SAVEPOINT pd_s14a;
+SAVEPOINT pd_s14b;
+-- S14b (E3): A1 held a sales appointment with C14 on Oct 20; A2 sold C14 on Oct 31 (W14, within 30 days).
+SELECT rt.pd_appt('s14b', 'C14', 'A1', 'Sales Call', '2026-10-20 17:00+00', '2026-10-03 17:00+00', 'Completed', 'A1');
+SELECT rt.eq('S14b unlinked: the out-of-scope purchase leaves A1''s member unresolved',
+  rt.pd_kpi(rt.pd_facts(ARRAY['A1']), 18), 'partial|attribution_unresolved|100|1|1');
+-- Linked to another appointment (A2's, same buyer): A1's member is resolved as no sale.
+SELECT rt.pd_appt('s14b2', 'C14', 'A2', 'Sales Call', '2026-10-21 17:00+00', '2026-10-03 17:00+00', 'Completed', 'A2');
+SELECT rt.eq('the link to A2''s appointment', rt.pd_link('ADM1', 's14b', 'W14', md5('pkgd:s14b2')::uuid) ->> 'status', 'linked');
+SELECT rt.eq('S14b linked elsewhere: A1''s member resolves as no sale',
+  rt.pd_kpi(rt.pd_facts(ARRAY['A1']), 18), 'available|-|50|1|2');
+SELECT rt.eq('S14b exposes no other agent''s or buyer''s id in A1''s metrics',
+  (rt.pd_facts(ARRAY['A1']) -> 'metrics')::text ~ ('(' || rt.v3('A2') || '|' || rt.v3('C14') || ')'), false);
+ROLLBACK TO SAVEPOINT pd_s14b;
+SELECT rt.eq('removing the S14 activity restores A1''s payload byte-identically', rt.pd_facts(ARRAY['A1']) -> 'metrics', (SELECT m FROM pd_s14));
+
+-- Reconciliation: AP1's status changes while capture is off → a capture_gap, unassessable for 16-18.
+ALTER TABLE public.appointments DISABLE TRIGGER appointments_v3_evidence_capture;
+UPDATE public.appointments SET status = 'No Show' WHERE id = (SELECT ap1 FROM pd2);
+ALTER TABLE public.appointments ENABLE TRIGGER appointments_v3_evidence_capture;
+SELECT rt.eq('a state change without evidence is a capture_gap',
+  (SELECT rt.pd_kpi(p, 16) || ' ' || (e -> 'coverage' -> 'reasons' ->> 'capture_gap')
+     FROM (SELECT rt.pd_facts() AS p) x, jsonb_array_elements(x.p -> 'metrics') e WHERE (e ->> 'id')::int = 16),
+  'partial|capture_gap|2|-|- 1');
+
+-- Capture start: a window ending before the first capture window has no outcome evidence.
+SELECT rt.eq('outcome_capture_not_started before the capture start',
+  (SELECT rt.pd_kpi(x.p, 16) || ' ' || rt.pd_kpi(x.p, 12) FROM (SELECT rt.pd_facts(NULL, '2026-08-01 07:00+00', '2026-09-01 00:00+00') AS p) x),
+  'unavailable|outcome_capture_not_started|-|-|- unavailable|outcome_capture_not_started|-|-|-');
+SELECT rt.eq('every reason is a registered code', (SELECT bool_and(e ->> 'reason' IS NULL OR e ->> 'reason' = ANY (private.report_v3_reason_codes()))
+  FROM pdr, jsonb_array_elements(p -> 'metrics') e), true);
+ROLLBACK TO SAVEPOINT pd_facts;

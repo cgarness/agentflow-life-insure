@@ -4,6 +4,7 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'supabase/ops/reporting-accuracy/**'
+      - 'supabase/ops/appointment_*.sql'
       - 'supabase/tests/**'
       - 'supabase/functions/twilio-voice-status/**'
       - 'supabase/functions/google-calendar-inbound-sync/**'

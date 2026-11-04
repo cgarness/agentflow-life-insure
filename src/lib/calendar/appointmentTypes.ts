@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export interface AppointmentTypeRecord {
   id: string;
   organizationId: string;
@@ -8,9 +10,30 @@ export interface AppointmentTypeRecord {
   isDefault: boolean;
   isLocked: boolean;
   isActive: boolean;
+  /** Business category (Reports V2 PKG-D, D4 §3.2); only `sales` counts as a Sales Appointment. */
+  businessCategory?: AppointmentBusinessCategory;
   createdBy: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+/** Appointment-type business categories (D4 §3.2). `unclassified` is the default until a category is chosen. */
+export const APPOINTMENT_BUSINESS_CATEGORIES = [
+  "sales", "follow_up", "callback", "recruiting", "review", "service", "other", "unclassified",
+] as const;
+export type AppointmentBusinessCategory = typeof APPOINTMENT_BUSINESS_CATEGORIES[number];
+/** What Settings may choose for a custom type (callback is booking-kind only; unclassified is the default). */
+export const SELECTABLE_APPOINTMENT_BUSINESS_CATEGORIES = ["sales", "follow_up", "recruiting", "review", "service", "other"] as const;
+export const APPOINTMENT_BUSINESS_CATEGORY_LABELS: Record<AppointmentBusinessCategory, string> = {
+  sales: "Sales appointment", follow_up: "Follow up", callback: "Callback", recruiting: "Recruiting",
+  review: "Policy review", service: "Service", other: "Other", unclassified: "Needs category",
+};
+export const appointmentBusinessCategorySchema = z.enum(APPOINTMENT_BUSINESS_CATEGORIES);
+export const selectableAppointmentBusinessCategorySchema = z.enum(SELECTABLE_APPOINTMENT_BUSINESS_CATEGORIES);
+/** A row read before the PKG-D column exists (or with an unknown value) reads as unclassified. */
+export function parseAppointmentBusinessCategory(raw: unknown): AppointmentBusinessCategory {
+  const parsed = appointmentBusinessCategorySchema.safeParse(raw);
+  return parsed.success ? parsed.data : "unclassified";
 }
 
 export const KNOWN_DEFAULT_APPOINTMENT_TYPE_NAMES = [

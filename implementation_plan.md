@@ -58,6 +58,78 @@
 
 **Step 6:** one integrated review package (scratchpad) and the remaining production-release blockers.
 
+## 2026-11-04 (night, later) — Reports V2 Package D, batch D2: attributions, the appointment reader body, fixture restructure, frontend (branch `-pkg-d`; nothing applied, merged, granted, enabled or deployed)
+
+**Authorization:** the coordinator's D2 instruction under Chris's 2026-11-04 message.
+
+**Still excluded:**
+- protected files (`CalendarSettings.tsx`, `AppointmentModal.tsx`, `ConvertLeadModal.tsx`, `DialerPage.tsx`);
+- `…44`;
+- release constants;
+- CI dispatch;
+- any hosted action.
+
+**D2 file list (D4 §5 rows):**
+- `supabase/migrations/20261104120042_policy_appointment_attributions.sql` (create, class W: `get_policy_appointment_links`, `link_policy_appointment`, `correct_policy_appointment_link` TO authenticated only).
+- `supabase/migrations/rollback/20261104120042_policy_appointment_attributions.rollback.sql` (create, class C).
+- `supabase/migrations/20261104120043_reports_v3_appointment_facts.sql` (create, class C): the helper body, with population, reconciliation, the truth table through the foundation builders, assigned-agent-at-start credit, and Sales Appointment = category `sales` only (Follow Ups excluded). It also carries the basis flags 3.2.0 with `appointment_evidence: installed`, behind the md5 preimages of the `…13` stub and the PKG-B flags (`67c6a60a…`). **Rebase:** whichever of PKG-C and PKG-D lands second regenerates the flags preimage and `contract_version`.
+- `supabase/migrations/rollback/20261104120043_reports_v3_appointment_facts.rollback.sql` (create, class C): restores the exact `…13` stub and the PKG-B flags.
+- `supabase/ops/reporting-accuracy/appointment_evidence_preflight.sql` (ops_create, class R, read-only aggregates).
+- `supabase/tests/policy_appointment_attributions.sql` and `supabase/tests/reports_v3_appointment_facts.sql` (test_create).
+- `scripts/tests/appointment-evidence-failure-boundaries.mjs` (test_create), run by `scripts/run_reporting_integrity_tests.sh` on the appointments database.
+- `scripts/reports_v3_fixture.py` (test_modify). Package forward steps run first (B, then D), then the package suites, then the rollbacks in reverse (D, then B) back to the exact PKG-A state. Every PKG-B assertion is kept.
+- `scripts/reporting_fixture.py` (test_modify): the appointments mode adds the policy writers' tables needed by `…42`.
+- `src/lib/__tests__/reportsV3Contracts.test.ts` (test_modify): `…42`/`…43` classes and allowlist.
+- **Frontend (D4 §4, non-protected), create:**
+  - `src/lib/appointmentOutcome.ts`, `src/lib/appointmentOutcomeGate.ts`, `src/lib/policyAppointmentLinks.ts`, `src/lib/appointmentLinkRetry.ts`;
+  - `src/hooks/useClosingAppointmentCandidates.ts`, `src/hooks/useClosingAppointmentLink.ts`;
+  - `src/components/calendar/AppointmentOutcomePanel.tsx`, `src/components/calendar/PolicyLinkPrompt.tsx` (both created, not mounted: the mount is in the protected `AppointmentModal`);
+  - `src/components/contacts/ClosingAppointmentField.tsx`, `src/components/contacts/PolicyAppointmentLinkStatus.tsx`;
+  - `src/components/settings/AppointmentTypeCategoryControl.tsx` (created, not mounted: protected `CalendarSettings`).
+- **Frontend, modify:** `src/lib/calendar/appointmentTypes.ts`, `src/hooks/useAppointmentTypes.ts`, `src/components/contacts/RecordPolicyModal.tsx` (one field mount), `src/components/contacts/ClientPolicies.tsx` (one status mount), `src/lib/policySaleRecording.ts` (`onSaleSaved`), `src/lib/dialer-api.ts` (optional `type`).
+- **Frontend tests:** their Vitest files (D4 §7 names), plus `recordPolicyModal`, `clientPolicies` and `saveAppointmentPayload` / `dialerAppointmentSaveContract` updates.
+
+## 2026-11-04 (night) — Reports V2 Package D, batch D1: categories and occurrence evidence backend (branch `-pkg-d`, based on `-pkg-b` `a7e5eb5e`; nothing applied, merged, granted, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D"): the already-approved D4 implementation on its own branch.
+
+**Not authorized here:**
+- the protected-file exceptions `CalendarSettings.tsx`, `AppointmentModal.tsx`, `ConvertLeadModal.tsx` and `DialerPage.tsx` (A-§7(b)), which stay **pending approval**;
+- `…44`, the ops enable pins, `reports_release.py` and its test;
+- AGENT_RULES and `production-release.md`;
+- any hosted action.
+
+**D1 file list (D4 §5 rows):**
+- `supabase/migrations/20261104120040_appointment_type_categories.sql` (create, class C): category column, audit table, guard and audit triggers.
+- `supabase/migrations/rollback/20261104120040_appointment_type_categories.rollback.sql` (create, class C): drops the triggers; keeps the column and the audit table.
+- `supabase/ops/appointment_type_category_baseline.sql` and `supabase/ops/appointment_type_category_baseline_revert.sql` (ops_create, class R): exact-count baseline and its postimage-guarded revert. Written only; never run against anything hosted.
+- `supabase/migrations/20261104120041_appointment_occurrence_evidence.sql` (create, class W):
+  - the evidence tables and their append-only guard;
+  - `appointment_evidence_classify`, `appointment_evidence_apply` and the non-blocking capture trigger (`lock_timeout` 200 ms);
+  - `record_appointment_outcome`, granted TO authenticated only.
+- `supabase/migrations/rollback/20261104120041_appointment_occurrence_evidence.rollback.sql` (create, class C): drops the trigger and the RPC; keeps the evidence.
+- `supabase/ops/appointment_evidence_disable.sql` (class R) and `supabase/ops/appointment_evidence_enable.sql` (class W).
+- `supabase/tests/appointment_type_categories.sql` and `supabase/tests/appointment_occurrence_evidence.sql` (test_create).
+- `scripts/reporting_fixture.py` (test_modify): an `appointments` mode built on the booking mode, with the verbatim baseline `appointment_types` table, the appointment RLS policies and the `appointments_updated_at` trigger.
+- `scripts/run_reporting_integrity_tests.sh` (test_modify): runs the `appointments` mode.
+- `.github/workflows/reporting-integrity.yml`: already path-filters `supabase/migrations/**`, `supabase/tests/**` and `scripts/reporting_fixture.py`; the `supabase/ops/appointment_*` scripts are added.
+- `src/lib/__tests__/reportsV3Contracts.test.ts` (test_modify): the D4 class map and the class W allowlist for `…41` and `appointment_evidence_enable.sql`.
+
+**Deferred to D2 (recorded, not dropped):**
+- `…42` attributions and its three RPCs;
+- the `…43` reader body (truth table, reconciliation, credit), with its basis-flags preimage on the PKG-B postimage `67c6a60a…`;
+- the `reports_v3_fixture.py` restructure (forward B, D → suites → rollbacks D, B);
+- `appointment-evidence-failure-boundaries.mjs`;
+- `reporting-accuracy/appointment_evidence_preflight.sql`;
+- `policy_appointment_attributions.sql` and `reports_v3_appointment_facts.sql`;
+- the whole D4 §4 frontend.
+
+**Deviations:**
+- `appointments` mode is a new reporting-fixture mode, so the evidence suites run on the verbatim booking writers, not the v3 fixture. The v3 fixture is untouched in D1, so the PKG-B steps and their exact PKG-A round trip are unchanged.
+- `appointment_evidence_classify` takes the audited type history into account only for events recorded after `…40`. Renames before `…40` cannot be known (D4 §3.2).
+
+**Rebase note:** whichever of PKG-C and PKG-D lands second regenerates the `…43` basis-flags preimage and its `contract_version`.
+
 ## 2026-11-04 (night) — Reports V2: Package B batches B2 and B3, then Packages C and D (branches `-pkg-b`, then `-pkg-c` and `-pkg-d`; nothing applied, merged, granted, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D").

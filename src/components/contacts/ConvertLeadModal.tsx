@@ -23,6 +23,7 @@ import { commissionPayload, PRIMARY_SLOT, type CommissionSlotInputs } from "@/li
 import { commissionNotice } from "@/lib/policySaleOutcome";
 import { usePolicySaleSubmission } from "@/hooks/usePolicySaleSubmission";
 import { SaleSubmissionNotice } from "./SaleSubmissionNotice";
+import { ClosingAppointmentField } from "./ClosingAppointmentField";
 import {
   PAYMENT_FREQUENCIES,
   PAYMENT_FREQUENCY_LABELS,
@@ -406,6 +407,8 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
               {index < policies.length - 1 && <div className="h-px bg-border/50" />}
             </div>
           ))}
+
+          <ClosingAppointmentField saleRequestId={perOpen.current.requestId} contactIds={[lead.id]} soldDate={policies[0]?.soldDate} disabled={loading} />
 
           <div className="h-px bg-border/50" />
 

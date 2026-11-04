@@ -11,6 +11,13 @@ on:
       - 'scripts/run_reports_integrity_tests.sh'
       - 'scripts/reports_integrity_fixture.py'
       - 'scripts/run_reports_v3_tests.sh'
+      - 'supabase/migrations/*policy_sale_premium_corrections*.sql'
+      - 'supabase/migrations/rollback/*policy_sale_premium_corrections*.sql'
+      - 'supabase/tests/policy_sale_premium_correction.sql'
+      - 'supabase/ops/reporting-accuracy/check_sale_correction_manifest.sql'
+      - 'scripts/tests/sale-premium-correction-concurrency.mjs'
+      - 'scripts/reporting_fixture.py'
+      - 'src/components/leaderboard/__tests__/correctedPremiumSurfaces.test.tsx'
       - 'scripts/reports_v3_fixture.py'
       - 'scripts/reports_v3_reference.py'
       - 'scripts/run_reports_v3_differential.sh'
@@ -67,20 +74,28 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      # Node before the proofs: run_reports_v3_tests.sh drives the PKG-B two-backend correction races.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci
       - name: Reports, policy, privacy, mutation, drift and recovery proofs
         env:
           PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+          REPORTS_V3_CORRECTION_PAYLOADS: ${{ runner.temp }}/reports-v3-correction-payloads.json
         run: |
           set -o pipefail
           bash scripts/run_reports_rpc_tests.sh 2>&1 | tee reports-backend-results.txt
           bash scripts/run_reports_integrity_tests.sh 2>&1 | tee reports-integrity-results.txt
           REPORTS_V3_PAYLOADS="$RUNNER_TEMP/reports-v3-payloads.json" REPORTS_V3_PERF=0 bash scripts/run_reports_v3_tests.sh 2>&1 | tee reports-v3-results.txt
           bash scripts/run_profile_rpc_tests.sh 2>&1 | tee reports-profile-regression-results.txt
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22.16.0'
-          cache: npm
-      - run: npm ci
+      - name: Corrected premium surfaces against the native correction bundles (RL-17)
+        env:
+          REPORTS_SQL_PAYLOADS: ${{ runner.temp }}/reports-v3-correction-payloads.json
+        run: |
+          set -o pipefail
+          npx vitest run src/components/leaderboard/__tests__/correctedPremiumSurfaces.test.tsx 2>&1 | tee reports-corrected-surfaces-results.txt
       - name: Install pinned isolated browser tooling
         run: |
           npm install --prefix "$RUNNER_TEMP/reports-browser" --no-save playwright@1.56.1 agent-browser@0.38.2 axe-core@4.10.2
@@ -150,6 +165,8 @@ jobs:
             reports-v3-results.txt
             reports-integrity-payloads.json
             reports-browser-results.txt
+            reports-corrected-surfaces-results.txt
+            ${{ runner.temp }}/reports-v3-correction-payloads.json
             ${{ runner.temp }}/reports-visual-evidence
             ${{ runner.temp }}/reports-vite.log
           retention-days: 14

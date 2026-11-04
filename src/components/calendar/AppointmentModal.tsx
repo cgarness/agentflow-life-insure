@@ -22,6 +22,8 @@ import { Button } from "@/components/ui/button";
 import { PermissionGate } from "@/components/PermissionGate";
 import ContactMiniCard from "./ContactMiniCard";
 import AppointmentAssigneeField from "./AppointmentAssigneeField";
+import { AppointmentOutcomePanel } from "./AppointmentOutcomePanel";
+import { PolicyLinkPrompt } from "./PolicyLinkPrompt";
 import { DateInput } from "@/components/shared/DateInput";
 import { cn } from "@/lib/utils";
 
@@ -627,6 +629,10 @@ const AppointmentModal: React.FC<Props> = ({ open, onClose, onSave, onDelete, ed
                 </select>
               </div>
             </div>
+            {editing && <AppointmentOutcomePanel appointment={{ id: editing.id, status: editing.raw_status ?? editing.status, startTime: editing.start_time ?? null }}
+              onRecorded={() => { toastSonner.success("Outcome recorded"); onClose(); }} />}
+            {editing && editing.status === "Completed" && editing.contactId && editing.start_time &&
+              <PolicyLinkPrompt clientId={editing.contactId} appointmentId={editing.id} occurrenceStart={editing.start_time} />}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">

@@ -14,6 +14,7 @@ import { carrierSelectionError } from "@/lib/carrierSelection";
 import { CarrierCombobox } from "@/components/shared/CarrierCombobox";
 import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
 import { SaleSubmissionNotice } from "./SaleSubmissionNotice";
+import { ClosingAppointmentField } from "./ClosingAppointmentField";
 
 const policySchema = z.object({
   policy_type: z.string().trim().min(1, "Choose a policy type"),
@@ -90,6 +91,7 @@ export default function RecordPolicyModal({ open, clientId, primary = false, onC
           </label>)}
           <PolicyCommissionEstimate owner={{ kind: "client", id: clientId }} policyType={form.policy_type}
             carrier={form.carrier} monthlyPremium={form.premium} onCaptureChange={inputs => { capture.current = inputs; }} />
+          <ClosingAppointmentField saleRequestId={requestId.current} contactIds={[clientId]} soldDate={form.sold_date} disabled={submission.locked} />
           <label className="flex gap-2 text-sm"><input type="checkbox" checked={historical} onChange={e => setHistorical(e.target.checked)} />
             Historical policy: credit the start of the Sold Date in the agency timezone, without celebration.
           </label>

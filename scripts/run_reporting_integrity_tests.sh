@@ -19,13 +19,15 @@ cleanup() {
 }
 trap cleanup EXIT
 if [ "$(psql "${PGURL%/}/postgres" -tAc "SELECT count(*) FROM pg_roles WHERE rolname IN ('supabase_admin','authenticator','supabase_auth_admin')")" != 0 ]; then echo 'REFUSING hosted platform roles'; exit 2; fi
-for TASK_MODE in policy booking; do
+for TASK_MODE in policy booking appointments; do
  TASK_DB="reporting_${TASK_MODE}_test_$$"
  TASK_URL="${PGURL%/}/$TASK_DB"
  psql "${PGURL%/}/postgres" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $TASK_DB"
  python3 scripts/reporting_fixture.py "$TASK_MODE" > "$TASK_TEMP/fixture.sql"
  psql "$TASK_URL" -v ON_ERROR_STOP=1 -q -f "$TASK_TEMP/fixture.sql" > "$TASK_TEMP/$TASK_MODE.log" 2>&1 || { tail -35 "$TASK_TEMP/$TASK_MODE.log"; exit 1; }
- REPORTING_TEST_URL="$TASK_URL" node scripts/tests/reporting-concurrency.mjs "$TASK_MODE"
+ # The appointments mode (PKG-D evidence) runs its own multi-session failure-boundary script instead.
+ if [ "$TASK_MODE" = appointments ]; then REPORTING_TEST_URL="$TASK_URL" node scripts/tests/appointment-evidence-failure-boundaries.mjs
+ else REPORTING_TEST_URL="$TASK_URL" node scripts/tests/reporting-concurrency.mjs "$TASK_MODE"; fi
  if [ "$TASK_MODE" = policy ]; then
   TASK_ASOF=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   REPORTING_READ_ONLY_DATABASE_URL="$TASK_URL" node scripts/reconcile_reporting.mjs 00000000-0000-0000-0000-000000000001 "$TASK_ASOF" > "$TASK_TEMP/reconciliation.json"

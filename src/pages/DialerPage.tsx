@@ -4679,6 +4679,7 @@ export default function DialerPage() {
               master_lead_id: currentLead.lead_id || currentLead.id, campaign_lead_id: currentLead.id,
               agent_id: user.id, campaign_id: selectedCampaignId, title: data.title,
               date: format(data.date, "yyyy-MM-dd"), time: data.startTime, end_time: data.endTime, notes: data.notes,
+              type: data.type,
             }, organizationId);
             void Promise.resolve(fetchAppointments({ silent: true })).catch(() => {});
             return true;

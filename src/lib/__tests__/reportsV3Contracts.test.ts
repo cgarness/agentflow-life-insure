@@ -24,6 +24,15 @@ const MIGRATION_CLASS: Record<string, PrivilegeClass> = {
   reports_v3_readers: "C",
   reports_v3_calls_campaign_lead_index: "C",
   reports_v3_release_enable: "E",
+  reports_v3_sale_premium_basis: "W",  // PKG-B …21 (D2 §3.7)
+  reports_v3_appointment_facts: "C",   // PKG-D …43 (D4 §3.6)
+};
+/** Class W (plan §2.8, X8): the only GRANTs a writer-enable file may contain. */
+const W_ALLOWLIST: Record<string, string[]> = {
+  reports_v3_sale_premium_basis: [
+    "GRANT EXECUTE ON FUNCTION public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text) TO authenticated",
+    "GRANT EXECUTE ON FUNCTION public.get_client_policy_sale_premiums(uuid) TO authenticated",
+  ],
 };
 const OPS_CLASS: Record<string, PrivilegeClass> = {
   "reports_v3_enable.sql": "E",
@@ -158,7 +167,8 @@ describe("Reports v3 SQL privilege classes", () => {
   });
 
   it("PKG-A migrations refuse replay, never replace silently and take the short lock timeout", () => {
-    for (const f of files.filter((x) => x.path.startsWith(`${MIGRATIONS}/`) && x.cls === "C")) {
+    // PKG-D …43 is the designed v3-only-window replacement of the …13 stub (its own describe below pins it).
+    for (const f of files.filter((x) => x.path.startsWith(`${MIGRATIONS}/`) && x.cls === "C" && !x.suffix.includes("reports_v3_appointment_facts"))) {
       const sql = stripSqlComments(f.sql);
       expect(sql, f.path).not.toMatch(/CREATE\s+OR\s+REPLACE\s+FUNCTION/i);
       if (f.suffix !== CONCURRENT_INDEX) expect(sql.trimStart(), f.path).toMatch(/^SET LOCAL lock_timeout = '2s';/);
@@ -169,7 +179,8 @@ describe("Reports v3 SQL privilege classes", () => {
   it("no file grants to anon or PUBLIC, or grants any legacy rpc_report_* function", () => {
     for (const f of files) {
       for (const g of grants(f.sql)) {
-        expect(g, f.path).not.toMatch(/\b(anon|PUBLIC)\b/i);
+        // The grantee list (after TO): a schema-qualified public.function name is not a grant to PUBLIC.
+        expect(g, f.path).not.toMatch(/\bTO\b[\s\S]*\b(anon|PUBLIC)\b/i);
         expect(g, f.path).not.toMatch(/rpc_report_/i);
       }
     }
@@ -184,6 +195,14 @@ describe("Reports v3 SQL privilege classes", () => {
       const found = grants(f.sql);
       expect(found.length, f.path).toBeGreaterThan(0);
       for (const g of found) expect(g.replace(/\s+/g, " "), f.path).toMatch(/^GRANT EXECUTE ON FUNCTION \S+ TO authenticated, ?service_role$/i);
+    }
+  });
+
+  it("class W files grant exactly their allowlist, to authenticated only", () => {
+    const w = files.filter((x) => x.cls === "W");
+    for (const f of w) {
+      expect(W_ALLOWLIST[f.suffix], `${f.path} has no class W allowlist`).toBeDefined();
+      expect(grants(f.sql).map((g) => g.replace(/\s+/g, " ").trim()), f.path).toEqual(W_ALLOWLIST[f.suffix]);
     }
   });
 
@@ -715,5 +734,175 @@ describe("Reports v3 performance acceptance and differential evidence", () => {
     expect(job("postgres")).toContain("if: ${{ !inputs.journey_comparisons }}");
     expect(job("differential")).toContain("if: ${{ !inputs.journey_comparisons }}");
     expect(job("perf-acceptance")).toContain("inputs.performance_acceptance && !inputs.journey_comparisons");
+  });
+});
+
+describe("PKG-B sale premium corrections (D2 §3.3-§3.7): …20 and its rollback are class C", () => {
+  const FORWARD = `${MIGRATIONS}/20261104120020_policy_sale_premium_corrections.sql`;
+  const ROLLBACK = `${ROLLBACKS}/20261104120020_policy_sale_premium_corrections.rollback.sql`;
+  const forward = stripSqlComments(read(FORWARD));
+  const rollback = stripSqlComments(read(ROLLBACK));
+
+  it("is numbered after every PKG-A file and above the production head 20261103191631; …21 follows it", () => {
+    const versions = readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /_reports_v3_|_policy_sale_premium_corrections/.test(n)).sort();
+    expect(versions.filter((v) => !v.startsWith("20261104120043")).slice(-2)).toEqual(["20261104120020_policy_sale_premium_corrections.sql",
+                                        "20261104120021_reports_v3_sale_premium_basis.sql"]);
+    expect(Number("20261104120020")).toBeGreaterThan(20261103191631);
+  });
+
+  it("grants nothing, in the migration or its rollback", () => {
+    expect(grants(forward)).toEqual([]);
+    expect(grants(rollback)).toEqual([]);
+  });
+
+  it("creates every new function sealed with a pinned search_path; private helpers run with invoker rights", () => {
+    const created = createdFunctions(forward).filter((fn) => fn.name !== "private.performance_sale_monthly");
+    expect(created.map((fn) => fn.name).sort()).toEqual([
+      "private.guard_policy_sale_premium_correction", "private.policy_sale_book_monthly", "private.policy_sale_effective_premium",
+      "private.policy_sale_original_premium", "public.correct_policy_sale_premium", "public.get_client_policy_sale_premiums",
+    ]);
+    const revoked = revokes(forward);
+    for (const fn of created) {
+      expect(fn.header, `${fn.name} search_path`).toMatch(/SET search_path = pg_catalog, pg_temp/);
+      if (fn.name.startsWith("private.")) expect(fn.header, `${fn.name} must run with invoker rights`).not.toMatch(/SECURITY\s+DEFINER/i);
+      else expect(fn.header, `${fn.name} is definer-rights`).toMatch(/SECURITY\s+DEFINER/i);
+      const match = revoked.find((r) => r.name === fn.name && r.types.join(",") === fn.types.join(","));
+      expect(match, `${fn.name}(${fn.types.join(", ")}) has no REVOKE ALL`).toBeDefined();
+      expect(match!.roles, `${fn.name} REVOKE roles`).toEqual(SEALED_ROLES);
+    }
+    expect(forward).toMatch(/REVOKE ALL ON private\.policy_sale_premium_corrections FROM PUBLIC, anon, authenticated, service_role;/);
+    expect(forward).toMatch(/ALTER TABLE private\.policy_sale_premium_corrections ENABLE ROW LEVEL SECURITY;/);
+    expect(forward).not.toMatch(/CREATE\s+POLICY/i);
+  });
+
+  it("replaces only performance_sale_monthly, behind its md5 preimage, and proves every sale unchanged before commit", () => {
+    const replaced = [...forward.matchAll(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-z_]+\.[a-z0-9_]+)/gi)].map((m) => m[1]);
+    expect(replaced).toEqual(["private.performance_sale_monthly"]);
+    expect(forward.trimStart()).toMatch(/^SET LOCAL lock_timeout = '2s';/);
+    expect(forward).toContain("'51e06b46a13c3a8eec4d672bec158376'");
+    expect(forward).toContain("refusing replay");
+    expect(forward).toContain("Reports v3 must be disabled first");
+    expect(forward).toContain("a sale premium changed at the switch");
+    expect(forward).toContain("performance_sale_monthly attributes changed");
+  });
+
+  it("never writes a sale, a commission row or a notification", () => {
+    expect(forward).not.toMatch(/INSERT\s+INTO\s+public\.wins|UPDATE\s+public\.wins|DELETE\s+FROM\s+public\.wins/i);
+    expect(forward).not.toMatch(/policy_commission|notify_win|pg_notify/i);
+  });
+
+  it("the rollback refuses while v3 is enabled, always seals the writer, restores only the exact preimage and never drops the ledger", () => {
+    expect(rollback).toContain("Reports v3 must be disabled first");
+    expect(rollback).toMatch(/REVOKE ALL ON FUNCTION public\.correct_policy_sale_premium\([^)]*\)\s+FROM PUBLIC, anon, authenticated, service_role;/);
+    expect(rollback).toContain("'51e06b46a13c3a8eec4d672bec158376'");
+    expect(rollback).not.toMatch(/DROP\s+TABLE/i);
+    expect(rollback).not.toMatch(/DROP\s+FUNCTION\s+private\.guard_policy_sale_premium_correction/i);
+  });
+
+  it("the rollback restores the PKG-A stub and basis flags only from the exact …21 postimages, else seals only", () => {
+    for (const md5 of ["9c46e97ff58247a13826ddef83e28355", "67c6a60a1004b4596a4a61487a41d17b",
+                       "37800ccc8ada2fae26b86dd5a610eb09", "e446177c344762bec8caf7d5e9321d9b"]) expect(rollback).toContain(`'${md5}'`);
+    expect(rollback).toContain("PKG-A sale premium basis not restored exactly");
+    expect(rollback).toMatch(/OR v_basis IS NULL THEN/);
+  });
+});
+
+describe("PKG-B …21 (D2 §3.7): Reports v3 reads the effective premium; class W", () => {
+  const BASIS = `${MIGRATIONS}/20261104120021_reports_v3_sale_premium_basis.sql`;
+  const basis = stripSqlComments(read(BASIS));
+
+  it("replaces only the PKG-A stub and basis flags, behind their md5 postimages, and refuses while v3 is enabled or on replay", () => {
+    const replaced = [...basis.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+([a-z_]+\.[a-z0-9_]+)/gi)].map((m) => m[1]);
+    expect(replaced).toEqual(["private.report_v3_sale_premium", "private.report_v3_basis_flags"]);
+    expect(basis.trimStart()).toMatch(/^SET LOCAL lock_timeout = '2s';/);
+    for (const md5 of ["37800ccc8ada2fae26b86dd5a610eb09", "e446177c344762bec8caf7d5e9321d9b", "ee64ddb694ad2e1b250ba069342c75fa"])
+      expect(basis).toContain(`'${md5}'`);
+    for (const text of ["Reports v3 must be disabled first", "the corrections ledger (…20) must be applied first", "refusing replay",
+                        "PKG-A preimage drift", "a sale premium changed at the replacement", "function attributes changed"])
+      expect(basis).toContain(text);
+  });
+
+  it("keeps the monthly amount on the shared choke point and installs 3.1.0 / audited_ledger", () => {
+    expect(basis).toMatch(/monthly := private\.performance_sale_monthly\(p_win, p_client\);/);
+    expect(basis).toContain('{"contract_version":"3.1.0","corrections":"audited_ledger","sale_call_links":"not_installed","appointment_evidence":"not_installed"}');
+  });
+
+  it("checks the exact post-grant ACL and never writes a sale, a commission row or a notification", () => {
+    expect(basis).toContain("ACL is not authenticated-only");
+    expect(basis).not.toMatch(/INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM/i);
+    expect(basis).not.toMatch(/policy_commission|notify_win|pg_notify/i);
+  });
+});
+
+describe("PKG-D batch D1 (D4 §3.2–§3.4): privilege classes of the appointment evidence files", () => {
+  const OUTCOME = "GRANT EXECUTE ON FUNCTION public.record_appointment_outcome(uuid, uuid, timestamptz, text) TO authenticated";
+  const FILES: Array<[string, PrivilegeClass]> = [
+    [`${MIGRATIONS}/20261104120040_appointment_type_categories.sql`, "C"],
+    [`${ROLLBACKS}/20261104120040_appointment_type_categories.rollback.sql`, "C"],
+    [`${MIGRATIONS}/20261104120041_appointment_occurrence_evidence.sql`, "W"],
+    [`${ROLLBACKS}/20261104120041_appointment_occurrence_evidence.rollback.sql`, "C"],
+    [`${OPS}/appointment_type_category_baseline.sql`, "R"],
+    [`${OPS}/appointment_type_category_baseline_revert.sql`, "R"],
+    [`${OPS}/appointment_evidence_disable.sql`, "R"],
+    [`${OPS}/appointment_evidence_enable.sql`, "W"],
+    [`${MIGRATIONS}/20261104120042_policy_appointment_attributions.sql`, "W"],
+    [`${ROLLBACKS}/20261104120042_policy_appointment_attributions.rollback.sql`, "C"],
+    [`${MIGRATIONS}/20261104120043_reports_v3_appointment_facts.sql`, "C"],
+    [`${ROLLBACKS}/20261104120043_reports_v3_appointment_facts.rollback.sql`, "C"],
+    [`${OPS}/reporting-accuracy/appointment_evidence_preflight.sql`, "R"],
+  ];
+  const LINKS = [
+    "GRANT EXECUTE ON FUNCTION public.get_policy_appointment_links(uuid) TO authenticated",
+    "GRANT EXECUTE ON FUNCTION public.link_policy_appointment(uuid, uuid, uuid, timestamptz, text, text) TO authenticated",
+    "GRANT EXECUTE ON FUNCTION public.correct_policy_appointment_link(uuid, uuid, uuid, uuid, timestamptz, text) TO authenticated",
+  ];
+
+  it.each(FILES)("%s is class %s: exactly its allowed GRANTs, never to anon, PUBLIC or service_role", (path, cls) => {
+    const found = grants(read(path)).map((g) => g.replace(/\s+/g, " ").trim());
+    expect(found, path).toEqual(cls === "W" ? (path.includes("policy_appointment_attributions") ? LINKS : [OUTCOME]) : []);
+  });
+
+  it("every function the two migrations create is revoked from PUBLIC, anon, authenticated and service_role", () => {
+    for (const path of [FILES[0][0], FILES[2][0], FILES[8][0], FILES[10][0]]) {
+      const sql = stripSqlComments(read(path));
+      const revoked = revokes(sql);
+      for (const fn of createdFunctions(sql)) {
+        const match = revoked.find((r) => r.name === fn.name && r.types.join(",") === fn.types.join(","));
+        expect(match, `${path}: ${fn.name}(${fn.types.join(", ")}) has no REVOKE ALL`).toBeDefined();
+        expect(match!.roles, `${fn.name} REVOKE roles`).toEqual(SEALED_ROLES);
+        expect(fn.header, `${fn.name} search_path`).toMatch(/SET search_path = pg_catalog, pg_temp/);
+      }
+    }
+  });
+
+  it("the capture never blocks except for cancellation and assertion failure, and is bounded at 200 ms", () => {
+    const sql = stripSqlComments(read(FILES[2][0]));
+    expect(sql).toContain("SET lock_timeout = '200ms'");
+    expect(sql).toMatch(/EXCEPTION WHEN OTHERS THEN\s+BEGIN INSERT INTO private\.appointment_evidence_capture_gaps/);
+    expect(sql).not.toMatch(/WHEN\s+(QUERY_CANCELED|ASSERT_FAILURE)/i);
+    expect(sql).toMatch(/CREATE FUNCTION public\.record_appointment_outcome[\s\S]*?SECURITY INVOKER/);
+    expect(sql).not.toMatch(/INSERT\s+INTO\s+public\.wins|policy_commission|notify_win/i);
+  });
+
+  it("the enable script pins the four capture bodies by md5(prosrc)", () => {
+    const sql = read(FILES[7][0]);
+    expect(sql.match(/'[0-9a-f]{32}'/g)).toHaveLength(4);
+    expect(sql).not.toMatch(/@[a-z]+@/);
+  });
+});
+
+describe("PKG-D …43 (D4 §3.6): the Sales Appointments helper replaces only the stub and the flags", () => {
+  const sql = stripSqlComments(read(`${MIGRATIONS}/20261104120043_reports_v3_appointment_facts.sql`));
+  it("guards the …13 stub and the PKG-B flags by md5(pg_get_functiondef) and installs 3.2.0 / installed", () => {
+    expect(sql).toContain("'22b1c13bfc5c20dbd9bbe2fe61d2e31e'");
+    expect(sql).toContain("'67c6a60a1004b4596a4a61487a41d17b'");
+    expect(sql).toContain('"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"not_installed","appointment_evidence":"installed"');
+    const replaced = [...sql.matchAll(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-z_]+\.[a-z0-9_]+)/gi)].map((m) => m[1]);
+    expect(replaced).toEqual(["private.report_v3_appointment_facts", "private.report_v3_basis_flags"]);
+  });
+  it("counts only category sales as a Sales Appointment and reads sale facts across sellers (privacy option a)", () => {
+    expect(sql).toMatch(/'bookings_counted', \(SELECT count\(\*\) FROM b WHERE category = 'sales'\)/);
+    expect(sql).toMatch(/report_v3_sale_facts\(p_org, NULL,/);
+    expect(sql).not.toMatch(/INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM/i);
   });
 });

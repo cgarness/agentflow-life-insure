@@ -104,6 +104,239 @@ def release_enable_check():
             files[-1].name + ' must be byte-equal to supabase/ops/reports_v3_enable.sql'
 
 
+CORRECTION_SUITE = 'supabase/tests/policy_sale_premium_correction.sql'
+CORRECTION_ROLLBACK = 'supabase/migrations/rollback/20261104120020_policy_sale_premium_corrections.rollback.sql'
+MANIFEST_CHECK = 'supabase/ops/reporting-accuracy/check_sale_correction_manifest.sql'
+# md5(pg_get_functiondef) postimages (D2 §3.7): PKG-A (…10, …11, live choke point) and PKG-B (…21).
+PKG_A_BASIS = {'report_v3_sale_premium(public.wins,numeric)': '37800ccc8ada2fae26b86dd5a610eb09',
+               'report_v3_basis_flags()': 'e446177c344762bec8caf7d5e9321d9b',
+               'performance_sale_monthly(public.wins,numeric)': '51e06b46a13c3a8eec4d672bec158376'}
+PKG_B_BASIS = {'report_v3_sale_premium(public.wins,numeric)': '9c46e97ff58247a13826ddef83e28355',
+               'report_v3_basis_flags()': '67c6a60a1004b4596a4a61487a41d17b',
+               'performance_sale_monthly(public.wins,numeric)': 'ee64ddb694ad2e1b250ba069342c75fa'}
+CORRECTION_WRITER = 'public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text)'
+
+
+def correction_suite_v3():
+    """The v3 section of the PKG-B correction suite (after its '-- @@v3@@' marker; the head runs in reporting_fixture.py)."""
+    text = v2.read(CORRECTION_SUITE)
+    assert text.count('\n-- @@v3@@\n') == 1, 'correction suite v3 marker'
+    return text.split('\n-- @@v3@@\n')[1]
+
+
+def basis_state(label, want):
+    """Assert md5(pg_get_functiondef) of the premium functions against a postimage set."""
+    names = sorted(want)
+    got = " || ' ' || ".join(f"md5(pg_get_functiondef('private.{f}'::regprocedure))" for f in names)
+    return f"SELECT rt.eq({v2.quote(label)}, {got}, {v2.quote(' '.join(want[f] for f in names))});"
+
+
+def manifest_check(label, rows, want):
+    """The read-only B6 manifest check (the ops file verbatim, its $1 and $2 bound to literals) in a read-only
+    subtransaction. want is 'pass:has_revision,...'."""
+    sql = v2.read(MANIFEST_CHECK).rstrip().rstrip(';')
+    assert sql.count('$1::uuid') >= 1 and sql.count('$2::jsonb') == 1 and '$3' not in sql, 'manifest check parameters'
+    sql = sql.replace('$1::uuid', "rt.v3('O1')").replace('$2::jsonb', v2.quote(rows) + '::jsonb')
+    return '\n'.join([
+        'SAVEPOINT manifest;',
+        'SET LOCAL transaction_read_only = on;',
+        f"SELECT rt.eq({v2.quote(label)}, (SELECT (r ->> 'pass') || ':' || coalesce((SELECT string_agg(x ->> 'has_revision', ',' ORDER BY o) "
+        f"FROM jsonb_array_elements(r -> 'rows') WITH ORDINALITY y(x, o)), '') FROM ({sql}) z(r)), {v2.quote(want)});",
+        "SELECT rt.expect_sql_failure($w$INSERT INTO rt.v3_ids VALUES ('RO', gen_random_uuid())$w$, 'read-only transaction');",
+        'ROLLBACK TO SAVEPOINT manifest;'])
+
+
+def ledger_row(win, previous, corrected, request, actor='ADM1'):
+    """One synthetic first revision for a fixture sale, written as the table owner through the insert guard."""
+    return ('INSERT INTO private.policy_sale_premium_corrections (organization_id, win_id, policy_id, policy_source, buyer_id, '
+            'seller_id, sold_date, revision, previous_effective_monthly, previous_source, corrected_monthly, reason_code, note, '
+            'book_mode, book_action, actor_id, actor_role, request_id, payload_hash, result) '
+            f"SELECT w.organization_id, w.id, w.policy_id, 'primary', w.contact_id, w.agent_id, w.sold_date, 1, {previous}, "
+            f"'sale_snapshot', {corrected}, 'entry_error', 'synthetic manifest check', 'keep_current', 'kept_current', rt.v3('{actor}'), "
+            f"'Admin', '{request}'::uuid, repeat('0', 64), '{{}}'::jsonb FROM public.wins w WHERE w.id = rt.v3('{win}');")
+
+
+
+
+def baseline_statements(prefix):
+    """Every baseline statement starting with prefix, verbatim (policies, triggers, grants)."""
+    text, out, i = v2.read(BASELINE), [], 0
+    while True:
+        a = text.find(prefix, i)
+        if a < 0:
+            return out
+        b = text.index(';\n', a)
+        out.append(text[a:b + 1])
+        i = b
+
+
+def baseline_table(name):
+    text = v2.read(BASELINE)
+    a = text.index(f'CREATE TABLE IF NOT EXISTS "public"."{name}" (')
+    return text[a:text.index('\n);', a) + 3]
+
+
+def appointment_dependencies():
+    """Production appointment objects for PKG-D on the v3 fixture: the baseline appointments and appointment_types
+    tables, their RLS policies, update triggers, grants and seed, the booking-receipt columns and table, and the
+    baseline role helpers the appointments_select replica (…42) and the policy predicate need. Synthetic data only."""
+    receipts = v2.read(next(str(p.relative_to(ROOT)) for p in (ROOT / 'supabase/migrations').glob('*_booking_disposition_receipts.sql')))
+    a = receipts.index('CREATE TABLE private.booking_receipts(')
+    receipts_table = receipts[a:receipts.index('\n);', a) + 3]
+    helpers = [v2.block(BASELINE, f'CREATE OR REPLACE FUNCTION "public"."{f}"(') for f in ('get_user_role', 'is_super_admin', 'is_ancestor_of',
+                                                                                         'update_updated_at', 'seed_default_appointment_types')]
+    return '\n'.join([
+        'CREATE EXTENSION IF NOT EXISTS ltree;',
+        'ALTER TABLE public.profiles ADD COLUMN team_id uuid, ADD COLUMN hierarchy_path ltree;',
+        *helpers,
+        # The harness's reduced appointments table (v2 readers) gains the remaining baseline columns (types and defaults
+        # verbatim; start_time stays nullable for the harness's existing rows) and the booking-receipt columns.
+        "ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS contact_name text, ADD COLUMN IF NOT EXISTS contact_id uuid, ADD COLUMN IF NOT EXISTS start_time timestamptz, "
+        "ADD COLUMN IF NOT EXISTS end_time timestamptz, ADD COLUMN IF NOT EXISTS notes text, ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now(), "
+        "ADD COLUMN IF NOT EXISTS external_event_id text, ADD COLUMN IF NOT EXISTS external_provider text, ADD COLUMN IF NOT EXISTS external_last_synced_at timestamptz, "
+        "ADD COLUMN IF NOT EXISTS sync_source text DEFAULT 'internal' NOT NULL, ADD COLUMN IF NOT EXISTS booking_request_id uuid, ADD COLUMN IF NOT EXISTS booking_kind text;",
+        "ALTER TABLE public.appointments ALTER COLUMN type SET DEFAULT 'Sales Call', ALTER COLUMN status SET DEFAULT 'Scheduled';",
+        receipts_table, 'ALTER TABLE private.booking_receipts ENABLE ROW LEVEL SECURITY;',
+        'REVOKE ALL ON private.booking_receipts FROM PUBLIC, anon, authenticated, service_role;',
+        baseline_table('appointment_types'), 'ALTER TABLE public.appointment_types ADD PRIMARY KEY (id);',
+        *baseline_statements('CREATE OR REPLACE TRIGGER "appointment_types_updated_at"'),
+        *baseline_statements('CREATE OR REPLACE TRIGGER "appointments_updated_at"'),
+        *baseline_statements('ALTER TABLE "public"."appointment_types" ENABLE ROW LEVEL SECURITY'),
+        *baseline_statements('ALTER TABLE "public"."appointments" ENABLE ROW LEVEL SECURITY'),
+        *baseline_statements('CREATE POLICY "appointment_types_'), *baseline_statements('CREATE POLICY "appointments_'),
+        *baseline_statements('GRANT ALL ON TABLE "public"."appointment_types" TO "authenticated"'),
+        *baseline_statements('GRANT ALL ON TABLE "public"."appointments" TO "authenticated"')])
+
+
+def appointment_facts_suite():
+    """The appointment facts suite: the PKG-A stub section, then the PKG-D section after its '-- @@pkg-d@@' marker."""
+    text = v2.read('supabase/tests/reports_v3_appointment_facts.sql')
+    assert text.count('\n-- @@pkg-d@@\n') == 1, 'appointment facts pkg-d marker'
+    return text.split('\n-- @@pkg-d@@\n')
+
+
+def pkg_d_steps():
+    """PKG-D on the v3 readers (D4 §3.2-§3.6): runs after the PKG-B forward steps and the PKG-B v3 suite, while the
+    flags are PKG-B's (3.1.0). Forward …40-…43, the attribution and appointment-facts suites (each rolled back), then
+    the rollbacks in reverse, back to the PKG-B state; the PKG-B rollback steps that follow return to PKG-A."""
+    categories = v2.migration('appointment_type_categories')
+    evidence = v2.migration('appointment_occurrence_evidence')
+    links = v2.migration('policy_appointment_attributions')
+    facts = v2.migration('reports_v3_appointment_facts')
+    rb = lambda name: v2.read(next(str(p.relative_to(ROOT)) for p in (ROOT / 'supabase/migrations/rollback').glob('*_' + name + '.rollback.sql')))
+    v3_on = ("DO $on$ DECLARE f regprocedure; BEGIN FOR f IN SELECT p.oid::regprocedure FROM pg_proc p "
+             "JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'get_report_summary_v3' "
+             "LOOP EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', f); END LOOP; END $on$;\n")
+    stub_md5 = "md5(pg_get_functiondef('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz)'::regprocedure))"
+    yield 'PKG-D appointment dependencies (verbatim baseline objects)', appointment_dependencies()
+    yield 'appointment facts refuse to run before the evidence and attributions', v2.refused(
+        facts, 'Reports v3 appointment facts: the appointment evidence (…41) and attributions (…42) must be applied first')
+    yield '20261104120040_appointment_type_categories', categories
+    yield 'seeded appointment types for the v3 organizations', 'SELECT public.seed_default_appointment_types(id) FROM public.organizations ORDER BY id;'
+    yield '20261104120041_appointment_occurrence_evidence', evidence
+    yield 'attributions refuse appointments_select drift', v2.refused(
+        "ALTER POLICY appointments_select ON public.appointments USING (organization_id = public.get_org_id());" + links,
+        'Policy appointment attributions: appointments_select drift')
+    yield '20261104120042_policy_appointment_attributions', links
+    yield 'attributions replay refuses', v2.refused(links, 'Policy appointment attributions: refusing replay')
+    yield 'appointment facts refuse while Reports v3 is enabled', v2.refused(v3_on + facts, 'Reports v3 appointment facts: Reports v3 must be disabled first')
+    yield 'appointment facts refuse stub drift', v2.refused(
+        'ALTER FUNCTION private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz) COST 101;\n' + facts,
+        'Reports v3 appointment facts: stub or basis flags preimage drift')
+    yield 'policy appointment attribution regressions (rolled back)', v2.read('supabase/tests/policy_appointment_attributions.sql')
+    yield '20261104120043_reports_v3_appointment_facts', facts
+    yield 'appointment facts replay refuses', v2.refused(facts, 'Reports v3 appointment facts: refusing replay')
+    yield 'v3 sales appointments on captured evidence (rolled back)', appointment_facts_suite()[1]
+    yield 'appointment facts rollback refuses while Reports v3 is enabled', v2.refused(
+        v3_on + rb('reports_v3_appointment_facts'), 'Reports v3 appointment facts rollback: Reports v3 must be disabled first')
+    yield 'attributions rollback refuses before the appointment facts rollback', v2.refused(
+        rb('policy_appointment_attributions'), 'Policy appointment attributions rollback: roll back the appointment facts (…43) first')
+    yield 'appointment facts rollback restores the …13 stub and the PKG-B flags', rb('reports_v3_appointment_facts') + (
+        f"\nSELECT rt.eq('the PKG-B flags and the stub are back', private.report_v3_basis_flags() ->> 'contract_version' || ' ' || {stub_md5}, "
+        "'3.1.0 ' || " + stub_md5 + ");"
+        "\nSELECT rt.eq('the stub answers again', (private.report_v3_appointment_facts(rt.v3('O1'), NULL, NULL, '2026-10-01', '2026-11-01', "
+        "'America/Los_Angeles', now()) -> 'metrics' -> 1 ->> 'reason'), 'evidence_not_captured');")
+    yield 'attributions rollback', rb('policy_appointment_attributions')
+    yield 'appointment evidence rollback', rb('appointment_occurrence_evidence')
+    yield 'appointment type categories rollback', rb('appointment_type_categories')
+
+def pkg_b_steps():
+    """PKG-B on the v3 readers (D2 §3.7, §6.7, §9, §10): refusals, …20, …21, the suite's v3 section (rolled back), the
+    read-only manifest check, the rollback probes, then the empty-ledger rollback, which returns the database to the
+    exact PKG-A state so the differential and performance runners that follow keep comparing PKG-A."""
+    corrections = v2.migration('policy_sale_premium_corrections')
+    basis = v2.migration('reports_v3_sale_premium_basis')
+    rollback = v2.read(CORRECTION_ROLLBACK)
+    v3_on = ("DO $on$ DECLARE f regprocedure; BEGIN FOR f IN SELECT p.oid::regprocedure FROM pg_proc p "
+             "JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'get_report_summary_v3' "
+             "LOOP EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', f); END LOOP; END $on$;\n")
+    flags_drift = ("DO $drift$ BEGIN EXECUTE replace(pg_get_functiondef('private.report_v3_basis_flags()'::regprocedure), "
+                   "'\"sale_call_links\":\"not_installed\"', '\"sale_call_links\":\"installed\"'); END $drift$;\n")
+    sealed_only = ("SELECT rt.eq('the writer and the history reader are sealed; the effective reader stays', "
+                   f"has_function_privilege('authenticated', '{CORRECTION_WRITER}', 'EXECUTE')::text || ':' || "
+                   "has_function_privilege('authenticated', 'public.get_client_policy_sale_premiums(uuid)', 'EXECUTE') || ':' || "
+                   "(to_regprocedure('private.policy_sale_effective_premium(public.wins,numeric)') IS NOT NULL), 'false:false:true');")
+    yield 'sale premium basis refuses to run before the corrections ledger', v2.refused(
+        basis, 'Reports v3 sale premium basis: the corrections ledger (…20) must be applied first')
+    yield '20261104120020_policy_sale_premium_corrections', corrections
+    yield 'sale premium basis refuses while Reports v3 is enabled', v2.refused(
+        v3_on + basis, 'Reports v3 sale premium basis: Reports v3 must be disabled first')
+    yield 'sale premium basis refuses sale premium stub drift', v2.refused(
+        'ALTER FUNCTION private.report_v3_sale_premium(public.wins,numeric) COST 101;\n' + basis,
+        'Reports v3 sale premium basis: PKG-A preimage drift')
+    yield 'sale premium basis refuses basis flags drift', v2.refused(
+        flags_drift + basis, 'Reports v3 sale premium basis: PKG-A preimage drift')
+    yield '20261104120021_reports_v3_sale_premium_basis', basis
+    yield 'sale premium basis postimages', basis_state('PKG-B postimages in place', PKG_B_BASIS)
+    yield 'sale premium basis replay refuses', v2.refused(basis, 'Reports v3 sale premium basis: refusing replay')
+    yield 'sale premium corrections rollback refuses while Reports v3 is enabled', v2.refused(
+        v3_on + rollback, 'Sale premium corrections rollback: Reports v3 must be disabled first')
+    yield 'v3 sale premium corrections (rolled back)', correction_suite_v3()
+    yield from pkg_d_steps()  # PKG-D forward, suites and rollbacks, inside the PKG-B state
+
+    req_a = 'c3f00000-0000-0000-0000-00000000000a'
+    req_b = 'c3f00000-0000-0000-0000-00000000000b'
+    req_o2 = 'c3f00000-0000-0000-0000-0000000000b2'
+    p1, p13, pb1 = 'c3d00000-0000-0000-0000-000000000001', 'c3d00000-0000-0000-0000-000000000013', 'c3d20000-0000-0000-0000-000000000001'
+    rows = json.dumps([{'policy_id': p1, 'request_id': req_a}, {'policy_id': p1, 'request_id': req_b},
+                       {'policy_id': p13, 'request_id': req_a}, {'policy_id': p1}, {'policy_id': pb1, 'request_id': req_o2}])
+    yield 'manifest check (read only): a real revision passes; missing, other-sale, no-id and other-organization rows fail', '\n'.join([
+        'SAVEPOINT rows;',
+        ledger_row('W1', '100.00', '120.00', req_a),
+        ledger_row('WB1', '500.00', '510.00', req_o2, actor='B1'),
+        manifest_check('manifest rows in order', rows, 'false:true,false,false,false,false'),
+        manifest_check('manifest with only the real revision', json.dumps([{'policy_id': p1, 'request_id': req_a}]), 'true:true'),
+        manifest_check('an empty manifest has nothing to fail', '[]', 'true:'),
+        'ROLLBACK TO SAVEPOINT rows;'])
+    yield 'rollback with a non-empty ledger seals the writer only (probe, rolled back)', '\n'.join([
+        'SAVEPOINT nonempty;',
+        ledger_row('W1', '100.00', '120.00', req_a),
+        rollback, sealed_only,
+        basis_state('a non-empty ledger keeps the PKG-B bodies', PKG_B_BASIS),
+        "SELECT rt.eq('the correction stays applied', rt.sf('W1'), '120.00|correction|known|1');",
+        'ROLLBACK TO SAVEPOINT nonempty;'])
+    yield 'rollback after a later package replaced the basis flags seals the writer only (probe, rolled back)', '\n'.join([
+        'SAVEPOINT later;',
+        flags_drift + rollback, sealed_only,
+        "SELECT rt.eq('performance_sale_monthly keeps its PKG-B body', "
+        "md5(pg_get_functiondef('private.performance_sale_monthly(public.wins,numeric)'::regprocedure)), 'ee64ddb694ad2e1b250ba069342c75fa');",
+        'ROLLBACK TO SAVEPOINT later;'])
+    yield 'rollback with an empty ledger restores the exact PKG-A state', '\n'.join([
+        rollback,
+        basis_state('PKG-A preimages restored', PKG_A_BASIS),
+        "SELECT rt.eq('readers and RPCs dropped; the empty ledger is kept', "
+        f"(to_regprocedure('{CORRECTION_WRITER}') IS NULL)::text || ':' || "
+        "(to_regprocedure('public.get_client_policy_sale_premiums(uuid)') IS NULL) || ':' || "
+        "(to_regprocedure('private.policy_sale_effective_premium(public.wins,numeric)') IS NULL) || ':' || "
+        "(SELECT count(*) FROM private.policy_sale_premium_corrections), 'true:true:true:0');",
+        "SELECT rt.eq('PKG-A sale facts again', rt.sf('W1') || ' ' || rt.sf('W6'), "
+        "'100.00|sale_snapshot|known|0 80.50|legacy_record_fallback|known|0');",
+        "SELECT rt.eq('PKG-A basis flags again', private.report_v3_basis_flags() ->> 'contract_version', '3.0.0');",
+        'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false); SELECT rt.assert_v3_helper_shape();'])
+    yield 'sale premium corrections replay after rollback refuses (a re-forward is a new reviewed migration)', v2.refused(
+        corrections, 'Sale premium corrections: refusing replay')
+
+
 def steps():
     v2_steps = dict(v2.steps())
     missing = [label for label in V2_STATE if label not in v2_steps]
@@ -214,13 +447,14 @@ def steps():
     yield 'invalid index leftover removed', no_transaction('DROP INDEX public.report_v3_calls_org_campaign_lead;')
     yield '20261104120016_reports_v3_calls_campaign_lead_index', no_transaction(run_index)
     yield 'index definition and validity', 'SELECT rt.v3_index_check();'
-    yield 'v3 appointment facts', v2.read('supabase/tests/reports_v3_appointment_facts.sql')
+    yield 'v3 appointment facts', appointment_facts_suite()[0]
     yield 'v3 state helpers and reader', v2.read('supabase/tests/reports_v3_state_breakdown.sql')
     yield 'v3 call readers', v2.read('supabase/tests/reports_v3_call_readers.sql')
     yield 'v3 security', v2.read('supabase/tests/reports_v3_security.sql')
     yield 'v3 negative controls', v2.read('supabase/tests/reports_v3_negative.sql')
     yield 'v3 reader contract', contract_readers
     yield 'v2 surface unchanged after the v3 readers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
+    yield from pkg_b_steps()
     # Performance at the required scale, embedded for quick local diagnostics only: always mode diagnostic (report-only,
     # never acceptance evidence) and no restart round. Acceptance runs through scripts/run_reports_v3_perf_acceptance.sh.
     # REPORTS_V3_PERF=0 skips it (the CI functional job). Each sample is its own statement, so the measurement step runs
@@ -298,7 +532,64 @@ ROLLBACK;
 """
 
 
+def correction_payloads_part():
+    """The PKG-B correction bundles (D2 §6.5 step 2, RL-17) for correctedPremiumSurfaces.test.tsx, written from the
+    reporting fixture's policy database (the verbatim sale writers and performance readers): one synthetic sale entered
+    today by the seller test_id(41) at $100/mo, then the seller's Leaderboard snapshot (month), performance summary
+    (month, own) and Recent Wins before and after an Admin (test_id(13)) corrects it to $120/mo. One transaction,
+    rolled back; the RPCs are granted only inside it. Synthetic data only; a test input, never part of a build."""
+    return """\\set ON_ERROR_STOP 1
+SET statement_timeout = 0;
+BEGIN;
+GRANT EXECUTE ON FUNCTION public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text) TO authenticated;
+CREATE TEMP TABLE correction_bundle(stage text PRIMARY KEY, data jsonb NOT NULL);
+GRANT ALL ON correction_bundle TO authenticated;
+DO $bundle$
+DECLARE v_today date; v_sale jsonb; v_policy uuid; v_win uuid;
+  PROCEDURE_CAPTURE text := $q$INSERT INTO correction_bundle SELECT %L, jsonb_build_object(
+    'snapshot', public.get_leaderboard_snapshot('month'), 'summary', public.get_performance_summary('month', 'own', NULL),
+    'recentWins', public.get_leaderboard_recent_wins(NULL))$q$;
+BEGIN
+  PERFORM test_actor(41);
+  SET LOCAL ROLE authenticated;
+  v_today := (public.get_leaderboard_snapshot('month') ->> 'sold_date_through')::date;
+  v_sale := create_client_with_sale(test_id(80201), test_id(1), test_client_payload() || jsonb_build_object('first_name', 'Surface',
+    'assigned_agent_id', test_id(41), 'premium', 100, 'sold_date', v_today), true);
+  RESET ROLE;
+  SELECT c.primary_policy_id, w.id INTO v_policy, v_win FROM public.clients c JOIN public.wins w ON w.policy_id = c.primary_policy_id
+   WHERE c.id = (v_sale ->> 'client_id')::uuid;
+  -- Recent Wins lists sales entered before now(); this is one transaction, so the sale is backdated 1 microsecond.
+  ALTER TABLE public.wins DISABLE TRIGGER wins_policy_identity_guard;
+  UPDATE public.wins SET created_at = created_at - interval '1 microsecond' WHERE id = v_win;
+  ALTER TABLE public.wins ENABLE TRIGGER wins_policy_identity_guard;
+  PERFORM test_actor(41);
+  SET LOCAL ROLE authenticated;
+  EXECUTE format(PROCEDURE_CAPTURE, 'before');
+  RESET ROLE;
+  PERFORM test_actor(13);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.correct_policy_sale_premium(test_id(90601), v_policy, 0, 100, '100'::jsonb, 120, 'entry_error',
+    'Synthetic surface check', 'keep_current');
+  RESET ROLE;
+  PERFORM test_actor(41);
+  SET LOCAL ROLE authenticated;
+  EXECUTE format(PROCEDURE_CAPTURE, 'after');
+  RESET ROLE;
+  INSERT INTO correction_bundle VALUES ('fixture', jsonb_build_object('source', 'reporting_fixture.py policy (synthetic)',
+    'actor', test_id(41), 'corrected_by', test_id(13), 'win_id', v_win, 'sold_date', v_today, 'monthly_before', 100, 'monthly_after', 120));
+END $bundle$;
+\\pset tuples_only on
+\\pset format unaligned
+\\o :payloads
+SELECT jsonb_pretty(jsonb_build_object('correction', (SELECT jsonb_object_agg(stage, data) FROM correction_bundle)));
+\\o
+ROLLBACK;
+"""
+
 if __name__ == '__main__':
+    if '--part' in sys.argv and sys.argv[sys.argv.index('--part') + 1] == 'correction-payloads':
+        print('\\echo PKG-B correction payload bundles\n' + correction_payloads_part())
+        sys.exit(0)
     if '--part' in sys.argv and sys.argv[sys.argv.index('--part') + 1] == 'payloads':
         print('\\echo v3 payload file\n' + payloads_part())
         sys.exit(0)
@@ -309,6 +600,12 @@ if __name__ == '__main__':
         print('\\echo v3 performance ' + stage + '\n' + ('BEGIN;\n' + sql + '\nCOMMIT;\n' if stage == 'setup' else sql))
         sys.exit(0)
     data = list(steps())
+    if '--until' in sys.argv:
+        # Every step up to and including the first whose label contains the text (a live intermediate state for the
+        # PKG-D multi-session script; disposable databases only).
+        until = sys.argv[sys.argv.index('--until') + 1]
+        cut = next(i for i, (label, _) in enumerate(data) if until in label)
+        data = data[:cut + 1]
     if '--json' in sys.argv:
         print(json.dumps([[label, sql[1] if isinstance(sql, tuple) else sql, not isinstance(sql, tuple)] for label, sql in data]))
     else:
