@@ -645,10 +645,36 @@ describe("Reports v3 performance acceptance and differential evidence", () => {
     const scale = dx.slice(dx.indexOf("-- @@differential-scale@@"));
     expect(scale).toContain("\\getenv dx_journey_scale REPORTS_V3_DX_JOURNEY_SCALE");
     expect(scale).toContain(":'dx_journey_scale' IN ('0', '1'), true);");
-    expect(scale).toContain("WHERE e.reader <> 'journey' OR :'dx_journey_scale' = '1'");
-    expect(scale).toContain("CASE WHEN :'dx_journey_scale' = '1' THEN '6/6' ELSE '0/0' END");
+    expect(scale).toContain("WHEN 'all' THEN true ELSE e.reader <> 'journey' END");
+    expect(scale).toContain("CASE :'dx_journey_mode' WHEN 'all' THEN '6/6' WHEN 'case' THEN '1/1' ELSE '0/0' END");
     expect(scale).toContain("journey reader cases NOT RUN (6 pinned; set REPORTS_V3_DX_JOURNEY_SCALE=1");
     expect(scale).toContain("'0:agency:1:-:payload 0:agency:30:-:payload 0:agency:366:-:payload 0:agency:366:7:payload 1:team:30:-:payload 7:personal:366:-:payload'");
     expect(scale).toContain("'journey_reader_cases'");
+  });
+
+  it("verifies one pinned journey case in isolation: exact selector, bounded statement, never counted unless it compared equal", () => {
+    const dx = read("supabase/tests/reports_v3_differential.sql");
+    const scale = dx.slice(dx.indexOf("-- @@differential-scale@@"));
+    expect(scale).toContain("\\getenv dx_journey_case REPORTS_V3_DX_JOURNEY_CASE");
+    expect(scale).toContain("the journey case selector names exactly one pinned journey case");
+    expect(scale).toContain("the journey case selector and the all-cases switch are exclusive");
+    expect(scale).toContain("a selected journey case has a deadline of 1 to 340 minutes");
+    expect(scale).toContain("SELECT set_config('statement_timeout', CASE WHEN :'dx_journey_mode' = 'case' THEN (:'dx_case_deadline'::int * 60000)::text ELSE '0' END, true);");
+    expect(scale).toContain("WHEN 'case' THEN 'case ' || :'dx_journey_case' || ' compared'");
+    const runner = read("scripts/run_reports_v3_differential.sh");
+    expect(runner).toContain("^[0-9]+:(agency|team|personal):[0-9]+:(-|[0-9]+)$");
+    expect(runner).toContain("REPORTS_V3_DX_CASE_DEADLINE_MINUTES <= 340");
+    const j = job("journey-comparison");
+    expect(j).toContain("if: github.event_name == 'workflow_dispatch' && inputs.journey_comparisons");
+    expect(j).toContain("image: postgres:17.6");
+    expect(j).toContain("timeout-minutes: 350\n");
+    expect(j).toContain("fail-fast: false");
+    expect(j).toContain("case: ['0:agency:30:-', '0:agency:366:-']");
+    expect(j).toContain("REPORTS_V3_DX_CASE_DEADLINE_MINUTES: '320'");
+    expect(j).toContain("if: always()");
+    expect(workflow).toContain("group: reports-backend-${{ github.ref }}${{ inputs.journey_comparisons && '-journey' || '' }}");
+    expect(job("postgres")).toContain("if: ${{ !inputs.journey_comparisons }}");
+    expect(job("differential")).toContain("if: ${{ !inputs.journey_comparisons }}");
+    expect(job("perf-acceptance")).toContain("inputs.performance_acceptance && !inputs.journey_comparisons");
   });
 });

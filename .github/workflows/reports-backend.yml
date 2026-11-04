@@ -34,13 +34,19 @@ on:
         description: 'Also run the two-run PostgreSQL 17.6 performance acceptance (147 combinations x 20 samples; long, manual only)'
         type: boolean
         default: false
+      journey_comparisons:
+        description: 'Only run the two isolated agency journey reader comparisons with the baseline (30 and 366 days; up to 350 minutes each; correctness, not performance acceptance)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: reports-backend-${{ github.ref }}
-  cancel-in-progress: true
+  # The journey comparison mode has its own group, so an ordinary verification dispatch never cancels it.
+  group: reports-backend-${{ github.ref }}${{ inputs.journey_comparisons && '-journey' || '' }}
+  cancel-in-progress: ${{ !inputs.journey_comparisons }}
 jobs:
   postgres:
+    if: ${{ !inputs.journey_comparisons }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -123,6 +129,7 @@ jobs:
   differential:
     # Correctness evidence: the code under test against the reviewed baseline (4236b8a), fixtures and the 500k scale
     # organization. Runs on pull requests and manual dispatch.
+    if: ${{ !inputs.journey_comparisons }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
@@ -162,10 +169,59 @@ jobs:
             ${{ runner.temp }}/reports-v3-differential.log
           retention-days: 14
 
+  journey-comparison:
+    # Correctness verification of the two pinned agency journey reader cases the 60-minute differential job cannot hold
+    # (the baseline's reader takes more than two hours per call). One isolated job per case, PostgreSQL 17.6, the same
+    # pinned reference, fixture and single REPEATABLE READ snapshot; a missing, timed-out or differing case fails.
+    if: github.event_name == 'workflow_dispatch' && inputs.journey_comparisons
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        case: ['0:agency:30:-', '0:agency:366:-']
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55433:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Journey reader case ${{ matrix.case }} against the reviewed baseline (deadline 320 minutes)
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+          REPORTS_V3_EVIDENCE_DIR: ${{ runner.temp }}/reports-v3-evidence
+          REPORTS_V3_DX_JOURNEY_CASE: ${{ matrix.case }}
+          REPORTS_V3_DX_CASE_DEADLINE_MINUTES: '320'
+        run: |
+          set -o pipefail
+          bash scripts/run_reports_v3_differential.sh > "$RUNNER_TEMP/reports-v3-journey-case.log" 2>&1 || { grep -v '^NOTICE' "$RUNNER_TEMP/reports-v3-journey-case.log" | tail -n 80; exit 1; }
+          grep -v '^NOTICE' "$RUNNER_TEMP/reports-v3-journey-case.log" | grep -E '^==|Journey case|journey reader case|mismatch|passed' | tail -n 20
+          cat "$RUNNER_TEMP/reports-v3-evidence/differential/scale-summary.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-v3-journey-case-${{ strategy.job-index }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/reports-v3-evidence
+            ${{ runner.temp }}/reports-v3-journey-case.log
+          retention-days: 14
   perf-acceptance:
     # Two independent acceptance runs of the same commit on separate runners; both must pass. Only when a manual
     # dispatch selects it: this is long and is never run for every small edit.
-    if: github.event_name == 'workflow_dispatch' && inputs.performance_acceptance
+    if: github.event_name == 'workflow_dispatch' && inputs.performance_acceptance && !inputs.journey_comparisons
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
@@ -218,7 +274,7 @@ jobs:
   perf-negative-control:
     # Proves the acceptance path detects a miss: the scope reader is slowed by 2.2 s in the disposable database, so the
     # same runner and gate must fail. The job passes only when that run fails for exactly that reason.
-    if: github.event_name == 'workflow_dispatch' && inputs.performance_acceptance
+    if: github.event_name == 'workflow_dispatch' && inputs.performance_acceptance && !inputs.journey_comparisons
     runs-on: ubuntu-latest
     timeout-minutes: 45
     services:
@@ -261,7 +317,7 @@ jobs:
   perf-verdict:
     # The acceptance verdict over both runs (no best-of selection) and the negative control, from their artifacts.
     needs: [perf-acceptance, perf-negative-control]
-    if: always() && github.event_name == 'workflow_dispatch' && inputs.performance_acceptance
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.performance_acceptance && !inputs.journey_comparisons
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

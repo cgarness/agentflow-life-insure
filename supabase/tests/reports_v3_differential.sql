@@ -376,18 +376,42 @@ SELECT rt.eq('differential at scale: the journey reader cases pinned (windows, s
   (SELECT string_agg(concat_ws(':', e.persona, e.scope, e.days, coalesce(e.filter_agent::text, '-'), e.expected), ' ' ORDER BY e.persona, e.days, e.filter_agent NULLS FIRST)
      FROM rt.dx_scale_expected e WHERE e.reader = 'journey'),
   '0:agency:1:-:payload 0:agency:30:-:payload 0:agency:366:-:payload 0:agency:366:7:payload 1:team:30:-:payload 7:personal:366:-:payload');
+-- One isolated journey reader case (the dispatch-only verification mode): REPORTS_V3_DX_JOURNEY_CASE names exactly one
+-- pinned journey case as persona:scope:days:filter ('-' for no agent filter), and REPORTS_V3_DX_CASE_DEADLINE_MINUTES
+-- bounds the comparison statement. A missing, timed-out or differing case fails; it is never counted as compared.
+\getenv dx_journey_case REPORTS_V3_DX_JOURNEY_CASE
+\if :{?dx_journey_case}
+\else
+\set dx_journey_case ''
+\endif
+\getenv dx_case_deadline REPORTS_V3_DX_CASE_DEADLINE_MINUTES
+\if :{?dx_case_deadline}
+\else
+\set dx_case_deadline 0
+\endif
+SELECT CASE WHEN :'dx_journey_case' <> '' THEN 'case' WHEN :'dx_journey_scale' = '1' THEN 'all' ELSE 'none' END AS dx_journey_mode \gset
+SELECT rt.eq('differential at scale: the journey case selector and the all-cases switch are exclusive',
+  :'dx_journey_case' = '' OR :'dx_journey_scale' = '0', true);
+SELECT rt.eq('differential at scale: the journey case selector names exactly one pinned journey case',
+  :'dx_journey_case' = '' OR (SELECT count(*) FROM rt.dx_scale_expected e WHERE e.reader = 'journey'
+    AND concat_ws(':', e.persona, e.scope, e.days, coalesce(e.filter_agent::text, '-')) = :'dx_journey_case') = 1, true);
+SELECT rt.eq('differential at scale: a selected journey case has a deadline of 1 to 340 minutes',
+  :'dx_journey_case' = '' OR :'dx_case_deadline' ~ '^[0-9]+$' AND :'dx_case_deadline'::int BETWEEN 1 AND 340, true);
 SET statement_timeout = 0;
 SET jit = off;
 BEGIN ISOLATION LEVEL REPEATABLE READ;
 SELECT rt.dx_grants(true);
+SELECT set_config('statement_timeout', CASE WHEN :'dx_journey_mode' = 'case' THEN (:'dx_case_deadline'::int * 60000)::text ELSE '0' END, true);
 SELECT count(*) AS scale_reader_cases FROM (
   SELECT rt.dx_case('scale', concat_ws(':', 'persona-' || e.persona, e.scope, coalesce('agent-' || e.filter_agent, '-'), e.reader,
                                        coalesce(e.days || 'd', '-')),
                     rt.perf_agent(e.persona), m.org, e.reader, m.end_date - (e.days - 1), m.end_date,
                     CASE WHEN e.filter_agent IS NOT NULL THEN rt.perf_agent(e.filter_agent) END, e.scope, e.expected)
     FROM rt.dx_scale_expected e, rt.perf_meta m
-   WHERE e.reader <> 'journey' OR :'dx_journey_scale' = '1'
+   WHERE CASE :'dx_journey_mode' WHEN 'case' THEN e.reader = 'journey' AND concat_ws(':', e.persona, e.scope, e.days, coalesce(e.filter_agent::text, '-')) = :'dx_journey_case'
+              WHEN 'all' THEN true ELSE e.reader <> 'journey' END
    ORDER BY e.reader, e.persona, e.days, e.filter_agent NULLS FIRST) x;
+SELECT set_config('statement_timeout', '0', true);
 -- Call facts over the 366-day window: the code under test against the pinned v2 rows on every carried column, and
 -- against the baseline's v3 rows on every column.
 CREATE TEMP TABLE dx_window AS SELECT w.start_at, w.end_at FROM rt.perf_meta m, LATERAL private.report_window(m.org, m.end_date - 365, m.end_date) w;
@@ -454,11 +478,13 @@ COMMIT;
 SELECT part, kind, label, reader, expected, cand, ref, detail FROM rt.dx_results WHERE part = 'scale' AND (outcome = 'mismatch' OR kind <> 'reader') ORDER BY kind, label;
 SELECT rt.eq('differential at scale: every pinned scale reader case ran (the journey reader cases when enabled)',
   (SELECT count(*) FROM rt.dx_results WHERE part = 'scale' AND kind = 'reader'),
-  (SELECT count(*) FROM rt.dx_scale_expected e WHERE e.reader <> 'journey' OR :'dx_journey_scale' = '1'));
+  (SELECT count(*) FROM rt.dx_scale_expected e WHERE CASE :'dx_journey_mode' WHEN 'case' THEN e.reader = 'journey'
+     AND concat_ws(':', e.persona, e.scope, e.days, coalesce(e.filter_agent::text, '-')) = :'dx_journey_case' WHEN 'all' THEN true ELSE e.reader <> 'journey' END));
 SELECT rt.eq('differential at scale: the journey reader cases compared equal when enabled, and absent otherwise',
   (SELECT count(*) FILTER (WHERE r.outcome = 'payload_equal') || '/' || count(*) FROM rt.dx_results r WHERE r.part = 'scale' AND r.kind = 'reader' AND r.reader = 'journey'),
-  CASE WHEN :'dx_journey_scale' = '1' THEN '6/6' ELSE '0/0' END);
-SELECT CASE WHEN :'dx_journey_scale' = '1' THEN 'differential at scale: journey reader cases compared with the baseline: 6 of 6 payload_equal'
+  CASE :'dx_journey_mode' WHEN 'all' THEN '6/6' WHEN 'case' THEN '1/1' ELSE '0/0' END);
+SELECT CASE :'dx_journey_mode' WHEN 'all' THEN 'differential at scale: journey reader cases compared with the baseline: 6 of 6 payload_equal'
+            WHEN 'case' THEN 'differential at scale: journey reader case ' || :'dx_journey_case' || ' compared with the baseline: 1 of 1 payload_equal'
             ELSE 'differential at scale: journey reader cases NOT RUN (6 pinned; set REPORTS_V3_DX_JOURNEY_SCALE=1, 31 minutes to more than 2 hours per baseline call)'
        END AS journey_reader_scale;
 SELECT rt.eq('differential at scale: the pinned v2 call rows, the baseline v3 rows, the resolver sample and the journey helpers all compared',
@@ -473,9 +499,9 @@ SELECT row_to_json(r) FROM (SELECT part, kind, label, reader, expected, cand, re
                               FROM rt.dx_results WHERE part = 'scale' ORDER BY kind, label) r;
 \o :dx_scale_summary
 SELECT jsonb_pretty(rt.dx_summary('scale') || jsonb_build_object('journey_reader_cases',
-         CASE WHEN :'dx_journey_scale' = '1' THEN 'compared' ELSE 'not run (REPORTS_V3_DX_JOURNEY_SCALE unset)' END));
+         CASE :'dx_journey_mode' WHEN 'all' THEN 'compared' WHEN 'case' THEN 'case ' || :'dx_journey_case' || ' compared' ELSE 'not run (REPORTS_V3_DX_JOURNEY_SCALE unset)' END));
 \o
 \pset tuples_only off
 \pset format aligned
 SELECT rt.dx_summary('scale') || jsonb_build_object('journey_reader_cases',
-         CASE WHEN :'dx_journey_scale' = '1' THEN 'compared' ELSE 'not run (REPORTS_V3_DX_JOURNEY_SCALE unset)' END) AS differential_scale;
+         CASE :'dx_journey_mode' WHEN 'all' THEN 'compared' WHEN 'case' THEN 'case ' || :'dx_journey_case' || ' compared' ELSE 'not run (REPORTS_V3_DX_JOURNEY_SCALE unset)' END) AS differential_scale;

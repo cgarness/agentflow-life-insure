@@ -1,3 +1,48 @@
+## 2026-11-04 — Reports V2: F-3/F-4 and the two isolated journey comparisons (branches `claude/great-goodall-911azc` and `-pkg-f`; nothing applied, merged, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("continue F-3/F-4 and complete the feature build").
+- **Approved:**
+  - the type-only `ReportScopeTabs.tsx` adaptation;
+  - a bounded build/upload step for the synthetic review package in `.github/workflows/reports-backend.yml`;
+  - a dispatch-only two-case journey verification mode in that workflow.
+- **Copy approved:**
+  - `SALE_SOURCE_NOTE`: "Policies sold counts recorded policy sales by Sold Date."
+  - `ORIGINAL_SELLER_NOTE`: "Each sale is credited to the agent who originally sold it."
+  - `EFFECTIVE_PREMIUM_BASIS`: "AP uses the original sale's effective monthly premium × 12, including audited corrections."
+  - `HOW_CALCULATED_DESCRIPTION`: "How each metric is calculated, dated and credited."
+- **Unchanged:** no broader permission or runtime behaviour change; F-1/F-2 is partial, and every release blocker stays open.
+
+**Heads at start:** foundation `fa1abaa`; `-pkg-f` `969a2fa`; `main` `0e74428` (unchanged since 2026-11-03). Main changed `App.tsx` after the original discovery (`InboundsVoiceBoundary` replaces `TwilioProvider`, plus the `/inbounds` route). `origin/main` is merged into `-pkg-f` before PKG-F touches `App.tsx`, so main's routing is kept, not overwritten.
+
+**Batch V (foundation; covered paths).**
+- `.github/workflows/reports-backend.yml`:
+  - the `journey_comparisons` dispatch input, its own concurrency group, and ordinary jobs skipped in that mode;
+  - a `journey-comparison` job: a two-case matrix (`0:agency:30:-` and `0:agency:366:-`), PostgreSQL 17.6, 350-minute limit, `fail-fast: false`, evidence always uploaded.
+- `scripts/run_reports_v3_differential.sh`: up-front checks of the selector syntax and the deadline (1–340 minutes).
+- `supabase/tests/reports_v3_differential.sql`:
+  - `REPORTS_V3_DX_JOURNEY_CASE` must match exactly one pinned journey case and excludes the all-cases switch;
+  - `REPORTS_V3_DX_CASE_DEADLINE_MINUTES` sets `statement_timeout` on the comparison statement only;
+  - the result is `1/1` payload_equal or the run fails;
+  - the in-transaction grants roll back on any failure (the seal).
+- `src/lib/__tests__/reportsV3Contracts.test.ts`, this file, `WORK_LOG.md`.
+- The frozen reference, the fixture and the 8 s acceptance timeout are unchanged. Each case is attempted once.
+
+**Batch F-3 (`-pkg-f`).**
+- **F-3a, state safety:** `src/hooks/useReportsPage.ts`, `src/pages/Reports.tsx`, `src/lib/reports-panels.ts`, and a new test `src/hooks/__tests__/useReportsPage.test.tsx`.
+  - Results are bound to the request identity: viewer, organization, View As, scope, window, agent and generation.
+  - The response metadata is checked against the request and the resolved scope, and drift is detected.
+  - No panel requests unless the scope is ready.
+  - Export eligibility uses the same current-data guarantee.
+- **F-3b, test migration:** `src/pages/__tests__/reportsPage.test.tsx`, `src/pages/__tests__/reportsScopeIntegration.test.tsx` and `src/components/reports/__tests__/reportsDialerIntelligence.test.tsx`, rewritten for v3. Behavioural coverage is kept; assertions for unfinished parts are mapped to F-3c/F-4.
+- **F-3c, sections 3–7** (D6 §5 paths): `ReportTrends`, `PoliciesSoldChart`, `CallVolumeChart`, `DispositionsPieChart` (call outcomes), `AgentPerformanceCards` with `agentPerformanceColumns.ts`, `CallingHeatmap`, `HeatmapGrid`, `useGridNavigation.ts`, `ScaleLegend`, `reports-scale.ts`, `ReportBreakdowns`, `CampaignPerformance`, `LeadSourceTable`, `CallFlowAnalysis`, `CallDurationAnalysis` and `DispositionDeepDive`; D5's `src/components/reports/regional/*`; `src/App.tsx` (lazy route).
+
+**Batch F-4 (`-pkg-f`):**
+- the exports: `reports-v3-export.ts`, `reports-export.ts` (`buildKpiCoverageRows`), `useReportExports.ts`, `ReportExportMenu`;
+- the layout-v5 customizer: `report-layout-constants.ts`, `useReportLayout.ts`, `ReportCustomizer`, `CustomizerGroup`;
+- How it's calculated: `ReportDataBasis`, `DataBasisSections`, `reports-basis-text.ts`, `reports-v3-text.ts`;
+- the v3 visual harness: `scripts/tests/reports-visual/{verify.mjs, stubs.ts, vite.config.ts, entry.tsx, README.md}`;
+- the review-package build and upload step in `.github/workflows/reports-backend.yml`.
+
 ## 2026-11-03 — Reports V2: complete the remaining build; Package F private preview first (branches `claude/great-goodall-911azc` and `-pkg-b/-pkg-c/-pkg-d/-pkg-f`; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-03 ("Complete the remaining build; first deliver the private Reports preview"). It continues the approved package scope on branches and disposable synthetic databases. It does not approve unseen defaults, pending security decisions or proposed AGENT_RULES amendments. Out of scope: the stopped Phase B maintained-identity layer, X2 and any new cache architecture.
