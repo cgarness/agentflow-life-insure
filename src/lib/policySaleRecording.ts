@@ -13,7 +13,10 @@ import {
   type SaleHandoffResult,
   type SaleKind,
   type SaleOperationState,
+  parseSourceCallLink,
 } from "@/lib/policySaleOutcome";
+import { getChipSelection, isCallRowId } from "@/lib/recentTrackedCall";
+import { scheduleSaleCallLinkRetry } from "@/lib/saleCallLinkRetry";
 
 /**
  * `attempt` + `commission` route the save through the Phase 2A companion (exactly-once retries, server-recorded
@@ -40,6 +43,22 @@ const COMPANION: Record<SaleKind, string> = {
   edit: "update_client_with_policy_sale_handoff",
 };
 
+/** The PKG-C companions that also capture the producing call (D3 §3.6); record and convert only. */
+const COMPANION_WITH_CALL: Partial<Record<SaleKind, string>> = {
+  record: "record_client_policy_handoff_v2",
+  convert: "convert_lead_to_client_with_sales_handoff_v2",
+};
+
+/**
+ * The producing call for a submission being prepared: the forwarded prop when one was given (the Dialer and
+ * FloatingDialer mounts), else the source-call chip's selection under the same request id (★6). Read once, when the
+ * submission is prepared; it is frozen with it. Anything but a call row id is null.
+ */
+export function resolveSourceCallId(sourceCallId: string | null | undefined, requestId: string): string | null {
+  const value = sourceCallId !== undefined ? sourceCallId : getChipSelection(requestId);
+  return isCallRowId(value) ? value : null;
+}
+
 const UNREADABLE_RESPONSE = "The save response couldn't be read, so it may or may not have saved.";
 
 /**
@@ -49,10 +68,15 @@ const UNREADABLE_RESPONSE = "The save response couldn't be read, so it may or ma
 export async function sendPreparedSale(prepared: PreparedSale, attempt: SaleAttempt): Promise<SaleHandoffResult> {
   attempt.prepared = prepared;
   const args = { ...prepared.saleArgs, p_request_id: prepared.requestId, p_commission: prepared.commission };
+  const withCall = prepared.sourceCallId && COMPANION_WITH_CALL[prepared.kind];
   attempt.sent = true;
   let response: { data: unknown; error: { message?: string; code?: string } | null; status?: number };
   try {
-    response = await (supabase as any).rpc(COMPANION[prepared.kind], args);
+    response = withCall
+      ? await (supabase as any).rpc(withCall, { ...args, p_source_call_id: prepared.sourceCallId })
+      : await (supabase as any).rpc(COMPANION[prepared.kind], args);
+    // Release-order safety (D3-23): before the capture companions exist, resend once to the unchanged companion.
+    if (withCall && response.error?.code === "PGRST202") response = await (supabase as any).rpc(COMPANION[prepared.kind], args);
   } catch (error) {
     throw new SaleRequestError(error instanceof Error ? error.message : UNREADABLE_RESPONSE, "unknown");
   }
@@ -65,8 +89,11 @@ export async function sendPreparedSale(prepared: PreparedSale, attempt: SaleAtte
   }
   const sale = parseSaleResult(data, prepared.expectedClientId);
   if (!sale) throw new SaleRequestError(UNREADABLE_RESPONSE, "unknown", null, status ?? null);
-  const result = { ...sale, commission: parseCommissionOutcome((data as Record<string, unknown>).commission) };
+  const result: SaleHandoffResult = { ...sale, commission: parseCommissionOutcome((data as Record<string, unknown>).commission),
+    sourceCallLink: parseSourceCallLink((data as Record<string, unknown>).source_call_link) };
   attempt.result = result;
+  // A recorded capture failure is retried in the background; the sale's success is never altered by it.
+  if (result.sourceCallLink?.status === "capture_failed" && result.sourceCallLink.recorded) void scheduleSaleCallLinkRetry(result.winIds);
   if (prepared.notify) await notifyRecordedSales(result.winIds);
   return result;
 }
@@ -116,7 +143,7 @@ export async function recordClientPolicy(requestId: string, clientId: string, po
 
 /** The Record Policy companion submission (built once, then frozen by the caller's attempt). */
 export function prepareRecordPolicy(requestId: string, clientId: string, policy: PolicyEntry, primary: boolean,
-  commission: CommissionPayload): PreparedSale {
+  commission: CommissionPayload, sourceCallId?: string | null): PreparedSale {
   return {
     kind: "record",
     requestId,
@@ -125,13 +152,14 @@ export function prepareRecordPolicy(requestId: string, clientId: string, policy:
     saleArgs: { p_client_id: clientId, p_policy: policy, p_primary: primary },
     commission,
     notify: policy.sale_mode !== "historical",
+    sourceCallId: resolveSourceCallId(sourceCallId, requestId),
   };
 }
 
 /** Existing-client policy and sale in one server transaction, through the commission companion. */
 export function recordClientPolicyHandoff(attempt: SaleAttempt, requestId: string, clientId: string, policy: PolicyEntry,
-  primary: boolean, commission: CommissionPayload): Promise<SaleHandoffResult> {
-  return runPreparedSale(attempt, () => prepareRecordPolicy(requestId, clientId, policy, primary, commission));
+  primary: boolean, commission: CommissionPayload, sourceCallId?: string | null): Promise<SaleHandoffResult> {
+  return runPreparedSale(attempt, () => prepareRecordPolicy(requestId, clientId, policy, primary, commission, sourceCallId));
 }
 
 /** Never turn malformed or negative premium input into a plausible sale amount. */
