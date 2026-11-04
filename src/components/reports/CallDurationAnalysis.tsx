@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCount, formatElapsed } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
-import type { ReportDispositions } from "@/lib/reports-schemas";
+import type { ReportDispositionsV3 as ReportDispositions } from "@/lib/reports-v3-schemas";
 import { BAR_GRID, CHART_THEME, CHART_TICK, DIAGNOSTIC_TOOLTIP, SERIES_COLOR } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
 import ReportSegmented from "./ReportSegmented";
@@ -18,33 +18,23 @@ interface Props {
 
 type DispositionRow = ReportDispositions["by_disposition"][number];
 
-/** Call-weighted average of per-disposition averages; null when the group has no calls. */
-function weightedAvg(rows: DispositionRow[]): number | null {
-  const calls = rows.reduce((s, r) => s + r.calls, 0);
-  if (calls === 0) return null;
-  return rows.reduce((s, r) => s + r.avg_duration_seconds * r.calls, 0) / calls;
+
+function avgSeconds(d: { calls?: number; duration_seconds?: number }): number {
+  return (d.calls ?? 0) > 0 ? (d.duration_seconds ?? 0) / d.calls! : 0;
 }
 
 const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
   const [tab, setTab] = useState<Tab>("disposition");
 
-  const { top, truncated, insight } = useMemo(() => {
-    // Server order is calls DESC, so the first N rows are the top N by calls.
-    const rows = dispositions.by_disposition;
-    const convertAvg = weightedAvg(rows.filter((r) => r.converts));
-    const otherAvg = weightedAvg(rows.filter((r) => !r.converts));
-    return {
-      top: rows.slice(0, TOP_N),
-      truncated: rows.length > TOP_N,
-      insight:
-        convertAvg !== null && otherAvg !== null
-          ? `Calls with a converting disposition averaged ${formatElapsed(convertAvg, 1)}, versus ${formatElapsed(otherAvg, 1)} for all other dispositions.`
-          : null,
-    };
+  const { top, truncated } = useMemo(() => {
+    // Server order is calls DESC, so the first N rows are the top N by calls. The average is display arithmetic from
+    // two exact server counts (total seconds and calls).
+    const rows = dispositions.by_disposition.map((d) => ({ ...d, avg_duration_seconds: avgSeconds(d) }));
+    return { top: rows.slice(0, TOP_N), truncated: rows.length > TOP_N };
   }, [dispositions]);
 
-  const histogram = dispositions.duration_histogram;
-  const empty = dispositions.total_calls === 0;
+  const histogram = dispositions.duration_buckets;
+  const empty = dispositions.call_population.attempts === 0;
 
   const handleExport = onExport
     ? () => {
@@ -52,7 +42,7 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
           onExport(
             "Call Duration by Disposition",
             ["Disposition", "Calls", "Avg duration (s)"],
-            dispositions.by_disposition.map((d) => [d.name, d.calls, d.avg_duration_seconds]),
+            dispositions.by_disposition.map((d) => [d.name, d.calls, avgSeconds(d)]),
           );
         } else {
           onExport("Call Duration Distribution", ["Range", "Calls"], histogram.map((h) => [h.range, h.calls]));
@@ -97,7 +87,6 @@ const CallDurationAnalysis: React.FC<Props> = ({ dispositions, onExport }) => {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-              {insight && <p className="mt-3 text-xs text-muted-foreground">{insight}</p>}
             </>
           )}
 

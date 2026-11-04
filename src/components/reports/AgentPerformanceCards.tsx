@@ -1,130 +1,81 @@
-import React from "react";
-import { formatCount, formatElapsed, formatRate, formatPremium } from "@/lib/reports-format";
-import type { CsvCell, ReportExportFn } from "@/lib/reports-export";
-import type { ReportPremium, ReportSummary } from "@/lib/reports-schemas";
+import React, { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { kpi } from "@/lib/reports-kpi-registry";
+import { tileView } from "@/lib/reports-kpi-format";
+import { formatCount, formatPremium } from "@/lib/reports-format";
+import type { Panels } from "@/lib/reports-panels";
+import type { KpiEnvelope } from "@/lib/reports-v3-schemas";
+import { CHIP_IN_PROGRESS, CHIP_PARTIAL, NOT_LOADED } from "@/lib/reports-v3-text";
 import ReportSection from "./ReportSection";
 import ReportTableFrame from "./ReportTableFrame";
-import { ROW_LABEL, TD, TD_FIRST, TD_SUB, TF, TF_FIRST, TH, TH_FIRST, TH_LABEL, TR } from "./reportTableStyles";
+import { AGENT_COLUMNS } from "./agentPerformanceColumns";
+import { TD, TD_FIRST, TF, TF_FIRST, TH, TH_FIRST, TH_LABEL, TR } from "./reportTableStyles";
 
-interface Props {
-  summary: ReportSummary;
-  selectedAgentId: string | null;
-  /** Only server-returned agents may narrow the current report. */
-  selectableAgentIds: ReadonlySet<string>;
-  onSelectAgent: (id: string | null) => void;
-  onExport?: ReportExportFn;
+interface Props { panels: Panels; viewerId: string | null; agencyScope: boolean }
+
+function Cell({ id, env }: { id: number; env: KpiEnvelope | null }) {
+  if (!env) return <span className="text-muted-foreground" title={NOT_LOADED}>—<span className="sr-only"> {NOT_LOADED}</span></span>;
+  const v = tileView(kpi(id), env);
+  return (
+    <span className="inline-flex flex-col items-end">
+      <span aria-hidden="true">{v.text}</span><span className="sr-only">{v.srText}</span>
+      {(v.cue || v.chips.length > 0) && (
+        <span className="text-[11px] text-muted-foreground" aria-hidden="true">
+          {[v.cue, ...v.chips.map(c => (c === "partial" ? CHIP_PARTIAL : CHIP_IN_PROGRESS))].filter(Boolean).join(" · ")}
+        </span>
+      )}
+    </span>
+  );
 }
 
-const EXPORT_HEADERS = [
-  "Agent", "Status", "Calls made", "Contacted", "Call contact rate %", "Talk time (s)",
-  "Policies (current assignment)", "Converted", "Bookings created (all types)", "Session time (s)",
-  "Known annual premium", "Policies with known premium", "Policies with unknown premium",
-];
-/** Screen columns: production first, then activity. "Contacted calls" is on screen as well as in the CSV. */
-const HEADERS = [
-  "Agent", "Policies sold", "Annual premium", "Calls made", "Contacted calls",
-  "Call contact rate", "Appointments", "Talk time",
-];
-
-/** The drilldown name: text-sized, with a 40px hit area that reaches into the cell padding. */
-const NAME_BUTTON = "relative rounded-sm text-left text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring after:absolute after:inset-x-0 after:-inset-y-2.5";
-
-const PremiumValue = ({ premium }: { premium: ReportPremium }) => (
-  <>
-    <span className="font-medium">{formatPremium(premium.annual_premium)}</span>
-    <span className={TD_SUB}>
-      {premium.known_count}/{premium.policy_count} known{premium.unknown_count > 0 ? " · " + premium.unknown_count + " unknown" : ""}
-    </span>
-  </>
-);
-
-/** Comparable supported metrics in server order; current ownership is never presented as seller credit. */
-const AgentPerformanceCards: React.FC<Props> = ({ summary, selectedAgentId, selectableAgentIds, onSelectAgent, onExport }) => {
-  const agents = summary.by_agent;
-  const u = summary.unattributed;
-  const hasUnattributed = [u.calls_made, u.inbound_calls, u.talk_time_seconds, u.policies_sold, u.appointments_set].some((n) => n > 0);
-  const handleExport = onExport ? () => {
-    const rows: CsvCell[][] = agents.map((a) => [
-      a.name, a.status, a.calls_made, a.contacted, a.contact_rate_pct, a.talk_time_seconds,
-      a.policies_sold, a.converted, a.appointments_set, a.session_seconds, a.premium.annual_premium,
-      a.premium.known_count, a.premium.unknown_count,
-    ]);
-    if (hasUnattributed) {
-      rows.push(["Unattributed", null, u.calls_made, null, null, u.talk_time_seconds, u.policies_sold, null,
-        u.appointments_set, null, u.premium.annual_premium, u.premium.known_count, u.premium.unknown_count]);
-    }
-    onExport("Agent Performance", EXPORT_HEADERS, rows);
-  } : undefined;
-
+/** Section 4: combined agent performance (Team/Agency). Joined on agent_id; server order; no total row from rows. */
+const AgentPerformanceCards: React.FC<Props> = ({ panels, viewerId, agencyScope }) => {
+  const rows = useMemo(() => {
+    if (panels.summary.status !== "ready") return [];
+    const index = (p: Panels["journey"] | Panels["salesAppointments"]) =>
+      new Map(p.status === "ready" ? p.data.by_agent.map(r => [r.agent_id, r.metrics]) : []);
+    const journey = index(panels.journey), appts = index(panels.salesAppointments);
+    return panels.summary.data.by_agent.map(r => ({
+      id: r.agent_id, name: r.name,
+      cells: AGENT_COLUMNS.map(c => {
+        const ms = c.panel === "summary" ? r.metrics : c.panel === "journey" ? journey.get(r.agent_id) : appts.get(r.agent_id);
+        return ms?.find(m => m.id === c.id) ?? null;
+      }),
+    }));
+  }, [panels.summary, panels.journey, panels.salesAppointments]);
+  const top = panels.summary.status === "ready" ? panels.summary.data.metrics : [];
+  const unattributedPolicies = (top.find(m => m.id === 2)?.detail as { quality?: { unattributed_policies?: number | null } } | null)?.quality?.unattributed_policies ?? null;
+  const unattributedAp = (top.find(m => m.id === 1)?.detail as { unattributed_annual_premium?: number | null } | null)?.unattributed_annual_premium ?? null;
   return (
-    <ReportSection title="Agent performance" onExport={handleExport}>
-      {agents.length === 0 && !hasUnattributed ? (
-        <p className="py-12 text-center text-sm text-muted-foreground">No agents in this report.</p>
-      ) : (
-        <ReportTableFrame label="Agent performance table" tableClassName="min-w-[820px]"
-          caption="Agent production and activity for the selected report. Select an available agent name to filter.">
+    <ReportSection title="Agent performance">
+      <ReportTableFrame label="Agent performance table" tableClassName="min-w-[56rem]">
           <thead>
             <tr>
-              {HEADERS.map((label, i) => (
-                <th key={label} scope="col" className={i === 0 ? TH_FIRST : TH}><span className={TH_LABEL}>{label}</span></th>
-              ))}
+              <th scope="col" className={TH_FIRST}>Agent</th>
+              {AGENT_COLUMNS.map(c => <th key={c.id} scope="col" className={TH}><span className={TH_LABEL}>{kpi(c.id).label}</span></th>)}
             </tr>
           </thead>
           <tbody>
-            {agents.map((a) => {
-              const selectable = selectableAgentIds.has(a.agent_id);
-              const selected = selectedAgentId === a.agent_id;
-              return (
-                <tr key={a.agent_id} className={TR}>
-                  <th scope="row" className={cn(TD_FIRST, selected && "shadow-[inset_3px_0_0_hsl(var(--primary)),inset_-1px_0_0_hsl(var(--border))]")}>
-                    <span className={ROW_LABEL}>
-                      {selectable ? (
-                        <button type="button" aria-pressed={selected}
-                          aria-label={(selected ? "Clear agent filter for " : "Filter reports to ") + a.name}
-                          onClick={() => onSelectAgent(selected ? null : a.agent_id)}
-                          className={NAME_BUTTON}>
-                          <span className="break-words">{a.name}</span>
-                        </button>
-                      ) : <span className="break-words">{a.name}</span>}
-                      {a.status && a.status !== "Active" && <span className={TD_SUB}>{a.status}</span>}
-                      {selected && <span className={cn(TD_SUB, "font-medium text-foreground")}>Selected</span>}
-                    </span>
-                  </th>
-                  <td className={TD}>{formatCount(a.policies_sold)}</td>
-                  <td className={TD}><PremiumValue premium={a.premium} /></td>
-                  <td className={TD}>{formatCount(a.calls_made)}</td>
-                  <td className={TD}>{formatCount(a.contacted)}</td>
-                  <td className={TD}>{formatRate(a.contact_rate_pct)}</td>
-                  <td className={TD}>{formatCount(a.appointments_set)}</td>
-                  <td className={TD}>{formatElapsed(a.talk_time_seconds)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-          {hasUnattributed && (
-            <tfoot>
-              {/* One cell per column; contacted calls and the rate are not measured for unattributed activity. */}
-              <tr>
-                <th scope="row" className={TF_FIRST}>
-                  <span className={ROW_LABEL}>
-                    Unattributed
-                    <span className={TD_SUB}>Activity or policies without an agent</span>
-                    {u.inbound_calls > 0 && <span className={TD_SUB}>{formatCount(u.inbound_calls)} inbound calls</span>}
-                  </span>
+            {rows.map(r => (
+              <tr key={r.id} className={cn(TR, r.id === viewerId && "bg-primary/5")}>
+                <th scope="row" className={cn(TD_FIRST, "whitespace-nowrap", r.id === viewerId && "bg-primary/5")}>
+                  {r.name}{r.id === viewerId && <span className="ml-2 text-xs text-muted-foreground">You</span>}
                 </th>
-                <td className={TF}>{formatCount(u.policies_sold)}</td>
-                <td className={TF}><PremiumValue premium={u.premium} /></td>
-                <td className={TF}>{formatCount(u.calls_made)}</td>
-                <td className={TF} />
-                <td className={TF} />
-                <td className={TF}>{formatCount(u.appointments_set)}</td>
-                <td className={TF}>{formatElapsed(u.talk_time_seconds)}</td>
+                {r.cells.map((env, i) => <td key={AGENT_COLUMNS[i].id} className={TD}><Cell id={AGENT_COLUMNS[i].id} env={env} /></td>)}
+              </tr>
+            ))}
+          </tbody>
+          {agencyScope && unattributedPolicies !== null && unattributedPolicies > 0 && (
+            <tfoot>
+              <tr>
+                <th scope="row" className={TF_FIRST}>Unattributed</th>
+                <td className={TF}>{formatCount(unattributedPolicies)}</td>
+                <td className={TF}>{unattributedAp === null ? "—" : formatPremium(unattributedAp)}</td>
+                {AGENT_COLUMNS.slice(2).map(c => <td key={c.id} className={TF} />)}
               </tr>
             </tfoot>
           )}
-        </ReportTableFrame>
-      )}
+      </ReportTableFrame>
     </ReportSection>
   );
 };

@@ -74,3 +74,16 @@ describe.runIf(!!payloadPath && existsSync(payloadPath))("real SQL payloads (REP
     expect(failures).toEqual([]);
   });
 });
+
+describe("the unit-test v3 bundle is contract-valid at every scope", () => {
+  it.each(["agency", "team", "personal"] as const)("%s", async (requestedScope) => {
+    const { buildV3Bundle } = await import("./reportsV3Fixtures");
+    const b = buildV3Bundle({ requestedScope, startDate: "2026-06-16", endDate: "2026-07-15" });
+    const schemas: Record<string, { safeParse: (v: unknown) => { success: boolean; error?: { issues: unknown[] } } }> = {
+      scopeV3: reportScopeV3Schema, summaryV3: reportSummaryV3Schema, journeyV3: reportJourneyV3Schema, salesAppointmentsV3: reportSalesAppointmentsV3Schema,
+      statesV3: reportStateBreakdownV3Schema, volumeV3: reportCallVolumeV3Schema, dispositionsV3: reportDispositionsV3Schema,
+      campaignsV3: reportCampaignCallsV3Schema, leadSourcesV3: reportLeadSourceCallsV3Schema };
+    const bad = Object.entries(schemas).flatMap(([k, s]) => { const r = s.safeParse(b[k]); return r.success ? [] : [`${k}: ${JSON.stringify(r.error?.issues.slice(0, 2))}`]; });
+    expect(bad).toEqual([]);
+  });
+});

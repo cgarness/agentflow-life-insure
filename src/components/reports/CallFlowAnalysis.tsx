@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCount, formatRate, ratio } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
-import type { ReportVolume } from "@/lib/reports-schemas";
+import type { ReportCallVolumeV3 } from "@/lib/reports-v3-schemas";
 import { CHART_KEYS_DESC, CHART_THEME, SERIES_COLOR, TOOLTIP_FRAME, rateAxisMax } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
 import ReportSegmented from "./ReportSegmented";
@@ -13,8 +13,10 @@ type Tab = "hour" | "day";
 const TABS: ReadonlyArray<readonly [Tab, string]> = [["hour", "By hour"], ["day", "By day"]];
 const SYNC_ID = "call-flow";
 
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 interface Props {
-  volume: ReportVolume;
+  volume: ReportCallVolumeV3;
   onExport?: ReportExportFn;
 }
 
@@ -66,10 +68,10 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
     const byHour = [...volume.by_hour].sort((a, b) => a.hour - b.hour);
     const outside = byHour.some((h) => h.calls_made > 0 && (h.hour < 6 || h.hour > 21));
     const shownHours = outside ? byHour : byHour.filter((h) => h.hour >= 6 && h.hour <= 21);
-    const byDay = [...volume.by_day_of_week].sort((a, b) => a.dow - b.dow);
+    const byDay = [...volume.by_weekday].sort((a, b) => a.dow - b.dow);
     return {
       hourly: shownHours.map((h) => toRow(fmtHour(h.hour), h.calls_made, h.contacted)),
-      daily: byDay.map((d) => toRow(d.dow_name, d.calls_made, d.contacted)),
+      daily: byDay.map((d) => toRow(WEEKDAY_NAMES[d.dow], d.calls_made, d.contacted)),
       empty: byHour.every((h) => h.calls_made === 0),
     };
   }, [volume]);

@@ -1,78 +1,43 @@
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { buildV3Bundle, T_SELF, T_PEER } from "@/lib/__tests__/reportsV3Fixtures";
+vi.mock("recharts", async () => {
+  const actual = await vi.importActual<typeof import("recharts")>("recharts");
+  return { ...actual, ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div className="h-[300px] w-[600px]">{children}</div> };
+});
+const bundle = (patch?: (b: Record<string, any>) => void) => { const b = buildV3Bundle({ requestedScope: "agency", startDate: "2026-07-01", endDate: "2026-07-14" }); patch?.(b); return b; };
+const ready = <T,>(data: T) => ({ status: "ready" as const, data });
 import AgentPerformanceCards from "../AgentPerformanceCards";
-import { AGENT_A, premium, reportSummary } from "@/lib/__tests__/reportsFixtures";
 
-describe("Agent performance table", () => {
-  it("only permits authorized agent filters and toggles the selected agent off", () => {
-    const summary = reportSummary();
-    const onSelectAgent = vi.fn();
-    const props = { summary, selectableAgentIds: new Set([AGENT_A]), onSelectAgent };
-    const { rerender } = render(<AgentPerformanceCards {...props} selectedAgentId={null} />);
-    expect(screen.getByRole("region", { name: "Agent performance table" })).toHaveAttribute("tabindex", "0");
-    expect(screen.queryByRole("button", { name: /Bob Agent/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Filter reports to Alice Agent" }));
-    expect(onSelectAgent).toHaveBeenLastCalledWith(AGENT_A);
-    rerender(<AgentPerformanceCards {...props} selectedAgentId={AGENT_A} />);
-    const selected = screen.getByRole("button", { name: "Clear agent filter for Alice Agent" });
-    expect(selected).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(selected);
-    expect(onSelectAgent).toHaveBeenLastCalledWith(null);
+const panels = (b: Record<string, any>, journey: unknown = ready(b.journeyV3)) => ({
+  summary: ready(b.summaryV3), journey, salesAppointments: ready(b.salesAppointmentsV3), states: ready(b.statesV3),
+  volume: ready(b.volumeV3), dispositions: ready(b.dispositionsV3), campaigns: ready(b.campaignsV3), leadSources: ready(b.leadSourcesV3),
+}) as never;
+
+describe("Agent performance (v3 join)", () => {
+  it("joins the three readers on agent_id in server order, with the D6 columns and the viewer's row marked You", () => {
+    render(<AgentPerformanceCards panels={panels(bundle())} viewerId={T_SELF} agencyScope />);
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toContain("Avery Self"); expect(rows[0].textContent).toContain("You");
+    expect(rows[1].textContent).toContain("Blake Peer");
+    for (const h of ["Policies sold", "Annual premium (AP)", "Calls made", "Contacted calls", "Call contact rate", "Calls per policy", "Sales appointments per policy", "1 Call Close", "Total talk time"]) {
+      expect(screen.getByRole("columnheader", { name: h })).toBeTruthy();
+    }
+    expect(rows[0].textContent).toContain("$4,000.50");
   });
-
-  it("preserves unknown premium, true zero, coverage and full seconds", () => {
-    const summary = reportSummary();
-    summary.by_agent[0].premium = premium(1, 0);
-    summary.by_agent[1].premium = premium(2, 2, 0);
-    render(<AgentPerformanceCards summary={summary} selectedAgentId={null} selectableAgentIds={new Set()} onSelectAgent={vi.fn()} />);
-    const alice = screen.getByRole("row", { name: /Alice Agent/ });
-    expect(within(alice).getByText("0/1 known · 1 unknown")).toBeInTheDocument();
-    expect(within(alice).getByText("—")).toBeInTheDocument();
-    expect(within(alice).getByText("4m 24s")).toBeInTheDocument(); // the one elapsed format, never "0h 4m 24s"
-    expect(within(alice).queryByText(/^0h /)).not.toBeInTheDocument();
-    const bob = screen.getByRole("row", { name: /Bob Agent/ });
-    expect(within(bob).getByText("$0.00")).toBeInTheDocument();
-    expect(within(bob).getByText("2/2 known")).toBeInTheDocument();
+  it("a missing panel's cells read not loaded, never 0", () => {
+    render(<AgentPerformanceCards panels={panels(bundle(), { status: "error", kind: "unavailable" })} viewerId={T_SELF} agencyScope />);
+    expect(screen.getAllByText("not loaded").length).toBeGreaterThan(0);
   });
-
-  it("retains exact CSV columns and non-identifying unattributed values", () => {
-    const summary = reportSummary();
-    summary.by_agent[0].premium = premium(1, 1, 100.01);
-    summary.unattributed.premium = premium(1, 0);
-    const onExport = vi.fn();
-    render(<AgentPerformanceCards summary={summary} selectedAgentId={null} selectableAgentIds={new Set()} onSelectAgent={vi.fn()} onExport={onExport} />);
-    fireEvent.click(screen.getByRole("button", { name: /CSV/i }));
-    const [report, headers, rows] = onExport.mock.calls[0];
-    expect(report).toBe("Agent Performance");
-    expect(headers).toEqual(["Agent", "Status", "Calls made", "Contacted", "Call contact rate %", "Talk time (s)", "Policies (current assignment)", "Converted", "Bookings created (all types)", "Session time (s)", "Known annual premium", "Policies with known premium", "Policies with unknown premium"]);
-    expect(rows[0][5]).toBe(264);
-    expect(rows[0][10]).toBe(summary.by_agent[0].premium.annual_premium);
-    expect(rows.at(-1)).toEqual(["Unattributed", null, 0, null, null, 0, 1, null, 1, null, null, 0, 1]);
-    const unattributed = screen.getByRole("row", { name: /Unattributed/ });
-    expect(unattributed).toHaveTextContent("0/1 known · 1 unknown");
-    // The Unattributed row is the table's tfoot, one cell per screen column (no colSpan).
-    expect(unattributed.closest("tfoot")).not.toBeNull();
-    expect(unattributed.children).toHaveLength(screen.getAllByRole("columnheader").length);
-    for (const cell of Array.from(unattributed.children)) expect(cell).not.toHaveAttribute("colspan");
-  });
-
-  it("shows Contacted calls on screen and keeps the CSV columns; the Unattributed row leaves unmeasured cells blank", () => {
-    const summary = reportSummary();
-    summary.unattributed.calls_made = 3;
-    summary.unattributed.inbound_calls = 2;
-    render(<AgentPerformanceCards summary={summary} selectedAgentId={null} selectableAgentIds={new Set()} onSelectAgent={vi.fn()} />);
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
-      "Agent", "Policies sold", "Annual premium", "Calls made", "Contacted calls", "Call contact rate",
-      "Appointments", "Talk time",
-    ]);
-    const alice = screen.getByRole("row", { name: /Alice Agent/ });
-    expect(alice.children[4]).toHaveTextContent(String(summary.by_agent[0].contacted));
-    const unattributed = screen.getByRole("row", { name: /Unattributed/ });
-    expect(unattributed).toHaveTextContent("2 inbound calls");
-    expect([unattributed.children[3].textContent, unattributed.children[4].textContent, unattributed.children[5].textContent]).toEqual(["3", "", ""]);
-    expect(unattributed).not.toHaveTextContent("—");
-    // The methodology, including the current-assignment credit, lives in Data basis.
-    expect(screen.queryByText(/not the original seller/)).not.toBeInTheDocument();
+  it("has no total row built from agent rows; the agency Unattributed row appears only when there is something unattributed", () => {
+    const b = bundle(x => { x.summaryV3.metrics[1].detail.quality.unattributed_policies = 2; x.summaryV3.metrics[0].detail.unattributed_annual_premium = 500.25; });
+    const { rerender } = render(<AgentPerformanceCards panels={panels(bundle())} viewerId={T_PEER} agencyScope />);
+    expect(screen.queryByText("Unattributed")).toBeNull();
+    rerender(<AgentPerformanceCards panels={panels(b)} viewerId={T_PEER} agencyScope />);
+    expect(screen.getByText("Unattributed")).toBeTruthy();
+    expect(document.body.textContent).toContain("$500.25");
+    expect(screen.queryByText(/^Total$/)).toBeNull();
   });
 });

@@ -198,7 +198,13 @@ export const reportDispositionsV3Schema = z.object({
     counts_as_contacted: z.boolean(), converts: z.boolean(), dnc: z.boolean(), callback: z.boolean(), appointment: z.boolean(),
   }).strict()),
   duration_buckets: z.array(z.object({ range: z.string(), calls: count }).strict()),
-  deep_dive: z.record(z.string(), z.unknown()),
+  deep_dive: z.object({
+    by_agent: z.array(z.object({ agent_id: z.string().uuid(), name: z.string(), total: count, counts: z.record(z.string(), count) }).strict()),
+    by_campaign: z.array(z.object({ campaign_id: z.string().uuid(), name: z.string(), total: count, counts: z.record(z.string(), count) }).strict()),
+    without_campaign: z.object({ total: count, counts: z.record(z.string(), count) }).strict(),
+    other_campaigns: z.object({ total: count, counts: z.record(z.string(), count) }).strict(),
+    unattributed: z.object({ total: count, counts: z.record(z.string(), count) }).strict(),
+  }).strict(),
 }).strict();
 
 export const reportCampaignCallsV3Schema = z.object({
@@ -214,15 +220,35 @@ export const reportLeadSourceCallsV3Schema = z.object({
   not_linked: z.object(callRow).strict(),
 }).strict();
 
-// D5 owns the state breakdown's detailed schema; the page reads its documented keys and fails closed on the marker.
+// D5 §4: the state breakdown. Any broken invariant fails the panel closed (unavailable, never zeros).
+const premiumBlock = z.object({ known_count: count, policy_count: count, invalid_count: count, missing_count: count, annual_premium: z.number().nonnegative().nullable() }).strict();
+const stateCounts = { calls_made: count, contacted_calls: count, policies_sold: count, premium: premiumBlock };
+const basisCounts = z.object({ campaign_copy: count, current_record: count, event_snapshot: count }).strict();
+const UNMAPPED_REASONS = ["missing_state", "invalid_state", "unresolved_identity", "source_conflict", "unsupported_geography", "non_prospect_contact"] as const;
+const cents = (n: number | null) => Math.round((n ?? 0) * 100);
 export const reportStateBreakdownV3Schema = z.object({
   ...callMeta, reader: z.literal("state_breakdown"), policy_basis: policyBasisSchema,
-  modes: z.record(z.string(), z.object({ metric_id: z.number().int(), status: z.enum(["available", "partial", "unavailable"]), reason: reasonSchema.nullable() }).strict()),
-  jurisdictions: z.array(z.object({ state: z.string().length(2) }).passthrough()).length(51),
-  unmapped: z.object({ reasons: z.array(z.object({ reason: z.string() }).passthrough()).length(6) }).passthrough(),
-  totals: z.record(z.string(), z.unknown()),
+  modes: z.object(Object.fromEntries(["calls_made", "contacted_calls", "policies_sold", "ap"].map(k => [k,
+    z.object({ metric_id: z.number().int(), status: z.enum(["available", "partial", "unavailable"]), reason: reasonSchema.nullable() }).strict()]))).strict(),
+  jurisdictions: z.array(z.object({ state: z.string().length(2), ...stateCounts,
+    basis: z.object({ calls: basisCounts, policies: basisCounts, calls_changed_after_event: count, policies_changed_after_event: count }).strict() }).strict()).length(51),
+  unmapped: z.object({ ...stateCounts, reasons: z.array(z.object({ reason: z.enum(UNMAPPED_REASONS), ...stateCounts }).strict()).length(6) }).strict(),
+  totals: z.object(stateCounts).strict(),
   state_basis: z.record(z.string(), z.unknown()),
-}).strict();
+}).strict().superRefine((s, ctx) => {
+  const bad = (m: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message: `state breakdown: ${m}` });
+  if (new Set(s.jurisdictions.map(j => j.state)).size !== 51) bad("51 unique jurisdictions");
+  if (s.unmapped.reasons.some((r, i) => r.reason !== UNMAPPED_REASONS[i])) bad("the 6 reasons in order");
+  for (const k of ["calls_made", "contacted_calls", "policies_sold"] as const) {
+    const rows = s.jurisdictions.reduce((a, j) => a + j[k], 0);
+    if (rows + s.unmapped[k] !== s.totals[k]) bad(`rows + unmapped = totals (${k})`);
+    if (s.unmapped.reasons.reduce((a, r) => a + r[k], 0) !== s.unmapped[k]) bad(`unmapped = sum of reasons (${k})`);
+  }
+  const ap = s.jurisdictions.reduce((a, j) => a + cents(j.premium.annual_premium), 0) + cents(s.unmapped.premium.annual_premium);
+  if (ap !== cents(s.totals.premium.annual_premium)) bad("AP rows + unmapped = total (integer cents)");
+  if (s.jurisdictions.some(j => j.contacted_calls > j.calls_made)) bad("contacted <= calls");
+  if (s.call_population.attempts !== s.totals.calls_made) bad("call_population.attempts = totals.calls_made");
+});
 
 export type ReportScopeV3 = z.infer<typeof reportScopeV3Schema>;
 export type ReportSummaryV3 = z.infer<typeof reportSummaryV3Schema>;

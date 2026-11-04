@@ -71,7 +71,7 @@ export const CUE_NOT_ENOUGH_DATA = "Not enough data";
 export const NOT_LOADED = "not loaded";
 
 export const HOW_CALCULATED_TITLE = "How it's calculated";
-export const HOW_CALCULATED_DESCRIPTION = "Definitions, credit and dates for every figure on this page.";
+export const HOW_CALCULATED_DESCRIPTION = "How each metric is calculated, dated and credited.";
 export const COVERAGE_TITLE = "Coverage in this report";
 export const PERIOD_AVERAGES_NOTE = "Calls, contacted calls and prospects reached per policy are period averages.";
 export const NOT_A_FUNNEL_NOTE =
@@ -80,9 +80,9 @@ export const BREAKDOWN_CALLS_NOTE =
   "Campaign and lead-source breakdowns show call activity only. Calls without a campaign, calls on campaigns you can't see and calls not linked to a current lead have their own rows, so each breakdown adds up to Calls made.";
 export const CALLS_MADE_BASIS_NOTE =
   "Calls made counts confirmed dial attempts only. Leaderboard, Dashboard and Trusted Dialer count every outbound call record, so their totals can be higher.";
-export const SALE_SOURCE_NOTE = "Sales come from recorded sale events, dated by their Sold Date.";
+export const SALE_SOURCE_NOTE = "Policies sold counts recorded policy sales by Sold Date.";
 export const ORIGINAL_SELLER_NOTE = "Each sale is credited to the agent who originally sold it.";
-export const EFFECTIVE_PREMIUM_BASIS = "Annual premium is the premium recorded on each original sale.";
+export const EFFECTIVE_PREMIUM_BASIS = "AP uses the original sale’s effective monthly premium × 12, including audited corrections.";
 
 export const CREDIT_LABELS = {
   original_seller: "Original seller",
@@ -109,3 +109,11 @@ export function fillNotice(template: string, values: { n?: number; a?: number; e
     .replace("{e}", String(values.e ?? 0))
     .replace("{date}", values.date ?? "the capture start");
 }
+
+// Regional performance (D5 §4).
+export const UNMAPPED_REASON_LABELS = {
+  missing_state: "No state recorded", invalid_state: "Unrecognized state", unresolved_identity: "No linked contact",
+  source_conflict: "Conflicting state records", unsupported_geography: "Outside the 50 states and DC", non_prospect_contact: "Recruit calls",
+} as const;
+export const STATE_BASIS_NOTE = "Grouped by the prospect's or client's current recorded state, not their location at the time of the call or sale.";
+export const STATE_MAP_SOURCE_NOTE = "Map boundaries: U.S. Census Bureau cartographic boundary files, 2017 edition, via us-atlas 3.0.1 (ISC licence).";

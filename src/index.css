@@ -48,12 +48,32 @@
     --report-production: 173 80% 32%;
     --report-appointment: 262 70% 55%;
     --report-close: 38 92% 45%;
+    --report-scale-1: 173 60% 90%;
+    --report-scale-1-foreground: 173 80% 15%;
+    --report-scale-2: 173 60% 75%;
+    --report-scale-2-foreground: 173 80% 12%;
+    --report-scale-3: 173 62% 55%;
+    --report-scale-3-foreground: 0 0% 100%;
+    --report-scale-4: 173 75% 38%;
+    --report-scale-4-foreground: 0 0% 100%;
+    --report-scale-5: 173 85% 25%;
+    --report-scale-5-foreground: 0 0% 100%;
   }
 
   .dark {
     --report-production: 172 66% 50%;
     --report-appointment: 263 80% 72%;
     --report-close: 43 96% 56%;
+    --report-scale-1: 173 40% 18%;
+    --report-scale-1-foreground: 173 60% 85%;
+    --report-scale-2: 173 50% 26%;
+    --report-scale-2-foreground: 173 60% 92%;
+    --report-scale-3: 173 60% 34%;
+    --report-scale-3-foreground: 0 0% 100%;
+    --report-scale-4: 172 66% 42%;
+    --report-scale-4-foreground: 222 47% 7%;
+    --report-scale-5: 172 70% 55%;
+    --report-scale-5-foreground: 222 47% 7%;
     --background: 222 47% 7%;
     --foreground: 210 40% 98%;
     --card: 222 47% 11%;
