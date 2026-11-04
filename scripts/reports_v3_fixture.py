@@ -156,7 +156,7 @@ def ledger_row(win, previous, corrected, request, actor='ADM1'):
             f"'Admin', '{request}'::uuid, repeat('0', 64), '{{}}'::jsonb FROM public.wins w WHERE w.id = rt.v3('{win}');")
 
 
-def pkg_b_steps():
+def pkg_b_steps(then=lambda: ()):
     """PKG-B on the v3 readers (D2 §3.7, §6.7, §9, §10): refusals, …20, …21, the suite's v3 section (rolled back), the
     read-only manifest check, the rollback probes, then the empty-ledger rollback, which returns the database to the
     exact PKG-A state so the differential and performance runners that follow keep comparing PKG-A."""
@@ -216,6 +216,8 @@ def pkg_b_steps():
         "SELECT rt.eq('performance_sale_monthly keeps its PKG-B body', "
         "md5(pg_get_functiondef('private.performance_sale_monthly(public.wins,numeric)'::regprocedure)), 'ee64ddb694ad2e1b250ba069342c75fa');",
         'ROLLBACK TO SAVEPOINT later;'])
+    # Later packages forward and back (PKG-C), so this file's empty-ledger rollback still meets its PKG-B postimages.
+    yield from then()
     yield 'rollback with an empty ledger restores the exact PKG-A state', '\n'.join([
         rollback,
         basis_state('PKG-A preimages restored', PKG_A_BASIS),
@@ -231,6 +233,54 @@ def pkg_b_steps():
     yield 'sale premium corrections replay after rollback refuses (a re-forward is a new reviewed migration)', v2.refused(
         corrections, 'Sale premium corrections: refusing replay')
 
+
+CALL_LINK_SUITE = 'supabase/tests/policy_sale_call_links.sql'
+CALL_LINK_WINDOW_ROLLBACK = 'supabase/migrations/rollback/20261104120032_reports_v3_sale_call_links.rollback.sql'
+LINK_STUB = 'report_v3_sale_call_links(uuid,timestamptz)'
+PKG_C_BASIS = {LINK_STUB: '998bad67912edf1d113b4f72417520d7', 'report_v3_basis_flags()': '9c6c9d5e9a2ca2b985e027e72cd5e10d'}
+PKG_C_PREIMAGE = {LINK_STUB: '769d31d180bf61264b0609e87b3ea24f', 'report_v3_basis_flags()': '67c6a60a1004b4596a4a61487a41d17b'}
+
+
+def call_link_suite_v3():
+    """The v3 section of the PKG-C link suite (after '-- @@v3@@', inside its psql \\if; the commission runner runs the head)."""
+    text = v2.read(CALL_LINK_SUITE)
+    assert text.count('\n-- @@v3@@\n') == 1, 'call link suite v3 marker'
+    return '\\set pscl_v3 1\n' + text.split('\n-- @@v3@@\n')[1]
+
+
+def pkg_c_steps():
+    """PKG-C on the v3 readers (D3 §3.6, §8): refusals, …30, …32, the suite's v3 section (rolled back), then the …32
+    rollback back to the exact PKG-B postimages. …31 needs the sale handoffs and is proven in the commission runner."""
+    links = v2.migration('policy_sale_call_links')
+    window = v2.migration('reports_v3_sale_call_links')
+    rollback = v2.read(CALL_LINK_WINDOW_ROLLBACK)
+    v3_on = ("DO $on$ BEGIN EXECUTE 'GRANT EXECUTE ON FUNCTION public.get_report_journey_v3(date,date,uuid,text) TO authenticated'; "
+             "END $on$;\n")
+    flags_drift = ("DO $drift$ BEGIN EXECUTE replace(pg_get_functiondef('private.report_v3_basis_flags()'::regprocedure), "
+                   "'\"appointment_evidence\":\"not_installed\"', '\"appointment_evidence\":\"installed\"'); END $drift$;\n")
+    yield 'sale call links window refuses to run before the link table', v2.refused(
+        window, 'Reports v3 sale call links: the link table (…30) must be applied first')
+    yield '20261104120030_policy_sale_call_links', links
+    yield 'sale call links replay refuses', v2.refused(links, 'Sale call links: refusing replay')
+    yield 'sale call links window rollback refuses before the window', v2.refused(
+        rollback, 'Reports v3 sale call links rollback: the …32 postimages are not in place')
+    yield 'sale call links window refuses while Reports v3 is enabled', v2.refused(
+        v3_on + window, 'Reports v3 sale call links: Reports v3 must be disabled first')
+    yield 'sale call links window refuses link stub drift', v2.refused(
+        'ALTER FUNCTION private.report_v3_sale_call_links(uuid,timestamptz) COST 101;\n' + window, 'Reports v3 sale call links: preimage drift')
+    yield 'sale call links window refuses basis flags drift', v2.refused(
+        flags_drift + window, 'Reports v3 sale call links: preimage drift')
+    yield '20261104120032_reports_v3_sale_call_links', window
+    yield 'sale call links window postimages', basis_state('PKG-C postimages in place', PKG_C_BASIS)
+    yield 'sale call links window replay refuses', v2.refused(window, 'Reports v3 sale call links: refusing replay')
+    yield 'v3 sale call links (rolled back)', call_link_suite_v3()
+    yield 'sale call links window rollback refuses while Reports v3 is enabled', v2.refused(
+        v3_on + rollback, 'Reports v3 sale call links rollback: Reports v3 must be disabled first')
+    yield 'sale call links window rollback restores the exact PKG-B postimages', '\n'.join([
+        rollback, basis_state('PKG-A link stub and PKG-B flags restored', PKG_C_PREIMAGE),
+        "SELECT rt.eq('KPI 38 is not captured again', (SELECT e ->> 'reason' FROM jsonb_array_elements(rt.jkpis(NULL, '2026-12-15 00:00+00')) e "
+        "WHERE (e ->> 'id')::int = 38), 'sale_call_link_not_captured');",
+        'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false); SELECT rt.assert_v3_helper_shape();'])
 
 def steps():
     v2_steps = dict(v2.steps())
@@ -349,7 +399,7 @@ def steps():
     yield 'v3 negative controls', v2.read('supabase/tests/reports_v3_negative.sql')
     yield 'v3 reader contract', contract_readers
     yield 'v2 surface unchanged after the v3 readers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
-    yield from pkg_b_steps()
+    yield from pkg_b_steps(then=pkg_c_steps)
     # Performance at the required scale, embedded for quick local diagnostics only: always mode diagnostic (report-only,
     # never acceptance evidence) and no restart round. Acceptance runs through scripts/run_reports_v3_perf_acceptance.sh.
     # REPORTS_V3_PERF=0 skips it (the CI functional job). Each sample is its own statement, so the measurement step runs

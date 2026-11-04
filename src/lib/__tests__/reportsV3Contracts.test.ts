@@ -25,6 +25,7 @@ const MIGRATION_CLASS: Record<string, PrivilegeClass> = {
   reports_v3_calls_campaign_lead_index: "C",
   reports_v3_release_enable: "E",
   reports_v3_sale_premium_basis: "W",  // PKG-B …21 (D2 §3.7)
+  reports_v3_sale_call_links: "C",  // PKG-C …32 (D3 §3.6)
 };
 /** Class W (plan §2.8, X8): the only GRANTs a writer-enable file may contain. */
 const W_ALLOWLIST: Record<string, string[]> = {
@@ -42,6 +43,8 @@ const OPS_CLASS: Record<string, PrivilegeClass> = {
 };
 /** The only migration that may build a KPI envelope directly; every other file uses the builders. */
 const ENVELOPE_OWNER = "reports_v3_foundation";
+/** Class C files that replace PKG-A stubs under exact preimage guards (each pinned in its own describe). */
+const PREIMAGE_REPLACERS = ["reports_v3_sale_call_links", "20261104120032_reports_v3_sale_call_links.rollback.sql"];
 const CONCURRENT_INDEX = "reports_v3_calls_campaign_lead_index";
 
 const MIGRATIONS = "supabase/migrations";
@@ -168,7 +171,8 @@ describe("Reports v3 SQL privilege classes", () => {
   it("PKG-A migrations refuse replay, never replace silently and take the short lock timeout", () => {
     for (const f of files.filter((x) => x.path.startsWith(`${MIGRATIONS}/`) && x.cls === "C")) {
       const sql = stripSqlComments(f.sql);
-      expect(sql, f.path).not.toMatch(/CREATE\s+OR\s+REPLACE\s+FUNCTION/i);
+      // A later package's v3-only window (…32) replaces PKG-A stubs behind md5 preimage guards (pinned below).
+      if (!PREIMAGE_REPLACERS.includes(f.suffix)) expect(sql, f.path).not.toMatch(/CREATE\s+OR\s+REPLACE\s+FUNCTION/i);
       if (f.suffix !== CONCURRENT_INDEX) expect(sql.trimStart(), f.path).toMatch(/^SET LOCAL lock_timeout = '2s';/);
     }
     expect(stripSqlComments(files.find((f) => f.suffix === ENVELOPE_OWNER)!.sql)).toMatch(/refusing replay/);
@@ -743,8 +747,11 @@ describe("PKG-B sale premium corrections (D2 §3.3-§3.7): …20 and its rollbac
 
   it("is numbered after every PKG-A file and above the production head 20261103191631; …21 follows it", () => {
     const versions = readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /_reports_v3_|_policy_sale_premium_corrections/.test(n)).sort();
-    expect(versions.slice(-2)).toEqual(["20261104120020_policy_sale_premium_corrections.sql",
-                                        "20261104120021_reports_v3_sale_premium_basis.sql"]);
+    const pkgB = ["20261104120020_policy_sale_premium_corrections.sql", "20261104120021_reports_v3_sale_premium_basis.sql"];
+    const firstB = versions.indexOf(pkgB[0]);
+    expect(versions.slice(firstB, firstB + 2)).toEqual(pkgB);
+    expect(versions.slice(0, firstB).every((v) => v < "20261104120020")).toBe(true);
+    expect(versions.slice(firstB + 2).every((v) => v >= "20261104120030")).toBe(true);
     expect(Number("20261104120020")).toBeGreaterThan(20261103191631);
   });
 
@@ -829,5 +836,64 @@ describe("PKG-B …21 (D2 §3.7): Reports v3 reads the effective premium; class 
     expect(basis).toContain("ACL is not authenticated-only");
     expect(basis).not.toMatch(/INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM/i);
     expect(basis).not.toMatch(/policy_commission|notify_win|pg_notify/i);
+  });
+});
+
+describe("PKG-C producing-call capture (D3 §3.6): …30 and …32 are class C, …31 is class W", () => {
+  const LINKS = stripSqlComments(read(`${MIGRATIONS}/20261104120030_policy_sale_call_links.sql`));
+  const CAPTURE = stripSqlComments(read(`${MIGRATIONS}/20261104120031_policy_sale_call_link_capture.sql`));
+  const CAPTURE_ROLLBACK = stripSqlComments(read(`${ROLLBACKS}/20261104120031_policy_sale_call_link_capture.rollback.sql`));
+  const WINDOW = stripSqlComments(read(`${MIGRATIONS}/20261104120032_reports_v3_sale_call_links.sql`));
+  const WINDOW_ROLLBACK = stripSqlComments(read(`${ROLLBACKS}/20261104120032_reports_v3_sale_call_links.rollback.sql`));
+  const C_ALLOWLIST = [
+    "GRANT EXECUTE ON FUNCTION public.record_client_policy_handoff_v2(uuid,uuid,jsonb,boolean,jsonb,uuid) TO authenticated",
+    "GRANT EXECUTE ON FUNCTION public.convert_lead_to_client_with_sales_handoff_v2(uuid,uuid,uuid,jsonb,uuid,jsonb,uuid) TO authenticated",
+    "GRANT EXECUTE ON FUNCTION public.retry_policy_sale_call_link(uuid) TO authenticated",
+    "GRANT EXECUTE ON FUNCTION public.get_policy_sale_call_link_status(uuid[]) TO authenticated",
+  ];
+
+  it("…30, …32 and both rollbacks grant nothing; …31 grants exactly its four RPCs to authenticated", () => {
+    for (const sql of [LINKS, WINDOW, CAPTURE_ROLLBACK, WINDOW_ROLLBACK]) expect(grants(sql)).toEqual([]);
+    expect(grants(CAPTURE).map((g) => g.replace(/\s+/g, " ").trim())).toEqual(C_ALLOWLIST);
+  });
+
+  it("every created function has its REVOKE ALL from PUBLIC, anon, authenticated and service_role, and a pinned search_path", () => {
+    for (const sql of [LINKS, CAPTURE]) {
+      const revoked = revokes(sql);
+      for (const fn of createdFunctions(sql)) {
+        expect(fn.header, `${fn.name} search_path`).toMatch(/SET search_path = pg_catalog, pg_temp/);
+        const match = revoked.find((r) => r.name === fn.name && r.types.join(",") === fn.types.join(","));
+        expect(match, `${fn.name}(${fn.types.join(", ")}) has no REVOKE ALL`).toBeDefined();
+        expect(match!.roles).toEqual(SEALED_ROLES);
+      }
+    }
+    expect(LINKS).toMatch(/REVOKE ALL ON private\.policy_sale_call_links FROM PUBLIC, anon, authenticated, service_role;/);
+    expect(CAPTURE).toMatch(/REVOKE ALL ON private\.policy_sale_call_link_failures FROM PUBLIC, anon, authenticated, service_role;/);
+    expect(`${LINKS}${CAPTURE}`).not.toMatch(/CREATE\s+POLICY/i);
+  });
+
+  it("the lead_id guard comes first, and links have no foreign key to sales or calls", () => {
+    expect(LINKS.indexOf("CREATE TRIGGER clients_lead_id_guard")).toBeLessThan(LINKS.indexOf("CREATE TABLE private.policy_sale_call_links"));
+    expect(LINKS).not.toMatch(/REFERENCES\s+public\.(wins|calls)/i);
+  });
+
+  it("capture is bounded, pinned to the handoff preimages and never touches sales, commissions or notifications", () => {
+    expect(CAPTURE).toMatch(/SET search_path = pg_catalog, pg_temp SET lock_timeout = '100ms'/);
+    for (const md5 of ["b02760be55132f0be3fa91b04955e839", "d39e03a7dd2cf122a68dc0fefcbfb44a",
+                       "f331226b398134ea485d5543472d5ccf", "4d6803ff7d94b7735e3f1b3baf18456c"]) expect(CAPTURE).toContain(`'${md5}'`);
+    expect(CAPTURE).not.toMatch(/INSERT\s+INTO\s+public\.wins|UPDATE\s+public\.wins|DELETE\s+FROM\s+public\.wins|wins\.call_id/i);
+    expect(CAPTURE).not.toMatch(/policy_commission_(estimates|installments|receipts)|notify_win|pg_notify/i);
+    expect(CAPTURE).not.toMatch(/WHEN\s+query_canceled|WHEN\s+assert_failure/i);
+  });
+
+  it("…32 replaces only the link stub and basis flags behind their postimages; its rollback restores both", () => {
+    const replaced = [...WINDOW.matchAll(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-z_]+\.[a-z0-9_]+)/gi)].map((m) => m[1]);
+    expect(replaced).toEqual(["private.report_v3_sale_call_links", "private.report_v3_basis_flags"]);
+    for (const md5 of ["769d31d180bf61264b0609e87b3ea24f", "67c6a60a1004b4596a4a61487a41d17b"]) {
+      expect(WINDOW).toContain(`'${md5}'`);
+      expect(WINDOW_ROLLBACK).toContain(`'${md5}'`);
+    }
+    expect(WINDOW).toContain('"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"installed"');
+    expect(WINDOW).toContain("Reports v3 must be disabled first");
   });
 });

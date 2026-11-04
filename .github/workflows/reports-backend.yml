@@ -16,6 +16,8 @@ on:
       - 'supabase/tests/policy_sale_premium_correction.sql'
       - 'supabase/ops/reporting-accuracy/check_sale_correction_manifest.sql'
       - 'scripts/tests/sale-premium-correction-concurrency.mjs'
+      - 'supabase/migrations/*_policy_sale_call_links.sql'
+      - 'supabase/tests/policy_sale_call_links.sql'
       - 'scripts/reporting_fixture.py'
       - 'src/components/leaderboard/__tests__/correctedPremiumSurfaces.test.tsx'
       - 'scripts/reports_v3_fixture.py'

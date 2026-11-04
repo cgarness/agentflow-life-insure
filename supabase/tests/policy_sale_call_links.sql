@@ -213,3 +213,54 @@ END $ticket$;
 SELECT test_assert((SELECT count(*) FROM private.policy_sale_call_links WHERE win_id = (SELECT id FROM pscl_reversed)) = 0, 'L13 a ticketed link removal');
 SELECT 'PASS L13 reversal' AS result;
 SELECT 'PASS policy sale call links' AS result;
+
+-- @@v3@@
+-- =====================================================================================================
+-- Reports v3 on captured links (…32, D3 §3.6, §7 J4/J14/J17/J19). Run only by scripts/reports_v3_fixture.py (which sets
+-- pscl_v3) after …30 and …32, on the PKG-A journey organization J (reports_v3_journey_fixtures.sql), inside a
+-- savepoint that is rolled back. Links are written as the table owner through the link guard (…31 needs the sale
+-- handoffs, which the v3 fixture does not have; its paths are proven above on the commission fixture).
+-- =====================================================================================================
+\if :{?pscl_v3}
+SAVEPOINT pscl_v3;
+SELECT rt.eq('…32: basis flags 3.2.0 with captured links', private.report_v3_basis_flags(),
+  '{"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"installed","appointment_evidence":"not_installed"}'::jsonb);
+SELECT rt.eq('…32: payloads carry 3.2.0 / installed (X13)',
+  (SELECT string_agg(concat_ws('/', p ->> 'contract_version', p #>> '{basis,sale_call_links}'), ',')
+     FROM (VALUES (rt.v3r('ADM1', 'journey')), (rt.v3r('ADM1', 'summary'))) x(p)), '3.2.0/installed,3.2.0/installed');
+SELECT rt.eq('J17: with no captured link a buyer is Unclassified (sale_call_link_missing), never No',
+  rt.jmember(38, rt.jkey('JL1')), '-|sale_call_link_missing|false|-|-|unclassified');
+SELECT rt.eq('J14: KPI 38 is no longer "not captured" once the flag is installed',
+  (SELECT e ->> 'reason' FROM jsonb_array_elements(rt.jkpis(NULL, '2026-12-15 00:00+00')) e WHERE (e ->> 'id')::int = 38) IS DISTINCT FROM 'sale_call_link_not_captured', true);
+
+-- The BC2 buyer JL2 (as reports_v3_journey.sql §5), then real links for JL3, JL12 and JL2.
+INSERT INTO public.clients (id, organization_id, lead_id, phone, premium, created_at)
+VALUES ('c3f20200-0000-0000-0000-000000000000', rt.v3('J'), rt.v3('JL2'), '310-555-0102', 0, '2026-10-17 22:00+00');
+INSERT INTO private.policy_identities (policy_id, organization_id, client_id, source, legacy)
+VALUES ('c3f30200-0000-0000-0000-000000000000', rt.v3('J'), 'c3f20200-0000-0000-0000-000000000000', 'primary', false);
+INSERT INTO public.wins (id, organization_id, agent_id, contact_id, policy_id, premium_snapshot, premium_amount, idempotency_key,
+                         sold_date, created_at, recorded_at)
+VALUES ('c3f40200-0000-0000-0000-000000000000', rt.v3('J'), rt.v3('JA1'), 'c3f20200-0000-0000-0000-000000000000',
+        'c3f30200-0000-0000-0000-000000000000', true, 40.00, 'v3j:w2', '2026-10-17', '2026-10-17 22:00+00', '2026-10-17 22:00+00');
+INSERT INTO private.policy_sale_call_links (organization_id, win_id, policy_id, client_id, call_id, call_direction, link_source,
+  sale_kind, operation_key, request_id, actor_id, evidence_hash)
+SELECT w.organization_id, w.id, w.policy_id, w.contact_id, c.id,
+       CASE WHEN lower(c.direction) = 'inbound' THEN 'inbound' ELSE 'outbound' END, 'sale_entry', 'record', 'v3:' || w.id, NULL,
+       coalesce(w.agent_id, rt.v3('JA1')), repeat('0', 64)
+  FROM (VALUES ('c3f40300-0000-0000-0000-000000000000'::uuid, 'c3f50000-0000-0000-0000-000000000003'::uuid),
+               ('c3f41200-0000-0000-0000-000000000000'::uuid, 'c3f50000-0000-0000-0000-000000000031'::uuid),
+               ('c3f40200-0000-0000-0000-000000000000'::uuid, 'c3f50000-0000-0000-0000-000000000022'::uuid)) l(w, c)
+  JOIN public.wins w ON w.id = l.w JOIN public.calls c ON c.id = l.c;
+SELECT rt.eq('the link reader returns the captured links (same-org sale and call)',
+  (SELECT count(*) FROM private.report_v3_sale_call_links(rt.v3('J'), clock_timestamp() + interval '1 day')), 3::bigint);
+SELECT rt.eq('a link captured after as_of is not read', (SELECT count(*) FROM private.report_v3_sale_call_links(rt.v3('J'), '2026-11-01 00:00+00')), 0::bigint);
+SELECT rt.eq('organization isolation', (SELECT count(*) FROM private.report_v3_sale_call_links(rt.v3('O1'), clock_timestamp() + interval '1 day')), 0::bigint);
+SELECT rt.eq('J19: a confirmed earlier unanswered attempt does not invalidate a verified 1 Call Close', rt.jmember(38, rt.jkey('JL3')),
+  '-|-|true|-|-|yes');
+SELECT rt.eq('J4: a link to a call that was not a qualifying contact stays Unclassified, never No', rt.jmember(38, rt.jkey('JL12')),
+  '-|sale_call_link_missing|false|-|-|unclassified');
+SELECT rt.eq('J4: an earlier confirmed contact makes it No', rt.jmember(38, rt.jkey('JL2')), '-|-|true|-|-|no');
+SELECT rt.expect_sql_failure($q$UPDATE private.policy_sale_call_links SET link_source = 'reviewed_repair'$q$, 'immutable');
+ROLLBACK TO SAVEPOINT pscl_v3;
+SELECT rt.eq('the v3 section leaves no link', (SELECT count(*) FROM private.policy_sale_call_links), 0::bigint);
+\endif
