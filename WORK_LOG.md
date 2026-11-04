@@ -1,5 +1,138 @@
 # AgentFlow Work Log
 
+## 2026-11-04 (later) — Reports V2: Package F closeout, branch-only migration renumbering, PKG-B batch B1 (branches `claude/great-goodall-911azc` at `933e464`, `-pkg-f` at `37595c6`, new `-pkg-b` at `0a44605`; nothing merged, applied, granted, enabled or deployed)
+
+**Request:** Chris's message of 2026-11-04 ("Close Package F, then continue Package B"). The file lists are in this day's later `implementation_plan.md` entry.
+
+**Package F: implementation ready for review.** The code and tests are complete. Final visual approval, CSV approval and release approval remain Chris's, and they are separate.
+- **F-5 (`d9fc431`):**
+  - **Old hook retired.** `useReportsData.ts` and its test were deleted after the replacement coverage passed. The only other importer was a type import in `ReportPanelState.tsx`; its `LoadState` now comes from `reports-queries.ts` (an identical union, with no runtime change).
+  - **`useReportsPage` fix.** It now refuses a scope answer whose requested scope differs from the explicit request. The test was written first and failed first.
+  - **Accepted structure deviations:**
+    - `CustomizerGroup` is not split out, because `ReportCustomizer` is 148 lines and readable.
+    - The request lifetime lives in `useReportsPage.ts`.
+- **Old-hook case-to-test mapping** (20 cases):
+  - Scope once per viewer/organization, never another viewer's scope: `useReportsPage` "withholds the old scope…" and "never shows a late scope response…", plus the `self_id` check.
+  - Late scope answer cancelled: "never shows a late scope response…" (asserts the abort).
+  - Scope failure and retry: new "a scope failure is shown, and Refresh retries it".
+  - Nothing without a viewer: "requests nothing without a viewer"; page test "View As and a missing profile send nothing".
+  - Re-keyed requested scope and a broader late answer: new "refuses a scope answer whose requested scope differs…"; `reportsScopeIntegration` "a late response from the previous scope never reaches the screen".
+  - Masking on reload or View As: new "Refresh masks…" and "withholds… (logout, View As, org change)".
+  - A→B→A export validity, and same-key retry or refresh: new "after A → B → A…".
+  - Scope change invalidates a late panel and its export: the scope-integration late-response test and "exports only current, matching panels".
+  - No panel before scope: "requests no panel while the scope is unresolved or denied"; integration "panels are requested only after the scope resolves".
+  - Independent panels and partial failure, and single-panel retry: new "one failed panel keeps the others, and Retry re-requests only that panel"; page "a failed panel is an error with Retry…".
+  - Late period, agent or refresh answers: "ignores a late panel response from a previous agent filter, date range or refresh".
+  - A key that passes through null, or returns to A: "withholds…" and "after A → B → A".
+  - Refresh re-runs every panel, with no polling: page "Refresh re-resolves the scope and refetches every panel"; new "requests nothing on its own after loading".
+  - `isCurrent` for exports: "exports only current, matching panels" and the drift test.
+  - Unmount cancels: new "unmount cancels every in-flight request".
+  - Missing configuration: new configuration case; page "an unconfigured agency time zone…".
+- **Layout case-to-test mapping** (no new layout file):
+  - `V4_TO_V5`: `reportsRegistrySnapshot` "maps all 38 v4 ids, frozen"; `reportLayoutNormalization` "maps customized v4 stats…" and new "R23 applies only to the untouched v4 default…".
+  - The untouched-v4 default rule: "R23: an untouched v4 default deep-equals the v5 default", plus the new negatives (a reordered default, or one extra visible stat).
+  - Normalization without writes: `reportLayoutPersistence` "loads and normalizes legacy personal preferences without writing"; "never mutates its input"; `useReportLayout` "blocks reads and writes for View As…".
+  - Persistence: the owner-row, insert, conflict and reset cases, plus new "normalizes before every write, so a stored layout is always version 5".
+- **Map loading.** The map was already a separate lazy chunk: `StateMap` is 41.21 kB raw and 12.13 kB gzip, against D5's 15 KB budget, and the ISC notice survives minification. This corrects the earlier WORK_LOG line that put the geometry inside the Reports chunk.
+  - New `reportsRegionalPerformance.test.tsx` covers:
+    - 51 named toggle buttons with one tab stop;
+    - keyboard select and Escape;
+    - the sortable table with fixed footers;
+    - the export control;
+    - the load boundary switching to Table.
+  - New `reportsRegionalGeometry.test.ts` covers:
+    - the 51 keys and the viewBox;
+    - D5's path-data budget (9,961 B gzip);
+    - the notice and the Census source;
+    - `StateMap` as the only importer.
+- **Evidence corrections:**
+  - **Stale test paths (`631524b`).** Two pkg-f-only static tests still read the old foundation file name after the rename merge. They failed with ENOENT in the full run, and the paths were updated.
+  - **CSV precision (`f896d36`, `37595c6`).** The comparison found float artifacts:
+    - production trend "% known" (99.0909…) and its AP;
+    - the call volume rate (41.4925…);
+    - the call duration average (295.029…).
+
+    All are now rounded once from exact integers: AP at 2 dp from cents, rates and averages at 1 dp half up, which is the v2 precision.
+  - **Gate check.** `verify.mjs` now fails any CSV data cell with 3 or more decimals. The first version matched only quoted cells, so it could not see numbers; that was found and fixed before the final run.
+- **Final evidence on the clean tree `37595c6`:**
+  - visual/export gate **474 of 474**: 14 CSVs at no more than 2 decimals, and the Regional unverified notice exactly once;
+  - Reports suites 423 passed, 2 skipped;
+  - `tsc --noEmit` 0; app typecheck with no new diagnostics; eslint 0; build 0;
+  - full Vitest 6,748 tests: 6,711 passed, 1 failed (the baseline `recordingRetentionVoicemail` byte check), 36 skipped. No new failing file or test by identity.
+  - In one earlier full run, `googleSheetsV2Ui` "200 columns" failed once. It is outside Reports, passed 3 of 3 in isolation and passed in both later full runs. It is recorded as intermittent, not dismissed.
+- **Review package** `reports_v3_review_37595c68.zip` (delivered; synthetic only): 31 screenshots, 14 CSVs, `summary.json`, `CSV_COMPARISON.md`, the ledger and SHA256SUMS.
+- **CSV comparison** (`CSV_COMPARISON.md`) is structural. The committed pinned-clock capture tool drives the v2 page, so D6's byte-golden run (BA-F6) remains open. Nothing is approved.
+  - **Changed:** call volume, call flow, heatmap, call outcomes (renamed from disposition breakdown), call duration, deep dives, campaign, lead source, agent performance, report summary (same file name, new content).
+  - **New:** production trend, journey, sales appointments, regional performance.
+  - **Retired:** policies sold, agent efficiency, call summary.
+  - **Review items:**
+    - agent-performance writes one Note per unavailable cell (614 rows in the synthetic file);
+    - production-trend carries no Note rows;
+    - report-summary keeps its v2 file name.
+
+**Batch R, migration renumbering (foundation; branch-only).**
+- **Preconditions** (hosted head re-read read-only):
+  - the head is still `20261103191631_inbounds_room_v1`;
+  - none of the seven versions is applied;
+  - `20261104120010`–`…17` are unused and above the head.
+- **`a3d28dd` (rename only):**
+  - `git mv` of `20261101000010`–`…16` to `20261104120010`–`…16`, keeping each full suffix;
+  - SQL sha256 and blob IDs identical for all seven;
+  - the fixture's seven step labels updated.
+- **`933e464`:** forward-looking docs (the plan, D1–D5 and `backend_actions.md`) use `202611041200NN`, including the release-enable placeholder `20261104120017` and the PKG-B/C/D placeholders, which move by the same offset. No enable SQL was created.
+- **Unchanged:** the frozen manifest. Its historical paths resolve at `4236b8a`, and the generator reproduces its pinned `2398fc36…`.
+- **Verification:**
+  - contract test 42/42;
+  - all v3 SQL suites pass on loopback PostgreSQL 16 (the run also wrote the payloads used above);
+  - Reports backend run `41771971610` succeeded (PostgreSQL 17.6, postgres and differential jobs).
+- **Merged into `-pkg-f`** as `1ac3f23`. That merge needed the two static-test path fixes in `631524b`. No history was rewritten.
+
+**Batch B1, PKG-B (`-pkg-b` at `0a44605`, created from `933e464`; prepared, unapplied, sealed):**
+- `20261104120020_policy_sale_premium_corrections.sql`, privilege class C:
+  - the append-only ledger, its guard and three triggers;
+  - the book parser;
+  - the original-rule and effective readers;
+  - the guarded `performance_sale_monthly` switch;
+  - the sealed `correct_policy_sale_premium` and `get_client_policy_sale_premiums`.
+- The rollback file.
+- `supabase/tests/policy_sale_premium_correction.sql`.
+- Eight steps in `scripts/reporting_fixture.py`.
+- A class-C contract in `reportsV3Contracts.test.ts`.
+- **Deviations, recorded:**
+  - **Choke-point body.** `performance_sale_monthly` is one scalar expression (the head correction, else the verbatim rule), not D2's literal call of the set-returning reader. That call timed out the 50,000-sale performance test. Equality with the effective reader is proved for every sale, in the migration and in the suite.
+  - **Extra helper.** A sealed `private.policy_sale_original_premium` serves the "as sold" history value.
+  - **Fixture.** B1 runs on the reporting fixture's verbatim sale writers, not the v3 fixture.
+  - **Deferred to B2:** the v3-fixture step, the concurrency script and the workflow paths.
+- **Verification:**
+  - the native runner passes the policy and booking modes, permissions, contention and reconciliation;
+  - the suite covers restatement, replay, permissions, validation, book modes, zero/unknown, Edit Client changes, the legacy freeze, reassignment, history visibility, append-only, no sale inserted, the 5,000-sale budget and equality;
+  - negative control: without the switch, the suite fails at "March AP rises by $240.00";
+  - Reporting integrity run `41774849314` succeeded on PostgreSQL 17.6.
+- **Measured cost** on the 50,000-sale fixture: snapshot, year summary and v2 Dialer took 827 ms before and 927–957 ms after. One window timing went from 10.4 to 19.0 ms.
+- **Not done in B1:**
+  - consumer consistency for Reports v3 KPI 1/4 and state AP (needs `…21`, in B2);
+  - reversal of a corrected win;
+  - deleted-client `keep_current`;
+  - the two-session lock and race cases (the concurrency script, in B2);
+  - the frontend (B3).
+- **Approval needed:** the `FullScreenContactView` one-prop change (D2 §5) is a protected-file exception.
+- No real policy was classified or corrected. No commission, sale or notification was touched.
+
+**Process note.** I stopped the in-progress gate run with `pgrep -f`. The match covered the task's own wrapper shell, `timeout` and node. That was the run I meant to stop, but later cleanups used single exact PIDs.
+
+**Journey comparisons (run `41753175853`, started 01:19 UTC, 320-minute deadline):** both jobs were still in progress at the last check. Their outcome is recorded when the scheduled check runs; nothing is inferred, and nothing is retried.
+
+**Release blockers (unchanged, all open):**
+- the performance acceptance gate;
+- ★1, ★4, E1–E6 and the fallback privacy decisions;
+- the security review;
+- the AGENT_RULES amendments;
+- policy classifications;
+- Census provenance item 7;
+- the CSV byte-golden and visual approvals;
+- the PKG-B release window (`…21`/`…22`, read-back and advisors);
+- final approval.
+
 ## 2026-11-04 — Reports V2 PKG-F batches F-3 and F-4 and verification Batch V: the seven-section v3 page and its review package (branches `claude/great-goodall-911azc` at `2b3c326` and `-pkg-f` at `10e8d5e`; branch only; nothing merged, applied, enabled or deployed)
 
 **Request:** Chris's message of 2026-11-04 ("continue F-3/F-4 and complete the feature build"). The file lists are in this day's `implementation_plan.md` entry.

@@ -97,6 +97,12 @@
   - B2: `…21`, `…22`, the enable pins and the release constants;
   - B3: the frontend (D2 §5).
 - The `FullScreenContactView.tsx` one-prop change is a protected-file exception. **It needs Chris's approval** and is not part of B1–B3.
+- **Outcome** (recorded in the WORK_LOG):
+  - F is implementation ready for review at `37595c6`.
+  - R was done at `a3d28dd`/`933e464`.
+  - B1 is at `-pkg-b` `0a44605`, and it touched `scripts/reporting_fixture.py` instead of the v3 fixture.
+  - The v3-fixture step, the concurrency script and the workflow paths move to B2, whose file list will be recorded before editing.
+  - `scripts/reports_v3_fixture.py`, `scripts/run_reports_v3_tests.sh` and `.github/workflows/reports-backend.yml` were not changed in B1.
 - No real policy is classified or corrected; no commission, sale or notification is touched.
 
 ## 2026-11-04 — Reports V2: F-3/F-4 and the two isolated journey comparisons (branches `claude/great-goodall-911azc` and `-pkg-f`; nothing applied, merged, enabled or deployed)
@@ -153,9 +159,9 @@
 - `-pkg-b`, `-pkg-c`, `-pkg-d` and `-pkg-f` do not exist yet; each is created from the foundation head when its first batch starts.
 
 **Completion checklist** (dependency order; the production order stays A → B → policy classifications → C/D → F).
-1. [~] **F preview** (`-pkg-f`; F-1 `06e4537`, F-2 `969a2fa`, F-3/F-4 through `10e8d5e` done: all seven sections, state safety, layout v5, How it's calculated, every section CSV including Regional and agent performance, the Export menu KPI files, lazy route, v3 visual gate 459/459, review package; open: old `useReportsData.ts` removal (needs approval), `CustomizerGroup` split, D6 tests `reportsLayoutV5`/`useReportsData`, separate geometry chunk, CSV golden rebaseline): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
+1. [x] **F preview: implementation ready for review** (`-pkg-f` `37595c6`; visual, CSV and release approval pending) (`-pkg-f`; F-1 `06e4537`, F-2 `969a2fa`, F-3/F-4 through `10e8d5e` done: all seven sections, state safety, layout v5, How it's calculated, every section CSV including Regional and agent performance, the Export menu KPI files, lazy route, v3 visual gate 459/459, review package; open: old `useReportsData.ts` removal (needs approval), `CustomizerGroup` split, D6 tests `reportsLayoutV5`/`useReportsData`, separate geometry chunk, CSV golden rebaseline): v3 lib layer (D1-owned schemas and queries, D6 registry, single rounding, text, fixtures); Example 2 components in D6 §4.1 order; the isolated harness on v3 payloads; desktop and mobile screenshots of the required states and scopes.
 2. [x] **A support** (foundation; `1334657`, `d52d4db`): the v3 payload writer (D1 X9: `run_reports_v3_tests.sh` / `reports_v3_fixture.py`).
-3. [ ] **B** (`-pkg-b`, D2): audited correction ledger, the correction workflow, history display, effective original-sale premium; Reports, Leaderboard and Dashboard consistency.
+3. [~] **B** (`-pkg-b`, D2; B1 `0a44605` ledger and effective reader, sealed and unapplied; next B2 `…21`/`…22` and B3 frontend): audited correction ledger, the correction workflow, history display, effective original-sale premium; Reports, Leaderboard and Dashboard consistency.
 4. [ ] **C** (`-pkg-c`, D3): producing-call capture, supported inbound integration, failure handling and recovery for 1 Call Close. `TwilioContext.tsx` is read before any approved telephony-adjacent edit.
 5. [ ] **D** (`-pkg-d`, D4): classification, occurrence and outcome evidence, assignment-at-start credit (BC3), optional closing-appointment attribution, recovery.
 6. [ ] **F integration** with the completed B, C and D contracts; the integrated review build.
