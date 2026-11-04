@@ -18,7 +18,10 @@ describe("Production trend (v3 production_by_date)", () => {
     render(<PoliciesSoldChart summary={bundle().summaryV3} grouping="weekly" onExport={onExport} />);
     fireEvent.click(screen.getByRole("button", { name: /export production trend csv/i }));
     const rows = onExport.mock.calls[0][2] as unknown[][];
-    expect(rows.reduce((s, r) => s + (r[2] as number ?? 0), 0)).toBe(4000.5);
+    // Written once at 2 dp from exact cents: the week with both sales is exactly "4000.50"; others are "0.00".
+    expect(rows.map(r => r[2])).toContain("4000.50");
+    expect(rows.every(r => r[2] === null || /^\d+\.\d{2}$/.test(r[2] as string))).toBe(true);
+    expect(rows.every(r => r[5] === null || /^\d+\.\d$/.test(r[5] as string))).toBe(true);
   });
   it("keeps an all-unknown premium bucket as a gap (null), never $0", () => {
     const b = bundle(x => { x.summaryV3.production_by_date[0] = { ...x.summaryV3.production_by_date[0], premium_known: 0, premium_missing: 3, annual_premium: 0 }; });

@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import type { ReportSummaryV3 } from "@/lib/reports-v3-schemas";
-import { toCents } from "@/lib/reports-kpi-format";
+import { roundHalfUp, toCents } from "@/lib/reports-kpi-format";
 import { formatCount, formatPremium, formatRate, groupDailySeries, type Grouping } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import { CHART_KEYS_DESC, CHART_THEME, PERIOD_UNIT, SERIES_COLOR, TOOLTIP_FRAME, TREND_SYNC_ID, partialDot } from "./reportChartTheme";
@@ -88,7 +88,9 @@ const PoliciesSoldChart: React.FC<Props> = ({ summary, grouping, onExport }) => 
         onExport(
           "Production trend",
           ["Period", "Policies sold", "Known annual premium", "Policies with known premium", "Policies with unknown premium", "Premium details (% known)"],
-          series.map((b) => [periodCell(b.first, b.last), b.policies_sold, b.annual_premium, b.known_count, b.unknown_count, b.coverage_pct]),
+          // Each value rounded once from exact integers: AP at 2 dp from cents, % known at 1 dp.
+          series.map((b) => [periodCell(b.first, b.last), b.policies_sold, b.annual_premium === null ? null : roundHalfUp(b.premium_cents, 100, 2),
+            b.known_count, b.unknown_count, b.premium_policy_count > 0 ? roundHalfUp(100 * b.known_count, b.premium_policy_count, 1) : null]),
         )
     : undefined;
 

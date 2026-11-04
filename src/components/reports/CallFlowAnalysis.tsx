@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
-import { formatCount, formatRate, ratio } from "@/lib/reports-format";
+import { formatCount, formatRate } from "@/lib/reports-format";
+import { roundHalfUp } from "@/lib/reports-kpi-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { ReportCallVolumeV3 } from "@/lib/reports-v3-schemas";
 import { CHART_KEYS_DESC, CHART_THEME, SERIES_COLOR, TOOLTIP_FRAME, rateAxisMax } from "./reportChartTheme";
@@ -31,8 +32,8 @@ interface Row {
 const fmtHour = (h: number) => `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? "AM" : "PM"}`;
 
 function toRow(label: string, calls: number, contacted: number): Row {
-  const r = ratio(contacted, calls);
-  return { label, calls, contacted, rate: r === null ? null : Math.round(r * 1000) / 10 };
+  // Rounded once (half up, 1 dp) from the exact counts.
+  return { label, calls, contacted, rate: calls > 0 ? Number(roundHalfUp(100 * contacted, calls, 1)) : null };
 }
 
 function FlowTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload?: Row }> }) {
