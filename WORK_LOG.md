@@ -1,5 +1,382 @@
 # AgentFlow Work Log
 
+## 2026-11-04 (night) — Reports V2 Package D, batch D1: appointment categories and occurrence evidence (branch `-pkg-d`; nothing applied, merged, granted, enabled or deployed)
+
+**Request:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D"): the D4 implementation on its own branch. The plan entry was committed first (`bb6d348b`).
+
+**Base:** `-pkg-b` `a7e5eb5e` (B1–B3).
+
+**Built (D4 §3.2–§3.4):**
+- `20261104120040_appointment_type_categories.sql` (class C):
+  - `business_category` (8 values, default `unclassified`), with `classified_by` and `classified_at`;
+  - the append-only `private.appointment_type_category_events`: one event per insert and per change of name, `is_active` or category; source is settings, system_seed, ops_baseline or ops_revert;
+  - the INVOKER guard: locked defaults keep their name, flags and category (42501 otherwise); seeded names map on insert; a custom classification is stamped;
+  - the DEFINER audit trigger and `appointment_type_state_at`;
+  - no RLS change, proved by a policy snapshot.
+- `ops/appointment_type_category_baseline.sql` and `…_revert.sql` (class R; written, never run against anything hosted):
+  - the baseline guards the approved per-name counts (6 × 6 = 36 locked defaults, 0 custom) and writes 36 ops_baseline events;
+  - the revert guards the exact postimage and writes 36 ops_revert events;
+  - both refuse a replay.
+- `20261104120041_appointment_occurrence_evidence.sql` (class W). Six append-only private tables:
+  - capture windows, observations, occurrences, assignment events, outcome events and capture gaps;
+  - RLS on with no policies; REVOKE ALL, including from service_role; no FK to wins or telephony tables.
+- The rest of `…41`:
+  - `appointment_evidence_classify`: callback kind, then the type that carried the name at the instant, then the first audited classification, skipping a reverted baseline;
+  - `appointment_evidence_apply` (DEFINER, a per-appointment advisory lock): the D4 transitions — booking, pre-capture, drift, assignment events, reschedule before or after start, `slot_corrected`, supersede and retract, human retype becoming `reclassified`, delete. The system actor cannot retract or reclassify and may only cancel;
+  - the non-blocking trigger (`lock_timeout` 200 ms): every error except QUERY_CANCELED and ASSERT_FAILURE becomes a gap row, or a WARNING when that also fails;
+  - `record_appointment_outcome` (INVOKER, under the `appointments_update` RLS; fails closed): replay-idempotent, and a different outcome on the same request gives 22023; PT409 when the slot changed or is invisible;
+  - granted TO authenticated only, with an exact-ACL postcondition; the install opens the outcome capture window.
+- Rollbacks (class C):
+  - `…41` drops the trigger and the RPC and closes the windows; every evidence row is kept;
+  - `…40` drops its triggers only, and refuses while the capture trigger is installed.
+- `ops/appointment_evidence_disable.sql` (class R) and `ops/appointment_evidence_enable.sql` (class W): the enable pins four `md5(prosrc)` values from the harness: capture `01d23688…`, apply `609220fa…`, classify `1af4856b…`, outcome `1768b060…`.
+
+**Tests:**
+- `scripts/reporting_fixture.py` gains an `appointments` mode: the booking mode, then the verbatim baseline `appointment_types` table, the update triggers, the seed function, RLS and grants, and six seeded orgs. It runs:
+  - the refusals and replays;
+  - `appointment_type_categories.sql`;
+  - the baseline (changed-count refusal, approved run, replay);
+  - `…41`;
+  - `appointment_occurrence_evidence.sql`, covering E1–E8, E10, E10b, E10c, the assertion abort, E13, E14, pre-capture, append-only and classify;
+  - evidence disable and enable, the revert and its refusal;
+  - both rollbacks, in their required order.
+- `run_reporting_integrity_tests.sh` runs the mode. The `reporting-integrity.yml` paths add `supabase/ops/appointment_*.sql`.
+- Contracts: the D1 class map, with exactly `record_appointment_outcome` TO authenticated in `…41` and the enable script; every created function is revoked; the 200 ms bound; the four pins. Result: 66/66.
+- Red controls: a capture that ignores status, and a guard that allows locked edits, both fail the suites.
+
+**Deviations:**
+- The suites run on the reporting fixture's booking writers, not the v3 fixture, so the v3 fixture and the PKG-B round trip are unchanged.
+- In the shared harness cluster `service_role` lacks BYPASSRLS, so the "system actor" (`auth.uid()` NULL) is exercised as the table owner.
+- An outcome RPC call on an already-held slot with a new request id records nothing new and returns success.
+- E9's conversion `contact_id` move and E11/E12 (drift under concurrency) are not exercised yet.
+
+**Deferred to D2:**
+- `…42` attributions and its three RPCs;
+- the `…43` reader body (truth table, reconciliation, credit) and its flags preimage on PKG-B `67c6a60a…`;
+- the `reports_v3_fixture.py` restructure (forward B, D → suites → rollbacks D, B);
+- `appointment-evidence-failure-boundaries.mjs`;
+- the preflight;
+- the `policy_appointment_attributions.sql` and `reports_v3_appointment_facts.sql` suites;
+- the whole §4 frontend.
+
+**Pending approval (protected files):** `CalendarSettings.tsx`, `AppointmentModal.tsx`, `ConvertLeadModal.tsx`, `DialerPage.tsx` (A-§7(b)).
+
+**Release-only:** `…44`, the ops enable pins, `reports_release.py` and its test, AGENT_RULES, `production-release.md`, the baseline's count approval, every stage approval.
+
+### Batch D2 (same day, later): attributions, the Sales Appointments reader body, the v3 fixture restructure, frontend
+
+**Commits:**
+- `c09a2cd1`: plan entry, committed before any other edit.
+- `3c71f0a3`: backend.
+- The frontend commit: see the final report.
+
+**Backend:**
+- `…42` `policy_appointment_attributions` (class W):
+  - an append-only ledger, one root per policy;
+  - (A): an exact replica of `appointments_select`, with its qual md5-pinned at `37d5fe18…`;
+  - (P): the `record_client_policy` predicate, or the original seller;
+  - `link_policy_appointment`: rejections never raise; a replay is unchanged and a changed payload gives 22023; a root none may be superseded once, by the assignee at start or the seller;
+  - `correct_policy_appointment_link`: Admin/SA only, PT409 when stale;
+  - `get_policy_appointment_links`;
+  - all TO authenticated only.
+- `…43` `reports_v3_appointment_facts` (class C):
+  - replaces the `…13` stub (`22b1c13b…`) and the PKG-B flags (`67c6a60a…`), giving 3.2.0 with `appointment_evidence: installed`;
+  - bookings, due occurrences and held groups;
+  - reconciliation into capture_gap;
+  - credit: setter for 15, assigned agent at start for 12/16/17/18, with unattributed at agency scope only;
+  - Sales Appointment = category `sales` only, so Follow Ups are excluded;
+  - the BC4 truth table and maturity through the foundation builders.
+- **Rebase note:** whichever of PKG-C and PKG-D lands second regenerates the flags preimage and `contract_version`.
+- Rollbacks:
+  - `…43` restores the exact stub and the PKG-B flags;
+  - `…42` drops the RPCs and keeps the ledger, refusing before the `…43` rollback.
+- `ops/reporting-accuracy/appointment_evidence_preflight.sql`: read-only aggregates.
+
+**v3 fixture restructure:**
+- PKG-D dependencies: the harness `appointments` table gains the baseline columns, plus the verbatim baseline types, RLS, update triggers, seed and role helpers.
+- The PKG-D steps run inside the PKG-B state, after the PKG-B v3 suite:
+  - forward `…40`–`…43`;
+  - the attribution suite and the PKG-D section of `reports_v3_appointment_facts.sql` (marker `-- @@pkg-d@@`), both rolled back;
+  - the rollbacks in reverse.
+- The PKG-B rollback steps that follow still return to the exact PKG-A state; every PKG-B assertion is unchanged.
+
+**Suites:**
+- `policy_appointment_attributions.sql`: every rejection reason; invisible = not found; 42501; none → supersede once; replay and 22023; Admin PT409 and correction; the read; append-only.
+- Facts, hand-computed October 2026 on O1:
+  - KPI 15 = 6, with the Follow Up excluded;
+  - KPI 16 = 3, partial `outcomes_unresolved`;
+  - KPI 17 = 75 % (3/4);
+  - KPI 18 = 50 % (1/2), partial `attribution_unresolved`;
+  - KPI 12 = 2 (2 members / 1 policy);
+  - maturity computed from the as-of;
+  - by_agent credit at start, including a reassignment after start;
+  - unattributed at agency scope only;
+  - reconciliation into capture_gap;
+  - `outcome_capture_not_started`;
+  - registered reasons.
+- `appointment-evidence-failure-boundaries.mjs`:
+  - T-LOCK: 55P03 caught in about 210 ms, the write commits with one gap row;
+  - T-OUTCOME: fails closed;
+  - T-CANCEL (57014) and T-ASSERT (P0004): the whole write aborts with no evidence;
+  - T-DOUBLE: commits with no gap row.
+  The reporting `appointments` mode now runs its rollbacks as a rolled-back probe so the script runs with the capture installed.
+- Red control: counting Follow Ups as Sales Appointments fails KPI 15.
+
+**Frontend (non-protected):**
+- **Libraries:**
+  - `appointmentTypes.ts`: categories, labels and Zod;
+  - `useAppointmentTypes`: maps `business_category`;
+  - `appointmentOutcome.ts` and `appointmentOutcomeGate.ts`;
+  - `policyAppointmentLinks.ts`;
+  - `appointmentLinkRetry.ts`: module-level delivery at 1 s, 4 s and 15 s, one global toast whose Retry reuses the request ids, no retry on rejection.
+- **Hooks:** `useClosingAppointmentCandidates` and `useClosingAppointmentLink`.
+- **Components:**
+  - `ClosingAppointmentField`: optional, default "Not recorded", hidden on load or failure;
+  - `PolicyAppointmentLinkStatus`: "Closing appointment: Not recorded · Link", source `policy_entry`;
+  - `AppointmentOutcomePanel`, `PolicyLinkPrompt` and `AppointmentTypeCategoryControl`: created, not mounted (their hosts are protected).
+- **Mounts:**
+  - `RecordPolicyModal`: one field;
+  - `ClientPolicies`: one status per client;
+  - `policySaleRecording.sendPreparedSale`: `onSaleSaved` after a confirmed result, guarded so it can never alter the sale;
+  - `dialer-api.saveAppointment`: `type` only when given;
+  - `dialerAppointmentSaveContract` updated accordingly.
+- **Tests:** `appointmentOutcome`, `appointmentLinkRetry`, `appointmentTypeCategories`, `closingAppointmentField`, `appointmentOutcomePanel`, `policySaleRecordingLinkHook` and the save contract all pass.
+
+**Deviations:**
+- KPIs 12 and 18 share one member resolution: a member with an attributed policy counts as resolved even if it has another unattributed eligible policy.
+- `writer_default_type` and `duplicates_excluded` are always 0; legacy callback detection uses a `callback` title prefix as an approximation of `isDialerCallbackAppointment`.
+- A window-level condition counts 1 in `coverage.reasons`.
+- The facts suite calls the helper with `clock_timestamp()` as the as-of, because the suite writes its evidence in the same transaction. The reader itself is exercised for the payload meta.
+- The closing-appointment candidates read only the client's own `contact_id`: `Client` has no lead id, and conversion moves appointments to the client (E9).
+- `businessCategory` is optional on `AppointmentTypeRecord`.
+
+**Not done:**
+- E9 conversion-move suite, E11 drift under concurrency, E12 concurrent first links (only the single-session `already_linked` is covered);
+- S14a/S14b privacy fixtures for 12/18;
+- the BC5 writer gate across every writer;
+- `dialerPageReportsV2Exceptions.test.ts`;
+- the mounts in the protected files.
+- **CI on `d49df4a2`, PostgreSQL 17.6:**
+  - Reports backend run `41872871425`: `postgres` and `differential` success;
+  - Reporting integrity run `41872876480`: success, including the `appointments` mode.
+  - So the `appointments_select` PostgreSQL 16 qual pin also holds on 17.6.
+
+
+## 2026-11-04 (night) — Reports V2 Package C batch C1: producing-call capture (branch `-pkg-c` at `9fbc317a`, from `-pkg-b` `a7e5eb5e`; nothing applied, merged, granted, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D"). The plan entry recorded the file list before any edit (`69cba627`).
+
+**Commits:**
+
+| Commit | Content |
+|---|---|
+| `69cba627` | Plan |
+| `1d3fb4ea` | `…30`/`…31`, rollback, suite, boundaries, commission runner |
+| `59464512` | `…32`, rollback, v3 fixture, contracts, workflows |
+| `9fbc317a` | Frontend |
+
+**Backend:**
+- **`20261104120030_policy_sale_call_links.sql`** (class C):
+  - the `clients.lead_id` guard first;
+  - the link table: no FK to wins or calls; RLS on, no policies, everything revoked;
+  - the guard: same-org sale and call in the stated direction, forced `captured_at`, immutable, deletable only with the `agentflow.sale_call_link_reversal` ticket.
+- **`20261104120031_policy_sale_call_link_capture.sql`** (class W):
+  - Handoff preimage pins:
+
+    | Handoff | `md5(pg_get_functiondef)` | `md5(prosrc)` |
+    |---|---|---|
+    | `record_client_policy_handoff` | `b02760be…` | `d39e03a7…` |
+    | `convert_lead_to_client_with_sales_handoff` | `f331226b…` | `4d6803ff…` |
+
+  - The failure table.
+  - The capture helper: invoker rights, function-level `lock_timeout 100ms`, validation that never raises, a savepointed link and a nested failure record.
+  - Two `_v2` wrappers that delegate to the unchanged handoffs.
+  - `retry_policy_sale_call_link` (seller or Admin, using the server-recorded call, actor, key and sale time).
+  - `get_policy_sale_call_link_status` (status only).
+  - GRANT EXECUTE TO authenticated on exactly those four.
+- **Rollback of `…31`:** capture disabled (`disabled`), retry and status sealed, data kept, sale paths unchanged.
+- **`20261104120032_reports_v3_sale_call_links.sql`** (class C):
+  - guarded on the PKG-A link stub `769d31d1…` and the PKG-B flags `67c6a60a…`;
+  - the link reader (same-org sale and call, `captured_at <= as_of`);
+  - flags 3.2.0 with `sale_call_links` installed.
+  - Postimages: stub `998bad67…`, flags `9c6c9d5e…`. Its rollback restores both preimages exactly.
+
+**Tests (local, PostgreSQL 16.15):**
+- **`run_policy_commission_tests.sh` exit 0.** New section 6:
+  - guards: order, replay, handoff preimage drift, a missing `voicemail_id`;
+  - `policy_sale_call_links.sql` L1–L10 and L12–L16;
+  - `sale-call-link-failure-boundaries.mjs`: T-LOCK (55P03 recorded in 140–161 ms; the sale commits), T-RECOVER (server half), T-CANCEL, T-REPLAY, T-DOUBLE, T-ASSERT;
+  - the existing handoff and tracking suites with capture installed;
+  - L11 rollback.
+- **v3 fixture exit 0.** PKG-C steps run between PKG-B's forward and its empty-ledger rollback:
+  - refusals;
+  - `…30` and `…32` with their pins;
+  - the rolled-back v3 section: 3.2.0 meta, J17 Unclassified, links by `as_of` and org, J19 Yes, J4 Unclassified and No, immutability;
+  - the `…32` rollback back to the PKG-B postimages, then PKG-B back to PKG-A. The differential and performance runners still compare PKG-A.
+  - The red control (an empty link reader) fails at "the link reader returns the captured links".
+- **`run_reports_v3_tests.sh` exit 0** (including the PKG-B races).
+- **Frontend:**
+  - contracts 60/60;
+  - `tsc --noEmit` 0;
+  - app typecheck: no new errors against `gate5/base.err`;
+  - eslint on the changed files: 0;
+  - build: 0.
+- **Vitest by identity against the B gate:**
+  - no new failure;
+  - the new and updated files pass (`saleSourceCall` lib 11, components 7, telephony pin 2, `viewAsRouteAllowlist` 30 with the observer mocked);
+  - remaining failures: the baseline supabaseUrl suite errors, `recordingRetentionVoicemail` and `dashboardMissedCalls`.
+
+**Frontend (non-protected files only):**
+- `policySaleOutcome`, `policySaleRecording`, `supabase-conversion`:
+  - the source call is frozen with the submission and kept out of `saleArgs`;
+  - the `_v2` routes, with a PGRST202 fallback;
+  - the `sourceCallLink` Zod parse;
+  - the bounded retry on a recorded failure.
+- New: `saleCallLinkRetry`, `recentTrackedCall`, `useActiveInboundCallRow`, `TrackedCallObserver` (mounted in `AppLayout`, never under View As), `SaleSourceCallChip`, `PolicySaleCallLinkStatus` (mounted once in `ClientPolicies`).
+- `RecordPolicyModal`: optional `sourceCallId` plus a chip mount.
+- `dialerPageReportsV2Exceptions.test.ts` pins `TwilioContext.tsx` and `DialerPage.tsx` byte-identical to this branch's base.
+
+**Deviations:**
+1. The v3 fixture applies `…30` and `…32` only. `…31` needs the sale handoffs, so it is proven in the commission runner, and the v3 section writes links through the guard as the table owner.
+2. The commission fixture gets the production column `calls.voicemail_id` for these proofs.
+3. The reversal ticket is the setting `agentflow.sale_call_link_reversal` = win id.
+4. **Identity check:** the client, or the client's `lead_id` as the call's contact, lead pointer or membership lead.
+5. `…32` and its rollback carry REVOKE ALL lines for the class C contract; the generic "never replace" contract exempts only those two files.
+6. **The chip does not call `useTwilio()`.** It reads the store the observer fills, so the modals need no TwilioContext mock.
+7. The lib tests are combined in `saleSourceCall.test.ts`.
+8. The PKG-B "numbered last" contract became an ordering check.
+
+**Pending approval (protected files, not edited):**
+- `DialerPage.tsx` (A-§7(a), `sourceCallId={currentCallId}`);
+- `FloatingDialer.tsx` (pass the `callId`s);
+- `ConvertLeadModal.tsx` (forward `sourceCallId` plus the chip).
+
+Until they land, Dialer, FloatingDialer and conversion-modal sales send no producing call, so those buyers stay Unclassified (never No).
+
+**Limitations:**
+- Not run on PostgreSQL 17.6 (no CI dispatch, as instructed).
+- The telephony pins are against this branch's base; `main` has since changed `TwilioContext.tsx`/`DialerPage.tsx` by one line each, so the pins need regenerating on a rebase.
+- `rt.jmember` uses the fixed `as_of` 2026-12-15, so the v3 Yes/No checks assume links captured before then.
+- The modal end-to-end inbound test (a mocked `currentCall` reaching `_v2`) is covered at the store/prepare level, not through the full `RecordPolicyModal` render.
+
+**Release-only items (deferred):**
+- `…33` release enable and the `supabase/ops/reports_v3_enable.sql` pins;
+- the `reports_release.py` constants and test;
+- the AGENT_RULES amendments (A-618, A-591, A-§7(a), the FloatingDialer and ConvertLeadModal size exceptions);
+- the advisor delta +4 (`authenticated_security_definer_function_executable`);
+- the PostgreSQL 17.6 CI run;
+- the telephony gate in a permitted environment.
+- **CI on `9fbc317a`, PostgreSQL 17.6:**
+  - Reports backend run `41866981393`: `postgres` and `differential` success;
+  - Policy commission tracking run `41867006428`: both jobs success.
+
+
+## 2026-11-04 (night) — Reports V2 Package B: branch implementation complete (B2 backend, B3 correction UI; `-pkg-b`; nothing merged, applied, granted, enabled or deployed)
+
+**Request:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D"). The B2/B3 file lists were recorded in `implementation_plan.md` before any edit (`efc93e4`, merged into `-pkg-b` as `d5d5ebb`).
+- The `FullScreenContactView` single-prop exception was approved for the branch only.
+- **Deferred until the Package A release files exist:** `…22`, the ops-enable pins and the release-runner constants.
+
+**Heads:** `-pkg-b` `a7e5eb5e` (B3); B2 `38a35d91`. Foundation `efc93e4`; `main` `0e74428`, unchanged.
+
+**B2, backend (`38a35d91`):**
+- `20261104120021_reports_v3_sale_premium_basis.sql` (class W). Guards:
+  - v3 disabled;
+  - `…20` present;
+  - the PKG-A `md5(pg_get_functiondef)` postimages of the stub (`37800ccc`) and the basis flags (`e446177c`);
+  - a refused replay.
+- **The stub:**
+  - the monthly amount still comes only from `performance_sale_monthly`;
+  - source, state and revision come from the ledger head;
+  - a correction to unknown reads as `missing`.
+  - Recorded deviation: PL/pgSQL instead of D2's literal set-returning call, for the per-sale cost.
+- **Other changes:**
+  - basis flags 3.1.0 / `audited_ledger`;
+  - a per-sale identity proof against the snapshot and the effective reader;
+  - two grants TO authenticated only, with an exact-ACL postcondition.
+- **Postimages:** stub `9c46e97f`, flags `67c6a60a`.
+- **Rollback for `…20`:** with an empty ledger and the `…21` postimages in place, it also restores the exact PKG-A stub and flags. Without v3 objects it restores only the choke point. In any other state it seals only.
+- **v3 fixture:**
+  - PKG-B refusals;
+  - `…20` and `…21`;
+  - the suite's `-- @@v3@@` section, inside a rolled-back savepoint;
+  - the read-only B6 manifest check (`check_sale_correction_manifest.sql`);
+  - two seal-only rollback probes;
+  - the empty-ledger rollback back to the exact PKG-A state, so the differential and performance runners still compare PKG-A;
+  - a refused replay.
+- **The v3 section** (hand-computed from the fixture, O1 October):
+  - KPI 1 4,057.08 → 4,357.08 (= +12 × $25);
+  - KPI 4 = 4,357.08 ÷ 8 known;
+  - `by_agent` A1 2,103.00 → 2,403.00;
+  - `production_by_date` Oct 2 1,200 → 1,500;
+  - state AP: only CA moves, +300.00;
+  - KPI 2 13 unchanged;
+  - the freeze removes the one legacy fallback;
+  - a correction to unknown → `missing`;
+  - payload meta 3.1.0 / `audited_ledger`;
+  - the class W ACL matrix;
+  - choke point = stub = effective reader for every sale.
+- **Races** (`sale-premium-correction-concurrency.mjs`, two backends, reporting fixture policy database):
+  - the same request gives one revision, and the second call is idempotent;
+  - two requests at one revision give one success and one PT409 `stale_revision`;
+  - a correction and an Edit Client change serialize on the client row in both orders;
+  - the wins fingerprint is unchanged.
+- **Contracts:** `…21` is class W with an exact two-GRANT allowlist. The anon/PUBLIC grant check now reads only the grantee list (`public.` schema names had matched it).
+- **Red controls:**
+  - a stub that ignores the head fails the postimage pin and, with the pin skipped, the head-revision assertion;
+  - an anon grant fails two contract tests.
+
+**B3, correction UI (`a7e5eb5e`):**
+- **Library:** `policySaleCorrection.ts`: Zod schemas, form rules, the frozen `prepareCorrection`, transport, DETAIL mapping through `classifySaleError` (`policySaleOutcome.ts` is only imported).
+- **Hooks:**
+  - `usePolicySalePremiums`: disabled under View As;
+  - `usePremiumCorrectionSubmission`: phases editing / sending / frozen / stale / conflict / saved; generation guard; exact-retry; the RL-16 toast; invalidates exactly `['policy-sale-premiums', clientId]` and `['policy-commissions']`.
+- **Components:**
+  - `PolicySalePremiumSection`: "as sold" line, Corrected badge, History (n), Admin button;
+  - `CorrectSalePremiumDialog`: pre-submit line, legacy freeze line, `match_sale` gating;
+  - `SalePremiumHistory`: request ids for Admins only.
+- **Mounts:** `ClientPolicies` mounts the section lazily with the displayed current monthly premium.
+- **`FullScreenContactView`:** exactly the one `onPolicyRecordChanged` prop; a source test pins a single occurrence.
+- **RL-17:**
+  - `reports_v3_fixture.py --part correction-payloads` writes rolled-back before/after bundles from the policy database;
+  - `correctedPremiumSurfaces.test.tsx` renders them through the unchanged loaders and components: Leaderboard row, Dashboard AP card and Recent Wins $1,200.00 → $1,440.00; Goal progress $100.00 → $120.00; policies unchanged; raw `premium_amount` 100 never rendered;
+  - it fails on swapped bundles and skips without the variable;
+  - `reports-backend.yml` generates the bundles and runs the test.
+
+**Verification (local, PostgreSQL 16.15):**
+- `run_reports_v3_tests.sh` with bundles: exit 0;
+- `run_reporting_integrity_tests.sh` (policy and booking): exit 0;
+- `tsc --noEmit`: 0;
+- app typecheck: exit 2, no new error against the baseline;
+- eslint on the 16 changed files: 0;
+- build: 0;
+- Vitest: 6,811 tests. Failures by identity, all baseline:
+  - the supabaseUrl suite errors and `recordingRetentionVoicemail`, the same as the earlier gate;
+  - `dashboardMissedCalls`, which also fails on the foundation (date-dependent);
+  - `googleSheetsV2Ui`, which failed under load and passes alone;
+  - the one contract failure the gate found, caused by the workflow line, was fixed before the commit.
+- **CI on `38a35d91`, run `41858261700`, PostgreSQL 17.6:** `postgres` job success, including the new PKG-B steps and races. `differential` success (16:11 UTC).
+- **CI on `a7e5eb5e`, run `41866975891`, PostgreSQL 17.6:**
+  - `postgres` job success, including the new RL-17 surfaces step on native bundles;
+  - `differential` success.
+
+**Side effects:**
+- The correction never inserts or changes a win: suite fingerprints, the race fingerprint, and the static checks that no correction code reaches `notify_win` / `win-trigger` / sale writers.
+- It never touches a commission row: no commission-migration trigger on `clients`/`wins`, no reference in `…20`/`…21`.
+- **Limitation:** the commission tables are not in the reporting fixture, so commission rows are not fingerprinted in SQL.
+
+**Release-only items still open for Package B:**
+- `…22` and the ops-enable pins; `reports_release.py` stage constants and their test (they wait for the PKG-A release files);
+- the B1–B4 backend stages and read-back;
+- the B5 UI merge;
+- the B6 divergence manifest (real-policy classifications);
+- ★5 permission confirmation;
+- the AGENT_RULES amendments (A-40, A-34, A-851, the `FullScreenContactView` size exception text);
+- the security review;
+- the PKG-B release window.
+
+**Packages C and D:** started in parallel on `-pkg-c` and `-pkg-d` (both from `a7e5eb5e`). Protected-file mounts (C: `DialerPage`, `FloatingDialer`, `ConvertLeadModal`; D: `CalendarSettings`, `AppointmentModal`, `ConvertLeadModal`, `DialerPage`) wait for Chris's approval.
+
 ## 2026-11-04 (evening) — Reports V2: the two agency journey reference comparisons are replaced by bounded verification (foundation `6b2356b`; tests and fixtures only; nothing merged, applied, granted, enabled or deployed)
 
 **Request:** Chris's message of 2026-11-04 ("Replace the two unfinishable reference comparisons"). The criteria and file list are in this evening's `implementation_plan.md` entry, recorded before any edit (`e92c343`).
