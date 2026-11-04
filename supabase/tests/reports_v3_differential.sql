@@ -33,6 +33,10 @@ CREATE TABLE rt.dx_results (part text NOT NULL, kind text NOT NULL, label text N
                             cand_sha256 text, ref_sha256 text, detail text);
 CREATE FUNCTION rt.dx_sha(p jsonb) RETURNS text LANGUAGE sql IMMUTABLE AS $$
   SELECT encode(sha256(convert_to(coalesce(p::text, 'null'), 'UTF8')), 'hex') $$;
+-- One KPI envelope of a reader payload, and a JSON integer (used by parts 2 and 3).
+CREATE FUNCTION rt.jx_metric(p jsonb, p_id integer) RETURNS jsonb LANGUAGE sql IMMUTABLE AS $$
+  SELECT e FROM jsonb_array_elements(p -> 'metrics') e WHERE (e ->> 'id')::int = p_id $$;
+CREATE FUNCTION rt.jx_int(p jsonb) RETURNS bigint LANGUAGE sql IMMUTABLE AS $$ SELECT (p #>> '{}')::bigint $$;
 -- Deterministic synthetic ids for adversarial inputs (no random values, so every run compares the same cases).
 CREATE FUNCTION rt.dx_uuid(p text) RETURNS uuid LANGUAGE sql IMMUTABLE AS $$ SELECT md5('dx:' || p)::uuid $$;
 
@@ -492,16 +496,298 @@ SELECT rt.eq('differential at scale: the pinned v2 call rows, the baseline v3 ro
 SELECT rt.eq('differential at scale: no mismatch', (SELECT count(*) FROM rt.dx_results WHERE part = 'scale' AND outcome = 'mismatch'), 0::bigint);
 SELECT rt.assert_sealed_v3(true, false);
 
+-- -----------------------------------------------------------------------------------------------------
+-- Full-scale replacement checks for the agency journey reader (2026-11-04; implementation_plan.md "replace the two
+-- unfinishable reference comparisons"). They do NOT compare with the baseline at full scale: the baseline's reader
+-- cannot finish there (run 41753175853, 320-minute deadline). Two kinds, labelled separately:
+--   independent  expected values from the fixture's construction and base tables only (public.wins, public.clients),
+--                never from the candidate's journey helpers:
+--                each client is its own buyer identity (converted clients have distinct source leads c.n * 13;
+--                hand-entered clients have none); a buyer's first sale is its earliest dated sale ordered by
+--                (sold_date, coalesce(recorded_at, created_at), id) and recorded by as_of; original-seller credit is
+--                that first sale's agent; KPI 38 is unavailable/sale_call_link_not_captured while the PKG-A link stub
+--                is installed.
+--   invariant    relations every payload must satisfy (D3 §3.2-3.3): coverage arithmetic, KPI 19 maturity, the shared
+--                19/21 population, window nesting, the credit map. Agent medians and distinct-person totals are never
+--                summed.
+-- A control runs the same checks on payloads with one planted error and requires them to fail.
+-- -----------------------------------------------------------------------------------------------------
+CREATE TABLE rt.jx_results (check_kind text NOT NULL CHECK (check_kind IN ('independent', 'invariant', 'control')),
+                            payload text NOT NULL, label text NOT NULL, ok boolean NOT NULL, detail text);
+-- Independent first-time buyers (construction, base tables only).
+CREATE FUNCTION rt.jx_first_buyers(p_org uuid, p_as_of timestamptz)
+RETURNS TABLE (client_id uuid, first_sold_date date, seller_id uuid, hand_entered boolean) LANGUAGE sql STABLE AS $$
+  SELECT DISTINCT ON (w.contact_id) w.contact_id, w.sold_date, w.agent_id, c.lead_id IS NULL
+    FROM public.wins w JOIN public.clients c ON c.id = w.contact_id AND c.organization_id = w.organization_id
+   WHERE w.organization_id = p_org AND w.policy_id IS NOT NULL AND w.sold_date IS NOT NULL
+     AND coalesce(w.recorded_at, w.created_at) <= p_as_of
+   ORDER BY w.contact_id, w.sold_date, coalesce(w.recorded_at, w.created_at), w.id $$;
+-- Every check for one agency (or personal) payload: (kind, label, ok, detail).
+CREATE FUNCTION rt.jx_checks(p_name text, p jsonb, p_org uuid, p_start date, p_end date, p_personal_agent uuid DEFAULT NULL)
+RETURNS TABLE (check_kind text, label text, ok boolean, detail text) LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  k14 jsonb := rt.jx_metric(p, 14); k19 jsonb := rt.jx_metric(p, 19); k21 jsonb := rt.jx_metric(p, 21); k38 jsonb := rt.jx_metric(p, 38);
+  v_as_of timestamptz := (p ->> 'as_of')::timestamptz; e14 bigint; h14 bigint; sales bigint; bad bigint; m jsonb; x jsonb; id integer;
+BEGIN
+  SELECT count(*), count(*) FILTER (WHERE b.hand_entered) INTO e14, h14 FROM rt.jx_first_buyers(p_org, v_as_of) b
+   WHERE b.first_sold_date BETWEEN p_start AND p_end AND (p_personal_agent IS NULL OR b.seller_id = p_personal_agent);
+  SELECT count(*) INTO sales FROM public.wins w
+   WHERE w.organization_id = p_org AND w.sold_date BETWEEN p_start AND p_end AND w.policy_id IS NOT NULL
+     AND coalesce(w.recorded_at, w.created_at) <= v_as_of
+     AND w.contact_id IN (SELECT b.client_id FROM rt.jx_first_buyers(p_org, v_as_of) b WHERE b.first_sold_date BETWEEN p_start AND p_end
+                            AND (p_personal_agent IS NULL OR b.seller_id = p_personal_agent));
+  check_kind := 'independent';
+  label := 'KPI 14 eligible = independent first-time buyers in the window'; ok := rt.jx_int(k14 #> '{coverage,eligible}') = e14;
+  detail := (k14 #>> '{coverage,eligible}') || ' vs ' || e14; RETURN NEXT;
+  label := 'KPI 14 hand_entered_client = independent hand-entered first-time buyers (the first gate)';
+  ok := rt.jx_int(k14 #> '{detail,history,unassessable_by,hand_entered_client}') = h14;
+  detail := (k14 #>> '{detail,history,unassessable_by,hand_entered_client}') || ' vs ' || h14; RETURN NEXT;
+  label := 'deduplication: buyers with more sales than buyers in the window are each counted once';
+  ok := sales > e14 AND rt.jx_int(k14 #> '{coverage,eligible}') = e14; detail := sales || ' sales, ' || e14 || ' buyers'; RETURN NEXT;
+  label := 'KPI 38 unavailable/sale_call_link_not_captured (PKG-A link stub)';
+  ok := k38 ->> 'status' = 'unavailable' AND k38 ->> 'reason' = 'sale_call_link_not_captured' AND k38 -> 'value' = 'null'::jsonb;
+  detail := concat_ws('/', k38 ->> 'status', k38 ->> 'reason'); RETURN NEXT;
+  IF p_personal_agent IS NULL THEN
+    -- Original-seller credit, row by row (never summed): each agent row's KPI 14 eligible equals that agent's
+    -- independent first-sale count (0 when the row has no members), and every credited seller has a row.
+    SELECT count(*) INTO bad FROM (
+      SELECT a.r ->> 'agent_id' AS agent,
+             coalesce(rt.jx_int(rt.jx_metric(a.r, 14) #> '{coverage,eligible}'), 0) AS got,
+             (SELECT count(*) FROM rt.jx_first_buyers(p_org, v_as_of) b
+               WHERE b.first_sold_date BETWEEN p_start AND p_end AND b.seller_id = (a.r ->> 'agent_id')::uuid) AS want
+        FROM jsonb_array_elements(p -> 'by_agent') a(r)) z WHERE z.got <> z.want;
+    label := 'original-seller credit: every agent row''s KPI 14 eligible = its independent first-sale count';
+    ok := bad = 0 AND jsonb_array_length(p -> 'by_agent') > 0; detail := bad || ' differing agent rows'; RETURN NEXT;
+    SELECT count(*) INTO bad FROM (SELECT DISTINCT b.seller_id FROM rt.jx_first_buyers(p_org, v_as_of) b
+                                    WHERE b.first_sold_date BETWEEN p_start AND p_end AND b.seller_id IS NOT NULL) s
+     WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(p -> 'by_agent') a(r) WHERE (a.r ->> 'agent_id')::uuid = s.seller_id);
+    label := 'original-seller credit: every independent first-sale seller has an agent row'; ok := bad = 0; detail := bad || ' missing'; RETURN NEXT;
+  END IF;
+  check_kind := 'invariant';
+  FOREACH id IN ARRAY ARRAY[14, 19, 21] LOOP
+    m := rt.jx_metric(p, id);
+    IF m -> 'coverage' = 'null'::jsonb OR m -> 'coverage' IS NULL THEN CONTINUE; END IF;
+    label := 'KPI ' || id || ': eligible = assessable + unassessable';
+    ok := rt.jx_int(m #> '{coverage,eligible}') = rt.jx_int(m #> '{coverage,assessable}') + rt.jx_int(m #> '{coverage,unassessable}');
+    detail := m ->> 'coverage'; RETURN NEXT;
+    label := 'KPI ' || id || ': history.assessable = coverage.assessable = denominator';
+    ok := rt.jx_int(m #> '{detail,history,assessable}') = rt.jx_int(m #> '{coverage,assessable}')
+          AND rt.jx_int(m -> 'denominator') = rt.jx_int(m #> '{coverage,assessable}');
+    detail := concat_ws('/', m #>> '{detail,history,assessable}', m #>> '{coverage,assessable}', m ->> 'denominator'); RETURN NEXT;
+    label := 'KPI ' || id || ': Σ coverage reasons = unassessable + numberless unresolved calls (window-level, agency only)';
+    ok := (SELECT coalesce(sum(v::bigint), 0) FROM jsonb_each_text(m #> '{coverage,reasons}') r(k, v))
+          = rt.jx_int(m #> '{coverage,unassessable}') + coalesce(rt.jx_int(m #> '{detail,history,numberless_unresolved_calls}'), 0);
+    detail := m #>> '{coverage,reasons}'; RETURN NEXT;
+    label := 'KPI ' || id || ': Σ history unassessable_by (+ attempt_unverified for 21) = unassessable';
+    ok := (SELECT coalesce(sum(v::bigint), 0) FROM jsonb_each_text(m #> '{detail,history,unassessable_by}') r(k, v))
+          + CASE WHEN id = 21 THEN coalesce(rt.jx_int(m #> '{coverage,reasons,attempt_unverified}'), 0) ELSE 0 END
+          = rt.jx_int(m #> '{coverage,unassessable}');
+    detail := m #>> '{detail,history,unassessable_by}'; RETURN NEXT;
+  END LOOP;
+  IF k19 -> 'maturity' IS NOT NULL AND k19 -> 'maturity' <> 'null'::jsonb THEN
+    x := k19 -> 'maturity';
+    label := 'KPI 19: numerator = successes_to_date and value = numerator × 100 ÷ denominator';
+    ok := rt.jx_int(k19 -> 'numerator') = rt.jx_int(x -> 'successes_to_date')
+          AND (rt.jx_int(k19 -> 'denominator') = 0 OR abs((k19 ->> 'value')::numeric - rt.jx_int(k19 -> 'numerator') * 100.0 / rt.jx_int(k19 -> 'denominator')) < 0.000001);
+    detail := concat_ws('/', k19 ->> 'numerator', x ->> 'successes_to_date', k19 ->> 'value', k19 ->> 'denominator'); RETURN NEXT;
+    label := 'KPI 19 maturity: members = eligible; pending + mature_members = members; state follows pending';
+    ok := rt.jx_int(x -> 'members') = rt.jx_int(k19 #> '{coverage,eligible}')
+          AND rt.jx_int(x -> 'pending') + rt.jx_int(x -> 'mature_members') = rt.jx_int(x -> 'members')
+          AND (x ->> 'state' = 'in_progress') = (rt.jx_int(x -> 'pending') > 0) AND rt.jx_int(x -> 'window_days') = 30;
+    detail := x::text; RETURN NEXT;
+    label := 'KPI 19 maturity: mature_successes <= successes_to_date <= assessable; fully_mature_on within the window + 31 days';
+    ok := rt.jx_int(x -> 'mature_successes') <= rt.jx_int(x -> 'successes_to_date')
+          AND rt.jx_int(x -> 'successes_to_date') <= rt.jx_int(k19 #> '{coverage,assessable}')
+          AND (x ->> 'fully_mature_on')::date BETWEEN p_start + 31 AND p_end + 31;
+    detail := x::text; RETURN NEXT;
+  END IF;
+  label := 'KPIs 19 and 21 share one population (eligible equal)';
+  ok := rt.jx_int(k19 #> '{coverage,eligible}') IS NOT DISTINCT FROM rt.jx_int(k21 #> '{coverage,eligible}');
+  detail := concat_ws('/', k19 #>> '{coverage,eligible}', k21 #>> '{coverage,eligible}'); RETURN NEXT;
+  SELECT count(*) INTO bad FROM jsonb_array_elements(p -> 'by_agent') a(r)
+   WHERE a.r -> 'credit' <> '{"14": "original_seller", "19": "first_contact_agent", "21": "first_contact_agent", "38": "original_seller"}'::jsonb;
+  label := 'every agent row carries the exact journey credit map'; ok := bad = 0; detail := bad || ' rows differ'; RETURN NEXT;
+END $$;
+
+SET statement_timeout = 0;
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+SELECT rt.dx_grants(true);
+CREATE TEMP TABLE jx_payloads AS
+SELECT v.name, v.s, v.e, v.agent, rt.dx_call(rt.perf_agent(v.persona), m.org, rt.dx_reader_sql('public', 'journey', v.s, v.e, NULL, v.scope)) AS r
+  FROM rt.perf_meta m CROSS JOIN LATERAL (VALUES
+    ('agency 30 days', 0, 'agency', m.end_date - 29, m.end_date, NULL::uuid),
+    ('agency 366 days', 0, 'agency', m.end_date - 365, m.end_date, NULL::uuid),
+    ('personal agent 7, 366 days', 7, 'personal', m.end_date - 365, m.end_date, rt.perf_agent(7))) v(name, persona, scope, s, e, agent);
+SELECT rt.dx_grants(false);
+SELECT rt.eq('full-scale journey checks: the three public journey payloads are payloads',
+  (SELECT count(*) FROM jx_payloads WHERE r ->> 'kind' = 'payload'), 3::bigint);
+INSERT INTO rt.jx_results SELECT c.check_kind, p.name, c.label, c.ok, c.detail
+  FROM jx_payloads p, rt.perf_meta m, LATERAL rt.jx_checks(p.name, p.r -> 'value', m.org, p.s, p.e, p.agent) c;
+-- Window nesting (invariant): the 30-day populations are no larger than the 366-day ones.
+INSERT INTO rt.jx_results SELECT 'invariant', 'agency 30 vs 366 days', 'KPI ' || k.id || ': 30-day eligible <= 366-day eligible',
+       rt.jx_int(rt.jx_metric(a.r -> 'value', k.id) #> '{coverage,eligible}') <= rt.jx_int(rt.jx_metric(b.r -> 'value', k.id) #> '{coverage,eligible}'),
+       (rt.jx_metric(a.r -> 'value', k.id) #>> '{coverage,eligible}') || ' <= ' || (rt.jx_metric(b.r -> 'value', k.id) #>> '{coverage,eligible}')
+  FROM jx_payloads a, jx_payloads b, (VALUES (14), (19), (21)) k(id) WHERE a.name = 'agency 30 days' AND b.name = 'agency 366 days';
+-- Incorrect-result controls: one planted error each must make the matching independent check fail.
+INSERT INTO rt.jx_results
+SELECT 'control', p.name, 'planted KPI 14 eligible + 1 is caught', NOT bool_and(c.ok) FILTER (WHERE c.label LIKE 'KPI 14 eligible%'), NULL
+  FROM jx_payloads p, rt.perf_meta m,
+       LATERAL (SELECT jsonb_set(p.r -> 'value', '{metrics}', (SELECT jsonb_agg(CASE WHEN (e ->> 'id')::int = 14
+                  THEN jsonb_set(e, '{coverage,eligible}', to_jsonb(rt.jx_int(e #> '{coverage,eligible}') + 1)) ELSE e END ORDER BY o)
+                  FROM jsonb_array_elements(p.r -> 'value' -> 'metrics') WITH ORDINALITY x(e, o))) AS bad) z,
+       LATERAL rt.jx_checks(p.name, z.bad, m.org, p.s, p.e, p.agent) c
+ WHERE p.name = 'agency 366 days' GROUP BY p.name;
+-- Credit moved: one buyer taken from the first agent row that has buyers and given to a different agent row.
+CREATE FUNCTION pg_temp.jx_move_credit(p jsonb) RETURNS jsonb LANGUAGE plpgsql AS $mv$
+DECLARE src integer; dst integer; rows jsonb := p -> 'by_agent'; i integer; e jsonb;
+BEGIN
+  SELECT min(o - 1) INTO src FROM jsonb_array_elements(rows) WITH ORDINALITY x(a, o)
+   WHERE coalesce(rt.jx_int(rt.jx_metric(a, 14) #> '{coverage,eligible}'), 0) > 0;
+  dst := CASE WHEN src = 0 THEN 1 ELSE 0 END;
+  FOREACH i IN ARRAY ARRAY[src, dst] LOOP
+    SELECT jsonb_agg(CASE WHEN (m ->> 'id')::int = 14 THEN jsonb_set(m, '{coverage}',
+             CASE WHEN jsonb_typeof(m -> 'coverage') = 'object' THEN m -> 'coverage' ELSE '{}'::jsonb END
+             || jsonb_build_object('eligible', coalesce(rt.jx_int(m #> '{coverage,eligible}'), 0) + CASE WHEN i = src THEN -1 ELSE 1 END))
+           ELSE m END ORDER BY o) INTO e
+      FROM jsonb_array_elements(rows -> i -> 'metrics') WITH ORDINALITY y(m, o);
+    rows := jsonb_set(rows, ARRAY[i::text, 'metrics'], e);
+  END LOOP;
+  RETURN jsonb_set(p, '{by_agent}', rows);
+END $mv$;
+INSERT INTO rt.jx_results
+SELECT 'control', p.name, 'planted credit moved between two agent rows is caught',
+       NOT bool_and(c.ok) FILTER (WHERE c.label LIKE 'original-seller credit: every agent row%'), NULL
+  FROM jx_payloads p, rt.perf_meta m, LATERAL rt.jx_checks(p.name, pg_temp.jx_move_credit(p.r -> 'value'), m.org, p.s, p.e, p.agent) c
+ WHERE p.name = 'agency 30 days' GROUP BY p.name;
+COMMIT;
+SELECT check_kind, payload, label, ok, detail FROM rt.jx_results WHERE NOT ok ORDER BY check_kind, payload, label;
+SELECT check_kind, payload, count(*) FILTER (WHERE ok) || '/' || count(*) AS passed FROM rt.jx_results GROUP BY 1, 2 ORDER BY 1, 2;
+SELECT rt.eq('full-scale journey checks: every independent assertion and invariant holds, and both planted-error controls are caught',
+  (SELECT count(*) FROM rt.jx_results WHERE NOT ok), 0::bigint);
+SELECT rt.eq('full-scale journey checks: both controls ran', (SELECT count(*) FROM rt.jx_results WHERE check_kind = 'control'), 2::bigint);
+SELECT rt.eq('full-scale journey checks: independent assertions ran on all three payloads',
+  (SELECT count(DISTINCT payload) FROM rt.jx_results WHERE check_kind = 'independent'), 3::bigint);
+SELECT 'full-scale journey replacement checks (not a baseline comparison): ' ||
+       (SELECT string_agg(check_kind || ' ' || n, ', ' ORDER BY check_kind) FROM (SELECT check_kind, count(*) || ' passed' AS n FROM rt.jx_results GROUP BY 1) q)
+       AS journey_full_scale_checks;
+
 \pset tuples_only on
 \pset format unaligned
 \o :dx_scale_cases
 SELECT row_to_json(r) FROM (SELECT part, kind, label, reader, expected, cand, ref, outcome, cand_sha256, ref_sha256, detail
                               FROM rt.dx_results WHERE part = 'scale' ORDER BY kind, label) r;
 \o :dx_scale_summary
-SELECT jsonb_pretty(rt.dx_summary('scale') || jsonb_build_object('journey_reader_cases',
+SELECT jsonb_pretty(rt.dx_summary('scale') || jsonb_build_object('journey_full_scale_checks',
+         (SELECT jsonb_object_agg(k, v) FROM (SELECT check_kind AS k, jsonb_build_object('passed', count(*) FILTER (WHERE ok), 'total', count(*)) AS v
+                                                FROM rt.jx_results GROUP BY 1) q)) || jsonb_build_object('journey_reader_cases',
          CASE :'dx_journey_mode' WHEN 'all' THEN 'compared' WHEN 'case' THEN 'case ' || :'dx_journey_case' || ' compared' ELSE 'not run (REPORTS_V3_DX_JOURNEY_SCALE unset)' END));
 \o
 \pset tuples_only off
 \pset format aligned
 SELECT rt.dx_summary('scale') || jsonb_build_object('journey_reader_cases',
          CASE :'dx_journey_mode' WHEN 'all' THEN 'compared' WHEN 'case' THEN 'case ' || :'dx_journey_case' || ' compared' ELSE 'not run (REPORTS_V3_DX_JOURNEY_SCALE unset)' END) AS differential_scale;
+
+-- @@differential-bounded@@
+-- Part 3 (2026-11-04): the bounded exact comparison that replaces the two unfinishable agency journey reference
+-- comparisons (run 41753175853 hit the 320-minute deadline inside the baseline). It runs in its own disposable
+-- database: the functional suites, the frozen reference, part 1, then the scale fixture at rt.perf_divisor = 50 (10,000
+-- calls over the same 400 days, 1,200 leads, 100 clients with 200 policies, the same 64 people and 30 campaigns; no
+-- history is trimmed by date). The public journey reader and the baseline's are compared on complete payloads, agency
+-- scope, 30 and 366 days, in one REPEATABLE READ snapshot. The size was fixed before the first run.
+\if :{?dx_bounded_cases}
+\else
+\set dx_bounded_cases /dev/null
+\endif
+\if :{?dx_bounded_summary}
+\else
+\set dx_bounded_summary /dev/null
+\endif
+SET statement_timeout = 0;
+SET jit = off;
+SELECT rt.eq('bounded comparison: the scale fixture at divisor 50', (SELECT divisor FROM rt.perf_meta), 50);
+SELECT rt.eq('bounded comparison: 10,000 calls, 100 clients, 200 policy objects, 200 sale events (100 buyers), 200 appointments',
+  (SELECT concat_ws('|', f ->> 'calls', f ->> 'clients', f ->> 'policy_objects', f ->> 'sale_events', f ->> 'buyers', f ->> 'appointments')
+     FROM rt.perf_fixture() f), '10000|100|200|200|100|200');
+-- The difficult cases are present (base tables only).
+CREATE TABLE rt.bx_coverage AS
+SELECT v.label, v.n FROM rt.perf_meta m CROSS JOIN LATERAL (VALUES
+  ('identities called by two or more agents', (SELECT count(*) FROM (SELECT c.contact_id FROM public.calls c WHERE c.organization_id = m.org
+     AND c.contact_id IS NOT NULL GROUP BY 1 HAVING count(DISTINCT c.agent_id) >= 2) x)),
+  ('buyers with two policies', (SELECT count(*) FROM (SELECT w.contact_id FROM public.wins w WHERE w.organization_id = m.org
+     GROUP BY 1 HAVING count(*) >= 2) x)),
+  ('called leads that never bought', (SELECT count(DISTINCT c.contact_id) FROM public.calls c JOIN public.leads l ON l.id = c.contact_id
+     WHERE c.organization_id = m.org AND NOT EXISTS (SELECT 1 FROM public.clients k WHERE k.lead_id = l.id))),
+  ('inbound calls (answered or forwarded)', (SELECT count(*) FROM public.calls c WHERE c.organization_id = m.org AND c.direction = 'inbound'
+     AND (c.answered_by_agent_id IS NOT NULL OR c.outcome = 'forwarded_answered'))),
+  ('unresolved calls: dangling pointers', (SELECT count(*) FROM public.calls c WHERE c.organization_id = m.org AND c.contact_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.leads l WHERE l.id = c.contact_id) AND NOT EXISTS (SELECT 1 FROM public.clients k WHERE k.id = c.contact_id)
+     AND NOT EXISTS (SELECT 1 FROM public.campaign_leads cl WHERE cl.id = c.contact_id) AND NOT EXISTS (SELECT 1 FROM public.recruits r WHERE r.id = c.contact_id))),
+  ('unresolved calls: no pointer and no number', (SELECT count(*) FROM public.calls c WHERE c.organization_id = m.org AND c.contact_id IS NULL
+     AND c.contact_phone IS NULL)),
+  ('missing history: hand-entered clients', (SELECT count(*) FROM public.clients k WHERE k.organization_id = m.org AND k.lead_id IS NULL)),
+  ('missing history: converted clients whose lead was deleted', (SELECT count(*) FROM public.clients k WHERE k.organization_id = m.org
+     AND k.lead_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.leads l WHERE l.id = k.lead_id))),
+  ('first sales recorded as sold_date_proxy', (SELECT count(*) FROM public.wins w WHERE w.organization_id = m.org AND w.event_time_source = 'sold_date_proxy')),
+  ('calls before the 366-day window (history kept)', (SELECT count(*) FROM public.calls c WHERE c.organization_id = m.org
+     AND c.created_at < (SELECT w.start_at FROM private.report_window(m.org, m.end_date - 365, m.end_date) w)))
+) v(label, n);
+SELECT label, n FROM rt.bx_coverage ORDER BY label;
+SELECT rt.eq('bounded comparison: every difficult case is present in the bounded fixture',
+  (SELECT string_agg(label, ', ' ORDER BY label) FROM rt.bx_coverage WHERE n = 0), NULL::text);
+
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+SELECT rt.dx_grants(true);
+SELECT count(*) AS bounded_reader_cases FROM (
+  SELECT rt.dx_case('bounded', 'persona-0:agency:-:journey:' || v.days || 'd', rt.perf_agent(0), m.org, 'journey',
+                    m.end_date - (v.days - 1), m.end_date, NULL, 'agency', 'payload')
+    FROM rt.perf_meta m, (VALUES (30), (366)) v(days) ORDER BY v.days) x;
+-- The populations the comparison covered, from the baseline's own payloads: first contacts, buyers, non-buyers and both
+-- sides of the KPI 19 maturity boundary.
+CREATE TABLE rt.bx_payload_coverage AS
+SELECT v.days, rt.dx_call(rt.perf_agent(0), m.org, rt.dx_reader_sql('rtref', 'journey', m.end_date - (v.days - 1), m.end_date, NULL, 'agency')) -> 'value' AS ref
+  FROM rt.perf_meta m, (VALUES (30), (366)) v(days);
+-- Self-control: a planted ordering-only difference in the public reader (agent rows sorted descending) must mismatch.
+SELECT rt.reject_mutation('public.get_report_journey_v3(date,date,uuid,text)', 'ORDER BY lower(r.name) NULLS LAST, r.agent_id',
+  'ORDER BY lower(r.name) DESC NULLS LAST, r.agent_id',
+  $probe$SELECT rt.dx_must_match('bounded control: planted agent-row order', rt.perf_agent(0), m.org, 'journey', m.end_date - 29, m.end_date,
+                                  NULL, 'agency', 'payload') FROM rt.perf_meta m$probe$,
+  'differential mismatch: bounded control: planted agent-row order');
+SELECT rt.dx_grants(false);
+COMMIT;
+
+SELECT part, kind, label, reader, expected, cand, ref, detail FROM rt.dx_results WHERE part IN ('bounded', 'control') AND outcome = 'mismatch';
+SELECT p.days || ' days' AS bounded_window, rt.jx_int(rt.jx_metric(p.ref, 14) #> '{coverage,eligible}') AS first_time_buyers,
+       rt.jx_int(rt.jx_metric(p.ref, 19) #> '{coverage,eligible}') AS first_contacts,
+       rt.jx_metric(p.ref, 19) #>> '{maturity,pending}' AS pending, rt.jx_metric(p.ref, 19) #>> '{maturity,mature_members}' AS mature,
+       jsonb_array_length(p.ref -> 'by_agent') AS agent_rows
+  FROM rt.bx_payload_coverage p ORDER BY p.days;
+SELECT rt.eq('bounded comparison: both windows have first-time buyers, first contacts and agent rows',
+  (SELECT bool_and(rt.jx_int(rt.jx_metric(ref, 14) #> '{coverage,eligible}') > 0 AND rt.jx_int(rt.jx_metric(ref, 19) #> '{coverage,eligible}') > 0
+                   AND jsonb_array_length(ref -> 'by_agent') > 1) FROM rt.bx_payload_coverage), true);
+SELECT rt.eq('bounded comparison: first contacts include non-buyers (first contacts exceed successes)',
+  (SELECT bool_and(rt.jx_int(rt.jx_metric(ref, 19) #> '{coverage,eligible}') > coalesce(rt.jx_int(rt.jx_metric(ref, 19) #> '{maturity,successes_to_date}'), 0))
+     FROM rt.bx_payload_coverage), true);
+SELECT rt.eq('bounded comparison: KPI 19 maturity boundary on both sides (pending members at 30 days, mature members at 366 days)',
+  (SELECT rt.jx_int(rt.jx_metric(ref, 19) #> '{maturity,pending}') > 0 FROM rt.bx_payload_coverage WHERE days = 30)
+  AND (SELECT rt.jx_int(rt.jx_metric(ref, 19) #> '{maturity,mature_members}') > 0 FROM rt.bx_payload_coverage WHERE days = 366), true);
+SELECT rt.eq('bounded comparison: agency 30 and 366 days are payload_equal with the frozen reference',
+  (SELECT string_agg(label || '=' || outcome, ',' ORDER BY label) FROM rt.dx_results WHERE part = 'bounded'),
+  'persona-0:agency:-:journey:30d=payload_equal,persona-0:agency:-:journey:366d=payload_equal');
+SELECT rt.eq('bounded comparison: the planted control left no residue', (SELECT count(*) FROM rt.dx_results WHERE part = 'control' AND label LIKE 'bounded control%'), 0::bigint);
+SELECT rt.assert_sealed_v3(true, false);
+
+\pset tuples_only on
+\pset format unaligned
+\o :dx_bounded_cases
+SELECT row_to_json(r) FROM (SELECT part, kind, label, reader, expected, cand, ref, outcome, cand_sha256, ref_sha256, detail
+                              FROM rt.dx_results WHERE part = 'bounded' ORDER BY label) r;
+\o :dx_bounded_summary
+SELECT jsonb_pretty(rt.dx_summary('bounded') || jsonb_build_object('divisor', (SELECT divisor FROM rt.perf_meta),
+         'fixture', rt.perf_fixture(), 'difficult_cases', (SELECT jsonb_object_agg(label, n) FROM rt.bx_coverage),
+         'windows', (SELECT jsonb_agg(jsonb_build_object('days', days,
+            'first_time_buyers', rt.jx_metric(ref, 14) #> '{coverage,eligible}', 'first_contacts', rt.jx_metric(ref, 19) #> '{coverage,eligible}',
+            'maturity', rt.jx_metric(ref, 19) -> 'maturity', 'agent_rows', jsonb_array_length(ref -> 'by_agent')) ORDER BY days) FROM rt.bx_payload_coverage)));
+\o
+\pset tuples_only off
+\pset format aligned
+SELECT rt.dx_summary('bounded') AS differential_bounded;
