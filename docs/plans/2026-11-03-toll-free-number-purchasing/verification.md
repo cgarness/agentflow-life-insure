@@ -1,6 +1,6 @@
 # Toll-Free Number Purchasing — verification and release handoff
 
-**Status:** Production backend released and verified; final frontend CI/merge pending.
+**Status:** Backend and production frontend released; exact deployment, aliases and public feature assets verified. Documentation closeout is published on a separate review branch.
 
 **Completed:** November 4, 2026 UTC (November 3 Pacific).
 
@@ -20,7 +20,21 @@ All 8 new functions, 18 columns, 12 constraints and 5 indexes match the approved
 
 Released and read back SMS v61, workflow v50, consent worker v26, ClearPath v25, search v59 and buy v65 in that order. All 71 source modules match approved payloads; all 52 unrelated live module copies remain unchanged, including deployed callback/dispatch/signature/alert differences. All retain `verify_jwt=false`, no import map and ACTIVE status. Seven bare POST rejection checks returned expected 401/403/409 responses; no authentication, quote, purchase, worker action or provider transaction was executed.
 
-The final cloud browser check exposed ANSI formatting in the Vite startup banner. The checker now verifies actual fixture HTTP readiness with every UI/security assertion retained; the complete browser check passed locally with CI color settings and zero external requests. Complete final-head CI before frontend merge. The exact backend evidence is in [production-release.json](production-release.json); frontend release evidence will be appended there after deployment. No application/SQL/payload byte change was needed for the CI corrections.
+The final cloud browser check exposed ANSI formatting in the Vite startup banner. The checker now verifies actual fixture HTTP readiness with every UI/security assertion retained; the complete browser check passed locally with CI color settings and zero external requests. Final-head CI, merge and production deployment are complete. Backend and frontend evidence is in [production-release.json](production-release.json). No application/SQL/payload byte change was needed for the CI corrections.
+
+## Final CI, merge and production frontend verification
+
+All **seven workflows and eleven jobs** passed on `049750716b1e176d24847722d20078df7405e371`. [PR #513](https://github.com/cgarness/agentflow-life-insure/pull/513) merged as `2b6f5cefe4f4d7980ab670067a5634e320cd20fd`, with an identical Git tree. The final phone workflow passed its 68 focused UI/Inbounds tests, 99 mocked purchase/SMS tests, frozen-lock Edge checks, native PostgreSQL 17.6 checks (131 assertions, 12 concurrency scenarios, 11 observed lock waits), and browser interactions with zero external requests.
+
+The first full Reports comparison found an immediate mapping-readiness assertion in an unchanged Google Sheets test: expected First Name, received Don't import. Control presence can precede the separate automatic-mapping effect. One paired local run passed all 26 tests on both revisions (Node 24.22.1; cloud uses 22.16.0). One **unchanged** cloud rerun passed the complete gate: baseline 6,705 passed / 3 failed / 35 pending; candidate 6,765 passed / 1 pre-existing failed / 35 pending. The unchanged baseline also exhibited two different Google Sheets readiness failures, while the candidate passed all 26 Google Sheets tests. No test, timeout or comparison rule was weakened. Application diagnostics remained 79/79, with no additions or removals; runtime errors were baseline 1 / candidate 0. The candidate retains the pre-existing recording-retention assertion and shared environment-related failed suites; this is a passing **no-new-regressions comparison**, not a claim that the entire repository is error-free. Reports-specific tests passed 360 with 1 skipped; changed-TypeScript lint and build passed. [Successful job](https://github.com/cgarness/agentflow-life-insure/actions/runs/41773138479/job/126394075072).
+
+**Resolved blocker history:** At `2026-11-04T05:05:58Z`, Vercel rejected the initial production deployment with “Deployment rate limited — retry in 24 hours.” Both linked status contexts failed, and production then remained at `0e744282` with its incompatible unquoted purchase UI. Chris subsequently reported upgrading to Pro and explicitly requested a retry. The normal approved production deployment succeeded; no assistant billing or project-settings change was made.
+
+**Production deployment:** `dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc` is READY for project `agentflow`, target `production`, exact main commit `2b6f5cefe4f4d7980ab670067a5634e320cd20fd`. READY time is `2026-11-04T06:42:04.207Z` (November 3, 10:42 p.m. Pacific). Provider metadata assigns both `www.fflagent.com` and `fflagent.com` to it; the apex redirects to `www`.
+
+**Public artifact verification:** Unauthenticated GETs of `https://www.fflagent.com/` and `/assets/index-DFiSUeNt.js` returned 200. All six markers were present: agency-number selection, purchase review, Toll-Free, SMS unavailable, search endpoint and buy endpoint. HTML SHA-256 is `4f2fc027f0801b62faf1941219de709d634b7448c8dff525edd8a3ac515f87b0`; entry-module SHA-256 is `212971f7aa7f3306735152fd09a45bd3852e6d3add5d4032c4c5f1ac1bd0cb58`. The verifier did not execute JavaScript, authenticate, call backend APIs or test purchasing. The eight manifest source hashes match the approved merge; downloaded bundle hashes are evidence, not a claimed comparison against an approved compiled-bundle hash.
+
+**Observation and limits:** The Vercel error/fatal query from `2026-11-04T06:41:28Z` through `2026-11-04T06:42:59.804Z` returned no matching logs; browser JavaScript and Supabase Edge Functions are outside that scan. No real inventory/account-pricing/provisioning, signed-in UI or live media was tested. Purchases, assignments, calls and SMS remain zero. SQL and Edge deployments were not repeated. No release blocker remains. These repository bookkeeping updates are published on the documentation-only review branch; PR #513's body records the live release.
 
 ## Implemented behavior
 
@@ -52,7 +66,7 @@ Counts describe the named suites; the repeated assembled-package checks are addi
 | Actual application type comparison | **Base 79 / candidate 79 / new 0** | Exact main baseline; existing diagnostics remain. Root TypeScript alone is not used to claim an error-free application. |
 | Scoped frontend ESLint and new backend Deno lint | **Passed** | All new backend modules/handler tests and new SMS gate test. The unchanged legacy `sending.ts` still has two existing `no-explicit-any` diagnostics; its narrow gate introduces neither. |
 | Production build | **Passed** | Existing dynamic-import and large-chunk warnings remain; no build limits were relaxed. |
-| Release preservation | **Passed** | Six payload hashes, 71 bundled module hashes, frontend files and pending SQL match the manifest; 52 unrelated live module copies are preserved byte-for-byte. |
+| Release preservation | **Passed** | Six payload hashes, 71 bundled module hashes, frontend files and approved SQL match the manifest; 52 unrelated live module copies are preserved byte-for-byte. |
 | Release drift rejection | **Passed** | Changed captured version, source bytes or `verify_jwt` each fails before writing a package. |
 | Whitespace and runner syntax | **Passed** | `git diff --check`, Node syntax checks; no package/lockfile changes. |
 
@@ -135,13 +149,11 @@ Exact hashes and individual bundled files are in [release-manifest.json](release
 
 All retain `verify_jwt=false`, no import map, and their unrelated deployed files. In particular, the buy package retains its live callback configuration, workflow/worker retain their deployed dispatch/signature modules, and ClearPath retains its already-live handler/copy. Source-main deployment without this reconciliation would not meet the preservation requirement.
 
-### Separate approvals and next actions
+### Completed release steps and remaining actions
 
-1. Review the local candidate and arrange review-branch publication without an unintended deployment. The build approval has been fulfilled.
-2. Re-fetch the six live functions, main/PR overlap, database history and relevant schema/RPC definitions immediately before release. Resolve drift with a new exact manifest if needed.
-3. Authorize the exact pending migration for production. Apply once, reconcile the recorded timestamp/path, verify installed definitions/grants/RLS and run Supabase advisors. The existing Inbounds migration must not be replayed.
-4. Authorize six complete Edge payloads. Release the four SMS guards first, then search/buy; read back every file and verify configuration. Do not replace unrelated live modules with newer main copies.
-5. Authorize the frontend release after backend compatibility checks. Old purchase tabs must refresh for price review; the new handler deliberately refuses legacy unquoted buying.
-6. Before an assistant-executed real purchase, present the actual current number and account quote and obtain separate transaction authorization. Inbounds designation and controlled real-call/media acceptance remain separate actions.
+1. Completed: candidate review/publication, conflict and live-drift checks, all final CI gates, exact migration application/readback, six full Edge releases/readbacks, and PR #513 merge.
+2. Completed: after Chris's Pro upgrade and explicit retry request, approved main `2b6f5cef` reached production READY; correct project/commit, aliases and public HTML/entry-module markers were verified.
+3. Completed: publish the seven-file documentation closeout on `docs/toll-free-production-release-20261103` for review independent of the live release. Do not replay migration 20261104041151 or the six Edge packages. Preserve the ledger, SMS guard and attempted barriers; an old unquoted-buy rollback is unsafe.
+4. Before any assistant-executed real purchase, present the current selected number and actual quote and obtain separate transaction authorization. Inbounds designation and controlled live media remain separate actions. Refresh older purchasing tabs for quote review.
 
-No actual account pricing permissions, real provider inventory, paid provisioning or live audio was exercised. Those are the remaining integration uncertainties. Unknown charged outcomes intentionally require reviewed support recovery; no reset/retry worker or automatic refund/release was added. Rollback must preserve the ledger, ownership, SMS denial and attempted barriers. Existing 79 application diagnostics, legacy sending lint annotations, bundle warnings and unrelated security-advisor findings remain outside this change.
+No actual account pricing permissions, real provider inventory, paid provisioning, signed-in UI or live audio was exercised. Those are the remaining integration uncertainties, not observed release blockers. Unknown charged outcomes intentionally require reviewed support recovery; no reset/retry worker or automatic refund/release was added. Rollback must preserve the ledger, ownership, SMS denial and attempted barriers. Existing 79 application diagnostics, legacy sending lint annotations, bundle warnings and unrelated security-advisor findings remain outside this change.

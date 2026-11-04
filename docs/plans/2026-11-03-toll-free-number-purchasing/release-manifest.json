@@ -1,6 +1,6 @@
 {
   "feature": "US toll-free number purchasing",
-  "status": "backend_released_frontend_pending",
+  "status": "backend_and_frontend_released_public_assets_verified",
   "reviewed_main": "0e74428259275c9281518832747a627a4f635a80",
   "production_project": "jncvvsvckxhqgqvkppmj",
   "migration": {
@@ -560,5 +560,10 @@
         }
       ]
     }
-  ]
+  ],
+  "frontend_merge_commit": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
+  "production_frontend_released": true,
+  "production_frontend_deployment": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc",
+  "production_frontend_ready_at_utc": "2026-11-04T06:42:04.207Z",
+  "public_feature_assets_verified": true
 }
