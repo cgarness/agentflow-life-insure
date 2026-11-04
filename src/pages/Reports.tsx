@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useReportsPage } from "@/hooks/useReportsPage";
+import { useReportLayout } from "@/hooks/useReportLayout";
+import ReportCustomizer from "@/components/reports/ReportCustomizer";
+import SectionRenderer, { visibleIds } from "@/components/reports/SectionRenderer";
 import ReportsToolbar from "@/components/reports/ReportsToolbar";
 import ReportsNotices from "@/components/reports/ReportsNotices";
 import ReportsProduction from "@/components/reports/ReportsProduction";
@@ -10,10 +13,7 @@ import ReportBreakdowns from "@/components/reports/ReportBreakdowns";
 import { buildV3Sections } from "@/components/reports/reportSectionMap";
 import { autoGrouping, type Grouping } from "@/lib/reports-format";
 
-const BREAKDOWNS = ["campaign_performance", "lead_source_roi", "call_flow_analysis", "call_duration_analysis", "disposition_deep_dive"] as const;
-const Section = ({ id, children }: { id: string; children: React.ReactNode }) => (
-  <section data-report-group={id} data-report-section={id} className="min-w-0">{children}</section>
-);
+
 
 /**
  * Reports v3: one continuous Example 2 page (D6 §4.1). The v3 scope gates the page: when it is denied or v3 is off,
@@ -33,6 +33,10 @@ const Reports: React.FC = () => {
   const showSections = !!scopeData && !!page.request && !page.scopeDrift;
   const [groupingSel, setGroupingSel] = useState<Grouping | null>(null);
   const grouping = groupingSel ?? (page.range ? autoGrouping(page.range) : "daily");
+  const preferences = useReportLayout(viewerId, orgId, showSections);
+  const layout = preferences.editMode ? preferences.draft : preferences.layout;
+  const team = scopeData?.scope !== "own";
+  const stripIds = visibleIds(layout.sections, "activity", true).map(id => Number(id.slice(4)));
   const sections = buildV3Sections({ panels, retry: page.retryPanel, exportFor: () => undefined, grouping, viewerId,
     agencyScope: scopeData?.scope === "organization" });
   return (
@@ -42,7 +46,7 @@ const Reports: React.FC = () => {
         preset={page.preset} onPreset={page.setPreset} customStart={page.customStart} customEnd={page.customEnd}
         onCustomStart={page.setCustomStart} onCustomEnd={page.setCustomEnd} range={page.range} rangeProblem={page.rangeProblem}
         agentId={page.agentId} onAgent={page.setAgentId} onScope={page.onScope} panelRendered={showSections}
-        editMode={false} customizationReady={false} onToggleEdit={() => undefined} onRefresh={page.refresh}
+        editMode={preferences.editMode} customizationReady={preferences.canEdit} onToggleEdit={preferences.editMode ? preferences.cancel : preferences.beginEdit} onRefresh={page.refresh}
         canExport={!!scopeData?.can_export} exportReady={page.exportable("summary")} onExport={() => undefined}
         asOf={panels.summary.status === "ready" ? panels.summary.data.as_of : null}
       />
@@ -51,12 +55,16 @@ const Reports: React.FC = () => {
       {showSections && (
         <div id="reports-scope-panel" role="tabpanel" aria-labelledby={`report-scope-${scopeData.requested_scope}`} className="min-w-0 space-y-6 md:space-y-8">
           <ReportsProduction panels={panels} />
-          <ReportsEffortSection panels={panels} />
+          {preferences.editMode && (
+            <ReportCustomizer editMode sections={preferences.draft.sections} onSectionsChange={preferences.setSections} showTeamSections={team}
+              busy={preferences.busy} error={preferences.error} onSave={preferences.save} onCancel={preferences.cancel} onReset={preferences.reset} />
+          )}
+          <ReportsEffortSection panels={panels} stripIds={stripIds} />
           <ReportTrends sections={sections} grouping={grouping} onGroupingChange={setGroupingSel} />
-          {scopeData.scope !== "own" && <Section id="agent_performance_cards">{sections.agent_performance_cards}</Section>}
-          <Section id="regional_performance">{sections.regional_performance}</Section>
-          <Section id="calling_heatmap">{sections.calling_heatmap}</Section>
-          <ReportBreakdowns>{BREAKDOWNS.map(id => <div key={id} data-report-section={id}>{sections[id]}</div>)}</ReportBreakdowns>
+          <SectionRenderer sections={layout.sections} group="sections" showTeamSections={team} components={sections} />
+          {visibleIds(layout.sections, "breakdowns", team).length > 0 && (
+            <ReportBreakdowns><SectionRenderer sections={layout.sections} group="breakdowns" showTeamSections={team} components={sections} /></ReportBreakdowns>
+          )}
         </div>
       )}
     </div>

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import { reportCampaignsSchema, reportDispositionsSchema, reportLeadSourcesSchema, reportScopeSchema, reportSummarySchema, reportVolumeSchema } from "@/lib/reports-schemas";
-import { computeAllStats } from "@/lib/stat-computations";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { formatHours, formatPremium, groupDailySeries } from "@/lib/reports-format";
 import { integrityExportNotes, qualityNotes } from "@/lib/reports-integrity-text";
 import type { ReportQuality } from "@/lib/reports-schemas";
@@ -29,12 +29,10 @@ describe("Reports v2 integrity", () => {
     expect(formatPremium(premium(1, 0).annual_premium)).toBe("—");
     expect(formatPremium(premium(2, 1, 10.01).annual_premium)).toBe("$120.12");
   });
-  it("unmatched calls never inflate either session rate", () => {
-    const summary = reportSummary({ calls_made: 999, talk_time_seconds: 99999, session_matched_calls: 3, session_matched_talk_seconds: 90, session_seconds: 3600 });
-    const stats = computeAllStats({ summary: { status: "ready", data: summary }, volume: { status: "ready", data: reportVolume() }, agencyToday: "2026-07-20", dayCount: 31 });
-    expect(stats.get("stat_total_dials")!.value).toBe("999");
-    expect(stats.get("stat_calls_per_hour")!.value).toBe("3.0");
-    expect(stats.get("stat_talk_time_ratio")!.value).toBe("2.5%");
+  it("the browser computes no KPI: the client stat computations are retired and no Reports surface imports them (D6 §1)", () => {
+    expect(existsSync("src/lib/stat-computations.ts")).toBe(false);
+    const files = ["src/pages/Reports.tsx", ...readdirSync("src/components/reports").filter(f => /\.tsx?$/.test(f)).map(f => `src/components/reports/${f}`)];
+    for (const f of files) expect(readFileSync(f, "utf8")).not.toMatch(/stat-computations|computeAllStats/);
   });
   it("retains hour seconds and groups Sunday into its preceding Monday", () => {
     expect(formatHours(3661)).toBe("1h 1m 1s");

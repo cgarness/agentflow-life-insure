@@ -147,7 +147,7 @@ describe("frontend data-path contract", () => {
 
   /** Every Reports surface plus the shared text modules behind the screen, the Data basis and the CSV notes. */
   const surfaceFiles = () => [
-    "src/pages/Reports.tsx", "src/lib/stat-computations.ts",
+    "src/pages/Reports.tsx", "src/lib/reports-v3-text.ts", "src/lib/reports-kpi-registry.ts",
     "src/lib/reports-basis-text.ts", "src/lib/reports-policy-text.ts", "src/lib/reports-integrity-text.ts",
     ...readdirSync(join(ROOT, "src/components/reports")).filter((f) => /\.tsx?$/.test(f)).map((f) => `src/components/reports/${f}`),
   ];

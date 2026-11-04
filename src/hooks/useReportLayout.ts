@@ -75,7 +75,7 @@ export function useReportLayout(viewerId: string | null, orgId: string | null, e
   const setSections = (sections: SectionConfig[]) => {
     if (!editable()) return;
     setState((previous) => previous.editMode
-      ? { ...previous, draft: normalizeReportLayout({ version: 4, sections }), error: null } : previous);
+      ? { ...previous, draft: normalizeReportLayout({ version: 5, sections }), error: null } : previous);
   };
   const persist = async (reset: boolean): Promise<boolean> => {
     if (!viewerId || !orgId || !editable() || !stateRef.current.editMode) return false;

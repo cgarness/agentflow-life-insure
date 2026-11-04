@@ -34,6 +34,12 @@ vi.mock("@/integrations/supabase/client", async () => {
     return { data: { ...b[key], ...(h.patch[key] ?? {}) }, error: null };
   } }) } };
 });
+vi.mock("@/lib/report-layout", async () => {
+  const { DEFAULT_LAYOUT, normalizeReportLayout } = await vi.importActual<typeof import("@/lib/report-layout-constants")>("@/lib/report-layout-constants");
+  const copy = () => JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
+  return { getDefaultLayout: copy, fetchUserLayout: () => Promise.resolve(copy()), saveUserLayout: (_o: unknown, l: unknown) => Promise.resolve(normalizeReportLayout(l)),
+    resetUserLayout: () => Promise.resolve(copy()) };
+});
 vi.mock("recharts", async () => {
   const actual = await vi.importActual<typeof import("recharts")>("recharts");
   return { ...actual, ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div className="h-[300px] w-[600px]">{children}</div> };
