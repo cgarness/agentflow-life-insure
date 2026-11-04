@@ -25,6 +25,7 @@ const MIGRATION_CLASS: Record<string, PrivilegeClass> = {
   reports_v3_calls_campaign_lead_index: "C",
   reports_v3_release_enable: "E",
   reports_v3_sale_premium_basis: "W",  // PKG-B …21 (D2 §3.7)
+  reports_v3_appointment_facts: "C",   // PKG-D …43 (D4 §3.6)
 };
 /** Class W (plan §2.8, X8): the only GRANTs a writer-enable file may contain. */
 const W_ALLOWLIST: Record<string, string[]> = {
@@ -166,7 +167,8 @@ describe("Reports v3 SQL privilege classes", () => {
   });
 
   it("PKG-A migrations refuse replay, never replace silently and take the short lock timeout", () => {
-    for (const f of files.filter((x) => x.path.startsWith(`${MIGRATIONS}/`) && x.cls === "C")) {
+    // PKG-D …43 is the designed v3-only-window replacement of the …13 stub (its own describe below pins it).
+    for (const f of files.filter((x) => x.path.startsWith(`${MIGRATIONS}/`) && x.cls === "C" && !x.suffix.includes("reports_v3_appointment_facts"))) {
       const sql = stripSqlComments(f.sql);
       expect(sql, f.path).not.toMatch(/CREATE\s+OR\s+REPLACE\s+FUNCTION/i);
       if (f.suffix !== CONCURRENT_INDEX) expect(sql.trimStart(), f.path).toMatch(/^SET LOCAL lock_timeout = '2s';/);
@@ -743,7 +745,7 @@ describe("PKG-B sale premium corrections (D2 §3.3-§3.7): …20 and its rollbac
 
   it("is numbered after every PKG-A file and above the production head 20261103191631; …21 follows it", () => {
     const versions = readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /_reports_v3_|_policy_sale_premium_corrections/.test(n)).sort();
-    expect(versions.slice(-2)).toEqual(["20261104120020_policy_sale_premium_corrections.sql",
+    expect(versions.filter((v) => !v.startsWith("20261104120043")).slice(-2)).toEqual(["20261104120020_policy_sale_premium_corrections.sql",
                                         "20261104120021_reports_v3_sale_premium_basis.sql"]);
     expect(Number("20261104120020")).toBeGreaterThan(20261103191631);
   });
@@ -843,15 +845,25 @@ describe("PKG-D batch D1 (D4 §3.2–§3.4): privilege classes of the appointmen
     [`${OPS}/appointment_type_category_baseline_revert.sql`, "R"],
     [`${OPS}/appointment_evidence_disable.sql`, "R"],
     [`${OPS}/appointment_evidence_enable.sql`, "W"],
+    [`${MIGRATIONS}/20261104120042_policy_appointment_attributions.sql`, "W"],
+    [`${ROLLBACKS}/20261104120042_policy_appointment_attributions.rollback.sql`, "C"],
+    [`${MIGRATIONS}/20261104120043_reports_v3_appointment_facts.sql`, "C"],
+    [`${ROLLBACKS}/20261104120043_reports_v3_appointment_facts.rollback.sql`, "C"],
+    [`${OPS}/reporting-accuracy/appointment_evidence_preflight.sql`, "R"],
+  ];
+  const LINKS = [
+    "GRANT EXECUTE ON FUNCTION public.get_policy_appointment_links(uuid) TO authenticated",
+    "GRANT EXECUTE ON FUNCTION public.link_policy_appointment(uuid, uuid, uuid, timestamptz, text, text) TO authenticated",
+    "GRANT EXECUTE ON FUNCTION public.correct_policy_appointment_link(uuid, uuid, uuid, uuid, timestamptz, text) TO authenticated",
   ];
 
   it.each(FILES)("%s is class %s: exactly its allowed GRANTs, never to anon, PUBLIC or service_role", (path, cls) => {
     const found = grants(read(path)).map((g) => g.replace(/\s+/g, " ").trim());
-    expect(found, path).toEqual(cls === "W" ? [OUTCOME] : []);
+    expect(found, path).toEqual(cls === "W" ? (path.includes("policy_appointment_attributions") ? LINKS : [OUTCOME]) : []);
   });
 
   it("every function the two migrations create is revoked from PUBLIC, anon, authenticated and service_role", () => {
-    for (const path of [FILES[0][0], FILES[2][0]]) {
+    for (const path of [FILES[0][0], FILES[2][0], FILES[8][0], FILES[10][0]]) {
       const sql = stripSqlComments(read(path));
       const revoked = revokes(sql);
       for (const fn of createdFunctions(sql)) {
@@ -876,5 +888,21 @@ describe("PKG-D batch D1 (D4 §3.2–§3.4): privilege classes of the appointmen
     const sql = read(FILES[7][0]);
     expect(sql.match(/'[0-9a-f]{32}'/g)).toHaveLength(4);
     expect(sql).not.toMatch(/@[a-z]+@/);
+  });
+});
+
+describe("PKG-D …43 (D4 §3.6): the Sales Appointments helper replaces only the stub and the flags", () => {
+  const sql = stripSqlComments(read(`${MIGRATIONS}/20261104120043_reports_v3_appointment_facts.sql`));
+  it("guards the …13 stub and the PKG-B flags by md5(pg_get_functiondef) and installs 3.2.0 / installed", () => {
+    expect(sql).toContain("'22b1c13bfc5c20dbd9bbe2fe61d2e31e'");
+    expect(sql).toContain("'67c6a60a1004b4596a4a61487a41d17b'");
+    expect(sql).toContain('"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"not_installed","appointment_evidence":"installed"');
+    const replaced = [...sql.matchAll(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-z_]+\.[a-z0-9_]+)/gi)].map((m) => m[1]);
+    expect(replaced).toEqual(["private.report_v3_appointment_facts", "private.report_v3_basis_flags"]);
+  });
+  it("counts only category sales as a Sales Appointment and reads sale facts across sellers (privacy option a)", () => {
+    expect(sql).toMatch(/'bookings_counted', \(SELECT count\(\*\) FROM b WHERE category = 'sales'\)/);
+    expect(sql).toMatch(/report_v3_sale_facts\(p_org, NULL,/);
+    expect(sql).not.toMatch(/INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM/i);
   });
 });

@@ -125,9 +125,8 @@ def appointment_steps():
    "SELECT test_assert((SELECT bool_and(category='sales') FROM private.appointment_occurrences WHERE type_name='Sales Call' AND opened_source='booking'),'snapshots kept');"
    "SELECT test_assert(private.appointment_evidence_classify(test_uuid(1),'Sales Call','appointment',now(),now())='unclassified','reverted baseline skipped');"),
   ('categories rollback refuses before the evidence rollback',f"SELECT test_reject({q(rb40)},'P0001');"),
-  ('appointment evidence rollback',rb41+"\nSELECT test_assert(to_regprocedure('public.record_appointment_outcome(uuid,uuid,timestamptz,text)') IS NULL AND NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='appointments_v3_evidence_capture') AND (SELECT count(*)>0 FROM private.appointment_occurrences),'evidence rollback keeps the evidence');"),
-  ('appointment writes still succeed without capture',"SELECT test_actor(11); SET ROLE authenticated; UPDATE appointments SET notes='after rollback' WHERE booking_request_id=test_uuid(41001); RESET ROLE;"),
-  ('appointment type categories rollback',rb40+"\nSELECT test_assert(NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname IN ('appointment_types_classification_guard','appointment_types_category_audit')) AND to_regclass('private.appointment_type_category_events') IS NOT NULL,'categories rollback keeps column and history');")]
+  ('appointment evidence rollback (probe, rolled back: the failure-boundary script needs the capture installed)','SAVEPOINT rb41;\n'+rb41+"\nSELECT test_assert(to_regprocedure('public.record_appointment_outcome(uuid,uuid,timestamptz,text)') IS NULL AND NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='appointments_v3_evidence_capture') AND (SELECT count(*)>0 FROM private.appointment_occurrences),'evidence rollback keeps the evidence');"
+   "SELECT test_actor(11); SET ROLE authenticated; UPDATE appointments SET notes='after rollback' WHERE booking_request_id=test_uuid(41001); RESET ROLE;\n"+rb40+"\nSELECT test_assert(NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname IN ('appointment_types_classification_guard','appointment_types_category_audit')) AND to_regclass('private.appointment_type_category_events') IS NOT NULL,'categories rollback keeps column and history');\nROLLBACK TO SAVEPOINT rb41;")]
 
 def steps(mode):
  if mode=='appointments':return steps('booking')+appointment_steps()

@@ -156,6 +156,110 @@ def ledger_row(win, previous, corrected, request, actor='ADM1'):
             f"'Admin', '{request}'::uuid, repeat('0', 64), '{{}}'::jsonb FROM public.wins w WHERE w.id = rt.v3('{win}');")
 
 
+
+
+def baseline_statements(prefix):
+    """Every baseline statement starting with prefix, verbatim (policies, triggers, grants)."""
+    text, out, i = v2.read(BASELINE), [], 0
+    while True:
+        a = text.find(prefix, i)
+        if a < 0:
+            return out
+        b = text.index(';\n', a)
+        out.append(text[a:b + 1])
+        i = b
+
+
+def baseline_table(name):
+    text = v2.read(BASELINE)
+    a = text.index(f'CREATE TABLE IF NOT EXISTS "public"."{name}" (')
+    return text[a:text.index('\n);', a) + 3]
+
+
+def appointment_dependencies():
+    """Production appointment objects for PKG-D on the v3 fixture: the baseline appointments and appointment_types
+    tables, their RLS policies, update triggers, grants and seed, the booking-receipt columns and table, and the
+    baseline role helpers the appointments_select replica (…42) and the policy predicate need. Synthetic data only."""
+    receipts = v2.read(next(str(p.relative_to(ROOT)) for p in (ROOT / 'supabase/migrations').glob('*_booking_disposition_receipts.sql')))
+    a = receipts.index('CREATE TABLE private.booking_receipts(')
+    receipts_table = receipts[a:receipts.index('\n);', a) + 3]
+    helpers = [v2.block(BASELINE, f'CREATE OR REPLACE FUNCTION "public"."{f}"(') for f in ('get_user_role', 'is_super_admin', 'is_ancestor_of',
+                                                                                         'update_updated_at', 'seed_default_appointment_types')]
+    return '\n'.join([
+        'CREATE EXTENSION IF NOT EXISTS ltree;',
+        'ALTER TABLE public.profiles ADD COLUMN team_id uuid, ADD COLUMN hierarchy_path ltree;',
+        *helpers,
+        # The harness's reduced appointments table (v2 readers) gains the remaining baseline columns (types and defaults
+        # verbatim; start_time stays nullable for the harness's existing rows) and the booking-receipt columns.
+        "ALTER TABLE public.appointments ADD COLUMN IF NOT EXISTS contact_name text, ADD COLUMN IF NOT EXISTS contact_id uuid, ADD COLUMN IF NOT EXISTS start_time timestamptz, "
+        "ADD COLUMN IF NOT EXISTS end_time timestamptz, ADD COLUMN IF NOT EXISTS notes text, ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now(), "
+        "ADD COLUMN IF NOT EXISTS external_event_id text, ADD COLUMN IF NOT EXISTS external_provider text, ADD COLUMN IF NOT EXISTS external_last_synced_at timestamptz, "
+        "ADD COLUMN IF NOT EXISTS sync_source text DEFAULT 'internal' NOT NULL, ADD COLUMN IF NOT EXISTS booking_request_id uuid, ADD COLUMN IF NOT EXISTS booking_kind text;",
+        "ALTER TABLE public.appointments ALTER COLUMN type SET DEFAULT 'Sales Call', ALTER COLUMN status SET DEFAULT 'Scheduled';",
+        receipts_table, 'ALTER TABLE private.booking_receipts ENABLE ROW LEVEL SECURITY;',
+        'REVOKE ALL ON private.booking_receipts FROM PUBLIC, anon, authenticated, service_role;',
+        baseline_table('appointment_types'), 'ALTER TABLE public.appointment_types ADD PRIMARY KEY (id);',
+        *baseline_statements('CREATE OR REPLACE TRIGGER "appointment_types_updated_at"'),
+        *baseline_statements('CREATE OR REPLACE TRIGGER "appointments_updated_at"'),
+        *baseline_statements('ALTER TABLE "public"."appointment_types" ENABLE ROW LEVEL SECURITY'),
+        *baseline_statements('ALTER TABLE "public"."appointments" ENABLE ROW LEVEL SECURITY'),
+        *baseline_statements('CREATE POLICY "appointment_types_'), *baseline_statements('CREATE POLICY "appointments_'),
+        *baseline_statements('GRANT ALL ON TABLE "public"."appointment_types" TO "authenticated"'),
+        *baseline_statements('GRANT ALL ON TABLE "public"."appointments" TO "authenticated"')])
+
+
+def appointment_facts_suite():
+    """The appointment facts suite: the PKG-A stub section, then the PKG-D section after its '-- @@pkg-d@@' marker."""
+    text = v2.read('supabase/tests/reports_v3_appointment_facts.sql')
+    assert text.count('\n-- @@pkg-d@@\n') == 1, 'appointment facts pkg-d marker'
+    return text.split('\n-- @@pkg-d@@\n')
+
+
+def pkg_d_steps():
+    """PKG-D on the v3 readers (D4 §3.2-§3.6): runs after the PKG-B forward steps and the PKG-B v3 suite, while the
+    flags are PKG-B's (3.1.0). Forward …40-…43, the attribution and appointment-facts suites (each rolled back), then
+    the rollbacks in reverse, back to the PKG-B state; the PKG-B rollback steps that follow return to PKG-A."""
+    categories = v2.migration('appointment_type_categories')
+    evidence = v2.migration('appointment_occurrence_evidence')
+    links = v2.migration('policy_appointment_attributions')
+    facts = v2.migration('reports_v3_appointment_facts')
+    rb = lambda name: v2.read(next(str(p.relative_to(ROOT)) for p in (ROOT / 'supabase/migrations/rollback').glob('*_' + name + '.rollback.sql')))
+    v3_on = ("DO $on$ DECLARE f regprocedure; BEGIN FOR f IN SELECT p.oid::regprocedure FROM pg_proc p "
+             "JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'get_report_summary_v3' "
+             "LOOP EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', f); END LOOP; END $on$;\n")
+    stub_md5 = "md5(pg_get_functiondef('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz)'::regprocedure))"
+    yield 'PKG-D appointment dependencies (verbatim baseline objects)', appointment_dependencies()
+    yield 'appointment facts refuse to run before the evidence and attributions', v2.refused(
+        facts, 'Reports v3 appointment facts: the appointment evidence (…41) and attributions (…42) must be applied first')
+    yield '20261104120040_appointment_type_categories', categories
+    yield 'seeded appointment types for the v3 organizations', 'SELECT public.seed_default_appointment_types(id) FROM public.organizations ORDER BY id;'
+    yield '20261104120041_appointment_occurrence_evidence', evidence
+    yield 'attributions refuse appointments_select drift', v2.refused(
+        "ALTER POLICY appointments_select ON public.appointments USING (organization_id = public.get_org_id());" + links,
+        'Policy appointment attributions: appointments_select drift')
+    yield '20261104120042_policy_appointment_attributions', links
+    yield 'attributions replay refuses', v2.refused(links, 'Policy appointment attributions: refusing replay')
+    yield 'appointment facts refuse while Reports v3 is enabled', v2.refused(v3_on + facts, 'Reports v3 appointment facts: Reports v3 must be disabled first')
+    yield 'appointment facts refuse stub drift', v2.refused(
+        'ALTER FUNCTION private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz) COST 101;\n' + facts,
+        'Reports v3 appointment facts: stub or basis flags preimage drift')
+    yield 'policy appointment attribution regressions (rolled back)', v2.read('supabase/tests/policy_appointment_attributions.sql')
+    yield '20261104120043_reports_v3_appointment_facts', facts
+    yield 'appointment facts replay refuses', v2.refused(facts, 'Reports v3 appointment facts: refusing replay')
+    yield 'v3 sales appointments on captured evidence (rolled back)', appointment_facts_suite()[1]
+    yield 'appointment facts rollback refuses while Reports v3 is enabled', v2.refused(
+        v3_on + rb('reports_v3_appointment_facts'), 'Reports v3 appointment facts rollback: Reports v3 must be disabled first')
+    yield 'attributions rollback refuses before the appointment facts rollback', v2.refused(
+        rb('policy_appointment_attributions'), 'Policy appointment attributions rollback: roll back the appointment facts (…43) first')
+    yield 'appointment facts rollback restores the …13 stub and the PKG-B flags', rb('reports_v3_appointment_facts') + (
+        f"\nSELECT rt.eq('the PKG-B flags and the stub are back', private.report_v3_basis_flags() ->> 'contract_version' || ' ' || {stub_md5}, "
+        "'3.1.0 ' || " + stub_md5 + ");"
+        "\nSELECT rt.eq('the stub answers again', (private.report_v3_appointment_facts(rt.v3('O1'), NULL, NULL, '2026-10-01', '2026-11-01', "
+        "'America/Los_Angeles', now()) -> 'metrics' -> 1 ->> 'reason'), 'evidence_not_captured');")
+    yield 'attributions rollback', rb('policy_appointment_attributions')
+    yield 'appointment evidence rollback', rb('appointment_occurrence_evidence')
+    yield 'appointment type categories rollback', rb('appointment_type_categories')
+
 def pkg_b_steps():
     """PKG-B on the v3 readers (D2 §3.7, §6.7, §9, §10): refusals, …20, …21, the suite's v3 section (rolled back), the
     read-only manifest check, the rollback probes, then the empty-ledger rollback, which returns the database to the
@@ -188,6 +292,7 @@ def pkg_b_steps():
     yield 'sale premium corrections rollback refuses while Reports v3 is enabled', v2.refused(
         v3_on + rollback, 'Sale premium corrections rollback: Reports v3 must be disabled first')
     yield 'v3 sale premium corrections (rolled back)', correction_suite_v3()
+    yield from pkg_d_steps()  # PKG-D forward, suites and rollbacks, inside the PKG-B state
 
     req_a = 'c3f00000-0000-0000-0000-00000000000a'
     req_b = 'c3f00000-0000-0000-0000-00000000000b'
@@ -342,7 +447,7 @@ def steps():
     yield 'invalid index leftover removed', no_transaction('DROP INDEX public.report_v3_calls_org_campaign_lead;')
     yield '20261104120016_reports_v3_calls_campaign_lead_index', no_transaction(run_index)
     yield 'index definition and validity', 'SELECT rt.v3_index_check();'
-    yield 'v3 appointment facts', v2.read('supabase/tests/reports_v3_appointment_facts.sql')
+    yield 'v3 appointment facts', appointment_facts_suite()[0]
     yield 'v3 state helpers and reader', v2.read('supabase/tests/reports_v3_state_breakdown.sql')
     yield 'v3 call readers', v2.read('supabase/tests/reports_v3_call_readers.sql')
     yield 'v3 security', v2.read('supabase/tests/reports_v3_security.sql')
