@@ -831,3 +831,50 @@ describe("PKG-B …21 (D2 §3.7): Reports v3 reads the effective premium; class 
     expect(basis).not.toMatch(/policy_commission|notify_win|pg_notify/i);
   });
 });
+
+describe("PKG-D batch D1 (D4 §3.2–§3.4): privilege classes of the appointment evidence files", () => {
+  const OUTCOME = "GRANT EXECUTE ON FUNCTION public.record_appointment_outcome(uuid, uuid, timestamptz, text) TO authenticated";
+  const FILES: Array<[string, PrivilegeClass]> = [
+    [`${MIGRATIONS}/20261104120040_appointment_type_categories.sql`, "C"],
+    [`${ROLLBACKS}/20261104120040_appointment_type_categories.rollback.sql`, "C"],
+    [`${MIGRATIONS}/20261104120041_appointment_occurrence_evidence.sql`, "W"],
+    [`${ROLLBACKS}/20261104120041_appointment_occurrence_evidence.rollback.sql`, "C"],
+    [`${OPS}/appointment_type_category_baseline.sql`, "R"],
+    [`${OPS}/appointment_type_category_baseline_revert.sql`, "R"],
+    [`${OPS}/appointment_evidence_disable.sql`, "R"],
+    [`${OPS}/appointment_evidence_enable.sql`, "W"],
+  ];
+
+  it.each(FILES)("%s is class %s: exactly its allowed GRANTs, never to anon, PUBLIC or service_role", (path, cls) => {
+    const found = grants(read(path)).map((g) => g.replace(/\s+/g, " ").trim());
+    expect(found, path).toEqual(cls === "W" ? [OUTCOME] : []);
+  });
+
+  it("every function the two migrations create is revoked from PUBLIC, anon, authenticated and service_role", () => {
+    for (const path of [FILES[0][0], FILES[2][0]]) {
+      const sql = stripSqlComments(read(path));
+      const revoked = revokes(sql);
+      for (const fn of createdFunctions(sql)) {
+        const match = revoked.find((r) => r.name === fn.name && r.types.join(",") === fn.types.join(","));
+        expect(match, `${path}: ${fn.name}(${fn.types.join(", ")}) has no REVOKE ALL`).toBeDefined();
+        expect(match!.roles, `${fn.name} REVOKE roles`).toEqual(SEALED_ROLES);
+        expect(fn.header, `${fn.name} search_path`).toMatch(/SET search_path = pg_catalog, pg_temp/);
+      }
+    }
+  });
+
+  it("the capture never blocks except for cancellation and assertion failure, and is bounded at 200 ms", () => {
+    const sql = stripSqlComments(read(FILES[2][0]));
+    expect(sql).toContain("SET lock_timeout = '200ms'");
+    expect(sql).toMatch(/EXCEPTION WHEN OTHERS THEN\s+BEGIN INSERT INTO private\.appointment_evidence_capture_gaps/);
+    expect(sql).not.toMatch(/WHEN\s+(QUERY_CANCELED|ASSERT_FAILURE)/i);
+    expect(sql).toMatch(/CREATE FUNCTION public\.record_appointment_outcome[\s\S]*?SECURITY INVOKER/);
+    expect(sql).not.toMatch(/INSERT\s+INTO\s+public\.wins|policy_commission|notify_win/i);
+  });
+
+  it("the enable script pins the four capture bodies by md5(prosrc)", () => {
+    const sql = read(FILES[7][0]);
+    expect(sql.match(/'[0-9a-f]{32}'/g)).toHaveLength(4);
+    expect(sql).not.toMatch(/@[a-z]+@/);
+  });
+});
