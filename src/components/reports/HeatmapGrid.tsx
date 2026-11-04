@@ -2,6 +2,8 @@ import React from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCount, formatRate } from "@/lib/reports-format";
 import { cn } from "@/lib/utils";
+import { roundHalfUp } from "@/lib/reports-kpi-format";
+import { SCALE_BG, SCALE_TEXT } from "@/lib/reports-scale";
 import ReportTableFrame from "./ReportTableFrame";
 
 export type HeatmapMetric = "calls" | "rate";
@@ -72,14 +74,14 @@ const HeatmapGrid: React.FC<Props> = ({ rows, hours, metric, maxCalls, maxRate }
               <th scope="row" className={PIN}>{row.day}</th>
               {row.cells.map((cell) => {
                 const level = intensity(cell);
-                const shown = metric === "calls" ? formatCount(cell.calls) : cell.rate === null ? "" : `${Math.round(cell.rate * 100)}%`;
+                // A cell rate is rounded once from the cell's exact counts (D6 §4.7); a cell with no calls shows nothing.
+                const shown = metric === "calls" ? formatCount(cell.calls) : cell.calls > 0 ? `${roundHalfUp(cell.contacted * 100, cell.calls, 1)}%` : "";
+                const bucket = level === null ? null : Math.min(4, Math.floor(level * 5 - 1e-9 < 0 ? 0 : level * 5 - 1e-9));
                 return (
                   <Tooltip key={cell.hour}>
                     <TooltipTrigger asChild>
-                      <td className={cn("relative h-7 rounded-[3px] p-0 text-center align-middle md:h-8", level === null && "bg-muted",
-                        level !== null && level > 0.55 ? "text-primary-foreground" : "text-foreground")}
-                        // Shade = the selected metric relative to the busiest cell (data-driven).
-                        style={level === null ? undefined : { backgroundColor: `hsl(var(--primary) / ${(0.12 + 0.88 * level).toFixed(3)})` }}>
+                      <td className={cn("relative h-7 rounded-[3px] p-0 text-center align-middle md:h-8",
+                        bucket === null ? "bg-muted text-foreground" : [SCALE_BG[bucket], SCALE_TEXT[bucket]])}>
                         <span className="sr-only">{cellText(row.day, cell)}</span>
                         {cell.calls > 0 && <span aria-hidden="true" className="text-[11px] font-medium tabular-nums">{shown}</span>}
                       </td>

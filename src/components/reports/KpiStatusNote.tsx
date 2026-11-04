@@ -23,7 +23,7 @@ const KpiStatusNote: React.FC<Props> = ({ label, lines, tone }) => {
       <button type="button" aria-expanded={open} aria-controls={id}
         onClick={() => setOpen(o => !o)} onKeyDown={e => { if (e.key === "Escape") setOpen(false); }}
         className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          tone === "partial" ? "border-amber-500/40 text-amber-600 dark:text-amber-300" : "border-sky-500/40 text-sky-600 dark:text-sky-300")}>
+          tone === "partial" ? "border-amber-600/50 text-amber-800 dark:text-amber-300" : "border-sky-600/50 text-sky-800 dark:text-sky-300")}>
         {label}
       </button>
       {open && (

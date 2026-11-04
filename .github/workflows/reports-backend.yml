@@ -74,7 +74,7 @@ jobs:
           set -o pipefail
           bash scripts/run_reports_rpc_tests.sh 2>&1 | tee reports-backend-results.txt
           bash scripts/run_reports_integrity_tests.sh 2>&1 | tee reports-integrity-results.txt
-          REPORTS_V3_PERF=0 bash scripts/run_reports_v3_tests.sh 2>&1 | tee reports-v3-results.txt
+          REPORTS_V3_PAYLOADS="$RUNNER_TEMP/reports-v3-payloads.json" REPORTS_V3_PERF=0 bash scripts/run_reports_v3_tests.sh 2>&1 | tee reports-v3-results.txt
           bash scripts/run_profile_rpc_tests.sh 2>&1 | tee reports-profile-regression-results.txt
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -88,7 +88,8 @@ jobs:
       - name: Real Reports page against native synthetic SQL payloads
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/reports-browser/node_modules/playwright
-          REPORTS_SQL_PAYLOADS: ${{ github.workspace }}/reports-integrity-payloads.json
+          REPORTS_SQL_PAYLOADS: ${{ runner.temp }}/reports-v3-payloads.json
+          AXE_CORE_PATH: ${{ runner.temp }}/reports-browser/node_modules/axe-core/axe.min.js
           REPORTS_VISUAL_OUTPUT: ${{ runner.temp }}/reports-visual-evidence
         run: |
           set -euo pipefail
@@ -111,6 +112,33 @@ jobs:
           "$REPORTS_BROWSER" --session reports-check errors > "$REPORTS_VISUAL_OUTPUT/initial-errors.txt"
           "$REPORTS_BROWSER" --session reports-check close
           node scripts/tests/reports-visual/verify.mjs 2>&1 | tee reports-browser-results.txt
+      - name: Synthetic review package (screenshots, CSV downloads, verification summary; no payloads, no credentials)
+        if: always()
+        run: |
+          set -euo pipefail
+          PKG="$RUNNER_TEMP/reports-v3-review-package"
+          mkdir -p "$PKG"
+          cp -r "$RUNNER_TEMP/reports-visual-evidence/screens" "$RUNNER_TEMP/reports-visual-evidence/csv" "$PKG/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/reports-visual-evidence/summary.json" reports-browser-results.txt "$PKG/" 2>/dev/null || true
+          {
+            echo "# Reports v3 synthetic review package"
+            echo
+            echo "SYNTHETIC DATA ONLY. Presentation evidence from the isolated harness; not a hosted preview and not backend completion."
+            echo
+            echo "- Tested SHA: ${GITHUB_SHA}"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Data: SQL-generated v3 responses of the synthetic scale organization (scripts/run_reports_v3_tests.sh) and the labelled scenarios in src/lib/__tests__/reportsV3Fixtures.ts"
+            echo "- Scenarios: complete, missing-premiums, in-progress, empty, loading, error, unavailable; agency, team and personal"
+            echo "- Verification: summary.json and reports-browser-results.txt"
+            echo "- Reproduce locally: scripts/tests/reports-visual/README.md"
+          } > "$PKG/README.md"
+          (cd "$PKG" && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-v3-review-package-${{ github.sha }}
+          path: ${{ runner.temp }}/reports-v3-review-package
+          retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

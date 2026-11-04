@@ -14,13 +14,13 @@ import { TD, TD_FIRST, TF, TF_FIRST, TH, TH_FIRST, TH_LABEL, TR } from "./report
 interface Props { panels: Panels; viewerId: string | null; agencyScope: boolean }
 
 function Cell({ id, env }: { id: number; env: KpiEnvelope | null }) {
-  if (!env) return <span className="text-muted-foreground" title={NOT_LOADED}>—<span className="sr-only"> {NOT_LOADED}</span></span>;
+  if (!env) return <span className="relative text-muted-foreground" title={NOT_LOADED}>—<span className="sr-only"> {NOT_LOADED}</span></span>;
   const v = tileView(kpi(id), env);
   return (
-    <span className="inline-flex flex-col items-end">
+    <span className="relative inline-flex flex-col items-end">
       <span aria-hidden="true">{v.text}</span><span className="sr-only">{v.srText}</span>
       {(v.cue || v.chips.length > 0) && (
-        <span className="text-[11px] text-muted-foreground" aria-hidden="true">
+        <span className="text-[11px] text-foreground/75" aria-hidden="true">
           {[v.cue, ...v.chips.map(c => (c === "partial" ? CHIP_PARTIAL : CHIP_IN_PROGRESS))].filter(Boolean).join(" · ")}
         </span>
       )}
@@ -59,7 +59,7 @@ const AgentPerformanceCards: React.FC<Props> = ({ panels, viewerId, agencyScope 
             {rows.map(r => (
               <tr key={r.id} className={cn(TR, r.id === viewerId && "bg-primary/5")}>
                 <th scope="row" className={cn(TD_FIRST, "whitespace-nowrap", r.id === viewerId && "bg-primary/5")}>
-                  {r.name}{r.id === viewerId && <span className="ml-2 text-xs text-muted-foreground">You</span>}
+                  {r.name}{r.id === viewerId && <span className="ml-2 text-xs text-foreground/75">You</span>}
                 </th>
                 {r.cells.map((env, i) => <td key={AGENT_COLUMNS[i].id} className={TD}><Cell id={AGENT_COLUMNS[i].id} env={env} /></td>)}
               </tr>
