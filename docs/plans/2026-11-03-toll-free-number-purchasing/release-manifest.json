@@ -1,0 +1,561 @@
+{
+  "feature": "US toll-free number purchasing",
+  "status": "prepared_for_review_not_deployed",
+  "reviewed_main": "0e74428259275c9281518832747a627a4f635a80",
+  "production_project": "jncvvsvckxhqgqvkppmj",
+  "migration": {
+    "path": "supabase/migrations/pending/20261104005554_phone_number_purchase_operations.sql",
+    "sha256": "faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8"
+  },
+  "frontend": [
+    {
+      "path": "src/components/settings/phone/NumberManagementSection.tsx",
+      "sha256": "784f9ae77c6660b8c6f54bbcd6f223f95894155e673540d20025dae482965f48"
+    },
+    {
+      "path": "src/components/settings/phone/numberSearchSchema.ts",
+      "sha256": "928a9d1362dbe937c1f39ca91bc18ee66db717fd80bb47579da7073cdcfe433c"
+    },
+    {
+      "path": "src/components/settings/phone/NumberPurchaseDialog.tsx",
+      "sha256": "c2ebe8f3a02ac520b4b8f1d7f80101a85726078c3b36bc805057069f6ed83282"
+    },
+    {
+      "path": "src/components/settings/phone/NumberPurchaseResults.tsx",
+      "sha256": "54c0565a56ba9b4c7e04c26c00090093c30e76155fe62d37482490ae8b44d31d"
+    },
+    {
+      "path": "src/components/settings/phone/NumberPurchaseReview.tsx",
+      "sha256": "9889f1057c4d1413e4bda5a670f1da31654130010ebd0894a11cc7f84bffe5e1"
+    },
+    {
+      "path": "src/components/settings/phone/useNumberPurchase.ts",
+      "sha256": "770601a01b6dc191a8de6fd7032ba1b0e8b49ebb130c989d3f8b69f1b78b1c23"
+    },
+    {
+      "path": "src/lib/phone-number-purchase.ts",
+      "sha256": "5617ea4a9eb8077a56414da8964b9ec1f7006c4fe4fcd4281275e39079c165ed"
+    },
+    {
+      "path": "src/lib/caller-id-selection.ts",
+      "sha256": "1bf498a582df1b8f1c5a776df3f8102bdced1224ed483e2ce3cf0fab838e87a4"
+    }
+  ],
+  "release_order": [
+    "exact migration approval",
+    "four SMS guard packages",
+    "search and purchase packages",
+    "frontend release"
+  ],
+  "gates": [
+    "Refresh live captures and compare exact baselines immediately before release.",
+    "Approve database, six full Edge packages, and frontend release separately.",
+    "Any real purchase, room assignment, call or SMS requires separate transaction authorization."
+  ],
+  "packages": [
+    {
+      "function": "twilio-search-numbers",
+      "baseline_version": 58,
+      "baseline_ezbr_sha256": "33920b99b6540188edffac817be29353ac2b48a901554899c33993d8c1557cb4",
+      "baseline_source_sha256": "736d95a8bb2992ceb92a31d2f94f46b4450d9c4a8c6f0f4240f8a2ee9c6f7aea",
+      "entrypoint_path": "supabase/functions/twilio-search-numbers/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "payload_sha256": "776c0171d6541d2f5e3c1926b22a14e46a27267e316ad49a5b138a4fdfdd5efe",
+      "payload_path": "twilio-search-numbers/payload.json",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/auth.ts",
+          "sha256": "e0ec73ecfebc249d054fb6e2762c36f53eca07c042a6d7d58c681b4cb098bf25",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/contracts.ts",
+          "sha256": "497e64d96264a2a23d9bb07b10937c59f7bf2ad63ece2a18867c293f4c9c0234",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/inventory.ts",
+          "sha256": "fa082c45b1c608f3627567a816f36f9e84bc3ff2048cce3e1473db2a6a1a17ad",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/pricing.ts",
+          "sha256": "8488c83e5d1af51860a1b516ee5d302155b7b73135c7f0c06e418687e6f6cf4c",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/purchase.ts",
+          "sha256": "aaedab17a1d6db3736acfcb2b64124d10c15405bcdf622a6a31f5073362fe6ea",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/twilioNumberConfig.ts",
+          "sha256": "b5f1804e0af82d5556cc37746a54b00c812c9636bc13bda24b65fbca488fd27e",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/twilioOutboundCreds.ts",
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/twilioSubaccountCreds.ts",
+          "sha256": "f343cfbfc05c757be4d2dc0a6c6812a23dc0ac036de8bdb18ab27434e7093fa1",
+          "action": "preserved",
+          "baseline_sha256": "f343cfbfc05c757be4d2dc0a6c6812a23dc0ac036de8bdb18ab27434e7093fa1"
+        },
+        {
+          "path": "supabase/functions/twilio-search-numbers/index.ts",
+          "sha256": "106f3b4741720e669aacbe0495c37c260255c9546ad29b49b70b3ccd65c0ff93",
+          "action": "replaced",
+          "baseline_sha256": "856cb535ba5ddfc6af008b5d6156c80cf9696a8bf368c391f40a73512e4ff73d"
+        }
+      ]
+    },
+    {
+      "function": "twilio-buy-number",
+      "baseline_version": 64,
+      "baseline_ezbr_sha256": "c0f6c5eff622f84735509518738cab76bfcbd9b89a3fcc6e7ab609a8226d133b",
+      "baseline_source_sha256": "d890aa62e7498872ed5f8fa52a0b737960c27c5fa94e02388deef4c83160deed",
+      "entrypoint_path": "supabase/functions/twilio-buy-number/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "payload_sha256": "07153ee74fb175ceb26731d4827ff524797d5d064b949958b0f1490a04960aee",
+      "payload_path": "twilio-buy-number/payload.json",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/auth.ts",
+          "sha256": "e0ec73ecfebc249d054fb6e2762c36f53eca07c042a6d7d58c681b4cb098bf25",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/contracts.ts",
+          "sha256": "497e64d96264a2a23d9bb07b10937c59f7bf2ad63ece2a18867c293f4c9c0234",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/inventory.ts",
+          "sha256": "fa082c45b1c608f3627567a816f36f9e84bc3ff2048cce3e1473db2a6a1a17ad",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/pricing.ts",
+          "sha256": "8488c83e5d1af51860a1b516ee5d302155b7b73135c7f0c06e418687e6f6cf4c",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/phoneNumbers/purchase.ts",
+          "sha256": "aaedab17a1d6db3736acfcb2b64124d10c15405bcdf622a6a31f5073362fe6ea",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/_shared/twilioNumberConfig.ts",
+          "sha256": "b5f1804e0af82d5556cc37746a54b00c812c9636bc13bda24b65fbca488fd27e",
+          "action": "preserved",
+          "baseline_sha256": "b5f1804e0af82d5556cc37746a54b00c812c9636bc13bda24b65fbca488fd27e"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioOutboundCreds.ts",
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802",
+          "action": "preserved",
+          "baseline_sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioSubaccountCreds.ts",
+          "sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b",
+          "action": "added",
+          "baseline_sha256": null
+        },
+        {
+          "path": "supabase/functions/twilio-buy-number/index.ts",
+          "sha256": "91250130d9c1915765b12603a09e3ac60d698b08ae031deb3cd7965035aed47b",
+          "action": "replaced",
+          "baseline_sha256": "3315b02150da8266cc0184b85d6d0a0fa8f74bcaaeacc07e55c11945a35032e1"
+        }
+      ]
+    },
+    {
+      "function": "twilio-sms",
+      "baseline_version": 60,
+      "baseline_ezbr_sha256": "1b14b60ab76da612ef6a2813955d6b44d57c3c4b8d3bb98d2beab76bfab90a3e",
+      "baseline_source_sha256": "a4716c8fa29f2cadb0e78f0a3e0523686a1e22a3c410909d4e4be6b5ef61104d",
+      "entrypoint_path": "supabase/functions/twilio-sms/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "payload_sha256": "271e96b26a249d63163f20ae90ee4df96bf1a9c31b5fa7b55d31f20a0e15d1e1",
+      "payload_path": "twilio-sms/payload.json",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/a2p/auth.ts",
+          "sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099",
+          "action": "preserved",
+          "baseline_sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/provider.ts",
+          "sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1",
+          "action": "preserved",
+          "baseline_sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/sending.ts",
+          "sha256": "4abf54e745b9bc72a3377e842cd63a8945ea047e76815f6b82bbb5f173e8cb39",
+          "action": "replaced",
+          "baseline_sha256": "92580fc2b5ea665d80fb40eb29e75b9dfe032f8e3f5fd9bfe6a35ebba8664ac3"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/store.ts",
+          "sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4",
+          "action": "preserved",
+          "baseline_sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/types.ts",
+          "sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c",
+          "action": "preserved",
+          "baseline_sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/consent.ts",
+          "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb",
+          "action": "preserved",
+          "baseline_sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/dispatch.ts",
+          "sha256": "a2021437fa11317891fe4baf76a2fd279d0b1f8b252df384849035f7f25e7c9d",
+          "action": "preserved",
+          "baseline_sha256": "a2021437fa11317891fe4baf76a2fd279d0b1f8b252df384849035f7f25e7c9d"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/manual.ts",
+          "sha256": "b79a2287b7ba780c9e61393c9f14a7c84d514e60c561e31b9a29ee03fb38edc9",
+          "action": "preserved",
+          "baseline_sha256": "b79a2287b7ba780c9e61393c9f14a7c84d514e60c561e31b9a29ee03fb38edc9"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/scope.ts",
+          "sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077",
+          "action": "preserved",
+          "baseline_sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/wire.ts",
+          "sha256": "36229e668a46603d8822ca127ff10de5d126fe2c20e733bef1eb3f577f6ba97f",
+          "action": "preserved",
+          "baseline_sha256": "36229e668a46603d8822ca127ff10de5d126fe2c20e733bef1eb3f577f6ba97f"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioOutboundCreds.ts",
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802",
+          "action": "preserved",
+          "baseline_sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioSubaccountCreds.ts",
+          "sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b",
+          "action": "preserved",
+          "baseline_sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b"
+        },
+        {
+          "path": "supabase/functions/twilio-sms/index.ts",
+          "sha256": "644eeb29fe565de5c64410283e8a56c1fc9e4efe24908053cc91186d22fbe24c",
+          "action": "preserved",
+          "baseline_sha256": "644eeb29fe565de5c64410283e8a56c1fc9e4efe24908053cc91186d22fbe24c"
+        }
+      ]
+    },
+    {
+      "function": "workflow-executor",
+      "baseline_version": 49,
+      "baseline_ezbr_sha256": "988085f79a952246e03b7407840ebfa41d26353802d109a0a697a4fc536d56da",
+      "baseline_source_sha256": "282430b5ec14ad63dde7c260e30b45af000809b3f963375309f9370e6f0d1d9f",
+      "entrypoint_path": "supabase/functions/workflow-executor/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "payload_sha256": "22183a5f4ffe49fb1d61ae73c5deb51bd40cc83e3a5979f23230bc6380b7ae3d",
+      "payload_path": "workflow-executor/payload.json",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/a2p/auth.ts",
+          "sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099",
+          "action": "preserved",
+          "baseline_sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/provider.ts",
+          "sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1",
+          "action": "preserved",
+          "baseline_sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/sending.ts",
+          "sha256": "4abf54e745b9bc72a3377e842cd63a8945ea047e76815f6b82bbb5f173e8cb39",
+          "action": "replaced",
+          "baseline_sha256": "92580fc2b5ea665d80fb40eb29e75b9dfe032f8e3f5fd9bfe6a35ebba8664ac3"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/store.ts",
+          "sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4",
+          "action": "preserved",
+          "baseline_sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/types.ts",
+          "sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c",
+          "action": "preserved",
+          "baseline_sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/consent.ts",
+          "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb",
+          "action": "preserved",
+          "baseline_sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/dispatch.ts",
+          "sha256": "fdf7498b8267b36d183b86d99655a709735621ea172ad0afeb60c87853172b3a",
+          "action": "preserved",
+          "baseline_sha256": "fdf7498b8267b36d183b86d99655a709735621ea172ad0afeb60c87853172b3a"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/scope.ts",
+          "sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077",
+          "action": "preserved",
+          "baseline_sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/wire.ts",
+          "sha256": "acd6e99507acb1d8aba3beda4b90e61cc8b374eecce97cbcbef5c63374980e1a",
+          "action": "preserved",
+          "baseline_sha256": "acd6e99507acb1d8aba3beda4b90e61cc8b374eecce97cbcbef5c63374980e1a"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioOutboundCreds.ts",
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802",
+          "action": "preserved",
+          "baseline_sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioSubaccountCreds.ts",
+          "sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b",
+          "action": "preserved",
+          "baseline_sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b"
+        },
+        {
+          "path": "supabase/functions/_shared/workflowAuth.ts",
+          "sha256": "b8bce1930776e65817a513ab4884087cf59078eb88d254dfc00a50ef5b4bcafb",
+          "action": "preserved",
+          "baseline_sha256": "b8bce1930776e65817a513ab4884087cf59078eb88d254dfc00a50ef5b4bcafb"
+        },
+        {
+          "path": "supabase/functions/_shared/workflowMergeFields.ts",
+          "sha256": "f78b07267e70c5099cfc30e2d74568412e198a8bb2b213aad80442dd7059a459",
+          "action": "preserved",
+          "baseline_sha256": "f78b07267e70c5099cfc30e2d74568412e198a8bb2b213aad80442dd7059a459"
+        },
+        {
+          "path": "supabase/functions/workflow-executor/index.ts",
+          "sha256": "6a0941f081291362508b062e390b7b61299bc43e92526471166d84cf3dffbb97",
+          "action": "preserved",
+          "baseline_sha256": "6a0941f081291362508b062e390b7b61299bc43e92526471166d84cf3dffbb97"
+        }
+      ]
+    },
+    {
+      "function": "sms-consent-worker",
+      "baseline_version": 25,
+      "baseline_ezbr_sha256": "ac8c8d59d5bd24bf5ba19c732fecc00df3b3cc36c1e8b1bb445d54a77dcfdb4f",
+      "baseline_source_sha256": "399e0dd6cafb9cd67f25000fec700945df36a7e220aec1ba1926aa4174a950ca",
+      "entrypoint_path": "supabase/functions/sms-consent-worker/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "payload_sha256": "6f7c83edd77db36c0c5463c7a7bb6358baf970d3cdd056b188ce954cf9e3751a",
+      "payload_path": "sms-consent-worker/payload.json",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/a2p/auth.ts",
+          "sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099",
+          "action": "preserved",
+          "baseline_sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/provider.ts",
+          "sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1",
+          "action": "preserved",
+          "baseline_sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/sending.ts",
+          "sha256": "4abf54e745b9bc72a3377e842cd63a8945ea047e76815f6b82bbb5f173e8cb39",
+          "action": "replaced",
+          "baseline_sha256": "92580fc2b5ea665d80fb40eb29e75b9dfe032f8e3f5fd9bfe6a35ebba8664ac3"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/store.ts",
+          "sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4",
+          "action": "preserved",
+          "baseline_sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/types.ts",
+          "sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c",
+          "action": "preserved",
+          "baseline_sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/confirmations.ts",
+          "sha256": "aa44430439f719d845e49d55562fe276b329891afb7dff60df9dcb5b82a6c78c",
+          "action": "preserved",
+          "baseline_sha256": "aa44430439f719d845e49d55562fe276b329891afb7dff60df9dcb5b82a6c78c"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/consent.ts",
+          "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb",
+          "action": "preserved",
+          "baseline_sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/dispatch.ts",
+          "sha256": "fdf7498b8267b36d183b86d99655a709735621ea172ad0afeb60c87853172b3a",
+          "action": "preserved",
+          "baseline_sha256": "fdf7498b8267b36d183b86d99655a709735621ea172ad0afeb60c87853172b3a"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/scope.ts",
+          "sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077",
+          "action": "preserved",
+          "baseline_sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/wire.ts",
+          "sha256": "acd6e99507acb1d8aba3beda4b90e61cc8b374eecce97cbcbef5c63374980e1a",
+          "action": "preserved",
+          "baseline_sha256": "acd6e99507acb1d8aba3beda4b90e61cc8b374eecce97cbcbef5c63374980e1a"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioOutboundCreds.ts",
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802",
+          "action": "preserved",
+          "baseline_sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioSubaccountCreds.ts",
+          "sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b",
+          "action": "preserved",
+          "baseline_sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b"
+        },
+        {
+          "path": "supabase/functions/sms-consent-worker/index.ts",
+          "sha256": "7719a3ffd474172da80ca46df5be4da26a487d3a7e7d1c776722b75a2631216c",
+          "action": "preserved",
+          "baseline_sha256": "7719a3ffd474172da80ca46df5be4da26a487d3a7e7d1c776722b75a2631216c"
+        }
+      ]
+    },
+    {
+      "function": "clearpath-lead-alert",
+      "baseline_version": 24,
+      "baseline_ezbr_sha256": "dc8160abea2dbf5ceab2dd744fb47986828ddaa118a08ab0838e54c935f646dd",
+      "baseline_source_sha256": "92fd7deb3618716e31e8c978d3e9d7bf591419cfceebc624cad4b4eb75b345bf",
+      "entrypoint_path": "supabase/functions/clearpath-lead-alert/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "payload_sha256": "3736298bae66ee03aa509cb10dcaba453e556f972dd6b0e5edaece2b56c7d6ba",
+      "payload_path": "clearpath-lead-alert/payload.json",
+      "files": [
+        {
+          "path": "supabase/functions/_shared/a2p/auth.ts",
+          "sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099",
+          "action": "preserved",
+          "baseline_sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/provider.ts",
+          "sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1",
+          "action": "preserved",
+          "baseline_sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/sending.ts",
+          "sha256": "4abf54e745b9bc72a3377e842cd63a8945ea047e76815f6b82bbb5f173e8cb39",
+          "action": "replaced",
+          "baseline_sha256": "92580fc2b5ea665d80fb40eb29e75b9dfe032f8e3f5fd9bfe6a35ebba8664ac3"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/store.ts",
+          "sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4",
+          "action": "preserved",
+          "baseline_sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4"
+        },
+        {
+          "path": "supabase/functions/_shared/a2p/types.ts",
+          "sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c",
+          "action": "preserved",
+          "baseline_sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/consent.ts",
+          "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb",
+          "action": "preserved",
+          "baseline_sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/dispatch.ts",
+          "sha256": "a2021437fa11317891fe4baf76a2fd279d0b1f8b252df384849035f7f25e7c9d",
+          "action": "preserved",
+          "baseline_sha256": "a2021437fa11317891fe4baf76a2fd279d0b1f8b252df384849035f7f25e7c9d"
+        },
+        {
+          "path": "supabase/functions/_shared/sms/wire.ts",
+          "sha256": "36229e668a46603d8822ca127ff10de5d126fe2c20e733bef1eb3f577f6ba97f",
+          "action": "preserved",
+          "baseline_sha256": "36229e668a46603d8822ca127ff10de5d126fe2c20e733bef1eb3f577f6ba97f"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioOutboundCreds.ts",
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802",
+          "action": "preserved",
+          "baseline_sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802"
+        },
+        {
+          "path": "supabase/functions/_shared/twilioSubaccountCreds.ts",
+          "sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b",
+          "action": "preserved",
+          "baseline_sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b"
+        },
+        {
+          "path": "supabase/functions/clearpath-lead-alert/handler.ts",
+          "sha256": "9cd3358006ab609c6707d39b83c018e8fefc9d4538b7a84a7069282eb1f00c53",
+          "action": "preserved",
+          "baseline_sha256": "9cd3358006ab609c6707d39b83c018e8fefc9d4538b7a84a7069282eb1f00c53"
+        },
+        {
+          "path": "supabase/functions/clearpath-lead-alert/index.ts",
+          "sha256": "730ae77282837177e820c70d75b15e7157c4d1efec620715eabda60183f5769f",
+          "action": "preserved",
+          "baseline_sha256": "730ae77282837177e820c70d75b15e7157c4d1efec620715eabda60183f5769f"
+        },
+        {
+          "path": "supabase/functions/clearpath-lead-alert/message.ts",
+          "sha256": "22cb4fc7cb5657058005a4690643bc10f747bac26e1788e1f01281d9bb89d29f",
+          "action": "preserved",
+          "baseline_sha256": "22cb4fc7cb5657058005a4690643bc10f747bac26e1788e1f01281d9bb89d29f"
+        }
+      ]
+    }
+  ]
+}

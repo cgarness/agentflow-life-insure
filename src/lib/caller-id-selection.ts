@@ -245,7 +245,11 @@ export async function selectOutboundCallerId(
   const fb = pickFromTier(phones, input, false);
   if (fb) return fb;
 
-  return defaultFallback || phones[0]?.phone_number || "";
+  // Every supplied row was rejected, including by the dedicated-Inbounds gate.
+  // Preserve an external fallback, but never resurrect a known dedicated DID.
+  return phones.some((p) => p.phone_number === defaultFallback && p.inbounds_only)
+    ? ""
+    : defaultFallback || "";
 }
 
 /** Look up the US state for a given 3-digit area code via the `area_code_mapping` table. */

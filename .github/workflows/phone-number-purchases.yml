@@ -1,0 +1,124 @@
+name: Phone number purchase checks
+on:
+  pull_request:
+    paths:
+      - 'src/components/settings/phone/**'
+      - 'src/lib/phone-number-purchase.ts'
+      - 'src/lib/caller-id-selection*'
+      - 'supabase/functions/_shared/phoneNumbers/**'
+      - 'supabase/functions/_shared/a2p/sending.ts'
+      - 'supabase/functions/_shared/a2p/tollFreeSending_test.ts'
+      - 'supabase/functions/twilio-search-numbers/**'
+      - 'supabase/functions/twilio-buy-number/**'
+      - 'supabase/migrations/pending/*phone_number_purchase_operations.sql'
+      - 'supabase/tests/phone_number_purchases.sql'
+      - 'scripts/tests/phone-number-purchases/**'
+      - 'scripts/prepare-phone-number-release.mjs'
+      - 'scripts/*deno-ci*'
+      - 'package*.json'
+      - 'deno.lock'
+      - '.github/workflows/phone-number-purchases.yml'
+permissions:
+  contents: read
+concurrency:
+  group: phone-number-purchases-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Purchase and Inbounds caller-ID behavior
+        run: >-
+          npx vitest run src/components/settings/phone/__tests__/NumberPurchaseDialog.test.tsx
+          src/components/settings/phone/__tests__/useNumberPurchase.test.tsx
+          src/components/settings/phone/__tests__/numberSearchSchema.test.ts
+          src/lib/caller-id-selection.test.ts src/lib/__tests__/inboundsRoom.test.ts
+          src/hooks/__tests__/useInboundsVoice.test.tsx src/hooks/__tests__/useRoomDisposition.test.tsx
+      - run: >-
+          npx eslint src/components/settings/phone/NumberManagementSection.tsx
+          src/components/settings/phone/NumberPurchaseDialog.tsx src/components/settings/phone/NumberPurchaseResults.tsx
+          src/components/settings/phone/NumberPurchaseReview.tsx src/components/settings/phone/useNumberPurchase.ts
+          src/components/settings/phone/numberSearchSchema.ts src/lib/phone-number-purchase.ts
+          src/lib/caller-id-selection.ts
+      - run: npx tsc --noEmit
+      - name: Compare application diagnostics with exact PR base
+        env:
+          A2P_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/verify-a2p-types.mjs
+      - run: npm run build
+      - name: Install isolated browser checker
+        run: npm install --prefix "$RUNNER_TEMP/phone-browser" --no-package-lock --no-audit --no-fund playwright@1.56.1
+      - run: '"$RUNNER_TEMP/phone-browser/node_modules/.bin/playwright" install --with-deps chromium'
+      - name: Actual dialog desktop, mobile, keyboard and recovery checks
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/phone-browser/node_modules/playwright/index.mjs
+          PHONE_PURCHASE_SCREENSHOTS: ${{ runner.temp }}/phone-purchase-screenshots
+        run: node scripts/tests/phone-number-purchases/browser/check.mjs
+  edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: node scripts/verify-deno-ci-dependency.mjs
+      - run: npm install --prefix "$RUNNER_TEMP/phone-edge" --no-package-lock --no-audit --no-fund deno@2.5.6
+      - name: Mocked search, authorization, billable boundary, recovery and SMS checks
+        run: >-
+          "$RUNNER_TEMP/phone-edge/node_modules/.bin/deno" test --lock deno.lock --frozen --import-map scripts/deno-ci-import-map.json --allow-env --allow-read
+          supabase/functions/_shared/phoneNumbers/purchase_test.ts
+          supabase/functions/twilio-search-numbers/search_test.ts
+          supabase/functions/twilio-buy-number/purchase_test.ts
+          supabase/functions/_shared/a2p/tollFreeSending_test.ts
+          supabase/functions/_shared/a2p/workflow_test.ts
+          supabase/functions/_shared/sms/sms_test.ts supabase/functions/_shared/sms/manual_sender_test.ts
+          supabase/functions/_shared/sms/wire_test.ts supabase/functions/clearpath-lead-alert/handler.test.ts
+      - name: Source handlers with frozen dependencies
+        run: >-
+          "$RUNNER_TEMP/phone-edge/node_modules/.bin/deno" check --lock deno.lock --frozen --import-map scripts/deno-ci-import-map.json
+          supabase/functions/twilio-search-numbers/index.ts supabase/functions/twilio-buy-number/index.ts
+          supabase/functions/twilio-sms/index.ts supabase/functions/workflow-executor/index.ts
+          supabase/functions/sms-consent-worker/index.ts supabase/functions/clearpath-lead-alert/index.ts
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: synthetic_local_password
+          POSTGRES_DB: phone_number_purchases_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Private ledger, privileges, ownership, Inbounds and concurrent claims
+        env:
+          PGURL: postgresql://postgres:synthetic_local_password@127.0.0.1:5432/phone_number_purchases_ci
+        run: node scripts/tests/phone-number-purchases/run.mjs

@@ -1,3 +1,13 @@
+# 2026-11-04 — Toll-Free Number Purchasing (implemented and verified; NOT released)
+
+Chris approved the branch implementation after repository/live Edge inspection and the exact file manifest. The feature is implemented on `feat/toll-free-number-purchase-20261103`, based on `0e74428259275c9281518832747a627a4f635a80`; main and the remote feature branch still match that baseline. No remote publication or release was triggered.
+
+Full plan and exact file boundary: [implementation plan](docs/plans/2026-11-03-toll-free-number-purchasing/implementation_plan.md). Completed checks and limitations: [verification](docs/plans/2026-11-03-toll-free-number-purchasing/verification.md). Exact SQL, frontend and complete live-derived Edge package hashes: [release manifest](docs/plans/2026-11-03-toll-free-number-purchasing/release-manifest.json).
+
+Local remains the default; 800/888 inventory and all purchases use master. The implementation adds actual-price review, active agency-admin authorization, durable duplicate-charge prevention, agency/unassigned ownership, existing authenticated Inbounds designation, and a server toll-free SMS block. The pending migration is `supabase/migrations/pending/20261104005554_phone_number_purchase_operations.sql`. Isolated tests pass, including native PostgreSQL concurrency. Exact database/Edge/frontend release and any real transaction still require separate authorization.
+
+---
+
 # 2026-11-03 — Inbounds room V1 (build approved; production gated)
 
 Additional verification file: `.github/workflows/inbounds-room.yml`. Run a frozen-lock, pinned Deno check of all four full Edge handlers in cloud CI to close the local dependency-network limitation before backend approval. No deployed function or dependency bytes change.
