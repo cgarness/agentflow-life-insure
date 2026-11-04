@@ -113,16 +113,28 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
   check("reduced motion: nothing animates", animating === 0, String(animating));
   const downloads = [];
   page.on("download", d => downloads.push(d));
-  const buttons = page.getByRole("button", { name: /^Export .* CSV$|^Export$/ });
+  const buttons = page.getByRole("button", { name: /^Export .* CSV$/ });
   const count = await buttons.count();
   for (let i = 0; i < count; i++) { await buttons.nth(i).click(); await page.waitForTimeout(450); }
+  check("Regional and agent performance have an export", (await page.getByRole("button", { name: "Export Regional performance CSV" }).count()) === 1
+    && (await page.getByRole("button", { name: "Export Agent performance CSV" }).count()) === 1);
+  const menu = [];
+  for (const name of ["Report summary CSV", "Journey CSV", "Sales appointments CSV"]) {
+    await page.getByRole("button", { name: "Export", exact: true }).click();
+    const item = page.getByRole("menuitem", { name });
+    menu.push(await item.count());
+    await item.click(); await page.waitForTimeout(450);
+  }
+  check("Export menu lists the three KPI files", menu.every(n => n === 1), JSON.stringify(menu));
   for (const d of downloads) {
     const path = join(OUT, "csv", d.suggestedFilename()); await d.saveAs(path);
     const text = readFileSync(path, "utf8");
     summary.csv.push({ file: d.suggestedFilename(), bytes: text.length });
     check(`csv ${d.suggestedFilename()}: v3 meta rows`, text.includes('"Basis version","reports_v3"') && text.includes('"Contract version"'));
   }
-  check("at least one CSV downloaded", downloads.length > 0, String(downloads.length));
+  check("every export downloaded a file", downloads.length === count + 3, `${downloads.length} of ${count + 3}`);
+  for (const f of ["regional-performance-", "agent-performance-", "report-summary-", "journey-", "sales-appointments-"])
+    check(`csv ${f}* written`, downloads.some(d => d.suggestedFilename().startsWith(f)));
   await context.close();
   const zoom = await open({ width: 720, height: 450, dsf: 2 });
   check("720x450 DSF 2 (zoom): no page overflow", await zoom.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));

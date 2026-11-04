@@ -208,3 +208,12 @@ describe("Dialer / Leaderboard boundary", () => {
     expect(gitBlobSha(read("src/config/permissionDefaults.ts"))).toBe("b55fb46453371ab3d5aca5e97cf3d5bb881e1fed");
   });
 });
+
+describe("Reports route (D6 §5)", () => {
+  it("is lazy-loaded behind its PageGuard with a Suspense fallback, so the main entry chunk does not carry it", () => {
+    const app = read("src/App.tsx");
+    expect(app).toContain('const Reports = lazy(() => import("./pages/Reports"));');
+    expect(app).not.toMatch(/^import Reports from/m);
+    expect(app).toMatch(/<Route path="\/reports" element={<PageGuard pageName="Reports"><Suspense fallback={[^}]+}><Reports \/><\/Suspense><\/PageGuard>} \/>/);
+  });
+});

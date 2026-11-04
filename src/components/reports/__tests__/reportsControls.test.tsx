@@ -77,7 +77,7 @@ const toolbarProps = (): React.ComponentProps<typeof ReportsToolbar> => ({
   preset: "30d", onPreset: vi.fn(), customStart: null, customEnd: null,
   onCustomStart: vi.fn(), onCustomEnd: vi.fn(), range: { startDate: "2026-06-21", endDate: "2026-07-20" }, rangeProblem: null,
   agentId: null, onAgent: vi.fn(), editMode: false, onToggleEdit: vi.fn(), onRefresh: vi.fn(),
-  canExport: true, exportReady: true, onExport: vi.fn(),
+  canExport: true, exportItems: [{ label: "Report summary", ready: true, onSelect: vi.fn() }],
 });
 
 describe("Reports toolbar readiness", () => {
@@ -103,6 +103,26 @@ describe("Reports toolbar readiness", () => {
     expect(screen.queryByRole("combobox", { name: "Agent filter" })).not.toBeInTheDocument();
     expect(screen.getByText("Reports unavailable")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "How it's calculated" })).not.toBeInTheDocument();
+  });
+
+  it("the Export menu lists the KPI files and enables only those whose panel is current (D6 §4.9)", async () => {
+    const summary = vi.fn(), journey = vi.fn();
+    render(<ReportsToolbar {...toolbarProps()} customizationReady exportItems={[
+      { label: "Report summary", ready: true, onSelect: summary }, { label: "Journey", ready: false, onSelect: journey },
+      { label: "Sales appointments", ready: true, onSelect: vi.fn() }]} />);
+    const trigger = screen.getByRole("button", { name: "Export" });
+    trigger.focus(); fireEvent.keyDown(trigger, { key: "Enter" });
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map(i => i.textContent)).toEqual(["Report summary CSV", "Journey CSV", "Sales appointments CSV"]);
+    expect(items[1]).toHaveAttribute("data-disabled");
+    fireEvent.click(items[0]);
+    expect(summary).toHaveBeenCalledOnce();
+    expect(journey).not.toHaveBeenCalled();
+  });
+
+  it("the Export trigger is disabled until some KPI file is current", () => {
+    render(<ReportsToolbar {...toolbarProps()} customizationReady exportItems={[{ label: "Report summary", ready: false, onSelect: vi.fn() }]} />);
+    expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
   });
 
   it("keeps the action order and accessible names; phone labels stay in sr-only text", () => {

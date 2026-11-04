@@ -27,6 +27,7 @@ export interface V3SectionContext {
   viewerId: string | null;
   agencyScope: boolean;
   regionalExport?: () => void;
+  agentExport?: () => void;
 }
 
 const ERROR_TEXT: Record<string, string> = {
@@ -74,7 +75,7 @@ export function buildV3Sections(ctx: V3SectionContext): Record<string, React.Rea
     call_outcomes: <PanelSlot title="Call outcomes" state={p.dispositions} onRetry={() => retry("dispositions")}>
       {d => withCue(d.call_population.unverified, <DispositionsPieChart dispositions={d} onExport={exportFor("dispositions")} />)}</PanelSlot>,
     agent_performance_cards: <PanelSlot title="Agent performance" state={p.summary} onRetry={() => retry("summary")}>
-      {() => <AgentPerformanceCards panels={p} viewerId={ctx.viewerId} agencyScope={ctx.agencyScope} />}</PanelSlot>,
+      {() => <AgentPerformanceCards panels={p} viewerId={ctx.viewerId} agencyScope={ctx.agencyScope} onExport={ctx.agentExport} />}</PanelSlot>,
     regional_performance: <PanelSlot title="Regional performance" state={p.states} onRetry={() => retry("states")}>
       {d => <RegionalPerformance data={d} onExport={ctx.regionalExport} />}</PanelSlot>,
     calling_heatmap: <PanelSlot title="Calling heatmap" state={p.volume} onRetry={() => retry("volume")}>

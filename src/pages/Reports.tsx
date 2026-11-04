@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useReportsPage } from "@/hooks/useReportsPage";
 import { useReportLayout } from "@/hooks/useReportLayout";
-import { useReportExports } from "@/hooks/useReportExports";
+import { KPI_FILE_NAMES, useReportExports, type KpiFile } from "@/hooks/useReportExports";
 import ReportCustomizer from "@/components/reports/ReportCustomizer";
 import SectionRenderer, { visibleIds } from "@/components/reports/SectionRenderer";
 import ReportsToolbar from "@/components/reports/ReportsToolbar";
@@ -14,7 +14,7 @@ import ReportBreakdowns from "@/components/reports/ReportBreakdowns";
 import { buildV3Sections } from "@/components/reports/reportSectionMap";
 import { autoGrouping, type Grouping } from "@/lib/reports-format";
 
-
+const KPI_FILES: KpiFile[] = ["summary", "journey", "salesAppointments"];
 
 /**
  * Reports v3: one continuous Example 2 page (D6 §4.1). The v3 scope gates the page: when it is denied or v3 is off,
@@ -40,7 +40,7 @@ const Reports: React.FC = () => {
   const stripIds = visibleIds(layout.sections, "activity", true).map(id => Number(id.slice(4)));
   const exports = useReportExports(scopeData, panels, page.exportable, page.agentId);
   const sections = buildV3Sections({ panels, retry: page.retryPanel, exportFor: exports.exportFor, grouping, viewerId,
-    agencyScope: scopeData?.scope === "organization" });
+    agencyScope: scopeData?.scope === "organization", regionalExport: exports.exportRegional, agentExport: exports.exportAgents });
   return (
     <div className="mx-auto min-w-0 max-w-[1600px] space-y-5 pb-10 md:space-y-7" data-reports-workspace data-reports-contract="v3">
       <ReportsToolbar
@@ -49,7 +49,7 @@ const Reports: React.FC = () => {
         onCustomStart={page.setCustomStart} onCustomEnd={page.setCustomEnd} range={page.range} rangeProblem={page.rangeProblem}
         agentId={page.agentId} onAgent={page.setAgentId} onScope={page.onScope} panelRendered={showSections}
         editMode={preferences.editMode} customizationReady={preferences.canEdit} onToggleEdit={preferences.editMode ? preferences.cancel : preferences.beginEdit} onRefresh={page.refresh}
-        canExport={!!scopeData?.can_export} exportReady={page.exportable("summary")} onExport={exports.exportSummary}
+        canExport={!!scopeData?.can_export} exportItems={KPI_FILES.map(f => ({ label: KPI_FILE_NAMES[f], ready: exports.kpiFileReady(f), onSelect: () => exports.exportKpis(f) }))}
         asOf={panels.summary.status === "ready" ? panels.summary.data.as_of : null}
         dataBasis={scopeData ? { panels, timeZone: scopeData.time_zone, today: scopeData.today } : undefined}
       />

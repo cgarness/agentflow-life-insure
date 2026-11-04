@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, RefreshCw, Settings2, Users } from "lucide-react";
+import { RefreshCw, Settings2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ import type { ReportScopeView } from "@/lib/reports-v3-schemas";
 import ReportScopeTabs from "./ReportScopeTabs";
 import ReportPeriodControl from "./ReportPeriodControl";
 import ReportContextLine from "./ReportContextLine";
+import ReportExportMenu, { type ReportExportItem } from "./ReportExportMenu";
 import type { DataBasisContent } from "./DataBasisSections";
 
 interface Props {
@@ -35,8 +36,8 @@ interface Props {
   onToggleEdit: () => void;
   onRefresh: () => void;
   canExport: boolean;
-  exportReady: boolean;
-  onExport: () => void;
+  /** The KPI files of the Export menu, each with its current-panel gate. */
+  exportItems: ReportExportItem[];
   /** The current, non-withheld summary's `as_of`; null otherwise. */
   asOf?: string | null;
   /** Content of the Data basis sheet opened from the context line once the scope has resolved. */
@@ -61,10 +62,7 @@ const ReportsToolbar: React.FC<Props> = (p) => {
             <Settings2 aria-hidden="true" /><span className={LABEL}>Customize</span>
           </Button>
           {p.canExport && (
-            <Button variant="outline" size="sm" className={ACTION} onClick={p.onExport}
-              disabled={!p.exportReady} title={p.exportReady ? "Export the summary on screen" : "Export is available once the summary has loaded"}>
-              <Download aria-hidden="true" /><span className={LABEL}>Export</span>
-            </Button>
+            <ReportExportMenu items={p.exportItems} className={ACTION} labelClassName={LABEL} />
           )}
           <Button variant="outline" size="icon" className="h-10 w-10 rounded-lg sm:h-9 sm:w-9"
             onClick={p.onRefresh} disabled={!p.scope} title="Refresh reports" aria-label="Refresh reports">

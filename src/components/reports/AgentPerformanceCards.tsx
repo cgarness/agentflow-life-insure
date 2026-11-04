@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { agentRows, unattributed } from "@/lib/reports-v3-export";
 import { cn } from "@/lib/utils";
 import { kpi } from "@/lib/reports-kpi-registry";
 import { tileView } from "@/lib/reports-kpi-format";
@@ -11,7 +12,7 @@ import ReportTableFrame from "./ReportTableFrame";
 import { AGENT_COLUMNS } from "./agentPerformanceColumns";
 import { TD, TD_FIRST, TF, TF_FIRST, TH, TH_FIRST, TH_LABEL, TR } from "./reportTableStyles";
 
-interface Props { panels: Panels; viewerId: string | null; agencyScope: boolean }
+interface Props { panels: Panels; viewerId: string | null; agencyScope: boolean; onExport?: () => void }
 
 function Cell({ id, env }: { id: number; env: KpiEnvelope | null }) {
   if (!env) return <span className="relative text-muted-foreground" title={NOT_LOADED}>—<span className="sr-only"> {NOT_LOADED}</span></span>;
@@ -29,25 +30,11 @@ function Cell({ id, env }: { id: number; env: KpiEnvelope | null }) {
 }
 
 /** Section 4: combined agent performance (Team/Agency). Joined on agent_id; server order; no total row from rows. */
-const AgentPerformanceCards: React.FC<Props> = ({ panels, viewerId, agencyScope }) => {
-  const rows = useMemo(() => {
-    if (panels.summary.status !== "ready") return [];
-    const index = (p: Panels["journey"] | Panels["salesAppointments"]) =>
-      new Map(p.status === "ready" ? p.data.by_agent.map(r => [r.agent_id, r.metrics]) : []);
-    const journey = index(panels.journey), appts = index(panels.salesAppointments);
-    return panels.summary.data.by_agent.map(r => ({
-      id: r.agent_id, name: r.name,
-      cells: AGENT_COLUMNS.map(c => {
-        const ms = c.panel === "summary" ? r.metrics : c.panel === "journey" ? journey.get(r.agent_id) : appts.get(r.agent_id);
-        return ms?.find(m => m.id === c.id) ?? null;
-      }),
-    }));
-  }, [panels.summary, panels.journey, panels.salesAppointments]);
-  const top = panels.summary.status === "ready" ? panels.summary.data.metrics : [];
-  const unattributedPolicies = (top.find(m => m.id === 2)?.detail as { quality?: { unattributed_policies?: number | null } } | null)?.quality?.unattributed_policies ?? null;
-  const unattributedAp = (top.find(m => m.id === 1)?.detail as { unattributed_annual_premium?: number | null } | null)?.unattributed_annual_premium ?? null;
+const AgentPerformanceCards: React.FC<Props> = ({ panels, viewerId, agencyScope, onExport }) => {
+  const rows = useMemo(() => agentRows(panels), [panels]);
+  const { policies: unattributedPolicies, ap: unattributedAp } = unattributed(panels);
   return (
-    <ReportSection title="Agent performance">
+    <ReportSection title="Agent performance" onExport={onExport}>
       <ReportTableFrame label="Agent performance table" tableClassName="min-w-[56rem]">
           <thead>
             <tr>
