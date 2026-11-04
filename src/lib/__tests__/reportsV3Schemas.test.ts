@@ -8,7 +8,7 @@ import {
 import { REASON_NOTICES, SHORT_CUES } from "@/lib/reports-v3-text";
 import { BC4_CASES, env } from "./reportsV3Fixtures";
 
-const foundation = readFileSync("supabase/migrations/20261101000010_reports_v3_foundation.sql", "utf8");
+const foundation = readFileSync("supabase/migrations/20261104120010_reports_v3_foundation.sql", "utf8");
 const sqlCodes = [...foundation.match(/report_v3_reason_codes\(\)[\s\S]*?ARRAY\[([\s\S]*?)\]::text\[\]/)![1].matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
 
 describe("reason registry (SQL = Zod = notices = cues)", () => {
