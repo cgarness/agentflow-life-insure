@@ -43,6 +43,19 @@ python3 scripts/reporting_fixture.py policy > "$REPORTS_TEST_SQL"
 psql "$REPORTS_TEST_BASE/$REPORTS_RACE_DB" -X -q -v ON_ERROR_STOP=1 -f "$REPORTS_TEST_SQL" > /dev/null
 REPORTING_TEST_URL="$REPORTS_TEST_BASE/$REPORTS_RACE_DB" node scripts/tests/sale-premium-correction-concurrency.mjs
 echo 'Sale premium correction races passed.'
+# Optional correction bundles (D2 §6.5 step 2, RL-17): REPORTS_V3_CORRECTION_PAYLOADS=<absolute path> writes the seller's
+# Leaderboard snapshot, performance summary and Recent Wins before and after a synthetic correction (rolled back).
+if [[ -n "${REPORTS_V3_CORRECTION_PAYLOADS:-}" ]]; then
+  python3 scripts/reports_v3_fixture.py --part correction-payloads > "$REPORTS_TEST_SQL"
+  psql "$REPORTS_TEST_BASE/$REPORTS_RACE_DB" -X -q -v ON_ERROR_STOP=1 -v payloads="$REPORTS_V3_CORRECTION_PAYLOADS" -f "$REPORTS_TEST_SQL"
+  python3 -c "
+import json, sys
+c = json.load(open(sys.argv[1]))['correction']
+assert set(c) == {'before', 'after', 'fixture'}, sorted(c)
+for stage in ('before', 'after'):
+    assert set(c[stage]) == {'snapshot', 'summary', 'recentWins'}, stage
+print('Wrote the correction payload bundles (synthetic):', sys.argv[1])" "$REPORTS_V3_CORRECTION_PAYLOADS"
+fi
 # Optional payload file (D1 X9): REPORTS_V3_PAYLOADS=<absolute path> loads the synthetic scale organization on top of
 # the suites and writes every report reader's real response for one actor (agency, team, personal). Test input only.
 if [[ -n "${REPORTS_V3_PAYLOADS:-}" ]]; then

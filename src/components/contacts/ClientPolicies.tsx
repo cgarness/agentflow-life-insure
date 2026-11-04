@@ -31,6 +31,21 @@ function PolicyCommission(props: { clientId: string; policyId: string; compact?:
   );
 }
 
+// The sale premium section (Reports V2 PKG-B) loads the same way; it renders nothing unless the server returns the policy.
+const PolicySalePremiumSection = lazy(() =>
+  import("@/components/contacts/policy-correction/PolicySalePremiumSection").then((module) => ({ default: module.PolicySalePremiumSection })));
+
+function PolicySalePremium(props: { clientId: string; policyId: string; currentMonthly: number | null;
+  formatDate: (value: string) => string; onPolicyRecordChanged?: () => void }) {
+  return (
+    <CommissionLoadBoundary>
+      <Suspense fallback={null}>
+        <PolicySalePremiumSection {...props} />
+      </Suspense>
+    </CommissionLoadBoundary>
+  );
+}
+
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const amount = (value: number | null) => value === null ? "—" : money.format(value);
 
@@ -47,15 +62,23 @@ export function ClientPolicyCount({ client }: { client: Partial<Client> }) {
  * Never edits or writes the reserved additional-policy array. Each stored policy can carry its saved commission
  * (Phase 2A); the commission section renders nothing unless the server lets the signed-in user see it.
  */
-export function ClientPolicies({ client, formatDate }: {
+export function ClientPolicies({ client, formatDate, onPolicyRecordChanged }: {
   client: Partial<Client>;
   formatDate: (value: string) => string;
+  /** Called after a sale premium correction also updated the current policy record, so the contact reloads. */
+  onPolicyRecordChanged?: () => void;
 }) {
   const { policies, malformedAdditionalPolicies } = getClientPolicyDisplay(client);
   const hasAdditional = policies.some(policy => policy.source === "additional");
   if (!hasAdditional && malformedAdditionalPolicies === 0) {
     const primary = policies.find(policy => policy.source === "primary");
-    return client.id && primary?.policyId ? <PolicyCommission clientId={client.id} policyId={primary.policyId} /> : null;
+    return client.id && primary?.policyId ? (
+      <>
+        <PolicySalePremium clientId={client.id} policyId={primary.policyId} currentMonthly={primary.premiumMonthly}
+          formatDate={formatDate} onPolicyRecordChanged={onPolicyRecordChanged} />
+        <PolicyCommission clientId={client.id} policyId={primary.policyId} />
+      </>
+    ) : null;
   }
 
   return (
@@ -93,6 +116,10 @@ export function ClientPolicies({ client, formatDate }: {
                     </div>
                   ))}
                 </dl>
+                {client.id && policy.policyId && (
+                  <PolicySalePremium clientId={client.id} policyId={policy.policyId} currentMonthly={policy.premiumMonthly}
+                    formatDate={formatDate} onPolicyRecordChanged={onPolicyRecordChanged} />
+                )}
                 {client.id && policy.policyId && <PolicyCommission clientId={client.id} policyId={policy.policyId} compact />}
               </AccordionContent>
             </AccordionItem>

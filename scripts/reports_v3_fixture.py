@@ -427,7 +427,64 @@ ROLLBACK;
 """
 
 
+def correction_payloads_part():
+    """The PKG-B correction bundles (D2 §6.5 step 2, RL-17) for correctedPremiumSurfaces.test.tsx, written from the
+    reporting fixture's policy database (the verbatim sale writers and performance readers): one synthetic sale entered
+    today by the seller test_id(41) at $100/mo, then the seller's Leaderboard snapshot (month), performance summary
+    (month, own) and Recent Wins before and after an Admin (test_id(13)) corrects it to $120/mo. One transaction,
+    rolled back; the RPCs are granted only inside it. Synthetic data only; a test input, never part of a build."""
+    return """\\set ON_ERROR_STOP 1
+SET statement_timeout = 0;
+BEGIN;
+GRANT EXECUTE ON FUNCTION public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text) TO authenticated;
+CREATE TEMP TABLE correction_bundle(stage text PRIMARY KEY, data jsonb NOT NULL);
+GRANT ALL ON correction_bundle TO authenticated;
+DO $bundle$
+DECLARE v_today date; v_sale jsonb; v_policy uuid; v_win uuid;
+  PROCEDURE_CAPTURE text := $q$INSERT INTO correction_bundle SELECT %L, jsonb_build_object(
+    'snapshot', public.get_leaderboard_snapshot('month'), 'summary', public.get_performance_summary('month', 'own', NULL),
+    'recentWins', public.get_leaderboard_recent_wins(NULL))$q$;
+BEGIN
+  PERFORM test_actor(41);
+  SET LOCAL ROLE authenticated;
+  v_today := (public.get_leaderboard_snapshot('month') ->> 'sold_date_through')::date;
+  v_sale := create_client_with_sale(test_id(80201), test_id(1), test_client_payload() || jsonb_build_object('first_name', 'Surface',
+    'assigned_agent_id', test_id(41), 'premium', 100, 'sold_date', v_today), true);
+  RESET ROLE;
+  SELECT c.primary_policy_id, w.id INTO v_policy, v_win FROM public.clients c JOIN public.wins w ON w.policy_id = c.primary_policy_id
+   WHERE c.id = (v_sale ->> 'client_id')::uuid;
+  -- Recent Wins lists sales entered before now(); this is one transaction, so the sale is backdated 1 microsecond.
+  ALTER TABLE public.wins DISABLE TRIGGER wins_policy_identity_guard;
+  UPDATE public.wins SET created_at = created_at - interval '1 microsecond' WHERE id = v_win;
+  ALTER TABLE public.wins ENABLE TRIGGER wins_policy_identity_guard;
+  PERFORM test_actor(41);
+  SET LOCAL ROLE authenticated;
+  EXECUTE format(PROCEDURE_CAPTURE, 'before');
+  RESET ROLE;
+  PERFORM test_actor(13);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.correct_policy_sale_premium(test_id(90601), v_policy, 0, 100, '100'::jsonb, 120, 'entry_error',
+    'Synthetic surface check', 'keep_current');
+  RESET ROLE;
+  PERFORM test_actor(41);
+  SET LOCAL ROLE authenticated;
+  EXECUTE format(PROCEDURE_CAPTURE, 'after');
+  RESET ROLE;
+  INSERT INTO correction_bundle VALUES ('fixture', jsonb_build_object('source', 'reporting_fixture.py policy (synthetic)',
+    'actor', test_id(41), 'corrected_by', test_id(13), 'win_id', v_win, 'sold_date', v_today, 'monthly_before', 100, 'monthly_after', 120));
+END $bundle$;
+\\pset tuples_only on
+\\pset format unaligned
+\\o :payloads
+SELECT jsonb_pretty(jsonb_build_object('correction', (SELECT jsonb_object_agg(stage, data) FROM correction_bundle)));
+\\o
+ROLLBACK;
+"""
+
 if __name__ == '__main__':
+    if '--part' in sys.argv and sys.argv[sys.argv.index('--part') + 1] == 'correction-payloads':
+        print('\\echo PKG-B correction payload bundles\n' + correction_payloads_part())
+        sys.exit(0)
     if '--part' in sys.argv and sys.argv[sys.argv.index('--part') + 1] == 'payloads':
         print('\\echo v3 payload file\n' + payloads_part())
         sys.exit(0)

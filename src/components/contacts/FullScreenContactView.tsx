@@ -1132,7 +1132,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               )}
               
               {!coreLoading && !editMode && type === "client" && (
-                <ClientPolicies key={`${organizationId}|${contact.id}`} client={contact} formatDate={formatDate} />
+                <ClientPolicies key={`${organizationId}|${contact.id}`} client={contact} formatDate={formatDate}
+                  onPolicyRecordChanged={() => void onUpdate(contact.id, {}).catch(() => toast.error("Sale corrected. Reopen this contact to refresh its details."))} />
               )}
 
               {!coreLoading && !editMode && type === "client" && (
