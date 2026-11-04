@@ -24,6 +24,15 @@ except (AssertionError,ValueError):
 print('Locality URL check passed; checking for hosted platform roles.')
 PY
 BASE="${PGURL%/}"
+# One isolated journey reader case (dispatch-only verification): checked here before the long setup, and again in the
+# SQL against the pinned inventory (exactly one journey row must match).
+if [[ -n "${REPORTS_V3_DX_JOURNEY_CASE:-}" ]]; then
+  [[ "$REPORTS_V3_DX_JOURNEY_CASE" =~ ^[0-9]+:(agency|team|personal):[0-9]+:(-|[0-9]+)$ ]] || { echo 'REFUSING: REPORTS_V3_DX_JOURNEY_CASE must be persona:scope:days:filter'; exit 2; }
+  [[ "${REPORTS_V3_DX_JOURNEY_SCALE:-0}" == 0 ]] || { echo 'REFUSING: a journey case selector excludes REPORTS_V3_DX_JOURNEY_SCALE=1'; exit 2; }
+  [[ "${REPORTS_V3_DX_CASE_DEADLINE_MINUTES:-}" =~ ^[0-9]+$ ]] && (( REPORTS_V3_DX_CASE_DEADLINE_MINUTES >= 1 && REPORTS_V3_DX_CASE_DEADLINE_MINUTES <= 340 )) \
+    || { echo 'REFUSING: a journey case needs REPORTS_V3_DX_CASE_DEADLINE_MINUTES between 1 and 340'; exit 2; }
+  echo "Journey case mode: $REPORTS_V3_DX_JOURNEY_CASE (comparison deadline ${REPORTS_V3_DX_CASE_DEADLINE_MINUTES} min)"
+fi
 if [[ "$(psql "$BASE/postgres" -XAt -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_roles WHERE rolname IN ('supabase_admin','authenticator','supabase_auth_admin')")" != "0" ]]; then
   echo 'REFUSING: Supabase platform roles detected.'; exit 2
 fi

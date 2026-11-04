@@ -1,5 +1,51 @@
 # AgentFlow Work Log
 
+## 2026-11-03 — Reports V2 PKG-F preview batches F-1 and F-2: the first Example 2 page on the v3 contract (branch `claude/great-goodall-911azc-pkg-f` at `969a2fa`; branch only; nothing merged, applied, enabled or deployed)
+
+**Status.** The private preview's first two sections are real, reusable D6 components. They run in the isolated harness on real v3 SQL payloads plus labelled synthetic variants.
+- **Not built yet:** sections 3–7 (trends and call outcomes, agent table, Regional map, calling heatmap, breakdowns), exports, customizer v5, How it's calculated, `verify.mjs` v3.
+- A successful synthetic screen proves presentation only.
+
+**Changed on `-pkg-f`.**
+- **F-1 `06e4537`, the lib layer:**
+  - `reports-v3-schemas.ts`: the 29 reason codes, the envelope superRefine, strict per-KPI detail, exact per-reader metric order, and all nine reader schemas.
+  - `reports-v3-queries.ts`: the nine readers only.
+  - `reports-queries.ts`: exports, v3 names, `57014` → timeout.
+  - `reports-kpi-registry.ts`: equal to the SQL registry.
+  - `reports-kpi-format.ts`: single rounding (BigInt; exact cents and millionths), tile views and disclosures.
+  - `reports-v3-text.ts`.
+  - Tests: `reportsV3Fixtures.ts` (the 11 BC4 cases and the preview scenarios), `reportsV3Schemas`, `reportsKpiRegistry`, `reportsKpiFormat`.
+- **F-2 `969a2fa`:**
+  - `Reports.tsx` is the v3 page. The scope gates it, and a denied scope or disabled v3 shows "Reports unavailable" with zero panel requests.
+  - `useReportsPage.ts` and `reports-panels.ts`: eight parallel panels, each failing closed.
+  - New components: `KpiTile`, `KpiStatusNote`, `ReportsProduction`, `ReportsEffortSection`, `ActivityStrip`, `MoreMetrics`.
+  - The accent tokens in `index.css` and `tailwind.config.ts`.
+  - The narrower `ReportScopeView` type in `ReportsToolbar`, `ReportContextLine` and `ReportScopeTabs`. `ReportScopeTabs` is a type-only deviation from the D6 file list.
+  - The harness `stubs.ts`, `vite.config.ts` and `README.md`.
+  - `reportsKpiTile.test.tsx`.
+- **On the foundation branch:** `d52d4db` makes the payload window end on the agency's today.
+
+**Verification.**
+- Every real payload parses: 9 readers × agency, team and personal.
+- Lib and tile tests: 64 pass, including the payload parse.
+- Full Vitest: 6,831 tests, 6,745 passed. The 13 baseline failing files are unchanged by identity. **48 new failures**, all in the three v2-page tests that D6 §7 says to rewrite: `reportsPage`, `reportsScopeIntegration` and `reportsDialerIntelligence`. Pending.
+- eslint 0; `tsc --noEmit` 0; `tsc -p tsconfig.app.json` exit 2, with 222 lines identical to the baseline after normalization; build 0.
+- The production bundle contains no fixture code, and the Reports code names only v3 readers.
+- **Harness, nine requests per scope, all accepted:**
+  - 23 tiles in every data scenario;
+  - unavailable: one scope request and zero panel requests;
+  - error: only the failed panels show "—";
+  - values fit with no page overflow at 1440, 1024, 768, 390 and 320 px;
+  - the chip disclosure opens and closes with Escape.
+- Screenshots (dark, desktop and mobile) were delivered outside the repository.
+
+**Preview hosting.**
+- Vercel's automatic branch previews (`agentflow` and `agentflow-life-insure`) built `969a2fa`. Both projects have SSO protection on all deployments except custom domains.
+- They use the hosted database, where v3 is not released, so `/reports` fails closed with "Reports unavailable". No production RPC was enabled.
+- The synthetic review build exists only as the local harness. Hosting it would need a new configuration or deployment action, which is requested, not taken.
+
+**Draft wording for review:** `SALE_SOURCE_NOTE`, `ORIGINAL_SELLER_NOTE`, `EFFECTIVE_PREMIUM_BASIS` and `HOW_CALCULATED_DESCRIPTION`. The plan names these but does not pin their text.
+
 ## 2026-11-03 — Reports V2 Batch F-A: the v3 payload file for the isolated preview (branch `claude/great-goodall-911azc`; test tooling only; nothing applied, merged, enabled or deployed)
 
 **Request:** Chris's "complete the remaining build; first deliver the private Reports preview" message. The completion checklist, shared-file ownership and next file lists are in `implementation_plan.md`.
