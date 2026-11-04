@@ -1,8 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import {
   selectOutboundCallerId,
   extractDestinationAreaCode,
   isEligibleStrict,
+  isEligibleFallback,
   isAgencyCallerIdEligible,
   isPersonalCallerIdOwnedByUser,
   isAutomaticCallerIdAllowed,
@@ -41,6 +43,42 @@ describe("extractDestinationAreaCode", () => {
   it("reads US 10-digit block", () => {
     expect(extractDestinationAreaCode("+1 (310) 555-1212")).toBe("310");
     expect(extractDestinationAreaCode("3105551212")).toBe("310");
+  });
+});
+
+describe("toll-free Inbounds caller-ID exclusion", () => {
+  const deps = {
+    queryStickyCaller: async () => null,
+    getStateByAreaCode: async () => null,
+  };
+  it.each(["800", "888"])("excludes a dedicated %s number from automatic, manual and remembered choices", (prefix) => {
+    const dedicated = basePhone({ phone_number: `+1${prefix}5550123`, area_code: prefix, status: "active", assignment_type: "agency", inbounds_only: true });
+    expect(isEligibleStrict(dedicated, { didLastUsedAt: new Map() })).toBe(false);
+    expect(isEligibleFallback(dedicated)).toBe(false);
+    expect(filterAutomaticCallerIdPool([dedicated])).toEqual([]);
+    expect(filterManualCallerIdOptions([dedicated], "agent")).toEqual([]);
+    expect(isManualCallerIdAllowed(dedicated, "agent")).toBe(false);
+    expect(findAllowedCallerId([dedicated], dedicated.phone_number, "agent")).toBeNull();
+    expect(isManualCallerIdAllowed({ ...dedicated, assignment_type: "personal", assigned_to: "agent" }, "agent")).toBe(false);
+  });
+  it.each(["800", "888"])("never returns a raw all-dedicated %s pool or its known fallback", async (prefix) => {
+    const dedicated = basePhone({ phone_number: `+1${prefix}5550123`, area_code: prefix, is_default: true, inbounds_only: true });
+    for (const defaultFallback of ["", dedicated.phone_number]) {
+      expect(await selectOutboundCallerId(input({ phones: [dedicated], defaultFallback }), deps)).toBe("");
+    }
+    expect(await selectOutboundCallerId(input({ phones: [dedicated], defaultFallback: "+13105550123" }), deps)).toBe("+13105550123");
+  });
+  it("preserves empty-pool and ordinary local fallback semantics", async () => {
+    expect(await selectOutboundCallerId(input({ phones: [], defaultFallback: "+13105550123" }), deps)).toBe("+13105550123");
+    const local = basePhone({ phone_number: "+13105550123", area_code: "310", daily_call_count: 100, daily_call_limit: 100 });
+    expect(await selectOutboundCallerId(input({ phones: [local], defaultFallback: "" }), deps)).toBe(local.phone_number);
+  });
+  it("skips a dedicated sticky caller and preserves ordinary local selection", async () => {
+    const dedicated = basePhone({ phone_number: "+18005550123", area_code: "800", inbounds_only: true });
+    const local = basePhone({ phone_number: "+13105550123", area_code: "310", assignment_type: "agency", status: "active" });
+    expect(await selectOutboundCallerId(input({ phones: [dedicated, local], contactId: "contact", defaultFallback: dedicated.phone_number }), {
+      ...deps, queryStickyCaller: async () => ({ caller_id_used: dedicated.phone_number, duration_sec: 60 }),
+    })).toBe(local.phone_number);
   });
 });
 

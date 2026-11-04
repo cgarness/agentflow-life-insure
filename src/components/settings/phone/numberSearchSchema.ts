@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const numberSearchSchema = z
-  .object({
+const localSearchSchema = z.object({
+    numberType: z.literal("local"),
     areaCode: z
       .string()
       .trim()
@@ -15,9 +15,18 @@ export const numberSearchSchema = z
       .optional()
       .or(z.literal("")),
     locality: z.string().trim().max(100, "City too long").optional().or(z.literal("")),
-  })
+  });
+
+export const numberSearchSchema = z
+  .discriminatedUnion("numberType", [
+    localSearchSchema,
+    z.object({
+      numberType: z.literal("toll_free"),
+      prefix: z.enum(["prefer_800", "800", "888"]),
+    }),
+  ])
   .refine(
-    (v) =>
+    (v) => v.numberType === "toll_free" ||
       (v.areaCode?.length ?? 0) > 0 ||
       (v.state?.length ?? 0) > 0 ||
       (v.locality?.length ?? 0) > 0,

@@ -1,0 +1,1561 @@
+{
+  "feature": "US toll-free number purchasing",
+  "status": "backend_released_frontend_pending",
+  "approval_date_pacific": "2026-11-03",
+  "approved_local_commit": "393e7d199cbb3bfa961d080e5af2d80e5d742562",
+  "approved_tree": "64d67aed19339e49e3662388176f2700d7495de1",
+  "published_equivalent_commit": "4e0a18ad2ef9e3a48d194332289ddec99f489d7f",
+  "pr_url": "https://github.com/cgarness/agentflow-life-insure/pull/513",
+  "project_id": "jncvvsvckxhqgqvkppmj",
+  "migration": {
+    "version": "20261104041151",
+    "name": "phone_number_purchase_operations",
+    "path": "supabase/migrations/20261104041151_phone_number_purchase_operations.sql",
+    "authored_path": "supabase/migrations/pending/20261104005554_phone_number_purchase_operations.sql",
+    "bytes": 19224,
+    "sha256": "faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8",
+    "raw_md5": "abb94ea6f7df6b1b9fbb14c6fdcb548e",
+    "statement_count": 1,
+    "applied_once": true,
+    "readback": {
+      "project_id": "jncvvsvckxhqgqvkppmj",
+      "approved_source_commit": "393e7d199cbb3bfa961d080e5af2d80e5d742562",
+      "approved_sql_sha256": "faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8",
+      "all_pass": true,
+      "checks": {
+        "new_functions_exact": true,
+        "new_columns_exact": true,
+        "new_constraints_exact": true,
+        "new_indexes_exact": true,
+        "existing_functions_unchanged": true,
+        "existing_columns_unchanged": true,
+        "existing_phone_constraints_unchanged": true,
+        "existing_phone_indexes_unchanged": true,
+        "existing_phone_triggers_unchanged": true,
+        "existing_phone_counts_unchanged": true,
+        "existing_inbounds_functions_unchanged": true,
+        "existing_tables_unchanged": true,
+        "existing_policies_digest_unchanged": true,
+        "existing_default_acl_unchanged": true,
+        "existing_schema_privileges_unchanged": true,
+        "existing_phone_ownership_digest_unchanged": true,
+        "existing_inbounds_history_unchanged": true,
+        "history_exact": true,
+        "migration_count": true,
+        "ledger_security": true,
+        "no_direct_access": true,
+        "ledger_empty": true
+      },
+      "installed": {
+        "ledger": {
+          "acl": "{postgres=arwdDxtm/postgres}",
+          "kind": "r",
+          "owner": "postgres",
+          "rls_forced": false,
+          "rls_enabled": true,
+          "policy_count": 0,
+          "trigger_count": 0,
+          "non_owner_grants": 0
+        },
+        "columns": [
+          {
+            "attnum": 1,
+            "attname": "id",
+            "typname": "uuid",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": "gen_random_uuid()"
+          },
+          {
+            "attnum": 2,
+            "attname": "organization_id",
+            "typname": "uuid",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 3,
+            "attname": "actor_id",
+            "typname": "uuid",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 4,
+            "attname": "account_sid",
+            "typname": "text",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 5,
+            "attname": "phone_number",
+            "typname": "text",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 6,
+            "attname": "number_type",
+            "typname": "text",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 7,
+            "attname": "friendly_name",
+            "typname": "text",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 8,
+            "attname": "quote",
+            "typname": "jsonb",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 9,
+            "attname": "created_at",
+            "typname": "timestamptz",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": "clock_timestamp()"
+          },
+          {
+            "attnum": 10,
+            "attname": "expires_at",
+            "typname": "timestamptz",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 11,
+            "attname": "state",
+            "typname": "text",
+            "attnotnull": true,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": "'quoted'::text"
+          },
+          {
+            "attnum": 12,
+            "attname": "request_id",
+            "typname": "uuid",
+            "attnotnull": false,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 13,
+            "attname": "attempted_at",
+            "typname": "timestamptz",
+            "attnotnull": false,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 14,
+            "attname": "provider_sid",
+            "typname": "text",
+            "attnotnull": false,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 15,
+            "attname": "receipt_recorded_at",
+            "typname": "timestamptz",
+            "attnotnull": false,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 16,
+            "attname": "phone_number_id",
+            "typname": "uuid",
+            "attnotnull": false,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 17,
+            "attname": "completed_at",
+            "typname": "timestamptz",
+            "attnotnull": false,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          },
+          {
+            "attnum": 18,
+            "attname": "error_code",
+            "typname": "text",
+            "attnotnull": false,
+            "attidentity": "",
+            "attgenerated": "",
+            "default_expression": null
+          }
+        ],
+        "history": [
+          {
+            "name": "phone_number_purchase_operations",
+            "version": "20261104041151",
+            "joined_lf_md5": "abb94ea6f7df6b1b9fbb14c6fdcb548e",
+            "joined_lf_bytes": 19224,
+            "statement_count": 1,
+            "joined_lf_sha256": "faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8"
+          }
+        ],
+        "indexes": [
+          {
+            "relname": "phone_number_purchase_operations_pkey",
+            "definition": "CREATE UNIQUE INDEX phone_number_purchase_operations_pkey ON private.phone_number_purchase_operations USING btree (id)",
+            "indisready": true,
+            "indisvalid": true,
+            "indisunique": true,
+            "indisprimary": true
+          },
+          {
+            "relname": "phone_purchase_attempt_unique",
+            "definition": "CREATE UNIQUE INDEX phone_purchase_attempt_unique ON private.phone_number_purchase_operations USING btree (lower(account_sid), phone_number) WHERE (attempted_at IS NOT NULL)",
+            "indisready": true,
+            "indisvalid": true,
+            "indisunique": true,
+            "indisprimary": false
+          },
+          {
+            "relname": "phone_purchase_org_actor_created",
+            "definition": "CREATE INDEX phone_purchase_org_actor_created ON private.phone_number_purchase_operations USING btree (organization_id, actor_id, created_at DESC)",
+            "indisready": true,
+            "indisvalid": true,
+            "indisunique": false,
+            "indisprimary": false
+          },
+          {
+            "relname": "phone_purchase_provider_unique",
+            "definition": "CREATE UNIQUE INDEX phone_purchase_provider_unique ON private.phone_number_purchase_operations USING btree (lower(provider_sid)) WHERE (provider_sid IS NOT NULL)",
+            "indisready": true,
+            "indisvalid": true,
+            "indisunique": true,
+            "indisprimary": false
+          },
+          {
+            "relname": "phone_purchase_request_unique",
+            "definition": "CREATE UNIQUE INDEX phone_purchase_request_unique ON private.phone_number_purchase_operations USING btree (organization_id, request_id) WHERE (request_id IS NOT NULL)",
+            "indisready": true,
+            "indisvalid": true,
+            "indisunique": true,
+            "indisprimary": false
+          }
+        ],
+        "functions": [
+          {
+            "acl": "{postgres=X/postgres}",
+            "owner": "postgres",
+            "proname": "phone_number_purchase_authorize",
+            "returns": "void",
+            "language": "plpgsql",
+            "arguments": "p_actor uuid, p_org uuid",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "source_md5": "6f7cb6e75e55750f9692505d3570e034",
+            "proisstrict": false,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "private",
+            "proleakproof": false,
+            "identity_args": "p_actor uuid, p_org uuid",
+            "definition_md5": "ecccaf9d302b969dea0d75a8527c778e"
+          },
+          {
+            "acl": "{postgres=X/postgres}",
+            "owner": "postgres",
+            "proname": "phone_number_purchase_result",
+            "returns": "jsonb",
+            "language": "sql",
+            "arguments": "p_op private.phone_number_purchase_operations, p_claimed boolean DEFAULT false",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "source_md5": "cbb640ec741cf29ada07965c57a51606",
+            "proisstrict": false,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "private",
+            "proleakproof": false,
+            "identity_args": "p_op private.phone_number_purchase_operations, p_claimed boolean",
+            "definition_md5": "0eace859ef90fd630a4c401c6dfdeba2"
+          },
+          {
+            "acl": "{postgres=X/postgres,service_role=X/postgres}",
+            "owner": "postgres",
+            "proname": "phone_number_purchase_claim",
+            "returns": "jsonb",
+            "language": "plpgsql",
+            "arguments": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "source_md5": "c65347dcc5b1acbe86b4bc379ee3c7c6",
+            "proisstrict": false,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "public",
+            "proleakproof": false,
+            "identity_args": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid",
+            "definition_md5": "dbe273715b9bf09c420640768a90fcd8"
+          },
+          {
+            "acl": "{postgres=X/postgres,service_role=X/postgres}",
+            "owner": "postgres",
+            "proname": "phone_number_purchase_complete",
+            "returns": "jsonb",
+            "language": "plpgsql",
+            "arguments": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "source_md5": "a3c5e28177ab60a7b07e11f9fbe220a4",
+            "proisstrict": false,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "public",
+            "proleakproof": false,
+            "identity_args": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid",
+            "definition_md5": "2cbcd57476c73e87356006830adcb340"
+          },
+          {
+            "acl": "{postgres=X/postgres,service_role=X/postgres}",
+            "owner": "postgres",
+            "proname": "phone_number_purchase_get",
+            "returns": "jsonb",
+            "language": "plpgsql",
+            "arguments": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid DEFAULT NULL::uuid",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "source_md5": "80d248cb189023ce0eecbeb902a52214",
+            "proisstrict": false,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "public",
+            "proleakproof": false,
+            "identity_args": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid",
+            "definition_md5": "ab8352a795e0c9895baa9bdd9a3d1e39"
+          },
+          {
+            "acl": "{postgres=X/postgres,service_role=X/postgres}",
+            "owner": "postgres",
+            "proname": "phone_number_purchase_quote",
+            "returns": "jsonb",
+            "language": "plpgsql",
+            "arguments": "p_actor uuid, p_org uuid, p_account text, p_number text, p_type text, p_friendly_name text, p_quote jsonb",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "source_md5": "7c4ef501235125ee63ba3b4919b48312",
+            "proisstrict": false,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "public",
+            "proleakproof": false,
+            "identity_args": "p_actor uuid, p_org uuid, p_account text, p_number text, p_type text, p_friendly_name text, p_quote jsonb",
+            "definition_md5": "6653dfcf10e380cece7a6213d8530e91"
+          },
+          {
+            "acl": "{postgres=X/postgres,service_role=X/postgres}",
+            "owner": "postgres",
+            "proname": "phone_number_purchase_record",
+            "returns": "jsonb",
+            "language": "plpgsql",
+            "arguments": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid, p_sid text, p_provider_account text, p_provider_number text",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "source_md5": "57f0889cb4b80350f85b82afc5bfaecf",
+            "proisstrict": false,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "public",
+            "proleakproof": false,
+            "identity_args": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid, p_sid text, p_provider_account text, p_provider_number text",
+            "definition_md5": "ae92280203d3ae951b67d7f13ca56fba"
+          },
+          {
+            "acl": "{postgres=X/postgres,service_role=X/postgres}",
+            "owner": "postgres",
+            "proname": "phone_number_purchase_review",
+            "returns": "jsonb",
+            "language": "plpgsql",
+            "arguments": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid, p_code text",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "source_md5": "e7a7bd92c522548e76af881b01692918",
+            "proisstrict": false,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "public",
+            "proleakproof": false,
+            "identity_args": "p_actor uuid, p_org uuid, p_quote uuid, p_request uuid, p_code text",
+            "definition_md5": "f97aa09add374f45c685b9d4403566e2"
+          }
+        ],
+        "constraints": [
+          {
+            "conname": "phone_number_purchase_operations_account_sid_check",
+            "contype": "c",
+            "definition": "CHECK ((account_sid ~ '^AC[0-9a-fA-F]{32}$'::text))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_number_purchase_operations_friendly_name_check",
+            "contype": "c",
+            "definition": "CHECK (((length(friendly_name) >= 1) AND (length(friendly_name) <= 64)))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_number_purchase_operations_number_type_check",
+            "contype": "c",
+            "definition": "CHECK ((number_type = ANY (ARRAY['local'::text, 'toll_free'::text])))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_number_purchase_operations_organization_id_fkey",
+            "contype": "f",
+            "definition": "FOREIGN KEY (organization_id) REFERENCES organizations(id)",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_number_purchase_operations_phone_number_check",
+            "contype": "c",
+            "definition": "CHECK ((phone_number ~ '^\\+1[2-9][0-9]{9}$'::text))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_number_purchase_operations_pkey",
+            "contype": "p",
+            "definition": "PRIMARY KEY (id)",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_number_purchase_operations_provider_sid_check",
+            "contype": "c",
+            "definition": "CHECK ((provider_sid ~ '^PN[0-9a-fA-F]{32}$'::text))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_number_purchase_operations_quote_check",
+            "contype": "c",
+            "definition": "CHECK (((jsonb_typeof(quote) = 'object'::text) AND (quote ?& ARRAY['monthly_price'::text, 'inbound_per_minute'::text, 'currency'::text]) AND (jsonb_typeof((quote -> 'monthly_price'::text)) = 'string'::text) AND (jsonb_typeof((quote -> 'inbound_per_minute'::text)) = 'string'::text) AND (jsonb_typeof((quote -> 'currency'::text)) = 'string'::text) AND ((quote ->> 'monthly_price'::text) ~ '^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$'::text) AND ((quote ->> 'inbound_per_minute'::text) ~ '^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,8})?$'::text) AND ((quote ->> 'currency'::text) ~ '^[A-Z]{3}$'::text)))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_number_purchase_operations_state_check",
+            "contype": "c",
+            "definition": "CHECK ((state = ANY (ARRAY['quoted'::text, 'purchasing'::text, 'purchased_pending_save'::text, 'completed'::text, 'failed_before_purchase'::text, 'needs_review'::text])))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_purchase_expiry",
+            "contype": "c",
+            "definition": "CHECK (((expires_at > created_at) AND (expires_at <= (created_at + '00:05:00'::interval))))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_purchase_number_type",
+            "contype": "c",
+            "definition": "CHECK ((((number_type = 'toll_free'::text) AND (phone_number ~ '^\\+1(800|888)[0-9]{7}$'::text)) OR ((number_type = 'local'::text) AND (phone_number !~ '^\\+1(800|888|877|866|855|844|833)[0-9]{7}$'::text))))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          },
+          {
+            "conname": "phone_purchase_state_fields",
+            "contype": "c",
+            "definition": "CHECK ((((state = 'quoted'::text) AND (request_id IS NULL) AND (attempted_at IS NULL) AND (provider_sid IS NULL) AND (phone_number_id IS NULL)) OR ((state = 'failed_before_purchase'::text) AND (request_id IS NOT NULL) AND (attempted_at IS NULL) AND (provider_sid IS NULL) AND (phone_number_id IS NULL)) OR ((state = ANY (ARRAY['purchasing'::text, 'needs_review'::text])) AND (request_id IS NOT NULL) AND (attempted_at IS NOT NULL) AND (provider_sid IS NULL) AND (phone_number_id IS NULL)) OR ((state = 'purchased_pending_save'::text) AND (request_id IS NOT NULL) AND (attempted_at IS NOT NULL) AND (provider_sid IS NOT NULL) AND (receipt_recorded_at IS NOT NULL) AND (phone_number_id IS NULL)) OR ((state = 'completed'::text) AND (request_id IS NOT NULL) AND (attempted_at IS NOT NULL) AND (provider_sid IS NOT NULL) AND (receipt_recorded_at IS NOT NULL) AND (phone_number_id IS NOT NULL) AND (completed_at IS NOT NULL))))",
+            "condeferred": false,
+            "convalidated": true,
+            "condeferrable": false
+          }
+        ],
+        "ledger_rows": 0,
+        "observed_at": "2026-11-04T04:12:40.461917+00:00",
+        "direct_access": [
+          {
+            "role": "anon",
+            "delete": false,
+            "insert": false,
+            "select": false,
+            "update": false,
+            "trigger": false,
+            "maintain": false,
+            "truncate": false,
+            "references": false
+          },
+          {
+            "role": "authenticated",
+            "delete": false,
+            "insert": false,
+            "select": false,
+            "update": false,
+            "trigger": false,
+            "maintain": false,
+            "truncate": false,
+            "references": false
+          },
+          {
+            "role": "service_role",
+            "delete": false,
+            "insert": false,
+            "select": false,
+            "update": false,
+            "trigger": false,
+            "maintain": false,
+            "truncate": false,
+            "references": false
+          }
+        ]
+      },
+      "existing_after": {
+        "roles": [
+          {
+            "name": "anon",
+            "bypass_rls": false,
+            "public_usage": true,
+            "private_usage": false
+          },
+          {
+            "name": "authenticated",
+            "bypass_rls": false,
+            "public_usage": true,
+            "private_usage": false
+          },
+          {
+            "name": "service_role",
+            "bypass_rls": true,
+            "public_usage": true,
+            "private_usage": true
+          }
+        ],
+        "columns": [
+          {
+            "type": "uuid",
+            "table": "organizations",
+            "column": "id",
+            "default": "gen_random_uuid()",
+            "nullable": "NO"
+          },
+          {
+            "type": "text",
+            "table": "organizations",
+            "column": "twilio_subaccount_sid",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "organizations",
+            "column": "twilio_subaccount_status",
+            "default": "'pending'::text",
+            "nullable": "NO"
+          },
+          {
+            "type": "uuid",
+            "table": "phone_numbers",
+            "column": "id",
+            "default": "gen_random_uuid()",
+            "nullable": "NO"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "phone_number",
+            "default": null,
+            "nullable": "NO"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "friendly_name",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "status",
+            "default": "'active'::text",
+            "nullable": "YES"
+          },
+          {
+            "type": "uuid",
+            "table": "phone_numbers",
+            "column": "assigned_to",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "timestamptz",
+            "table": "phone_numbers",
+            "column": "created_at",
+            "default": "now()",
+            "nullable": "YES"
+          },
+          {
+            "type": "timestamptz",
+            "table": "phone_numbers",
+            "column": "updated_at",
+            "default": "now()",
+            "nullable": "YES"
+          },
+          {
+            "type": "bool",
+            "table": "phone_numbers",
+            "column": "is_default",
+            "default": "false",
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "area_code",
+            "default": "''::text",
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "spam_status",
+            "default": "'Unknown'::text",
+            "nullable": "YES"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "spam_score",
+            "default": "0",
+            "nullable": "YES"
+          },
+          {
+            "type": "timestamptz",
+            "table": "phone_numbers",
+            "column": "spam_checked_at",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "daily_call_count",
+            "default": "0",
+            "nullable": "YES"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "daily_call_limit",
+            "default": "100",
+            "nullable": "YES"
+          },
+          {
+            "type": "timestamptz",
+            "table": "phone_numbers",
+            "column": "limit_reset_at",
+            "default": "(CURRENT_DATE + '1 day'::interval)",
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "attestation_level",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "jsonb",
+            "table": "phone_numbers",
+            "column": "carrier_reputation_data",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "total_calls_7d",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "rejected_calls_7d",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "numeric",
+            "table": "phone_numbers",
+            "column": "rejection_rate_7d",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "total_calls_30d",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "rejected_calls_30d",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "numeric",
+            "table": "phone_numbers",
+            "column": "rejection_rate_30d",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "timestamptz",
+            "table": "phone_numbers",
+            "column": "last_rejection_at",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "shaken_stir_a_count",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "shaken_stir_unavailable_count",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "numeric",
+            "table": "phone_numbers",
+            "column": "shaken_stir_rate",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "numeric",
+            "table": "phone_numbers",
+            "column": "avg_quality_percentage",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "numeric",
+            "table": "phone_numbers",
+            "column": "avg_mos",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "int4",
+            "table": "phone_numbers",
+            "column": "d51_count",
+            "default": "0",
+            "nullable": "NO"
+          },
+          {
+            "type": "uuid",
+            "table": "phone_numbers",
+            "column": "organization_id",
+            "default": null,
+            "nullable": "NO"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "twilio_sid",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "trust_hub_status",
+            "default": "'pending'::text",
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "shaken_stir_attestation",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "inbound_routing_mode",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "bool",
+            "table": "phone_numbers",
+            "column": "voicemail_enabled",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "fallback_action",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "voicemail_greeting_text",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "forwarding_number",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "bool",
+            "table": "phone_numbers",
+            "column": "is_direct_line",
+            "default": "false",
+            "nullable": "NO"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "voicemail_greeting_url",
+            "default": null,
+            "nullable": "YES"
+          },
+          {
+            "type": "text",
+            "table": "phone_numbers",
+            "column": "assignment_type",
+            "default": "'agency'::text",
+            "nullable": "NO"
+          },
+          {
+            "type": "bool",
+            "table": "phone_numbers",
+            "column": "inbounds_only",
+            "default": "false",
+            "nullable": "NO"
+          },
+          {
+            "type": "uuid",
+            "table": "profiles",
+            "column": "id",
+            "default": null,
+            "nullable": "NO"
+          },
+          {
+            "type": "text",
+            "table": "profiles",
+            "column": "role",
+            "default": "'Agent'::text",
+            "nullable": "NO"
+          },
+          {
+            "type": "text",
+            "table": "profiles",
+            "column": "status",
+            "default": "'Active'::text",
+            "nullable": "NO"
+          },
+          {
+            "type": "uuid",
+            "table": "profiles",
+            "column": "organization_id",
+            "default": null,
+            "nullable": "YES"
+          }
+        ],
+        "functions": {
+          "md5": "553170bf54b78f6405fa35cfbecee9f0",
+          "count": 605
+        },
+        "observed_at": "2026-11-04T04:12:39.673132+00:00",
+        "current_role": "postgres",
+        "phone_counts": {
+          "total": 21,
+          "inbounds": 0,
+          "toll_free": 0
+        },
+        "phone_indexes": [
+          {
+            "name": "idx_phone_numbers_area_code",
+            "ready": true,
+            "valid": true,
+            "unique": false,
+            "definition": "CREATE INDEX idx_phone_numbers_area_code ON public.phone_numbers USING btree (area_code)"
+          },
+          {
+            "name": "idx_phone_numbers_one_default_per_org",
+            "ready": true,
+            "valid": true,
+            "unique": true,
+            "definition": "CREATE UNIQUE INDEX idx_phone_numbers_one_default_per_org ON public.phone_numbers USING btree (organization_id) WHERE ((is_default = true) AND (status = 'active'::text))"
+          },
+          {
+            "name": "idx_phone_numbers_org",
+            "ready": true,
+            "valid": true,
+            "unique": false,
+            "definition": "CREATE INDEX idx_phone_numbers_org ON public.phone_numbers USING btree (organization_id)"
+          },
+          {
+            "name": "phone_numbers_phone_number_key",
+            "ready": true,
+            "valid": true,
+            "unique": true,
+            "definition": "CREATE UNIQUE INDEX phone_numbers_phone_number_key ON public.phone_numbers USING btree (phone_number)"
+          },
+          {
+            "name": "phone_numbers_pkey",
+            "ready": true,
+            "valid": true,
+            "unique": true,
+            "definition": "CREATE UNIQUE INDEX phone_numbers_pkey ON public.phone_numbers USING btree (id)"
+          }
+        ],
+        "phone_triggers": [
+          {
+            "name": "guard_inbounds_number",
+            "enabled": "O",
+            "function": "private.guard_inbounds_number()",
+            "definition": "CREATE TRIGGER guard_inbounds_number BEFORE INSERT OR UPDATE ON public.phone_numbers FOR EACH ROW EXECUTE FUNCTION private.guard_inbounds_number()",
+            "function_md5": "31aca9f3882ebb64a2ce07311a6d37a7"
+          }
+        ],
+        "private_schema": true,
+        "server_version": "17.6",
+        "migration_count": 354,
+        "phone_constraints": [
+          {
+            "name": "inbounds_number_dedicated",
+            "type": "c",
+            "validated": true,
+            "definition": "CHECK (((NOT inbounds_only) OR ((assignment_type = 'agency'::text) AND (NOT COALESCE(is_default, false)) AND (NOT is_direct_line))))"
+          },
+          {
+            "name": "phone_numbers_assigned_to_fkey",
+            "type": "f",
+            "validated": true,
+            "definition": "FOREIGN KEY (assigned_to) REFERENCES auth.users(id) ON DELETE SET NULL"
+          },
+          {
+            "name": "phone_numbers_assignment_type_check",
+            "type": "c",
+            "validated": true,
+            "definition": "CHECK ((assignment_type = ANY (ARRAY['agency'::text, 'personal'::text])))"
+          },
+          {
+            "name": "phone_numbers_organization_id_fkey",
+            "type": "f",
+            "validated": true,
+            "definition": "FOREIGN KEY (organization_id) REFERENCES organizations(id)"
+          },
+          {
+            "name": "phone_numbers_personal_not_default_check",
+            "type": "c",
+            "validated": true,
+            "definition": "CHECK (((assignment_type <> 'personal'::text) OR (COALESCE(is_default, false) = false)))"
+          },
+          {
+            "name": "phone_numbers_personal_requires_owner_check",
+            "type": "c",
+            "validated": true,
+            "definition": "CHECK (((assignment_type <> 'personal'::text) OR (assigned_to IS NOT NULL)))"
+          },
+          {
+            "name": "phone_numbers_phone_number_key",
+            "type": "u",
+            "validated": true,
+            "definition": "UNIQUE (phone_number)"
+          },
+          {
+            "name": "phone_numbers_pkey",
+            "type": "p",
+            "validated": true,
+            "definition": "PRIMARY KEY (id)"
+          },
+          {
+            "name": "phone_numbers_spam_status_check",
+            "type": "c",
+            "validated": true,
+            "definition": "CHECK (((spam_status IS NULL) OR (regexp_replace(lower(TRIM(BOTH FROM spam_status)), '\\s+'::text, '_'::text, 'g'::text) = ANY (ARRAY['unknown'::text, 'checking'::text, 'clean'::text, 'at_risk'::text, 'flagged'::text, 'insufficient_data'::text, 'evaluating'::text]))))"
+          },
+          {
+            "name": "phone_numbers_status_check",
+            "type": "c",
+            "validated": true,
+            "definition": "CHECK ((status = ANY (ARRAY['active'::text, 'released'::text, 'spam'::text])))"
+          }
+        ],
+        "inbounds_functions": [
+          {
+            "acl": "{postgres=X/postgres}",
+            "owner": "postgres",
+            "proname": "capture_inbounds_call",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "private",
+            "identity_args": "",
+            "definition_md5": "4d01e9e7db2280cabefa553b54111a5b"
+          },
+          {
+            "acl": "{postgres=X/postgres}",
+            "owner": "postgres",
+            "proname": "guard_inbounds_number",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "private",
+            "identity_args": "",
+            "definition_md5": "31aca9f3882ebb64a2ce07311a6d37a7"
+          },
+          {
+            "acl": "{postgres=X/postgres}",
+            "owner": "postgres",
+            "proname": "guard_inbounds_outbound",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "private",
+            "identity_args": "",
+            "definition_md5": "13c565f643089acbe9e599efa5ebbe85"
+          },
+          {
+            "acl": "{postgres=X/postgres}",
+            "owner": "postgres",
+            "proname": "inbounds_actor",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "proparallel": "u",
+            "provolatile": "s",
+            "schema_name": "private",
+            "identity_args": "",
+            "definition_md5": "a36cbd67d4e67b9d139b9cd2dc6d2cf8"
+          },
+          {
+            "acl": "{postgres=X/postgres,service_role=X/postgres}",
+            "owner": "postgres",
+            "proname": "claim_inbound_call",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "public",
+            "identity_args": "p_user_id uuid, p_call_row_id uuid, p_child_call_sid text, p_parent_call_sid text",
+            "definition_md5": "4102657ac5819ce430bd45fb550a1253"
+          },
+          {
+            "acl": "{postgres=X/postgres,service_role=X/postgres}",
+            "owner": "postgres",
+            "proname": "is_agent_busy",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "proparallel": "u",
+            "provolatile": "s",
+            "schema_name": "public",
+            "identity_args": "p_org_id uuid, p_agent_id uuid, p_exclude_call_id uuid",
+            "definition_md5": "d9a1a41d461f3e45c575fee24bd84972"
+          },
+          {
+            "acl": "{postgres=X/postgres,service_role=X/postgres}",
+            "owner": "postgres",
+            "proname": "plan_inbound_route",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "public",
+            "identity_args": "p_call_row_id uuid, p_org_id uuid, p_owner_agent_id uuid, p_owner_source text, p_candidate_group_ids uuid[], p_browser_ring_seconds integer",
+            "definition_md5": "d0b32e81fe0271f25417c1d8fead68aa"
+          },
+          {
+            "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+            "owner": "postgres",
+            "proname": "set_inbounds_number",
+            "proconfig": [
+              "search_path=pg_catalog, pg_temp"
+            ],
+            "prosecdef": true,
+            "proparallel": "u",
+            "provolatile": "v",
+            "schema_name": "public",
+            "identity_args": "p_number uuid, p_enabled boolean",
+            "definition_md5": "3644bc3abc3deaabcb8d99b6b5c6ae20"
+          }
+        ],
+        "inbounds_migration": {
+          "name": "inbounds_room_v1",
+          "version": "20261103191631"
+        },
+        "purchase_migrations": [
+          {
+            "name": "phone_number_purchase_operations",
+            "version": "20261104041151"
+          }
+        ],
+        "new_object_collisions": {
+          "ledger": "private.phone_number_purchase_operations",
+          "indexes": [
+            "phone_purchase_attempt_unique",
+            "phone_purchase_org_actor_created",
+            "phone_purchase_provider_unique",
+            "phone_purchase_request_unique"
+          ],
+          "functions": [
+            "private.phone_number_purchase_authorize",
+            "private.phone_number_purchase_result",
+            "public.phone_number_purchase_claim",
+            "public.phone_number_purchase_complete",
+            "public.phone_number_purchase_get",
+            "public.phone_number_purchase_quote",
+            "public.phone_number_purchase_record",
+            "public.phone_number_purchase_review"
+          ]
+        }
+      },
+      "guard_after": {
+        "tables": [
+          {
+            "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+            "owner": "postgres",
+            "nspname": "public",
+            "relname": "organizations",
+            "relrowsecurity": true,
+            "relforcerowsecurity": false
+          },
+          {
+            "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+            "owner": "postgres",
+            "nspname": "public",
+            "relname": "phone_numbers",
+            "relrowsecurity": true,
+            "relforcerowsecurity": false
+          },
+          {
+            "acl": "{postgres=arwdDxtm/postgres,authenticated=rm/postgres,service_role=arwdDxtm/postgres,supabase_auth_admin=r/postgres}",
+            "owner": "postgres",
+            "nspname": "public",
+            "relname": "profiles",
+            "relrowsecurity": true,
+            "relforcerowsecurity": false
+          }
+        ],
+        "default_acl": [
+          {
+            "acl": "{postgres=rwU/postgres,anon=rwU/postgres,authenticated=rwU/postgres,service_role=rwU/postgres}",
+            "kind": "S",
+            "owner": "postgres",
+            "schema": "public"
+          },
+          {
+            "acl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+            "kind": "f",
+            "owner": "postgres",
+            "schema": "public"
+          },
+          {
+            "acl": "{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+            "kind": "r",
+            "owner": "postgres",
+            "schema": "public"
+          }
+        ],
+        "observed_at": "2026-11-04T04:12:37.616731+00:00",
+        "policies_digest": {
+          "md5": "ffc005e3abdfb7fe2d5004703c0afa0e",
+          "count": 13
+        },
+        "inbounds_history": {
+          "name": "inbounds_room_v1",
+          "version": "20261103191631",
+          "joined_lf_md5": "a36745c9836f3e1f22e468659bf84eb5",
+          "statement_count": 1
+        },
+        "schema_privileges": [
+          {
+            "role": "anon",
+            "usage": false,
+            "create": false,
+            "schema": "private"
+          },
+          {
+            "role": "anon",
+            "usage": true,
+            "create": false,
+            "schema": "public"
+          },
+          {
+            "role": "authenticated",
+            "usage": false,
+            "create": false,
+            "schema": "private"
+          },
+          {
+            "role": "authenticated",
+            "usage": true,
+            "create": false,
+            "schema": "public"
+          },
+          {
+            "role": "postgres",
+            "usage": true,
+            "create": true,
+            "schema": "private"
+          },
+          {
+            "role": "postgres",
+            "usage": true,
+            "create": true,
+            "schema": "public"
+          },
+          {
+            "role": "service_role",
+            "usage": true,
+            "create": false,
+            "schema": "private"
+          },
+          {
+            "role": "service_role",
+            "usage": true,
+            "create": false,
+            "schema": "public"
+          }
+        ],
+        "phone_ownership_digest": "584a49101c3d918220ccb443f1a60da8"
+      },
+      "advisors": {
+        "before_count": 264,
+        "after_count": 265,
+        "added": [
+          {
+            "name": "rls_enabled_no_policy",
+            "level": "INFO",
+            "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy",
+            "detail": "Table \\`private.phone_number_purchase_operations\\` has RLS enabled, but no policies exist",
+            "metadata": {
+              "name": "phone_number_purchase_operations",
+              "type": "table",
+              "schema": "private"
+            }
+          }
+        ],
+        "removed": []
+      },
+      "production_mutations_by_this_agent": 0
+    }
+  },
+  "edge": [
+    {
+      "function": "twilio-sms",
+      "baseline_version": 60,
+      "deployed_version": 61,
+      "deployed_at_utc": "2026-11-04T04:13:53.127000+00:00",
+      "status": "ACTIVE",
+      "verify_jwt": false,
+      "import_map": false,
+      "ezbr_sha256": "9998fc4abf1fb729d4886cec860be7971b65868a2b98d228525b85ba29a2965f",
+      "approved_payload_sha256": "271e96b26a249d63163f20ae90ee4df96bf1a9c31b5fa7b55d31f20a0e15d1e1",
+      "verified_source_files": 13,
+      "all_source_bytes_match_approved_payload": true,
+      "unrelated_live_source_preserved": true
+    },
+    {
+      "function": "workflow-executor",
+      "baseline_version": 49,
+      "deployed_version": 50,
+      "deployed_at_utc": "2026-11-04T04:14:17.263000+00:00",
+      "status": "ACTIVE",
+      "verify_jwt": false,
+      "import_map": false,
+      "ezbr_sha256": "710c9f085acee7dbc774e23a7132739d440069f8d339dfbec3b8c39592343d5f",
+      "approved_payload_sha256": "22183a5f4ffe49fb1d61ae73c5deb51bd40cc83e3a5979f23230bc6380b7ae3d",
+      "verified_source_files": 14,
+      "all_source_bytes_match_approved_payload": true,
+      "unrelated_live_source_preserved": true
+    },
+    {
+      "function": "sms-consent-worker",
+      "baseline_version": 25,
+      "deployed_version": 26,
+      "deployed_at_utc": "2026-11-04T04:14:18.975000+00:00",
+      "status": "ACTIVE",
+      "verify_jwt": false,
+      "import_map": false,
+      "ezbr_sha256": "3b80b17980775e8625a15757db2148feb9ed0c0175e6db34389eb9f9ecc35e44",
+      "approved_payload_sha256": "6f7c83edd77db36c0c5463c7a7bb6358baf970d3cdd056b188ce954cf9e3751a",
+      "verified_source_files": 13,
+      "all_source_bytes_match_approved_payload": true,
+      "unrelated_live_source_preserved": true
+    },
+    {
+      "function": "clearpath-lead-alert",
+      "baseline_version": 24,
+      "deployed_version": 25,
+      "deployed_at_utc": "2026-11-04T04:14:20.962000+00:00",
+      "status": "ACTIVE",
+      "verify_jwt": false,
+      "import_map": false,
+      "ezbr_sha256": "6d88feea6910dce56bb20cf3ca859e1da346c64257c22d44f697bf3731d44638",
+      "approved_payload_sha256": "3736298bae66ee03aa509cb10dcaba453e556f972dd6b0e5edaece2b56c7d6ba",
+      "verified_source_files": 13,
+      "all_source_bytes_match_approved_payload": true,
+      "unrelated_live_source_preserved": true
+    },
+    {
+      "function": "twilio-search-numbers",
+      "baseline_version": 58,
+      "deployed_version": 59,
+      "deployed_at_utc": "2026-11-04T04:14:50.480000+00:00",
+      "status": "ACTIVE",
+      "verify_jwt": false,
+      "import_map": false,
+      "ezbr_sha256": "0c90567d869b502ef90332d805b8044416f64d899eac7df8e69dbdb15bd8d55b",
+      "approved_payload_sha256": "776c0171d6541d2f5e3c1926b22a14e46a27267e316ad49a5b138a4fdfdd5efe",
+      "verified_source_files": 9,
+      "all_source_bytes_match_approved_payload": true,
+      "unrelated_live_source_preserved": true
+    },
+    {
+      "function": "twilio-buy-number",
+      "baseline_version": 64,
+      "deployed_version": 65,
+      "deployed_at_utc": "2026-11-04T04:14:52.651000+00:00",
+      "status": "ACTIVE",
+      "verify_jwt": false,
+      "import_map": false,
+      "ezbr_sha256": "280a331922b56fd51c89f9dcaa04d9d7c0b6eb4b1d038ba2852151063aaa29fa",
+      "approved_payload_sha256": "07153ee74fb175ceb26731d4827ff524797d5d064b949958b0f1490a04960aee",
+      "verified_source_files": 9,
+      "all_source_bytes_match_approved_payload": true,
+      "unrelated_live_source_preserved": true
+    }
+  ],
+  "unsigned_smoke": {
+    "observed_at": "2026-11-04T04:16:10.795735+00:00",
+    "credentials_supplied": false,
+    "provider_or_authenticated_actions": false,
+    "checks": [
+      {
+        "function": "twilio-search-numbers",
+        "request": {},
+        "status": 401,
+        "expected": 401,
+        "body": {
+          "protocol_version": 1,
+          "error": "Sign in to manage phone numbers.",
+          "code": "UNAUTHORIZED"
+        }
+      },
+      {
+        "function": "twilio-buy-number",
+        "request": {},
+        "status": 409,
+        "expected": 409,
+        "body": {
+          "protocol_version": 1,
+          "error": "Refresh Phone Numbers and review current pricing before purchasing.",
+          "code": "REVIEW_REQUIRED"
+        }
+      },
+      {
+        "function": "twilio-sms",
+        "request": {},
+        "status": 401,
+        "expected": 401,
+        "body": {
+          "success": false,
+          "error": "Unauthorized"
+        }
+      },
+      {
+        "function": "workflow-executor",
+        "request": {},
+        "status": 401,
+        "expected": 401,
+        "body": {
+          "success": false,
+          "error": "Invalid workflow secret"
+        }
+      },
+      {
+        "function": "sms-consent-worker",
+        "request": {},
+        "status": 403,
+        "expected": 403,
+        "body": {
+          "success": false,
+          "code": "WORKER_AUTH",
+          "error": "Unauthorized."
+        }
+      },
+      {
+        "function": "clearpath-lead-alert",
+        "request": {},
+        "status": 403,
+        "expected": 403,
+        "body": {
+          "success": false,
+          "code": "ALERT_AUTH",
+          "error": "Unauthorized"
+        }
+      },
+      {
+        "function": "twilio-buy-number",
+        "request": {
+          "action": "status",
+          "quote_id": "30000000-0000-4000-8000-000000000001",
+          "request_id": "40000000-0000-4000-8000-000000000001",
+          "actor_id": "10000000-0000-4000-8000-000000000001",
+          "organization_id": "20000000-0000-4000-8000-000000000001",
+          "view_as": false
+        },
+        "status": 401,
+        "expected": 401,
+        "body": {
+          "protocol_version": 1,
+          "error": "Sign in to manage phone numbers.",
+          "code": "UNAUTHORIZED"
+        }
+      }
+    ]
+  },
+  "ci": {
+    "production_matching_database": {
+      "head": "83f5c0491de08e589bf5a80405b13e62729965a4",
+      "workflow_run": 41771592749,
+      "job": 126382290719,
+      "postgres_version": "17.6",
+      "sql_assertions": 131,
+      "concurrency_scenarios": 12,
+      "observed_lock_waits": 11,
+      "result": "passed"
+    },
+    "final_head_checks": "pending",
+    "browser_ci_readiness_correction": {
+      "file": "scripts/tests/phone-number-purchases/browser/check.mjs",
+      "cause": "ANSI escape sequence between Local and colon prevented Vite banner matching",
+      "readiness": "Bounded HTTP polling requires exact synthetic fixture title",
+      "local_result": "passed",
+      "environment": {
+        "GITHUB_ACTIONS": "true",
+        "FORCE_COLOR": "1",
+        "NO_COLOR": "unset"
+      },
+      "external_requests": 0,
+      "all_existing_interaction_permission_and_recovery_assertions_retained": true
+    }
+  },
+  "frontend": {
+    "status": "pending_final_ci_and_merge",
+    "project": "agentflow",
+    "project_id": "prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc",
+    "team_id": "team_iPboOWpwdIQRwdxmA5GJp5Rq",
+    "prior_production_commit": "0e74428259275c9281518832747a627a4f635a80",
+    "prior_production_deployment": "dpl_BuaEcVgyBLJCr2423W3NyXuJ3f1Z"
+  },
+  "transaction_boundaries": {
+    "numbers_purchased": 0,
+    "numbers_assigned": 0,
+    "calls_placed": 0,
+    "sms_sent": 0,
+    "live_inventory_or_account_pricing_exercised": false,
+    "purchase_and_designation_require_separate_authorization": true
+  }
+}
