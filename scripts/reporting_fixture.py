@@ -79,7 +79,7 @@ def premium_correction_steps():
   ('sale premium corrections migration',forward),
   ('sale premium corrections replay refuses',"SELECT test_reject($f$"+forward+"$f$,'P0001');"),
   ('sale premium corrections: an empty-ledger rollback restores the exact preimage (probe, rolled back)',probe+"SELECT test_probe($r$"+rollback+"$r$,$c$"+restored+"$c$);"),
-  ('sale premium correction regressions',read('supabase/tests/policy_sale_premium_correction.sql')),
+  ('sale premium correction regressions',read('supabase/tests/policy_sale_premium_correction.sql').split('\n-- @@v3@@\n')[0]),
   ('sale premium corrections rollback with a non-empty ledger seals the writer only',rollback+sealed),
   ('sale premium corrections rollback replay seals again',rollback+sealed)]
 

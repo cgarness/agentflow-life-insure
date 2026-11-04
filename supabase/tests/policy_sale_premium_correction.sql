@@ -344,3 +344,108 @@ REVOKE EXECUTE ON FUNCTION public.correct_policy_sale_premium(uuid,uuid,integer,
 REVOKE EXECUTE ON FUNCTION public.get_client_policy_sale_premiums(uuid) FROM authenticated;
 SELECT test_assert(NOT has_function_privilege('authenticated', 'public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text)', 'EXECUTE'),
                    'the writer is sealed again at the end of the suite');
+
+-- @@v3@@
+-- =====================================================================================================
+-- Reports v3 on the effective premium (…21, D2 §3.7, §6.5 step 1, §9). Run by scripts/reports_v3_fixture.py after
+-- …20 and …21, on the PKG-A fixture organization O1 (reports_v3_fixtures.sql), inside a savepoint that is rolled back:
+-- the ledger is empty again afterwards, so the empty-ledger rollback can return the database to the exact PKG-A state.
+-- The correction RPC's own paths are covered above on the verbatim sale writers; here ledger heads are written
+-- directly (as the table owner, through the insert guard) so the v3 readers are checked against hand-computed values.
+-- Before: KPI 1 = 4,057.08 (October, O1), KPI 2 = 13, known 9, missing 3, invalid 1, one legacy fallback (W6).
+-- =====================================================================================================
+SAVEPOINT pspc_v3;
+
+SELECT rt.eq('…21: basis flags 3.1.0 with the audited ledger', private.report_v3_basis_flags(),
+  '{"contract_version":"3.1.0","corrections":"audited_ledger","sale_call_links":"not_installed","appointment_evidence":"not_installed"}'::jsonb);
+SELECT rt.eq('…21: summary and state payloads carry 3.1.0 / audited_ledger (X13)',
+  (SELECT string_agg(concat_ws('/', p ->> 'contract_version', p #>> '{basis,corrections}'), ',')
+     FROM (VALUES (rt.v3r('ADM1', 'summary')), (rt.v3r('ADM1', 'state_breakdown')), (rt.v3r('ADM1', 'scope'))) x(p)),
+  '3.1.0/audited_ledger,3.1.0/audited_ledger,3.1.0/audited_ledger');
+SELECT rt.eq('…21: class W ACL matrix (authenticated only; the v3 readers stay sealed)',
+  (SELECT string_agg(f || ':' || r || '=' || has_function_privilege(r, f, 'EXECUTE'), ' ' ORDER BY f, r)
+     FROM unnest(ARRAY['public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text)',
+                       'public.get_client_policy_sale_premiums(uuid)']) f,
+          unnest(ARRAY['anon', 'authenticated', 'reports_v3_inherits_authenticated', 'reports_v3_public_only', 'service_role']) r),
+  (SELECT string_agg(f || ':' || r || '=' || (r IN ('authenticated', 'reports_v3_inherits_authenticated')), ' ' ORDER BY f, r)
+     FROM unnest(ARRAY['public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text)',
+                       'public.get_client_policy_sale_premiums(uuid)']) f,
+          unnest(ARRAY['anon', 'authenticated', 'reports_v3_inherits_authenticated', 'reports_v3_public_only', 'service_role']) r));
+SELECT rt.assert_sealed_v3(true, false);
+SELECT rt.assert_v3_helper_shape();
+SELECT rt.eq('…21: with an empty ledger every sale is unchanged (W1 snapshot, W6 legacy fallback)',
+  rt.sf('W1') || ' ' || rt.sf('W6'), '100.00|sale_snapshot|known|0 80.50|legacy_record_fallback|known|0');
+
+CREATE TABLE rt.pspc_before AS
+  SELECT rt.prod() AS prod, rt.v3r('ADM1', 'summary') AS summary, rt.v3r('ADM1', 'state_breakdown') AS states;
+
+-- One ledger revision for a sale, as the correction RPC would write it (the insert guard checks the sale and chain).
+CREATE FUNCTION rt.pspc(p_win text, p_rev integer, p_prev numeric, p_prev_source text, p_new numeric) RETURNS void
+LANGUAGE sql AS $$
+  INSERT INTO private.policy_sale_premium_corrections (organization_id, win_id, policy_id, policy_source, buyer_id,
+    seller_id, sold_date, revision, supersedes_id, previous_effective_monthly, previous_source, corrected_monthly,
+    reason_code, note, book_mode, book_action, actor_id, actor_role, request_id, payload_hash, result)
+  SELECT w.organization_id, w.id, w.policy_id, coalesce(i.source, 'primary'), w.contact_id, w.agent_id, w.sold_date,
+         p_rev, (SELECT h.id FROM private.policy_sale_premium_corrections h WHERE h.win_id = w.id AND h.revision = p_rev - 1),
+         p_prev, p_prev_source, p_new, 'entry_error', 'synthetic v3 check', 'keep_current', 'kept_current',
+         rt.v3('ADM1'), 'Admin', gen_random_uuid(), repeat('0', 64), '{}'::jsonb
+    FROM public.wins w LEFT JOIN private.policy_identities i ON i.organization_id = w.organization_id AND i.policy_id = w.policy_id
+   WHERE w.id = rt.v3(p_win);
+$$;
+-- W1 (A1, 2026-10-02) $100 → $120 → $125 (two revisions); W6 (A3) frozen at its legacy fallback $80.50;
+-- W2 (A1, 2026-10-03, a known $0) corrected to unknown.
+SELECT rt.pspc('W1', 1, 100.00, 'sale_snapshot', 120.00);
+SELECT rt.pspc('W1', 2, 120.00, 'correction', 125.00);
+SELECT rt.pspc('W6', 1, 80.50, 'legacy_record_fallback', 80.50);
+SELECT rt.pspc('W2', 1, 0, 'sale_snapshot', NULL);
+
+SELECT rt.eq('sale facts read the head revision (source correction; unknown is missing)',
+  rt.sf('W1') || ' ' || rt.sf('W6') || ' ' || rt.sf('W2'),
+  '125.00|correction|known|2 80.50|correction|known|1 null|correction|missing|1');
+SELECT rt.eq('choke point = v3 stub = effective reader for every sale',
+  (SELECT count(*) FROM public.wins w LEFT JOIN public.clients c ON c.id = w.contact_id AND c.organization_id = w.organization_id
+    CROSS JOIN LATERAL private.report_v3_sale_premium(w, c.premium) n
+    CROSS JOIN LATERAL private.policy_sale_effective_premium(w, c.premium) e
+    WHERE (n.monthly, n.premium_source, n.premium_state, n.revision) IS DISTINCT FROM (e.monthly, e.source, e.state, e.revision)
+       OR n.monthly IS DISTINCT FROM private.performance_sale_monthly(w, c.premium)), 0::bigint);
+
+-- KPI 1: 4,057.08 + 12 × (125 − 100) = 4,357.08; KPI 2 unchanged (13); KPI 4 = 4,357.08 ÷ 8 known.
+SELECT rt.eq('production totals restated on the original seller and Sold Date',
+  (SELECT concat_ws('|', t ->> 'policy_count', t ->> 'known_count', t ->> 'missing_count', t ->> 'invalid_count',
+                    t ->> 'annual_premium', t -> 'premium_sources', t ->> 'corrections_applied')
+     FROM (SELECT rt.prod() -> 'totals' AS t) x),
+  '13|8|4|1|4357.08|{"none": 2, "correction": 3, "sale_snapshot": 7, "legacy_sale_event": 1, "legacy_record_fallback": 0}|3');
+SELECT rt.eq('KPI 1, 2 and 4 values', concat_ws('|', rt.kpi(rt.v3r('ADM1', 'summary'), 1), rt.kpi(rt.v3r('ADM1', 'summary'), 2),
+  round(rt.kpi(rt.v3r('ADM1', 'summary'), 4)::numeric, 6)), '4357.08|13|' || round(4357.08 / 8, 6));
+SELECT rt.eq('KPI 1 detail: the frozen legacy fallback no longer counts',
+  rt.kpi(rt.v3r('ADM1', 'summary'), 1, 'detail')::jsonb -> 'premium',
+  '{"known": 8, "invalid": 1, "missing": 4, "legacy_record_fallback": 0}'::jsonb);
+SELECT rt.eq('KPI 1 moves by exactly 12 × the corrected difference',
+  rt.kpi(rt.v3r('ADM1', 'summary'), 1)::numeric - rt.kpi((SELECT summary FROM rt.pspc_before), 1)::numeric, 300.00);
+SELECT rt.eq('by_agent: A1 restated (W1 +$25/mo, W2 unknown), A2 and A3 unchanged',
+  (SELECT string_agg(concat_ws(':', i.name, r ->> 'policy_count', r ->> 'known_count', r ->> 'missing_count', r ->> 'annual_premium'), ' '
+                     ORDER BY i.name)
+     FROM jsonb_array_elements(rt.prod() -> 'by_agent') r JOIN rt.v3_ids i ON i.id = (r ->> 'agent_id')::uuid),
+  'A1:4:3:1:2403.00 A2:5:3:1:508.08 A3:3:1:2:966.00');
+SELECT rt.eq('production_by_date: Oct 2 +$300, Oct 3 one more missing, totals agree',
+  (SELECT string_agg(concat_ws(':', d ->> 'date', d ->> 'policies_sold', d ->> 'premium_known', d ->> 'premium_missing', d ->> 'annual_premium'), ' '
+                     ORDER BY d ->> 'date')
+     FROM jsonb_array_elements(rt.prod() -> 'production_by_date') d WHERE d ->> 'date' IN ('2026-10-02', '2026-10-03'))
+  || ' Σ' || rt.jsum(rt.prod(), '$.production_by_date[*].annual_premium'),
+  '2026-10-02:1:1:0:1500.00 2026-10-03:2:0:2:0 Σ4357.08');
+SELECT rt.eq('state AP: only the corrected buyer''s state moves (+$300.00); policies sold unchanged',
+  (SELECT string_agg(a.state || ':' || (a.ap - b.ap) || ':' || (a.sold - b.sold), ' ' ORDER BY a.state)
+     FROM (SELECT j ->> 'state' AS state, coalesce((j #>> '{premium,annual_premium}')::numeric, 0) AS ap, (j ->> 'policies_sold')::int AS sold
+             FROM jsonb_array_elements(rt.v3r('ADM1', 'state_breakdown') -> 'jurisdictions') j) a
+     JOIN (SELECT j ->> 'state' AS state, coalesce((j #>> '{premium,annual_premium}')::numeric, 0) AS ap, (j ->> 'policies_sold')::int AS sold
+             FROM jsonb_array_elements((SELECT states FROM rt.pspc_before) -> 'jurisdictions') j) b USING (state)
+    WHERE a.ap <> b.ap OR a.sold <> b.sold),
+  'CA:300.00:0');
+SELECT rt.eq('state reader still reconciles with the summary (Σ jurisdictions + Σ unmapped = KPI 1)', rt.st_recon('ADM1'), 'ok');
+SELECT rt.eq('personal scope: A1 restated, A2 unchanged',
+  ARRAY[rt.kpi(rt.v3r('A1', 'summary', 'personal'), 1)::numeric, rt.kpi(rt.v3r('A2', 'summary', 'personal'), 1)::numeric],
+  ARRAY[2403.00, 508.08]);
+SELECT rt.eq('organization isolation: O2 unchanged', rt.sf_wins('O2', NULL, NULL, NULL), 'WB1');
+
+ROLLBACK TO SAVEPOINT pspc_v3;
+SELECT rt.eq('the v3 section leaves the ledger empty', (SELECT count(*) FROM private.policy_sale_premium_corrections), 0::bigint);

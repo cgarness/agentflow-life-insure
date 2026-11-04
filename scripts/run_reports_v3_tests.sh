@@ -22,9 +22,12 @@ psql "$REPORTS_TEST_BASE/postgres" -XAt -v ON_ERROR_STOP=1 -c "SELECT 'PostgreSQ
 REPORTS_TEST_DB="reports_v3_$(date +%s)_$$"
 REPORTS_TEST_SQL="$(mktemp)"
 REPORTS_TEST_CREATED=false
+REPORTS_RACE_DB="reporting_pspc_$(date +%s)_$$"
+REPORTS_RACE_CREATED=false
 cleanup() {
   rm -f "$REPORTS_TEST_SQL"
   if "$REPORTS_TEST_CREATED"; then dropdb --if-exists --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_TEST_DB"; fi
+  if "$REPORTS_RACE_CREATED"; then dropdb --if-exists --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_RACE_DB"; fi
 }
 trap cleanup EXIT
 createdb --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_TEST_DB"
@@ -32,6 +35,14 @@ REPORTS_TEST_CREATED=true
 python3 scripts/reports_v3_fixture.py > "$REPORTS_TEST_SQL"
 psql "$REPORTS_TEST_BASE/$REPORTS_TEST_DB" -X -v ON_ERROR_STOP=1 -f "$REPORTS_TEST_SQL"
 echo 'All Reports v3 contract, registry, seal and refusal proofs passed.'
+# PKG-B two-backend races (D2 §9) need the verbatim sale writers, so they run on a second disposable database built by
+# the reporting fixture's policy mode (which also runs the correction suite's writer section).
+createdb --maintenance-db="$REPORTS_TEST_BASE/postgres" "$REPORTS_RACE_DB"
+REPORTS_RACE_CREATED=true
+python3 scripts/reporting_fixture.py policy > "$REPORTS_TEST_SQL"
+psql "$REPORTS_TEST_BASE/$REPORTS_RACE_DB" -X -q -v ON_ERROR_STOP=1 -f "$REPORTS_TEST_SQL" > /dev/null
+REPORTING_TEST_URL="$REPORTS_TEST_BASE/$REPORTS_RACE_DB" node scripts/tests/sale-premium-correction-concurrency.mjs
+echo 'Sale premium correction races passed.'
 # Optional payload file (D1 X9): REPORTS_V3_PAYLOADS=<absolute path> loads the synthetic scale organization on top of
 # the suites and writes every report reader's real response for one actor (agency, team, personal). Test input only.
 if [[ -n "${REPORTS_V3_PAYLOADS:-}" ]]; then

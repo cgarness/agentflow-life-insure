@@ -24,6 +24,14 @@ const MIGRATION_CLASS: Record<string, PrivilegeClass> = {
   reports_v3_readers: "C",
   reports_v3_calls_campaign_lead_index: "C",
   reports_v3_release_enable: "E",
+  reports_v3_sale_premium_basis: "W",  // PKG-B …21 (D2 §3.7)
+};
+/** Class W (plan §2.8, X8): the only GRANTs a writer-enable file may contain. */
+const W_ALLOWLIST: Record<string, string[]> = {
+  reports_v3_sale_premium_basis: [
+    "GRANT EXECUTE ON FUNCTION public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text) TO authenticated",
+    "GRANT EXECUTE ON FUNCTION public.get_client_policy_sale_premiums(uuid) TO authenticated",
+  ],
 };
 const OPS_CLASS: Record<string, PrivilegeClass> = {
   "reports_v3_enable.sql": "E",
@@ -169,7 +177,8 @@ describe("Reports v3 SQL privilege classes", () => {
   it("no file grants to anon or PUBLIC, or grants any legacy rpc_report_* function", () => {
     for (const f of files) {
       for (const g of grants(f.sql)) {
-        expect(g, f.path).not.toMatch(/\b(anon|PUBLIC)\b/i);
+        // The grantee list (after TO): a schema-qualified public.function name is not a grant to PUBLIC.
+        expect(g, f.path).not.toMatch(/\bTO\b[\s\S]*\b(anon|PUBLIC)\b/i);
         expect(g, f.path).not.toMatch(/rpc_report_/i);
       }
     }
@@ -184,6 +193,14 @@ describe("Reports v3 SQL privilege classes", () => {
       const found = grants(f.sql);
       expect(found.length, f.path).toBeGreaterThan(0);
       for (const g of found) expect(g.replace(/\s+/g, " "), f.path).toMatch(/^GRANT EXECUTE ON FUNCTION \S+ TO authenticated, ?service_role$/i);
+    }
+  });
+
+  it("class W files grant exactly their allowlist, to authenticated only", () => {
+    const w = files.filter((x) => x.cls === "W");
+    for (const f of w) {
+      expect(W_ALLOWLIST[f.suffix], `${f.path} has no class W allowlist`).toBeDefined();
+      expect(grants(f.sql).map((g) => g.replace(/\s+/g, " ").trim()), f.path).toEqual(W_ALLOWLIST[f.suffix]);
     }
   });
 
@@ -724,9 +741,10 @@ describe("PKG-B sale premium corrections (D2 §3.3-§3.7): …20 and its rollbac
   const forward = stripSqlComments(read(FORWARD));
   const rollback = stripSqlComments(read(ROLLBACK));
 
-  it("is numbered after every PKG-A file and above the production head 20261103191631", () => {
+  it("is numbered after every PKG-A file and above the production head 20261103191631; …21 follows it", () => {
     const versions = readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /_reports_v3_|_policy_sale_premium_corrections/.test(n)).sort();
-    expect(versions.at(-1)).toBe("20261104120020_policy_sale_premium_corrections.sql");
+    expect(versions.slice(-2)).toEqual(["20261104120020_policy_sale_premium_corrections.sql",
+                                        "20261104120021_reports_v3_sale_premium_basis.sql"]);
     expect(Number("20261104120020")).toBeGreaterThan(20261103191631);
   });
 
@@ -777,5 +795,39 @@ describe("PKG-B sale premium corrections (D2 §3.3-§3.7): …20 and its rollbac
     expect(rollback).toContain("'51e06b46a13c3a8eec4d672bec158376'");
     expect(rollback).not.toMatch(/DROP\s+TABLE/i);
     expect(rollback).not.toMatch(/DROP\s+FUNCTION\s+private\.guard_policy_sale_premium_correction/i);
+  });
+
+  it("the rollback restores the PKG-A stub and basis flags only from the exact …21 postimages, else seals only", () => {
+    for (const md5 of ["9c46e97ff58247a13826ddef83e28355", "67c6a60a1004b4596a4a61487a41d17b",
+                       "37800ccc8ada2fae26b86dd5a610eb09", "e446177c344762bec8caf7d5e9321d9b"]) expect(rollback).toContain(`'${md5}'`);
+    expect(rollback).toContain("PKG-A sale premium basis not restored exactly");
+    expect(rollback).toMatch(/OR v_basis IS NULL THEN/);
+  });
+});
+
+describe("PKG-B …21 (D2 §3.7): Reports v3 reads the effective premium; class W", () => {
+  const BASIS = `${MIGRATIONS}/20261104120021_reports_v3_sale_premium_basis.sql`;
+  const basis = stripSqlComments(read(BASIS));
+
+  it("replaces only the PKG-A stub and basis flags, behind their md5 postimages, and refuses while v3 is enabled or on replay", () => {
+    const replaced = [...basis.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+([a-z_]+\.[a-z0-9_]+)/gi)].map((m) => m[1]);
+    expect(replaced).toEqual(["private.report_v3_sale_premium", "private.report_v3_basis_flags"]);
+    expect(basis.trimStart()).toMatch(/^SET LOCAL lock_timeout = '2s';/);
+    for (const md5 of ["37800ccc8ada2fae26b86dd5a610eb09", "e446177c344762bec8caf7d5e9321d9b", "ee64ddb694ad2e1b250ba069342c75fa"])
+      expect(basis).toContain(`'${md5}'`);
+    for (const text of ["Reports v3 must be disabled first", "the corrections ledger (…20) must be applied first", "refusing replay",
+                        "PKG-A preimage drift", "a sale premium changed at the replacement", "function attributes changed"])
+      expect(basis).toContain(text);
+  });
+
+  it("keeps the monthly amount on the shared choke point and installs 3.1.0 / audited_ledger", () => {
+    expect(basis).toMatch(/monthly := private\.performance_sale_monthly\(p_win, p_client\);/);
+    expect(basis).toContain('{"contract_version":"3.1.0","corrections":"audited_ledger","sale_call_links":"not_installed","appointment_evidence":"not_installed"}');
+  });
+
+  it("checks the exact post-grant ACL and never writes a sale, a commission row or a notification", () => {
+    expect(basis).toContain("ACL is not authenticated-only");
+    expect(basis).not.toMatch(/INSERT\s+INTO|UPDATE\s+public\.|DELETE\s+FROM/i);
+    expect(basis).not.toMatch(/policy_commission|notify_win|pg_notify/i);
   });
 });
