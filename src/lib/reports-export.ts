@@ -38,6 +38,10 @@ export interface ReportExportContext {
   basisVersion?: string;
   /** Basis notes (e.g. how policies are counted and credited), written as metadata rows. */
   notes?: string[];
+  /** v3 meta rows (D6 §4.9); absent for v2, whose output stays byte-identical. */
+  contractVersion?: string;
+  periodOpen?: boolean;
+  readerAsOf?: [reader: string, asOf: string][];
 }
 
 const SCOPE_LABELS: Record<ReportScopeKind, string> = {
@@ -55,6 +59,9 @@ export function buildReportCsv(context: ReportExportContext, headers: string[], 
     ["Time zone", context.window.time_zone],
     ...(context.asOf ? [["Response as of", context.asOf]] : []),
     ...(context.basisVersion ? [["Basis version", context.basisVersion]] : []),
+    ...(context.contractVersion ? [["Contract version", context.contractVersion]] : []),
+    ...(context.periodOpen === undefined ? [] : [["Period open", context.periodOpen ? "yes" : "no"]]),
+    ...(context.readerAsOf ?? []).map(([reader, asOf]): CsvCell[] => [`As of (${reader})`, asOf]),
     ["Generated", (context.generatedAt ?? new Date()).toISOString()],
     ...(context.notes ?? []).map((n): CsvCell[] => ["Note", n]),
   ];
@@ -90,3 +97,31 @@ export function downloadCsv(fileName: string, csv: string): void {
  * (`can_export`); the page binds it to the current report key, scope, agent filter and window.
  */
 export type ReportExportFn = (report: string, headers: string[], rows: CsvCell[][]) => void;
+
+/** The 21 KPI coverage columns (D6 §4.9). */
+export const KPI_COVERAGE_HEADERS = ["Metric ID", "Metric", "Status", "In progress", "Value", "Unit", "Numerator", "Denominator", "Eligible",
+  "Assessable", "Unassessable", "Reason", "Basis", "Date basis", "Credit", "Window days", "Members", "Pending", "Mature members",
+  "Mature successes", "Fully mature on"];
+
+export interface KpiCoverageInput {
+  id: number; label: string; unit: string; dateBasis: string; credit: string; cohort: boolean;
+  /** null: the panel is not current (status panel_not_loaded, every value blank). */
+  envelope: { status?: string; value?: number | null; reason?: string | null; numerator?: number | null; denominator?: number | null;
+    coverage?: { eligible?: number; assessable?: number; unassessable?: number } | null;
+    maturity?: { window_days?: number; state?: string; members?: number; pending?: number; mature_members?: number; mature_successes?: number; fully_mature_on?: string | null } | null } | null;
+  /** The value already rounded once at CSV precision from the exact numbers; null when there is no value. */
+  csvValue: string | null;
+}
+
+/** One row per KPI. Values are rounded once by the caller; maturity columns only for the 30-day groups (RL-5). */
+export function buildKpiCoverageRows(inputs: KpiCoverageInput[]): CsvCell[][] {
+  return inputs.map(k => {
+    const e = k.envelope, m = e?.maturity ?? null, c = e?.coverage ?? null;
+    if (!e) return [k.id, k.label, "panel_not_loaded", ...Array(18).fill(null)];
+    return [k.id, k.label, e.status, k.cohort ? (m?.state === "in_progress" ? "yes" : "no") : null, k.csvValue, k.unit,
+      e.numerator, e.denominator, c?.eligible ?? null, c?.assessable ?? null, c?.unassessable ?? null, e.reason,
+      k.cohort ? "observed_to_date" : "period", k.dateBasis, k.credit,
+      k.cohort && m ? m.window_days : null, k.cohort && m ? m.members : null, k.cohort && m ? m.pending : null,
+      k.cohort && m ? m.mature_members : null, k.cohort && m ? m.mature_successes : null, k.cohort && m ? m.fully_mature_on : null];
+  });
+}

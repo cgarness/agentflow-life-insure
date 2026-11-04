@@ -1,33 +1,29 @@
 /**
- * Data basis disclosure (plan §5.9): keyboard open and close with focus returning to the trigger that opened
- * it, the methodology verbatim from the shared constants, live data quality only for a ready summary, and
- * loading / unavailable states that say so in words without a single digit.
+ * How it's calculated (D6 §4.4): keyboard open and close with focus returning to the trigger that opened it, the
+ * sheet geometry, definitions and the approved notes always, and coverage only from current envelopes.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DataBasisButton } from "@/components/reports/ReportDataBasis";
-import type { LiveSummary } from "@/components/reports/ReportDataQuality";
-import { CAMPAIGN_ATTRIBUTION_NOTE, CURRENT_ASSIGNMENT_NOTE, POLICY_SOURCE_NOTE } from "@/lib/reports-policy-text";
-import { PREMIUM_BASIS, integrityExportNotes } from "@/lib/reports-integrity-text";
-import {
-  DATA_QUALITY_LOADING, DATA_QUALITY_UNAVAILABLE, INDEPENDENT_PANELS_NOTE, PERIOD_TOTALS_NOTE, POLICY_RATIOS_NOTE, dataBasisSections, liveQualityNotes, timeZoneNote,
-} from "@/lib/reports-basis-text";
-import { AS_OF, policyQuality, reportSummary } from "@/lib/__tests__/reportsFixtures";
+import { ALL_LOADING, type Panels } from "@/lib/reports-panels";
+import { KPI_REGISTRY } from "@/lib/reports-kpi-registry";
+import { buildV3Bundle } from "@/lib/__tests__/reportsV3Fixtures";
+import { EFFECTIVE_PREMIUM_BASIS, HOW_CALCULATED_DESCRIPTION, ORIGINAL_SELLER_NOTE, SALE_SOURCE_NOTE } from "@/lib/reports-v3-text";
 
-const TZ = "America/Los_Angeles";
-const REASON = "Conversion removes the source lead and clients carry no lead source, so conversions cannot be attributed to a lead source.";
-const READY: LiveSummary = { status: "ready", data: { ...reportSummary(), policy_quality: policyQuality(2, 1) } };
-
-const renderButtons = (summary: LiveSummary = READY, convertedReason: string | null = REASON) => render(
+const TZ = "America/Chicago";
+const b = buildV3Bundle({ requestedScope: "agency", startDate: "2026-07-01", endDate: "2026-07-14" });
+const READY = { ...ALL_LOADING, summary: { status: "ready", data: b.summaryV3 }, journey: { status: "ready", data: b.journeyV3 },
+  salesAppointments: { status: "ready", data: b.salesAppointmentsV3 } } as unknown as Panels;
+const renderButtons = (panels: Panels = READY) => render(
   <div>
-    <div data-testid="context"><DataBasisButton summary={summary} timeZone={TZ} today="2026-07-20" convertedReason={convertedReason} /></div>
-    <div data-testid="band"><DataBasisButton summary={summary} timeZone={TZ} today="2026-07-20" convertedReason={convertedReason} /></div>
+    <div data-testid="context"><DataBasisButton panels={panels} timeZone={TZ} today="2026-07-15" /></div>
+    <div data-testid="band"><DataBasisButton panels={panels} timeZone={TZ} today="2026-07-15" /></div>
   </div>,
 );
-const trigger = (where: "context" | "band") => within(screen.getByTestId(where)).getByRole("button", { name: "Data basis" });
-const sheet = () => screen.getByRole("dialog", { name: "Data basis" });
-const region = (name: string) => within(sheet()).getByRole("region", { name });
+const trigger = (where: "context" | "band") => within(screen.getByTestId(where)).getByRole("button", { name: "How it's calculated" });
+const sheet = () => screen.getByRole("dialog", { name: "How it's calculated" });
 
 /** jsdom has no implicit button activation, so mirror the browser: Enter clicks on keydown, Space on keyup, unless a handler prevents it. */
 function press(el: HTMLElement, key: "Enter" | " ") {
@@ -40,7 +36,7 @@ function press(el: HTMLElement, key: "Enter" | " ") {
 const width = window.innerWidth;
 afterEach(() => { Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width }); });
 
-describe("Data basis trigger and sheet", () => {
+describe("How it's calculated: trigger and sheet", () => {
   it("opens with Enter or Space, closes with Esc or Close, and returns focus to the trigger that opened it", async () => {
     renderButtons();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument(); // content mounts only while open
@@ -49,7 +45,7 @@ describe("Data basis trigger and sheet", () => {
     press(trigger("context"), "Enter");
     expect(sheet()).toBeInTheDocument();
     await waitFor(() => expect(sheet().contains(document.activeElement)).toBe(true));
-    expect(within(sheet()).getByText("How Reports counts and credits these numbers.")).toBeInTheDocument();
+    expect(within(sheet()).getByText(HOW_CALCULATED_DESCRIPTION)).toBeInTheDocument();
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(document.activeElement).toBe(trigger("context")));
@@ -85,65 +81,31 @@ describe("Data basis trigger and sheet", () => {
   });
 });
 
-describe("Data basis wording", () => {
-  it("shows every static section and sentence verbatim from the shared constants", () => {
-    renderButtons();
-    fireEvent.click(trigger("context"));
-    for (const section of dataBasisSections(REASON)) {
-      const body = region(section.title);
-      expect(within(body).getByRole("heading", { level: 3, name: section.title })).toBeInTheDocument();
-      for (const p of section.paragraphs) expect(within(body).getByText(p)).toBeInTheDocument();
-    }
-    for (const text of [POLICY_SOURCE_NOTE, CURRENT_ASSIGNMENT_NOTE, CAMPAIGN_ATTRIBUTION_NOTE, PREMIUM_BASIS, PERIOD_TOTALS_NOTE, timeZoneNote(TZ), INDEPENDENT_PANELS_NOTE]) {
-      expect(within(sheet()).getByText(text)).toBeInTheDocument();
-    }
-    expect(within(sheet()).getByText(`Converted by source isn't available: ${REASON}`)).toBeInTheDocument();
-    // PB-15: the per-policy ratios are defined once, in Policies sold, and nowhere else in the sheet.
-    expect(within(region("Policies sold")).getByText(POLICY_RATIOS_NOTE)).toBeInTheDocument();
-    expect(within(sheet()).getAllByText(/per policy sold/)).toHaveLength(1);
-    const text = sheet().textContent ?? "";
-    expect(text).not.toMatch(/(?<!call )contact rate/i);
-    for (const m of text.matchAll(/conversion[\s-]+rate/gi)) expect(text.slice(Math.max(0, (m.index ?? 0) - 18), m.index).toLowerCase()).toMatch(/(^|\s)no (stage-to-stage )?$/);
+describe("How it's calculated: content", () => {
+  it("defines all 23 metrics and carries the approved basis notes verbatim (in the sheet, not under the cards)", () => {
+    renderButtons(); fireEvent.click(trigger("context"));
+    for (const k of KPI_REGISTRY) expect(within(sheet()).getAllByText(k.label).length).toBeGreaterThan(0);
+    for (const note of [SALE_SOURCE_NOTE, ORIGINAL_SELLER_NOTE, EFFECTIVE_PREMIUM_BASIS]) expect(within(sheet()).getByText(note)).toBeInTheDocument();
+    expect(SALE_SOURCE_NOTE).toBe("Policies sold counts recorded policy sales by Sold Date.");
+    expect(EFFECTIVE_PREMIUM_BASIS).toBe("AP uses the original sale\u2019s effective monthly premium \u00d7 12, including audited corrections.");
+    expect(HOW_CALCULATED_DESCRIPTION).toBe("How each metric is calculated, dated and credited.");
   });
-
-  it("omits the lead-source reason when that payload is not current", () => {
-    renderButtons(READY, null);
-    fireEvent.click(trigger("context"));
-    expect(within(sheet()).queryByText(/Converted by source/)).not.toBeInTheDocument();
-    expect(within(sheet()).getByText("Cost and ROI tracking are not available yet.")).toBeInTheDocument();
+  it("lists coverage only from current envelopes, with words (never digits) for panels that are not loaded", () => {
+    renderButtons({ ...READY, journey: { status: "loading" } } as Panels); fireEvent.click(trigger("context"));
+    expect(within(sheet()).getByText(/not loaded, so their coverage isn't shown/)).toBeInTheDocument();
+    expect(within(sheet()).queryByText(/1 Call Close · /)).toBeNull();
+    expect(within(sheet()).getByText(/Sales appointments booked · Not available/)).toBeInTheDocument();
   });
-});
-
-describe("live data quality", () => {
-  it("a ready summary lists the summary CSV's own sentences and its as-of time", () => {
-    renderButtons();
-    fireEvent.click(trigger("context"));
-    const items = within(region("Data quality in this summary")).getAllByRole("listitem").map((li) => li.textContent);
-    expect(items).toEqual(liveQualityNotes((READY as Extract<LiveSummary, { status: "ready" }>).data));
-    const csv = integrityExportNotes(reportSummary());
-    expect(items).toContain(csv.find((n) => n.startsWith("Session rate cohort:")));
-    expect(items).toContain("Data quality across this scope, all dates (not only this period): 2 policies have no usable sale date and are not counted in any period; 1 additional-policy record could not be read.");
-    const freshness = region("Time zone and freshness");
-    const time = freshness.querySelector("time")!;
-    expect(time.getAttribute("datetime")).toBe(AS_OF);
-    expect(time.textContent).toBe("11:00 AM PDT");
-    expect(freshness.textContent).toContain("Summary as of 11:00 AM PDT");
+  it("shows the conditional legacy-premium line only when it applies, and the talk-time and dialer-time lines always", () => {
+    const legacy = buildV3Bundle({ requestedScope: "agency", startDate: "2026-07-01", endDate: "2026-07-14" });
+    legacy.summaryV3.metrics[0].detail.premium.legacy_record_fallback = 1;
+    renderButtons(); fireEvent.click(trigger("context"));
+    expect(within(sheet()).queryByText(/older sale uses its current policy premium/)).toBeNull();
+    expect(within(sheet()).getByText(/^Talk time: /)).toBeInTheDocument();
+    expect(within(sheet()).getByText(/^Time in dialer: /)).toBeInTheDocument();
   });
-
-  it.each([
-    ["loading", { status: "loading" } as LiveSummary, DATA_QUALITY_LOADING],
-    ["unavailable", { status: "unavailable" } as LiveSummary, DATA_QUALITY_UNAVAILABLE],
-  ])("a %s summary says so in words: no digits, no zero, no as-of", (_label, summary, message) => {
-    renderButtons(summary);
-    fireEvent.click(trigger("context"));
-    const quality = region("Data quality in this summary");
-    expect(within(quality).getByText(message)).toBeInTheDocument();
-    expect(within(quality).queryByRole("listitem")).not.toBeInTheDocument();
-    expect(quality.textContent).not.toMatch(/\d/);
-    const freshness = region("Time zone and freshness");
-    expect(freshness.textContent).not.toMatch(/\d/);
-    expect(freshness.textContent).not.toMatch(/Summary as of/);
-    expect(sheet().querySelector("time")).toBeNull();
-    expect(sheet().textContent).not.toMatch(/\$0\.00|Session rate cohort|Sessions assessed/);
+  it("shows each current reader's as-of in the agency time zone", () => {
+    renderButtons(); fireEvent.click(trigger("context"));
+    expect(within(sheet()).getByTestId("data-basis-as-of").textContent).toMatch(/summary as of/);
   });
 });

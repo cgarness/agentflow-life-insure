@@ -99,7 +99,7 @@ describe("Reports toolbar readiness", () => {
     expect(periodSelect()).toBeDisabled();
     expect(screen.queryByRole("combobox", { name: "Agent filter" })).not.toBeInTheDocument();
     expect(screen.getByText("Reports unavailable")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Data basis" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "How it's calculated" })).not.toBeInTheDocument();
   });
 
   it("keeps the action order and accessible names; phone labels stay in sr-only text", () => {
@@ -185,6 +185,6 @@ describe("Report context line", () => {
     const asOf = screen.getByTestId("report-as-of");
     expect(asOf).toHaveTextContent("Summary as of 11:00 AM PDT");
     expect(asOf.querySelector("time")).toHaveAttribute("datetime", "2026-07-20T18:00:00Z");
-    expect(within(screen.getByRole("banner")).getByRole("button", { name: "Data basis" })).toBeInTheDocument();
+    expect(within(screen.getByRole("banner")).getByRole("button", { name: "How it's calculated" })).toBeInTheDocument();
   });
 });

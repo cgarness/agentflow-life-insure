@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useReportsPage } from "@/hooks/useReportsPage";
 import { useReportLayout } from "@/hooks/useReportLayout";
+import { useReportExports } from "@/hooks/useReportExports";
 import ReportCustomizer from "@/components/reports/ReportCustomizer";
 import SectionRenderer, { visibleIds } from "@/components/reports/SectionRenderer";
 import ReportsToolbar from "@/components/reports/ReportsToolbar";
@@ -37,7 +38,8 @@ const Reports: React.FC = () => {
   const layout = preferences.editMode ? preferences.draft : preferences.layout;
   const team = scopeData?.scope !== "own";
   const stripIds = visibleIds(layout.sections, "activity", true).map(id => Number(id.slice(4)));
-  const sections = buildV3Sections({ panels, retry: page.retryPanel, exportFor: () => undefined, grouping, viewerId,
+  const exports = useReportExports(scopeData, panels, page.exportable, page.agentId);
+  const sections = buildV3Sections({ panels, retry: page.retryPanel, exportFor: exports.exportFor, grouping, viewerId,
     agencyScope: scopeData?.scope === "organization" });
   return (
     <div className="mx-auto min-w-0 max-w-[1600px] space-y-5 pb-10 md:space-y-7" data-reports-workspace data-reports-contract="v3">
@@ -47,8 +49,9 @@ const Reports: React.FC = () => {
         onCustomStart={page.setCustomStart} onCustomEnd={page.setCustomEnd} range={page.range} rangeProblem={page.rangeProblem}
         agentId={page.agentId} onAgent={page.setAgentId} onScope={page.onScope} panelRendered={showSections}
         editMode={preferences.editMode} customizationReady={preferences.canEdit} onToggleEdit={preferences.editMode ? preferences.cancel : preferences.beginEdit} onRefresh={page.refresh}
-        canExport={!!scopeData?.can_export} exportReady={page.exportable("summary")} onExport={() => undefined}
+        canExport={!!scopeData?.can_export} exportReady={page.exportable("summary")} onExport={exports.exportSummary}
         asOf={panels.summary.status === "ready" ? panels.summary.data.as_of : null}
+        dataBasis={scopeData ? { panels, timeZone: scopeData.time_zone, today: scopeData.today } : undefined}
       />
       <ReportsNotices scopeLoading={scope.status === "loading"} scopeError={scopeError} zoneRequired={zoneRequired}
         onRetryScope={page.refresh} onDefaultScope={scopeError ? page.resetScope : undefined} scopeDrift={page.scopeDrift} customRangeIncomplete={!!scopeData && !page.range && page.preset === "custom"} />
