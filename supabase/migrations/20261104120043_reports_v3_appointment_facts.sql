@@ -1,8 +1,9 @@
 -- Reports V2 PKG-D (D4 §3.6): the Sales Appointments helper body (KPIs 12, 15, 16, 17, 18). Privilege class C: no
 -- GRANT; every function created here is revoked from PUBLIC, anon, authenticated and service_role. Runs only in the
 -- v3-only window (Reports v3 disabled). It replaces exactly the …13 stub and report_v3_basis_flags, behind their
--- md5(pg_get_functiondef) preimages: the stub as shipped by PKG-A, and the flags as left by PKG-B (3.1.0).
--- REBASE NOTE: whichever of PKG-C and PKG-D lands second regenerates the flags preimage and the contract_version.
+-- md5(pg_get_functiondef) preimages: the stub as shipped by PKG-A, and the flags as left by PKG-C (3.2.0).
+-- Release order B → C → D (integration 2026-11-04): this file lands last, so its flags preimage is PKG-C's postimage
+-- and it sets contract 3.3.0 with all three bases installed.
 --
 -- Sales Appointment = category 'sales' only (Follow Up, callback, recruiting, review, service and other never count).
 -- Credit: 15 → setter (the creator, else the assignee at booking); 12, 16, 17, 18 → assigned_agent_at_start. No
@@ -26,7 +27,7 @@ BEGIN
   END IF;
   IF md5(pg_get_functiondef('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz)'::regprocedure))
        <> '22b1c13bfc5c20dbd9bbe2fe61d2e31e'
-     OR md5(pg_get_functiondef('private.report_v3_basis_flags()'::regprocedure)) <> '67c6a60a1004b4596a4a61487a41d17b' THEN
+     OR md5(pg_get_functiondef('private.report_v3_basis_flags()'::regprocedure)) <> '9c6c9d5e9a2ca2b985e027e72cd5e10d' THEN
     RAISE EXCEPTION 'Reports v3 appointment facts: stub or basis flags preimage drift' USING ERRCODE = 'P0001';
   END IF;
 END $guard$;
@@ -368,7 +369,7 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
-  SELECT '{"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"not_installed","appointment_evidence":"installed"}'::jsonb;
+  SELECT '{"contract_version":"3.3.0","corrections":"audited_ledger","sale_call_links":"installed","appointment_evidence":"installed"}'::jsonb;
 $$;
 
 REVOKE ALL ON FUNCTION private.report_v3_appointment_facts(uuid, uuid[], uuid[], timestamptz, timestamptz, text, timestamptz)
@@ -379,7 +380,7 @@ DO $post$
 DECLARE f regprocedure;
 BEGIN
   IF private.report_v3_basis_flags() IS DISTINCT FROM
-     '{"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"not_installed","appointment_evidence":"installed"}'::jsonb THEN
+     '{"contract_version":"3.3.0","corrections":"audited_ledger","sale_call_links":"installed","appointment_evidence":"installed"}'::jsonb THEN
     RAISE EXCEPTION 'Reports v3 appointment facts: basis flags not installed' USING ERRCODE = 'P0001';
   END IF;
   FOREACH f IN ARRAY ARRAY['private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz)'::regprocedure,

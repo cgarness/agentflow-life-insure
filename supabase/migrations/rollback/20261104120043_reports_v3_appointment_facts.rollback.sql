@@ -1,5 +1,5 @@
 -- Rollback for 20261104120043_reports_v3_appointment_facts (D4 §8). Privilege class C: no GRANT. Runs only while
--- Reports v3 is disabled. It restores the exact …13 stub and the PKG-B basis flags (3.1.0), then drops the helpers
+-- Reports v3 is disabled. It restores the exact …13 stub and the PKG-C basis flags (3.2.0), then drops the helpers
 -- …43 added. Evidence and attributions are kept. Refuses unless the …43 postimages are in place (a later package that
 -- replaced the flags needs its own reviewed rollback).
 SET LOCAL lock_timeout = '2s';
@@ -11,7 +11,7 @@ BEGIN
     RAISE EXCEPTION 'Reports v3 appointment facts rollback: Reports v3 must be disabled first' USING ERRCODE = '55000';
   END IF;
   IF private.report_v3_basis_flags() IS DISTINCT FROM
-     '{"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"not_installed","appointment_evidence":"installed"}'::jsonb
+     '{"contract_version":"3.3.0","corrections":"audited_ledger","sale_call_links":"installed","appointment_evidence":"installed"}'::jsonb
      OR to_regprocedure('private.report_v3_appointment_counts(jsonb,uuid,boolean)') IS NULL THEN
     RAISE EXCEPTION 'Reports v3 appointment facts rollback: the …43 postimages are not in place' USING ERRCODE = 'P0001';
   END IF;
@@ -48,10 +48,10 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
-  SELECT '{"contract_version":"3.1.0","corrections":"audited_ledger","sale_call_links":"not_installed","appointment_evidence":"not_installed"}'::jsonb;
+  SELECT '{"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"installed","appointment_evidence":"not_installed"}'::jsonb;
 $$;$restore$;
   IF md5(pg_get_functiondef('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz)'::regprocedure)) <> '22b1c13bfc5c20dbd9bbe2fe61d2e31e'
-     OR md5(pg_get_functiondef('private.report_v3_basis_flags()'::regprocedure)) <> '67c6a60a1004b4596a4a61487a41d17b' THEN
+     OR md5(pg_get_functiondef('private.report_v3_basis_flags()'::regprocedure)) <> '9c6c9d5e9a2ca2b985e027e72cd5e10d' THEN
     RAISE EXCEPTION 'Reports v3 appointment facts rollback: preimages not restored exactly' USING ERRCODE = 'P0001';
   END IF;
   DROP FUNCTION private.report_v3_appointment_kpis(jsonb, text, text, jsonb, boolean);

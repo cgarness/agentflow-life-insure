@@ -4,6 +4,7 @@ import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import { cn } from "@/lib/utils";
 import FloatingDialer from "./FloatingDialer";
+import TrackedCallObserver from "./TrackedCallObserver";
 import ReminderPopup from "./ReminderPopup";
 import ImpersonationBanner from "./ImpersonationBanner";
 import ViewAsUnsupportedNotice from "./ViewAsUnsupportedNotice";
@@ -62,6 +63,8 @@ const AppLayout: React.FC = () => {
             unmounted for the whole session.
           */}
           {!isImpersonating && <FloatingDialer />}
+          {/* Session-wide inbound call capture for the sale source-call chip (Reports V2 PKG-C); never under "View As". */}
+          {!isImpersonating && <TrackedCallObserver />}
           {!isImpersonating && <ReminderPopup />}
         </div>
       </>

@@ -780,6 +780,7 @@ const FloatingDialer: React.FC = () => {
       {policyClient && <RecordPolicyModal key={`${organizationId}|${policyClient.callId}|${policyClient.id}`}
         open={callScopeMatches && dispositionConfig.status === "ready" && policyClient.version === dispositionConfig.version}
         clientId={policyClient.id} primary={policyClient.primary} onClose={() => setPolicyClient(null)}
+        sourceCallId={policyClient.callId}
         onSaved={() => {
           if (!callScopeMatches || !dispositionConfig.isCurrent() || policyClient.callId !== callVisitRef.current
             || policyClient.version !== dispositionConfig.version || policyClient.dispositionId !== selectedDispId) return;
@@ -790,6 +791,7 @@ const FloatingDialer: React.FC = () => {
         open={!!conversionLead && callScopeMatches && dispositionConfig.status === "ready"
           && pendingConversion?.version === dispositionConfig.version}
         lead={callScopeMatches ? conversionLead : null}
+        sourceCallId={pendingConversion?.callId ?? null}
         onClose={() => {
           if (conversionCallRef.current !== pendingConversion) return;
           conversionCallRef.current = null;

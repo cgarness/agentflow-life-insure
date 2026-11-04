@@ -60,6 +60,20 @@ function PolicySalePremium(props: { clientId: string; policyId: string; currentM
   );
 }
 
+// Producing-call link recovery (Reports V2 PKG-C): one status read per contact, loaded the same way.
+const PolicySaleCallLinkStatusSection = lazy(() =>
+  import("@/components/contacts/PolicySaleCallLinkStatus").then((module) => ({ default: module.PolicySaleCallLinkStatus })));
+
+function PolicySaleCallLinkStatus({ clientId }: { clientId: string }) {
+  return (
+    <CommissionLoadBoundary>
+      <Suspense fallback={null}>
+        <PolicySaleCallLinkStatusSection clientId={clientId} />
+      </Suspense>
+    </CommissionLoadBoundary>
+  );
+}
+
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const amount = (value: number | null) => value === null ? "—" : money.format(value);
 
@@ -92,6 +106,7 @@ export function ClientPolicies({ client, formatDate, onPolicyRecordChanged }: {
           formatDate={formatDate} onPolicyRecordChanged={onPolicyRecordChanged} />
         <PolicyCommission clientId={client.id} policyId={primary.policyId} />
         <ClosingAppointmentStatus clientId={client.id} />
+        <PolicySaleCallLinkStatus clientId={client.id} />
       </>
     ) : null;
   }
@@ -142,6 +157,7 @@ export function ClientPolicies({ client, formatDate, onPolicyRecordChanged }: {
         })}
       </Accordion>
       {client.id && <ClosingAppointmentStatus clientId={client.id} />}
+      {client.id && <PolicySaleCallLinkStatus clientId={client.id} />}
     </section>
   );
 }

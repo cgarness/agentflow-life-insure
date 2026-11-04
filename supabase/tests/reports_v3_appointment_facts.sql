@@ -225,10 +225,11 @@ UPDATE public.appointments SET user_id = rt.v3('A2') WHERE id = (SELECT ap3 FROM
 SELECT rt.eq('W17 linked to AP1', rt.pd_link('ADM1', 'f1', 'W17', (SELECT ap1 FROM pd2)) ->> 'status', 'linked');
 
 CREATE TEMP TABLE pdr AS SELECT rt.pd_facts() AS p;
-SELECT rt.eq('payload meta: 3.2.0, appointment evidence installed',
+SELECT rt.eq('payload meta: 3.3.0, all three bases installed (release order B, C, D)',
   (SELECT p ->> 'contract_version' || '/' || (p #>> '{basis,appointment_evidence}') || '/' || (p #>> '{basis,corrections}')
+          || '/' || (p #>> '{basis,sale_call_links}')
      FROM (SELECT rt.v3r('ADM1', 'sales_appointments') AS p) x),
-  '3.2.0/installed/audited_ledger');
+  '3.3.0/installed/audited_ledger/installed');
 SELECT rt.eq('KPI 15: six sales bookings in October (Follow Up excluded); complete', (SELECT rt.pd_kpi(p, 15) FROM pdr), 'available|-|6|-|-');
 SELECT rt.eq('KPI 15 disclosures and basis', (SELECT e -> 'detail' -> 'disclosures' ->> 'non_sales_excluded' || '/'
     || (e -> 'detail' -> 'basis_counts' ->> 'capture') || '/' || (e -> 'detail' -> 'unattributed' ->> 'bookings')

@@ -1,7 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { Lead, Client } from "@/lib/types";
-import { notifyRecordedSales, runPreparedSale, saleMonthlyPremium, type RecordedSaleResult } from "./policySaleRecording";
+import { notifyRecordedSales, resolveSourceCallId, runPreparedSale, saleMonthlyPremium, type RecordedSaleResult } from "./policySaleRecording";
 import { normalizePaymentFrequencyOrNull } from "@/lib/policyPaymentFields";
 import type { CommissionPayload } from "@/lib/commission/capture";
 import { notSentError, type PreparedSale, type SaleAttempt, type SaleHandoffResult } from "@/lib/policySaleOutcome";
@@ -88,7 +88,7 @@ function conversionClient(lead: Lead, policyInfo: LeadConversionPayload) {
 
 /** The conversion companion submission (built once, then frozen by the caller's attempt). */
 export function prepareConversion(lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null,
-  campaignId: string | null, requestId: string, commission: CommissionPayload): PreparedSale {
+  campaignId: string | null, requestId: string, commission: CommissionPayload, sourceCallId?: string | null): PreparedSale {
   if (!organizationId) throw notSentError("Cannot convert a lead without an organization.");
   return {
     kind: "convert",
@@ -98,6 +98,7 @@ export function prepareConversion(lead: Lead, policyInfo: LeadConversionPayload,
     saleArgs: { p_lead_id: lead.id, p_expected_org: organizationId, p_client: conversionClient(lead, policyInfo), p_campaign_id: campaignId },
     commission,
     notify: true,
+    sourceCallId: resolveSourceCallId(sourceCallId, requestId),
   };
 }
 
@@ -144,7 +145,7 @@ export const conversionSupabaseApi = {
    * inputs that were displayed. A retry of an unknown outcome replays the frozen submission exactly.
    */
   convertLeadToClientHandoff(attempt: SaleAttempt, lead: Lead, policyInfo: LeadConversionPayload, organizationId: string | null,
-    campaignId: string | null, requestId: string, commission: CommissionPayload): Promise<SaleHandoffResult> {
-    return runPreparedSale(attempt, () => prepareConversion(lead, policyInfo, organizationId, campaignId, requestId, commission));
+    campaignId: string | null, requestId: string, commission: CommissionPayload, sourceCallId?: string | null): Promise<SaleHandoffResult> {
+    return runPreparedSale(attempt, () => prepareConversion(lead, policyInfo, organizationId, campaignId, requestId, commission, sourceCallId));
   },
 };

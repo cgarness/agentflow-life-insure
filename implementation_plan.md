@@ -130,6 +130,43 @@
 
 **Rebase note:** whichever of PKG-C and PKG-D lands second regenerates the `…43` basis-flags preimage and its `contract_version`.
 
+## 2026-11-04 (night) — Reports V2: Package C batch C1 (branch `-pkg-c`, from `-pkg-b` `a7e5eb5e`; nothing applied, merged, granted, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D").
+- **Approved:** the D3 Package C branch work.
+- **Not approved here, recorded as pending:** the protected-file exceptions `DialerPage.tsx` (A-§7(a), one line), `FloatingDialer.tsx` and `ConvertLeadModal.tsx` (RL-24, props and mounts only). They are not edited in C1. `TwilioContext.tsx` is never edited: it is read first and pinned.
+- **Deferred:**
+  - `…33` (release enable);
+  - the `supabase/ops/reports_v3_enable.sql` pins;
+  - `scripts/reports_release.py` and its test;
+  - the AGENT_RULES amendments (A-618, A-591, A-§7(a)).
+
+**C1 file list (D3 §5 rows):**
+
+| Path | Action |
+|---|---|
+| `supabase/migrations/20261104120030_policy_sale_call_links.sql` | create, class C: `lead_id` guard first, then the link table and its guard |
+| `supabase/migrations/20261104120031_policy_sale_call_link_capture.sql` | create, class W: capture helper (function-level `lock_timeout 100ms`), failure table, two `_v2` wrappers, retry RPC, status RPC; GRANT authenticated only |
+| `supabase/migrations/rollback/20261104120031_policy_sale_call_link_capture.rollback.sql` | create: disables capture |
+| `supabase/migrations/20261104120032_reports_v3_sale_call_links.sql` | create, class C: link reader body; basis flags 3.2.0 |
+| `supabase/migrations/rollback/20261104120032_reports_v3_sale_call_links.rollback.sql` | create: restores the stub and the PKG-B flags |
+| `supabase/tests/policy_sale_call_links.sql` | test_create: L1–L16 |
+| `scripts/tests/sale-call-link-failure-boundaries.mjs` | test_create: T-LOCK, T-CANCEL, T-REPLAY, T-DOUBLE, T-ASSERT, T-RECOVER (server) |
+| `scripts/run_policy_commission_tests.sh` | test_modify: applies `…30`/`…31`; runs the suite, the rollback and the failure-boundary script |
+| `scripts/reports_v3_fixture.py` | test_modify: PKG-C steps; package forwards B then C, their suites, then rollbacks C then B back to the exact PKG-A state |
+| `src/lib/__tests__/reportsV3Contracts.test.ts` | test_modify: class map and W allowlist |
+| `.github/workflows/policy-commission-tracking.yml`, `.github/workflows/reports-backend.yml` | ci_modify: path filters (and a node step where needed) |
+| `src/lib/policySaleOutcome.ts`, `src/lib/policySaleRecording.ts`, `src/lib/supabase-conversion.ts` | modify (D3 §4) |
+| `src/lib/saleCallLinkRetry.ts`, `src/lib/recentTrackedCall.ts`, `src/hooks/useActiveInboundCallRow.ts`, `src/components/layout/TrackedCallObserver.tsx`, `src/components/contacts/SaleSourceCallChip.tsx`, `src/components/contacts/PolicySaleCallLinkStatus.tsx` | create |
+| `src/components/contacts/RecordPolicyModal.tsx`, `src/components/contacts/ClientPolicies.tsx`, `src/components/layout/AppLayout.tsx` | modify: forwarded prop and chip mount; status mount; one observer mount |
+| The Vitest files for the above | test_create / test_modify |
+
+**Deviations (recorded before editing):**
+- **Test DB columns.** The v3 fixture has no sale writers or handoffs, so it applies only `…30` and `…32`. It writes links as the table owner through the link guard. `…31` and its wrappers are proven in the commission fixture.
+- **Harness columns.** The commission fixture's `calls` table lacks `voicemail_id`, so the C suite adds that production column in its own harness step before `…31`. The migrations' preflight requires it.
+- **Reversal ticket.** It is the setting `agentflow.sale_call_link_reversal` = the win id; DELETE is allowed only for postgres when that is set.
+- **Identity check.** The call's contact is the client, or the client's `lead_id` equals the call's contact, the call's `lead_id`, or the lead of the call's campaign membership.
+
 ## 2026-11-04 (night) — Reports V2: Package B batches B2 and B3, then Packages C and D (branches `-pkg-b`, then `-pkg-c` and `-pkg-d`; nothing applied, merged, granted, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D").
