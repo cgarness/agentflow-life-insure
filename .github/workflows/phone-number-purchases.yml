@@ -118,7 +118,19 @@ jobs:
           node-version: '22.16.0'
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Private ledger, privileges, ownership, Inbounds and concurrent claims
+      - name: Run the synthetic fixture inside its disposable PostgreSQL service
         env:
-          PGURL: postgresql://postgres:synthetic_local_password@127.0.0.1:5432/phone_number_purchases_ci
-        run: node scripts/tests/phone-number-purchases/run.mjs
+          PHONE_TEST_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          # Forwarded Docker ports report a bridge address to inet_server_addr().
+          # Execute inside the service so the unchanged loopback guard stays strict.
+          docker exec "$PHONE_TEST_CONTAINER" mkdir -p /verification/scripts/tests /verification/node_modules
+          docker cp "$(command -v node)" "$PHONE_TEST_CONTAINER:/usr/local/bin/node"
+          docker cp node_modules/postgres "$PHONE_TEST_CONTAINER:/verification/node_modules/postgres"
+          docker cp supabase "$PHONE_TEST_CONTAINER:/verification/supabase"
+          docker cp scripts/tests/phone-number-purchases "$PHONE_TEST_CONTAINER:/verification/scripts/tests/phone-number-purchases"
+          docker exec "$PHONE_TEST_CONTAINER" node --version
+          docker exec -w /verification \
+            -e PGURL=postgresql://postgres:synthetic_local_password@127.0.0.1:5432/phone_number_purchases_ci \
+            "$PHONE_TEST_CONTAINER" node scripts/tests/phone-number-purchases/run.mjs

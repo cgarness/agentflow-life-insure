@@ -12,6 +12,18 @@
 
 **Feature branch:** feat/toll-free-number-purchase-20261103. Implementation is local; its remote head and main were rechecked at the reviewed baseline after testing. No branch publication or deployment was triggered.
 
+## Release execution approval — November 3, 2026 Pacific
+
+Chris approved the concrete review candidate `393e7d199cbb3bfa961d080e5af2d80e5d742562`, its exact pending SQL, six complete Edge payloads and frontend release after receiving the verification/manifest/archive. This approval authorizes review-branch publication, CI, the database and Edge releases, PR merge and linked Vercel production delivery. It does not authorize a real number purchase, Inbounds designation, call or SMS. No additional implementation approval is needed for the approved package.
+
+Fresh preflight re-fetched all six live functions and rebuilt byte-identical approved manifests/payloads. Main and the remote feature branch remain at `0e74428259275c9281518832747a627a4f635a80`; Vercel project `agentflow` on team `team_iPboOWpwdIQRwdxmA5GJp5Rq` currently serves that main commit. Database/advisor and CI preflight complete before the corresponding release step.
+
+Release bookkeeping will touch only: this focused plan; root `implementation_plan.md`; focused `verification.md`, `release-manifest.json` and new `production-release.json`; `WORK_LOG.md`; the toll-free section in `AGENT_RULES.md`; the pending migration path (rename to its recorded live timestamp with identical SQL bytes); `scripts/tests/phone-number-purchases/run.mjs` and `scripts/prepare-phone-number-release.mjs` for that exact path; and `.github/workflows/phone-number-purchases.yml` to include the recorded migration path. No approved application/Edge source change is planned. Any actual blocker will be diagnosed before widening that boundary.
+
+### Release CI correction before database mutation
+
+The first production-matching PostgreSQL17.6 CI job stopped before fixture SQL because a host-to-Docker forwarded connection reports the container interface from `inet_server_addr()`, while the synthetic runner intentionally requires actual loopback. Correct only `.github/workflows/phone-number-purchases.yml`: copy the reviewed Node runtime, PostgreSQL driver and fixture tree into the disposable PostgreSQL service, then execute the unchanged runner inside it using `127.0.0.1`. Keep every hostname/database/empty-database guard and assertion intact. This is a test-environment correction, with no SQL or application payload changes. Require a successful rerun before applying the approved production migration.
+
 ## 1. Approval boundary
 
 Chris approved this plan after the read-only inspection and file manifest. Branch implementation, a pending migration, documentation and isolated tests are authorized. Main and the existing feature branch were rechecked at 0e744282; all six live bundle versions/hashes and the open PR list are unchanged from planning. No production operation is authorized by this build approval.
