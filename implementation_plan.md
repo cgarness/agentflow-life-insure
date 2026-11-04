@@ -1,3 +1,44 @@
+## 2026-11-04 (night, after integration) — Reports V2 KPI 16 integration defect fix (integration branch only; nothing merged, applied or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("Fix the KPI 16 integration defect"). A surgical, branch-only change.
+
+**Conflict check:** `main` is still `2b6f5cef`, and the integration branch head is `7f44b284` with nothing newer. No md5 pin covers `report_v3_metric` or `report_v3_total`; `…11`, `…12` and `…13` check only that they exist.
+
+**Root cause:**
+- In `20261104120010_reports_v3_foundation.sql`, three sites decide a count from its value and special-case only KPI 1, which decides from its assessable items.
+- KPI 16 (Sales Appointments held) is the same kind of count: resolved No Shows are known evidence, so a held count of 0 with resolved outcomes is a known 0.
+- The three sites:
+  1. `report_v3_metric`: the unavailable-coverage validator (`p_id <> 1`).
+  2. `report_v3_metric`: BC4's `v_n_known` (`p_id = 1`).
+  3. `report_v3_total`: the evaluator input (`p_id = 1`).
+
+**Change:**
+- At those three sites only, `p_id = 1` becomes `p_id IN (1, 16)` and `p_id <> 1` becomes `p_id NOT IN (1, 16)`.
+- No other KPI rule changes.
+- Within the Reports v3 readers, KPI 16 comes only from `…43`, and its coverage `assessable` is the resolved count.
+- At PKG-A, KPI 16 is the config-coded stub, so PKG-A payloads and the differential against the frozen reference are unchanged.
+
+**Files (exact):**
+- `supabase/migrations/20261104120010_reports_v3_foundation.sql`: the three lines (unapplied, branch-only).
+- `supabase/tests/reports_v3_appointment_facts.sql`: the KPI 16 cases.
+  - Builder level and through the reader, per agent and in agency totals:
+    - two No Shows + one unresolved → Partial 0;
+    - none resolved + one unresolved → Unavailable, null;
+    - two No Shows, none unresolved → Available 0;
+    - one Held + one unresolved → Partial 1.
+- `src/lib/__tests__/reportsV3Contracts.test.ts`: only if a pin requires it.
+
+**Verification:**
+- the v3 fixture and the existing SQL runners;
+- the integrated payload rerun;
+- all nine readers parse through F's Zod;
+- the Sales Appointments section renders and its CSV downloads;
+- the visual gate;
+- `tsc --noEmit`, the app typecheck against the baseline, scoped lint and build;
+- CI on PostgreSQL 17.6.
+
+After this passes: no further feature development; release requirements are prepared for final review.
+
 ## 2026-11-04 (late night) — Reports V2 final build integration: B + C + D + F on one branch (branch-only; nothing merged to main, applied, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-04 ("Final build integration").
