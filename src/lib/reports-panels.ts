@@ -23,7 +23,8 @@ export const FETCHERS: { [K in PanelKey]: (req: ReportRequest, signal?: AbortSig
   campaigns: fetchReportCampaignCallsV3, leadSources: fetchReportLeadSourceCallsV3,
 };
 
-export type PanelState<T> = { status: "loading" } | { status: "ready"; data: T } | { status: "error"; kind: ReportsErrorKind };
+/** `drift`: the response did not match its request or the resolved scope (withheld, never shown as data). */
+export type PanelState<T> = { status: "loading" } | { status: "ready"; data: T } | { status: "error"; kind: ReportsErrorKind; drift?: boolean };
 export type Panels = { [K in PanelKey]: PanelState<PanelData[K]> };
 export const ALL_LOADING = Object.fromEntries(PANEL_KEYS.map(k => [k, { status: "loading" }])) as Panels;
 

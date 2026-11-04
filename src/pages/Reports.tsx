@@ -21,7 +21,7 @@ const Reports: React.FC = () => {
   const zoneRequired = scopeError === "configuration";
   const scopeStatusText = scope.status === "loading" ? "Loading your report scope…"
     : scopeError === "denied" ? "No report access" : zoneRequired ? "Agency time zone not configured" : "Reports unavailable";
-  const showSections = !!scopeData && !!page.request;
+  const showSections = !!scopeData && !!page.request && !page.scopeDrift;
   return (
     <div className="mx-auto min-w-0 max-w-[1600px] space-y-5 pb-10 md:space-y-7" data-reports-workspace data-reports-contract="v3">
       <ReportsToolbar
@@ -29,12 +29,12 @@ const Reports: React.FC = () => {
         preset={page.preset} onPreset={page.setPreset} customStart={page.customStart} customEnd={page.customEnd}
         onCustomStart={page.setCustomStart} onCustomEnd={page.setCustomEnd} range={page.range} rangeProblem={page.rangeProblem}
         agentId={page.agentId} onAgent={page.setAgentId} onScope={page.onScope} panelRendered={showSections}
-        editMode={false} customizationReady={false} onToggleEdit={() => undefined} onRefresh={page.reloadScope}
-        canExport={!!scopeData?.can_export} exportReady={false} onExport={() => undefined}
+        editMode={false} customizationReady={false} onToggleEdit={() => undefined} onRefresh={page.refresh}
+        canExport={!!scopeData?.can_export} exportReady={page.exportable("summary")} onExport={() => undefined}
         asOf={panels.summary.status === "ready" ? panels.summary.data.as_of : null}
       />
       <ReportsNotices scopeLoading={scope.status === "loading"} scopeError={scopeError} zoneRequired={zoneRequired}
-        onRetryScope={page.reloadScope} scopeDrift={false} customRangeIncomplete={!!scopeData && !page.range && page.preset === "custom"} />
+        onRetryScope={page.refresh} onDefaultScope={scopeError ? page.resetScope : undefined} scopeDrift={page.scopeDrift} customRangeIncomplete={!!scopeData && !page.range && page.preset === "custom"} />
       {showSections && (
         <div id="reports-scope-panel" role="tabpanel" aria-labelledby={`report-scope-${scopeData.requested_scope}`} className="min-w-0 space-y-6 md:space-y-8">
           <ReportsProduction panels={panels} />
