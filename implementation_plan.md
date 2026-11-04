@@ -1,3 +1,73 @@
+## 2026-11-04 (night) — Reports V2: Package B batches B2 and B3, then Packages C and D (branches `-pkg-b`, then `-pkg-c` and `-pkg-d`; nothing applied, merged, granted, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("Finish Package B, then continue C and D").
+- **Approved:**
+  - B2;
+  - B3, including the single `onPolicyRecordChanged` prop on `FullScreenContactView`, the D2 exception, on the branch only;
+  - then the D3/D4 Package C and D branch work.
+- **Deferred:**
+  - `…22`, the ops-enable pins and the release-runner constants (`reports_release.py` and its test). They wait for the Package A release files.
+  - The B6 divergence manifest (real-policy classifications).
+- **No:** production mutation, real correction, merge, migration application, RPC enablement, RLS change, deploy or settings change.
+
+**B2, backend (`-pkg-b`):**
+- `supabase/migrations/20261104120021_reports_v3_sale_premium_basis.sql` (create, class W). It contains:
+  - the guards: v3 disabled, the `…20` objects present, the PKG-A postimages of `report_v3_sale_premium` (`37800ccc…`) and `report_v3_basis_flags` (`e446177c…`) by `md5(pg_get_functiondef)`, and a refused replay;
+  - a snapshot of every sale;
+  - the stub that reads the effective premium: monthly still comes from `performance_sale_monthly`, with source, state and revision from the ledger head;
+  - `basis_flags` 3.1.0 / `audited_ledger`;
+  - the identity proof (equal to the snapshot and to `policy_sale_effective_premium` for every sale);
+  - the two grants to `authenticated` only, with an exact-ACL postcondition.
+- **Recorded deviation from D2's literal body:** a PL/pgSQL stub instead of a call of the set-returning effective reader. This is the same reason as B1: the per-sale set-returning call is costly. Equality is proved for every sale.
+- `supabase/migrations/rollback/20261104120020_policy_sale_premium_corrections.rollback.sql` (modify). With an empty ledger and the PKG-B postimages in place, it also restores the PKG-A postimages of the stub and `basis_flags` before dropping the readers. When `basis_flags` is neither the PKG-A nor the PKG-B postimage, it seals only.
+- `supabase/tests/policy_sale_premium_correction.sql` (modify). A `-- @@v3@@` section, run by the v3 fixture inside a savepoint that is rolled back, covers:
+  - a direct ledger head (the RPC's own paths stay in the reporting fixture section);
+  - KPI 1 and 4, `by_agent`, `production_by_date` and state AP restated by exactly 12 × the difference;
+  - KPI 2 unchanged;
+  - the source/revision details;
+  - the freeze removing a legacy fallback;
+  - a correction to unknown → `premium_missing`;
+  - choke point = stub = effective reader for every sale;
+  - payload `meta` 3.1.0 / `audited_ledger`;
+  - the class W ACL matrix.
+- `scripts/reports_v3_fixture.py` (modify): the PKG-B step set after the v3 suites:
+  - refusals: `…21` before `…20`; while v3 is enabled; stub drift; `basis_flags` drift; replay;
+  - `…20`, `…21` and the v3 section;
+  - the rollback probes: non-empty ledger; `basis_flags` replaced by a later package;
+  - the empty-ledger rollback, which returns the database to the exact PKG-A state, so the differential and performance runners keep comparing PKG-A;
+  - the read-only manifest check.
+- `scripts/reporting_fixture.py` (modify): runs only the section before the marker.
+- `supabase/ops/reporting-accuracy/check_sale_correction_manifest.sql` (ops_create, read-only, D2 §6.7).
+- `scripts/tests/sale-premium-correction-concurrency.mjs` (test_create): two-backend races on the reporting fixture's policy database:
+  - the same request gives one row;
+  - two requests at the same revision give one success and one PT409;
+  - a correction racing `update_client_with_policy_sale` serializes.
+- `scripts/run_reports_v3_tests.sh` (modify): builds that disposable policy database and runs the script.
+- `src/lib/__tests__/reportsV3Contracts.test.ts` (modify): `…21` is class W, with exactly the two allowlisted GRANTs.
+- `.github/workflows/reports-backend.yml` (modify): paths for the correction suite, the concurrency script, the manifest check, `reporting_fixture.py` and `correctedPremiumSurfaces.test.tsx`.
+
+**B3, correction UI (`-pkg-b`, D2 §5 and §6.2–§6.4):**
+- **Create:**
+  - `src/lib/policySaleCorrection.ts`;
+  - `src/hooks/usePolicySalePremiums.ts`;
+  - `src/hooks/usePremiumCorrectionSubmission.ts`;
+  - `src/components/contacts/policy-correction/{PolicySalePremiumSection,CorrectSalePremiumDialog,SalePremiumHistory}.tsx`.
+- **Modify:**
+  - `src/components/contacts/ClientPolicies.tsx`;
+  - `src/components/contacts/FullScreenContactView.tsx`: the one prop only (approved exception).
+- **Tests:**
+  - `src/lib/__tests__/policySaleCorrection.test.ts`;
+  - `src/hooks/__tests__/usePremiumCorrectionSubmission.test.tsx`;
+  - `src/components/contacts/__tests__/correctSalePremiumDialog.test.tsx`;
+  - `src/components/contacts/__tests__/clientPolicies.test.tsx` (modify);
+  - `src/components/leaderboard/__tests__/{recentWinsPremium,correctedPremiumSurfaces}.test.tsx`;
+  - `src/lib/__tests__/rawPremiumConsumers.test.ts`.
+- **Correction bundles for `correctedPremiumSurfaces`:** `correction.before` and `correction.after` come from the reporting fixture's policy database (the Leaderboard snapshot, performance summary and recent wins, one actor, rolled back). They are written into the payload file by `run_reports_v3_tests.sh` through `scripts/reports_v3_fixture.py --part correction-payloads`.
+- **Still PKG-F:** the v3 summary/state correction scenario in `verify.mjs`.
+- **Must not touch:** the D2 §7 list, including edit paths, sale modals, `DialerPage`, `TwilioContext`, the performance readers, `RecentWinsPanel` and the Leaderboard hooks.
+
+**Packages C and D:** a separate file list is recorded before their first edit, after reading `TwilioContext.tsx`.
+
 ## 2026-11-04 (evening) — Reports V2: replace the two unfinishable agency journey reference comparisons (verification only; foundation branch)
 
 **Authorization:** Chris's message of 2026-11-04 ("Replace the two unfinishable reference comparisons").
