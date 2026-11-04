@@ -90,7 +90,7 @@ const HeatmapGrid: React.FC<Props> = ({ rows, hours, metric, maxCalls, maxRate }
                         {cell.calls > 0 && <span aria-hidden="true" className="text-[11px] font-medium tabular-nums">{shown}</span>}
                       </td>
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="border-border bg-card text-xs text-foreground">
+                    <TooltipContent side="top" className="border-border bg-card text-xs text-foreground motion-reduce:animate-none motion-reduce:data-[state=closed]:animate-none">
                       <p className="font-semibold">{row.day} {hourName(cell.hour)}</p>
                       <div className="mt-1 space-y-0.5 text-muted-foreground">
                         <p>Calls made: <span className="text-foreground tabular-nums">{formatCount(cell.calls)}</span></p>
