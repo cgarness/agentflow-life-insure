@@ -57,6 +57,12 @@
   - the old case mode is still present but labelled superseded.
 - `implementation_plan.md`, `WORK_LOG.md`, `docs/plans/2026-10-31-reports-v2/implementation_plan.md` (a §14 note).
 
+**Outcome:** passed on PostgreSQL 17.6 (run `41796758878`, `6b2356b`):
+- bounded comparison 2/2 `payload_equal`;
+- full scale: 16 independent assertions, 54 invariants and 2 controls passed.
+
+The blocker is closed by replacement (see the WORK_LOG).
+
 **Route:** the existing ordinary Reports backend dispatch (PostgreSQL 17.6), whose `differential` job runs `run_reports_v3_differential.sh`. Its 60-minute job limit is unchanged. If the bounded part does not fit, the precise issue is reported; the workflow is not changed.
 
 ## 2026-11-04 (later) — Reports V2: Package F closeout, branch-only migration renumbering, Package B batch B1 (branches `claude/great-goodall-911azc`, `-pkg-f` and a new `-pkg-b`; nothing applied, merged, enabled or deployed)
@@ -235,7 +241,7 @@
 - Migrations: each package adds only its own numbered files. No renumbering.
 
 **Release checklist** (blockers; none of them blocks branch development).
-- [ ] The two unfinished agency journey comparisons (30 and 366 days); needs one bounded verification-infrastructure request. **2026-11-04:** run `41753175853` attempted each once on PostgreSQL 17.6. Both hit the 320-minute statement deadline inside the frozen baseline reader (`rtref.get_report_journey_v3`), so they are unresolved, not matches. The next approach needs Chris's decision.
+- [x] ~~The two unfinished agency journey comparisons (30 and 366 days)~~ **Closed by replacement 2026-11-04** (bounded exact comparison and full-scale independent checks, run `41796758878`; the original comparisons stay unresolved and superseded); needs one bounded verification-infrastructure request. **2026-11-04:** run `41753175853` attempted each once on PostgreSQL 17.6. Both hit the 320-minute statement deadline inside the frozen baseline reader (`rtref.get_report_journey_v3`), so they are unresolved, not matches. The next approach needs Chris's decision.
 - [ ] The failed performance acceptance gate (no remedy approved).
 - [ ] ★1, ★4, E1–E6 and the campaign-copy fallback privacy decisions.
 - [ ] The named security review of the exact reader implementation.

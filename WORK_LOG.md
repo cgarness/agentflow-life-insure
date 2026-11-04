@@ -1,5 +1,66 @@
 # AgentFlow Work Log
 
+## 2026-11-04 (evening) — Reports V2: the two agency journey reference comparisons are replaced by bounded verification (foundation `6b2356b`; tests and fixtures only; nothing merged, applied, granted, enabled or deployed)
+
+**Request:** Chris's message of 2026-11-04 ("Replace the two unfinishable reference comparisons"). The criteria and file list are in this evening's `implementation_plan.md` entry, recorded before any edit (`e92c343`).
+
+**Superseded, not passed.** The full-scale baseline comparisons `0:agency:30:-` and `0:agency:366:-` (run `41753175853`, jobs `126322952803` and `126322951755`) both hit the 320-minute statement deadline inside the frozen baseline reader (`rtref.get_report_journey_v3`). They remain recorded as unresolved, and their uploaded evidence is kept. They were not retried, and their deadline was not changed.
+
+**Changed (`6b2356b`):**
+- `supabase/tests/reports_v3_performance.sql`:
+  - a size divisor `rt.perf_divisor`, which only 1 or 50 may take and which defaults to 1;
+  - the size assertion is divisor-aware, and at 1 it is still `500000|5000|10000|10000|5000|10000`;
+  - the measure stage refuses any divisor other than 1.
+  - **Proof:** at divisor 1, every scale-organization row is identical to before. All 22 tables were compared in two disposable databases, explicit timestamps included; only random ids and `reviewed_at` were excluded.
+- `supabase/tests/reports_v3_differential.sql`:
+  - **Part 3, bounded:**
+    - the scale fixture at divisor 50, fixed before the first run: 10,000 calls over the same 400 days, 1,182 leads, 100 clients with 200 policies and sales, the same 64 people and 30 campaigns, and no history trimmed by date;
+    - the public journey reader against the unchanged frozen reference (`4236b8a`, manifest, approved difference `kpi24-quality-a1`), agency scope, 30 and 366 days, on complete payloads in one REPEATABLE READ snapshot;
+    - the difficult cases asserted present;
+    - a planted agent-row-order difference must mismatch.
+  - **Part 2:** the full-scale checks, labelled independent, invariant and control.
+- `scripts/run_reports_v3_differential.sh`: a second disposable database runs the functional suites, the reference, part 1, the divisor-50 fixture and part 3.
+- `src/lib/__tests__/reportsV3Contracts.test.ts`: pins for the divisor, the bounded cases, the measurement refusal and the independence of the expected values (the buyer and check functions read no `report_v3_*` or `rtref` object). 44/44 pass.
+
+**Results on PostgreSQL 17.6** (run `41796758878`, job `differential` `126462584414`, 45 minutes against the 60-minute limit; artifact `reports-v3-differential-41796758878`):
+- **Exact comparison at bounded size:** `payload_equal` 2/2 (agency 30 and 366 days), 0 mismatches.
+- **Coverage of the comparison** (local run on the same SHA, PostgreSQL 16.15):
+  - 30-day window: 3 first-time buyers, 25 first contacts, all pending;
+  - 366-day window: 55 first-time buyers, 657 first contacts (632 mature, 25 pending);
+  - 60 and 64 agent rows.
+- **Difficult cases present:**
+  - 1,112 identities called by two or more agents;
+  - 100 buyers with two policies;
+  - 1,040 called leads that never bought;
+  - 155 answered or forwarded inbound calls;
+  - 277 dangling-pointer and 275 numberless unresolved calls;
+  - 10 hand-entered clients and 18 converted clients whose lead was deleted;
+  - 20 `sold_date_proxy` sales;
+  - 832 calls before the 366-day window.
+- **Independent assertions at full scale** (500,000 calls): 16/16. They cover first-time buyers per window, the two policies per buyer counted once, `hand_entered_client`, original-seller credit row by row, KPI 38 `sale_call_link_not_captured`, and personal-scope isolation (agent 7). Payloads: agency 30 days, agency 366 days, and personal agent 7 at 366 days.
+- **Invariants:** 54/54. They cover coverage arithmetic (including the window-level numberless count and KPI 21's `attempt_unverified`), KPI 19 maturity, the shared 19/21 population, window nesting and the credit map.
+- **Controls:** 2/2. A planted KPI 14 eligible + 1, and one buyer's credit moved between two agent rows, were both caught.
+- **Unchanged:** part 1 (1,428 payload-equal, 708 refusal-equal and the journey, resolver and by-agent sets, 0 mismatches) and part 2 (19 reader cases, call facts, resolver and journey helpers, 0 mismatches). The six pinned scale journey inventory cases stay "not run".
+- The `postgres` job in the same run passed.
+- **Local** (PostgreSQL 16.15, same SHA): exit 0. `tsc --noEmit` 0; the app typecheck has no diagnostics in the touched file (exit 2 is the existing baseline); eslint 0.
+
+**Found and fixed during development, before CI:**
+- A column alias clashed with the new divisor column; the column was renamed `divisor`.
+- One control planted nothing. It wrote into an agent row whose KPI 14 coverage is JSON `null`, and `null || {}` makes an array. It was rewritten to move one buyer's credit from one agent row to another, and was checked in isolation first.
+
+**What this is not:** a full-scale equality claim against the baseline. No reader, target, timeout, schema or workflow changed. The performance gate is still not passed.
+
+**Blocker status:** the "two unfinished agency journey comparisons" release blocker is closed by replacement. These release blockers stay open:
+- performance acceptance;
+- ★1, ★4, E1–E6 and the fallback privacy decisions;
+- the security review;
+- the AGENT_RULES amendments;
+- policy classifications;
+- Census provenance item 7;
+- the CSV and visual approvals;
+- the PKG-B release window;
+- final approval.
+
 ## 2026-11-04 (later) — Reports V2: Package F closeout, branch-only migration renumbering, PKG-B batch B1 (branches `claude/great-goodall-911azc` at `933e464`, `-pkg-f` at `37595c6`, new `-pkg-b` at `0a44605`; nothing merged, applied, granted, enabled or deployed)
 
 **Request:** Chris's message of 2026-11-04 ("Close Package F, then continue Package B"). The file lists are in this day's later `implementation_plan.md` entry.
