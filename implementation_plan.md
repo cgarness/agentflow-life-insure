@@ -1,3 +1,104 @@
+## 2026-11-04 (later) — Reports V2: Package F closeout, branch-only migration renumbering, Package B batch B1 (branches `claude/great-goodall-911azc`, `-pkg-f` and a new `-pkg-b`; nothing applied, merged, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-04 ("Close Package F, then continue Package B").
+- **Approved:**
+  - the F closeout below, including the conditional deletion of the old `useReportsData` hook and its test;
+  - the branch-only renumbering of the seven unpublished PKG-A migrations (the frozen reference manifest stays unchanged);
+  - continuing the existing D2 Package B scope.
+- **Not approved here:** a hosted application, `db push`, migration repair, grants or enablement, a PR, any main push, AGENT_RULES amendments, and protected-file exceptions.
+
+**Heads at start:** foundation `8be91bb`, `-pkg-f` `10e8d5e`, `main` `0e74428` (no change since 2026-11-03; the Inbounds release is preserved). `-pkg-b`, `-pkg-c` and `-pkg-d` do not exist.
+
+**Batch F-5, F closeout (`-pkg-f`):**
+- `src/hooks/useReportsData.ts`, `src/hooks/__tests__/useReportsData.test.tsx`: **delete**, after the replacement coverage passes.
+  - Verified importers: only the type import in `ReportPanelState.tsx`, plus the test itself.
+- `src/lib/reports-queries.ts`: gains the type `LoadState<T>` (type only; identical union).
+- `src/components/reports/ReportPanelState.tsx`: imports it from there. No runtime change.
+- `src/hooks/useReportsPage.ts`: an explicit scope request answered with a different `requested_scope` is refused (old-hook case "rejects a broader response"). The test is written first.
+- `src/hooks/__tests__/useReportsPage.test.tsx`: added cases mapped from the old hook's 20, for those with no counterpart. The full case-to-test mapping goes in the WORK_LOG.
+- `src/lib/__tests__/reportLayoutNormalization.test.ts`, `src/lib/__tests__/reportLayoutPersistence.test.ts`: the missing assertions only, with no new layout test file:
+  - R23 negatives;
+  - normalization before every write;
+  - version 5 on write.
+- `src/components/reports/__tests__/reportsRegionalPerformance.test.tsx` and `src/lib/__tests__/reportsRegionalGeometry.test.ts` (both on D5's file list): the lazy map's load fallback ("Map couldn't load." switches to Table), table usability, the 51 geometry keys, the notice and the size budget, and only `StateMap` importing the geometry.
+- `scripts/tests/reports-visual/verify.mjs`: the Regional CSV carries the unverified-calls notice exactly once.
+- **Accepted structure deviations:**
+  - `CustomizerGroup` is not split out; `ReportCustomizer` is 148 lines and readable.
+  - The request lifetime lives in `useReportsPage.ts`, not a generic `useReportsData.ts`.
+- **Map chunk:** it is already separate. The build emits `StateMap-*.js` at 41.21 kB raw and 12.13 kB gzip, against D5's 15 KB gzip budget, and the ISC notice survives minification. This corrects the earlier work-log note that the geometry sat inside the Reports chunk.
+
+**Batch R, rename-only checkpoint (foundation first, then merged into `-pkg-f`; no history rewrite):**
+- `git mv` only. File bytes and blob IDs stay identical:
+
+  | From | To |
+  |---|---|
+  | `20261101000010` | `20261104120010` |
+  | `20261101000011` | `20261104120011` |
+  | `20261101000012` | `20261104120012` |
+  | `20261101000013` | `20261104120013` |
+  | `20261101000014` | `20261104120014` |
+  | `20261101000015` | `20261104120015` |
+  | `20261101000016` | `20261104120016` |
+
+  Each file keeps its full suffix.
+- **Current-build references:** `scripts/reports_v3_fixture.py` (7 step names).
+- **Forward-looking docs:**
+  - `docs/plans/2026-10-31-reports-v2/implementation_plan.md`;
+  - `appendix/D1.md`–`D5.md`;
+  - `appendix/backend_actions.md`.
+  - In each, the release-enable placeholder `…17` becomes `20261104120017`. No enable SQL is created.
+- **Unchanged:**
+  - `supabase/tests/reference/reports_v3_reference_manifest.json`, whose historical paths are resolved at `4236b8a`;
+  - the four pinned manifest paths in `src/lib/__tests__/reportsV3Contracts.test.ts`;
+  - historical WORK_LOG and plan entries;
+  - `evidence/`.
+- **Preconditions** (refreshed read-only first):
+  - the hosted head is still `20261103191631`;
+  - none of the seven versions is applied;
+  - the new versions are unused and above the head.
+- **Proof:**
+  - identical SQL sha256 before and after;
+  - `reports_v3_reference.py` reproduces its pinned output;
+  - contract tests pass;
+  - the isolated SQL suites (`run_reports_v3_tests.sh`) pass;
+  - one Reports backend CI run passes.
+
+**Batch B1, `-pkg-b`** (created from the foundation after Batch R): the ledger and the effective-premium reader, sealed (D2 §3.3–§3.6, class C).
+- `supabase/migrations/20261104120020_policy_sale_premium_corrections.sql` (create). It contains:
+  - the guards;
+  - the ledger and its append-only guard;
+  - `policy_sale_book_monthly`;
+  - `policy_sale_effective_premium`;
+  - the guarded `performance_sale_monthly` switch with identity proof;
+  - the sealed `correct_policy_sale_premium` and `get_client_policy_sale_premiums`;
+  - no GRANT.
+- `supabase/migrations/rollback/20261104120020_policy_sale_premium_corrections.rollback.sql` (create).
+- `supabase/tests/policy_sale_premium_correction.sql` (create). It covers:
+  - restatement;
+  - replay and idempotency;
+  - permissions under the Admin/Super Admin rule;
+  - book modes;
+  - zero and unknown;
+  - edit paths;
+  - the freeze;
+  - append-only behaviour;
+  - no side effects (no win inserted, no commission, receipt or identity change);
+  - reversal;
+  - history visibility;
+  - two policies on one buyer;
+  - migration guards;
+  - the budget.
+- `scripts/tests/sale-premium-correction-concurrency.mjs` (create): two-backend races.
+- `scripts/reports_v3_fixture.py`: the PKG-B step set.
+- `scripts/run_reports_v3_tests.sh`: runs the new suite and the concurrency script.
+- `.github/workflows/reports-backend.yml`: paths for the new migration, suite and script.
+- `src/lib/__tests__/reportsV3Contracts.test.ts`: `…20` is class C (no GRANT).
+- **Later B batches** (each listed before editing):
+  - B2: `…21`, `…22`, the enable pins and the release constants;
+  - B3: the frontend (D2 §5).
+- The `FullScreenContactView.tsx` one-prop change is a protected-file exception. **It needs Chris's approval** and is not part of B1–B3.
+- No real policy is classified or corrected; no commission, sale or notification is touched.
+
 ## 2026-11-04 — Reports V2: F-3/F-4 and the two isolated journey comparisons (branches `claude/great-goodall-911azc` and `-pkg-f`; nothing applied, merged, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-04 ("continue F-3/F-4 and complete the feature build").
