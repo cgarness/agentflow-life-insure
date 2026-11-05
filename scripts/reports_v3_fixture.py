@@ -104,6 +104,220 @@ def release_enable_check():
             files[-1].name + ' must be byte-equal to supabase/ops/reports_v3_enable.sql'
 
 
+# ── Release enable (D1 §5, §2.8 class E): the pinned report closure ──────────────────────────────────────────────────
+# The seed: the 15 v2 pins and the 12 closure helpers (supabase/ops/reports_integrity_enable.sql and …10), plus every
+# private.report_v3_% and public.get_report_%_v3. The closure adds every public/private function a member's body names
+# (all overloads), transitively. The enable pins exactly this set; the harness writes it from the disposable database.
+CLOSURE_SEED = [
+    'private.report_session_facts(uuid,timestamptz,timestamptz,uuid[])', 'private.report_session_seconds(uuid,timestamptz,timestamptz,uuid[])',
+    'private.report_call_facts(uuid,timestamptz,timestamptz,uuid[])', 'public.get_report_call_summary(date,date,uuid)',
+    'private.report_integrity_quality(uuid,timestamptz,timestamptz,uuid[])', 'private.report_access_v2(text,uuid)',
+    'private.report_monthly_amount(text)', 'private.report_policy_value_facts(uuid,uuid[])',
+    'private.report_premium_totals(bigint,bigint,numeric,bigint,bigint,bigint)', 'public.get_report_scope_v2(text)',
+    'public.get_report_call_summary_v2(date,date,uuid,text)', 'public.get_report_call_volume_v2(date,date,uuid,text)',
+    'public.get_report_disposition_breakdown_v2(date,date,uuid,text)', 'public.get_report_campaign_performance_v2(date,date,uuid,text)',
+    'public.get_report_lead_source_performance_v2(date,date,uuid,text)',
+    'private.report_window(uuid,date,date)', 'private.report_meta(text,uuid,text,text,date,date,timestamptz,timestamptz)',
+    'private.report_agent_name(text,text)', 'private.report_visible_campaigns(uuid)', 'private.report_policy_quality(uuid,uuid[])',
+    'private.report_policy_facts(uuid,uuid[])', 'private.report_policy_campaign_lineage(uuid,uuid[])',
+    'private.report_agency_time_zone(uuid)', 'private.report_permission_flags(uuid,text)', 'private.campaign_actor()',
+    'private.resolve_downline_ids(uuid,uuid)', 'private.profile_parse_iso_date(text)']
+V2_READERS = ['public.get_report_scope_v2(text)'] + [f'public.get_report_{r}_v2(date,date,uuid,text)' for r in (
+    'call_summary', 'call_volume', 'disposition_breakdown', 'campaign_performance', 'lead_source_performance')]
+V3_READERS = ['public.get_report_scope_v3(text)'] + [f'public.get_report_{r}_v3(date,date,uuid,text)' for r in (
+    'summary', 'journey', 'sales_appointments', 'state_breakdown', 'call_volume', 'disposition_breakdown',
+    'campaign_calls', 'lead_source_calls')]
+ENABLE_PACKAGES = {  # package → (release-enable migration, contract version)
+    'A': ('20261104120017_reports_v3_release_enable.sql', '3.0.0'),
+    'B': ('20261104120022_reports_v3_release_enable_pkg_b.sql', '3.1.0'),
+    'C': ('20261104120033_reports_v3_release_enable_pkg_c.sql', '3.2.0'),
+    'D': ('20261104120044_reports_v3_release_enable_pkg_d.sql', '3.3.0')}
+
+
+def closure_cte(indent='  '):
+    """WITH RECURSIVE report_closure(oid): the seed and every public/private function a member body names."""
+    seed = (',\n' + indent + '    ').join("'" + s + "'" for s in CLOSURE_SEED)
+    return f"""WITH RECURSIVE report_closure(oid) AS (
+{indent}  SELECT p.oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+{indent}   WHERE (n.nspname = 'private' AND p.proname LIKE 'report\\_v3\\_%')
+{indent}      OR (n.nspname = 'public' AND p.proname LIKE 'get\\_report\\_%\\_v3')
+{indent}  UNION
+{indent}  SELECT pg_catalog.to_regprocedure(s)::oid FROM unnest(ARRAY[
+{indent}    {seed}]) s
+{indent}  UNION
+{indent}  SELECT q.oid FROM report_closure c JOIN pg_catalog.pg_proc p ON p.oid = c.oid
+{indent}   CROSS JOIN LATERAL pg_catalog.regexp_matches(p.prosrc, '(public|private)\\.([a-z_][a-z0-9_]*)\\s*\\(', 'g') m
+{indent}   JOIN pg_catalog.pg_namespace qn ON qn.nspname = m[1]
+{indent}   JOIN pg_catalog.pg_proc q ON q.pronamespace = qn.oid AND q.proname = m[2])"""
+
+
+def closure_tuple(alias='p'):
+    """One pin as text: signature|md5(prosrc)|definer|volatility|proconfig (the read-back fingerprint input)."""
+    return (f"concat_ws('|', {alias}.oid::regprocedure::text, md5({alias}.prosrc), {alias}.prosecdef::text, "
+            f"{alias}.provolatile::text, coalesce({alias}.proconfig::text, ''))")
+
+
+def enable_pins_part():
+    """Prints, for the database's current state, the enable's VALUES rows and the read-back fingerprint (harness only).
+    Every function in the closure must be owned by postgres, or the pin list cannot be written."""
+    return f"""SET search_path = pg_catalog;
+SELECT rt_owner.n AS not_owned_by_postgres FROM (SELECT count(*) AS n FROM ({closure_cte('')}
+SELECT oid FROM report_closure) c JOIN pg_proc p ON p.oid = c.oid WHERE p.proowner <> 'postgres'::regrole) rt_owner;
+\\pset format unaligned
+\\pset tuples_only on
+{closure_cte('')}
+SELECT '    (' || quote_literal(p.oid::regprocedure::text) || ', ' || quote_literal(md5(p.prosrc)) || ', '
+       || p.prosecdef::text || ', ' || quote_literal(p.provolatile::text) || ', '
+       || coalesce(quote_literal(p.proconfig::text), 'NULL') || ')'
+  FROM report_closure c JOIN pg_proc p ON p.oid = c.oid ORDER BY p.oid::regprocedure::text COLLATE "C";
+{closure_cte('')}
+SELECT '-- fingerprint ' || (private.report_v3_basis_flags() ->> 'contract_version') || ' ' || count(*) || ' '
+       || md5(string_agg({closure_tuple()}, E'\\n' ORDER BY p.oid::regprocedure::text COLLATE "C"))
+  FROM report_closure c JOIN pg_proc p ON p.oid = c.oid;
+"""
+
+
+def render_enable(package, rows):
+    """The release enable for one package state, from the harness's VALUES rows (enable_pins_part). The ops file is the
+    rendering for the latest package; each release-enable migration is the rendering for its own package."""
+    migration, contract = ENABLE_PACKAGES[package]
+    readers = ',\n'.join("    '" + s + "'" for s in V2_READERS + V3_READERS)
+    report_fn = ("(n.nspname = 'private' AND p.proname LIKE 'report\\_%')\n"
+                 "        OR (n.nspname = 'public' AND (p.proname LIKE 'get\\_report\\_%' OR p.proname LIKE 'rpc\\_report\\_%'))")
+    return f"""-- =====================================================================================================
+-- Reports V2 (v3) release enable, PKG-{package} state (contract {contract}). Privilege class E (plan §2.8).
+-- Byte copy: supabase/migrations/{migration}. The highest-version release-enable migration is byte-equal to
+-- supabase/ops/reports_v3_enable.sql; earlier ones are pinned by SHA-256 in scripts/reports_release.py.
+--
+-- 1. Pins: every function in the report closure (the 15 v2 pins, the 12 closure helpers, every private.report_v3_%
+--    and public.get_report_%_v3, and every public/private function a pinned body names) by md5(prosrc), SECURITY
+--    DEFINER, volatility, proconfig and owner postgres. Generated by the harness from the disposable database at this
+--    package state (scripts/reports_v3_fixture.py --part enable-pins); regenerate after any SQL change.
+-- 2. Completeness: the closure recomputed here must equal the pin set exactly (no unpinned or stale function).
+-- 3. Seal: REVOKE ALL on every private.report_%, public.get_report_% and public.rpc_report_% from PUBLIC, anon,
+--    authenticated and service_role; then EXECUTE on exactly the 15 report readers (6 v2, 9 v3) TO authenticated,
+--    service_role. Class W application RPCs are not report functions and are untouched.
+-- 4. Effective privileges, including any PUBLIC entry, are checked before commit; any mismatch rolls back.
+-- Reads and writes no table data; changes no RLS policy. Apply only with Chris's separate approval of this stage.
+-- =====================================================================================================
+SET LOCAL lock_timeout = '5s';
+
+DO $enable$
+DECLARE
+  f record; v_sig text; v_role text; v_expected boolean; v_pinned oid[] := '{{}}'; v_drift text;
+  v_readers text[] := ARRAY[
+{readers}];
+BEGIN
+  FOR f IN SELECT * FROM (VALUES
+{rows.rstrip()}
+  ) AS expected(signature, body_md5, is_definer, volatility, config) LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc WHERE oid = pg_catalog.to_regprocedure(f.signature)
+                     AND md5(prosrc) = f.body_md5 AND proowner = 'postgres'::regrole AND prosecdef = f.is_definer
+                     AND provolatile::text = f.volatility AND proconfig::text IS NOT DISTINCT FROM f.config) THEN
+      RAISE EXCEPTION 'Reports v3 enable: unverified body or authorization metadata: %', f.signature;
+    END IF;
+    v_pinned := v_pinned || pg_catalog.to_regprocedure(f.signature)::oid;
+  END LOOP;
+
+  {closure_cte('  ')}
+  SELECT string_agg(c.oid::regprocedure::text, ', ' ORDER BY c.oid::regprocedure::text COLLATE "C") INTO v_drift
+    FROM report_closure c WHERE NOT c.oid = ANY (v_pinned);
+  IF v_drift IS NOT NULL THEN
+    RAISE EXCEPTION 'Reports v3 enable: unpinned function in the report closure: %', v_drift;
+  END IF;
+  {closure_cte('  ')}
+  SELECT string_agg(x::regprocedure::text, ', ') INTO v_drift
+    FROM unnest(v_pinned) x WHERE x NOT IN (SELECT oid FROM report_closure);
+  IF v_drift IS NOT NULL THEN
+    RAISE EXCEPTION 'Reports v3 enable: pinned function outside the report closure: %', v_drift;
+  END IF;
+  IF private.report_v3_basis_flags() ->> 'contract_version' IS DISTINCT FROM '{contract}' THEN
+    RAISE EXCEPTION 'Reports v3 enable: contract version is not {contract}';
+  END IF;
+
+  FOR f IN SELECT p.oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+            WHERE {report_fn} LOOP
+    EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role', f.oid::regprocedure);
+  END LOOP;
+  FOREACH v_sig IN ARRAY v_readers LOOP
+    EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO authenticated, service_role', pg_catalog.to_regprocedure(v_sig));
+  END LOOP;
+
+  FOR f IN SELECT p.oid, p.proacl, p.proowner FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+            WHERE {report_fn} LOOP
+    IF EXISTS (SELECT 1 FROM pg_catalog.aclexplode(coalesce(f.proacl, pg_catalog.acldefault('f', f.proowner))) a
+                WHERE a.grantee = 0) THEN
+      RAISE EXCEPTION 'Reports v3 enable: PUBLIC can execute %', f.oid::regprocedure;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+      v_expected := v_role <> 'anon' AND f.oid = ANY (SELECT pg_catalog.to_regprocedure(r)::oid FROM unnest(v_readers) r);
+      IF pg_catalog.has_function_privilege(v_role, f.oid, 'EXECUTE') IS DISTINCT FROM v_expected THEN
+        RAISE EXCEPTION 'Reports v3 enable: effective privilege mismatch for % on %', v_role, f.oid::regprocedure;
+      END IF;
+    END LOOP;
+  END LOOP;
+END $enable$;
+NOTIFY pgrst, 'reload schema';
+"""
+
+
+def release_file(package):
+    return v2.read('supabase/migrations/' + ENABLE_PACKAGES[package][0])
+
+
+def read_only_body(name):
+    """A read-only ops script without its BEGIN READ ONLY / ROLLBACK, for a refusal probe inside a transaction."""
+    text = v2.read('supabase/ops/' + name)
+    assert text.count('BEGIN TRANSACTION READ ONLY;\n') == 1 and text.endswith('ROLLBACK;\n'), name
+    return text.replace('BEGIN TRANSACTION READ ONLY;\n', '').removesuffix('ROLLBACK;\n')
+
+
+W_WRITERS_ON = ("SELECT rt.eq('class W RPCs keep their authenticated EXECUTE', (SELECT string_agg(p.proname || ':' || "
+                "has_function_privilege('authenticated', p.oid, 'EXECUTE') || ':' || has_function_privilege('anon', p.oid, 'EXECUTE'), ' ' "
+                "ORDER BY p.proname COLLATE \"C\") FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN "
+                "('correct_policy_sale_premium', 'get_client_policy_sale_premiums', 'record_appointment_outcome', 'get_policy_appointment_links', "
+                "'link_policy_appointment', 'correct_policy_appointment_link')), {want});")
+
+
+def release_steps(package):
+    """The release-enable, read-back and disable stages at one package state (D1 §3.10, §9.6), ending as they began:
+    v2 enabled, v3 sealed. Each release enable passes only at its own state; the ops disables never touch class W."""
+    migration = ENABLE_PACKAGES[package][0]
+    for other in ENABLE_PACKAGES:
+        if other != package:
+            yield f'PKG-{package}: the PKG-{other} release enable refuses', v2.refused(
+                release_file(other), 'Reports v3 enable: unverified body or authorization metadata')
+    if package == 'A':
+        yield 'release enable refuses an unpinned report function', v2.refused(
+            'CREATE FUNCTION private.report_v3_unpinned() RETURNS integer LANGUAGE sql SET search_path = pg_catalog, pg_temp '
+            'AS $f$ SELECT 1 $f$;\n' + release_file('A'), 'Reports v3 enable: unpinned function in the report closure')
+        yield 'release enable refuses a drifted pin (SECURITY DEFINER added)', v2.refused(
+            'ALTER FUNCTION private.report_v3_kpi_ids(text) SECURITY DEFINER;\n' + release_file('A'),
+            'Reports v3 enable: unverified body or authorization metadata: private.report_v3_kpi_ids(text)')
+        yield 'read-back refuses while Reports v3 is sealed', v2.refused(read_only_body('reports_v3_readback.sql'),
+                                                                        'Reports v3 read-back: unexpected privileges on')
+    yield migration.removesuffix('.sql'), release_file(package) + 'SELECT rt.assert_sealed_v3(true, true);'
+    yield f'read-back (PKG-{package})', no_transaction(v2.read('supabase/ops/reports_v3_readback.sql'))
+    yield f'read-back refuses a narrowed reader privilege (PKG-{package}, probe)', v2.refused(
+        'REVOKE EXECUTE ON FUNCTION public.get_report_journey_v3(date,date,uuid,text) FROM service_role;\n'
+        + read_only_body('reports_v3_readback.sql'), 'Reports v3 read-back: unexpected privileges on public.get_report_journey_v3')
+    yield f'release enable replay is idempotent (PKG-{package})', release_file(package) + 'SELECT rt.assert_sealed_v3(true, true);'
+    yield f'disable-v3 (PKG-{package})', v2.read('supabase/ops/reports_v3_disable.sql') + 'SELECT rt.assert_sealed_v3(true, false);' + (
+        W_WRITERS_ON.format(want="'correct_policy_sale_premium:true:false get_client_policy_sale_premiums:true:false'") if package in ('B', 'C') else
+        W_WRITERS_ON.format(want="'correct_policy_appointment_link:true:false correct_policy_sale_premium:true:false get_client_policy_sale_premiums:true:false "
+                                 "get_policy_appointment_links:true:false link_policy_appointment:true:false record_appointment_outcome:true:false'")
+        if package == 'D' else '')
+    if package in ('A', 'D'):
+        yield f'disable-all (PKG-{package})', release_file(package) + v2.read('supabase/ops/reports_all_disable.sql') + (
+            'SELECT rt.assert_sealed_v3(false, false);') + (W_WRITERS_ON.format(
+                want="'correct_policy_appointment_link:true:false correct_policy_sale_premium:true:false get_client_policy_sale_premiums:true:false "
+                     "get_policy_appointment_links:true:false link_policy_appointment:true:false record_appointment_outcome:true:false'") if package == 'D' else '')
+        yield f're-enable after disable-all (PKG-{package}{", the ops enable" if package == "D" else ""})', (
+            v2.read('supabase/ops/reports_v3_enable.sql') if package == 'D' else release_file('A')) + 'SELECT rt.assert_sealed_v3(true, true);'
+        yield f'read-back after re-enable (PKG-{package})', no_transaction(v2.read('supabase/ops/reports_v3_readback.sql'))
+        yield f'disable-v3 after re-enable (PKG-{package})', v2.read('supabase/ops/reports_v3_disable.sql') + 'SELECT rt.assert_sealed_v3(true, false);'
+
+
 CORRECTION_SUITE = 'supabase/tests/policy_sale_premium_correction.sql'
 CORRECTION_ROLLBACK = 'supabase/migrations/rollback/20261104120020_policy_sale_premium_corrections.rollback.sql'
 MANIFEST_CHECK = 'supabase/ops/reporting-accuracy/check_sale_correction_manifest.sql'
@@ -249,6 +463,7 @@ def pkg_d_steps(back=False):
     yield 'policy appointment attribution regressions (rolled back)', v2.read('supabase/tests/policy_appointment_attributions.sql')
     yield '20261104120043_reports_v3_appointment_facts', facts
     yield 'appointment facts replay refuses', v2.refused(facts, 'Reports v3 appointment facts: refusing replay')
+    yield from release_steps('D')
     yield 'v3 sales appointments on captured evidence (rolled back)', appointment_facts_suite()[1]
 
 
@@ -295,6 +510,7 @@ def pkg_b_steps(then=lambda: (), keep=None):
     yield '20261104120021_reports_v3_sale_premium_basis', basis
     yield 'sale premium basis postimages', basis_state('PKG-B postimages in place', PKG_B_BASIS)
     yield 'sale premium basis replay refuses', v2.refused(basis, 'Reports v3 sale premium basis: refusing replay')
+    yield from release_steps('B')
     yield 'sale premium corrections rollback refuses while Reports v3 is enabled', v2.refused(
         v3_on + rollback, 'Sale premium corrections rollback: Reports v3 must be disabled first')
     yield 'v3 sale premium corrections (rolled back)', correction_suite_v3()
@@ -392,6 +608,7 @@ def pkg_c_steps(back=False):
     yield '20261104120032_reports_v3_sale_call_links', window
     yield 'sale call links window postimages', basis_state('PKG-C postimages in place', PKG_C_BASIS)
     yield 'sale call links window replay refuses', v2.refused(window, 'Reports v3 sale call links: refusing replay')
+    yield from release_steps('C')
     yield 'v3 sale call links (rolled back)', call_link_suite_v3()
 
 
@@ -429,6 +646,9 @@ def steps():
     yield 'verbatim premium choke point (20261005161623)', premium_choke_point()
     yield 'v3 synthetic fixtures', v2.read('supabase/tests/reports_v3_fixtures.sql')
     yield 'v3 call and journey fixtures', v2.read('supabase/tests/reports_v3_journey_fixtures.sql')
+    yield 'preflight (read only) passes before v3', no_transaction(v2.read('supabase/ops/reports_v3_preflight.sql'))
+    yield 'disable-v3 refuses before any v3 reader exists', v2.refused(
+        v2.read('supabase/ops/reports_v3_disable.sql'), 'Reports v3 disable: no v3 reader exists; refusing')
 
     foundation = v2.migration('reports_v3_foundation')
     sale_facts = v2.migration('reports_v3_sale_facts')
@@ -522,10 +742,19 @@ def steps():
     yield 'v3 negative controls', v2.read('supabase/tests/reports_v3_negative.sql')
     yield 'v3 reader contract', contract_readers
     yield 'v2 surface unchanged after the v3 readers', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
+    yield 'preflight refuses once v3 exists', v2.refused(read_only_body('reports_v3_preflight.sql'), 'Reports v3 preflight: a v3 object already exists')
+    yield from release_steps('A')
+    yield 'v2 surface unchanged after the PKG-A release stages', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
     # Release order B → C → D (D1 §4.1): C forward, D forward on C's flags, then D back and C back to the PKG-B state.
     yield from pkg_b_steps(then=lambda: itertools.chain(pkg_c_steps(), pkg_d_steps(), pkg_d_steps(back=True), pkg_c_steps(back=True)),
                            keep=(lambda: itertools.chain(pkg_c_steps(), pkg_d_steps()))
                            if os.environ.get('REPORTS_V3_KEEP_PACKAGES') == '1' else None)
+    if os.environ.get('REPORTS_V3_KEEP_PACKAGES') != '1':
+        # Recovery (§9.6): after the D, C and B rollbacks the PKG-A release enable and read-back pass again unchanged.
+        yield 'recovery: the PKG-A release enable after the D, C and B rollbacks', release_file('A') + 'SELECT rt.assert_sealed_v3(true, true);'
+        yield 'recovery: read-back at PKG-A', no_transaction(v2.read('supabase/ops/reports_v3_readback.sql'))
+        yield 'recovery: disable-v3 (the differential and performance runners compare the sealed PKG-A state)', \
+            v2.read('supabase/ops/reports_v3_disable.sql') + 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false);'
     # Performance at the required scale, embedded for quick local diagnostics only: always mode diagnostic (report-only,
     # never acceptance evidence) and no restart round. Acceptance runs through scripts/run_reports_v3_perf_acceptance.sh.
     # REPORTS_V3_PERF=0 skips it (the CI functional job). Each sample is its own statement, so the measurement step runs
@@ -766,6 +995,16 @@ SELECT (SELECT count(*) FROM private.policy_sale_premium_corrections) AS correct
 """
 
 if __name__ == '__main__':
+    if '--part' in sys.argv and sys.argv[sys.argv.index('--part') + 1] == 'enable-pins':
+        # Harness only: the release enable's pin rows and the read-back fingerprint at the database's current state.
+        print(enable_pins_part())
+        sys.exit(0)
+    if '--render-enable' in sys.argv:
+        # Harness only: --render-enable <A|B|C|D> <rows file from --part enable-pins> writes the release enable text.
+        i = sys.argv.index('--render-enable')
+        rows = [l for l in Path(sys.argv[i + 2]).read_text().splitlines() if l.startswith('    (')]
+        sys.stdout.write(render_enable(sys.argv[i + 1], ',\n'.join(rows)))
+        sys.exit(0)
     if '--part' in sys.argv and sys.argv[sys.argv.index('--part') + 1] == 'integrated-data':
         print('\\echo integrated review data (B + C + D, scale organization)\n' + integrated_data_part())
         sys.exit(0)

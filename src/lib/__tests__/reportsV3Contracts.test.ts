@@ -211,7 +211,8 @@ describe("Reports v3 SQL privilege classes", () => {
   });
 
   it("only the foundation builds KPI envelopes directly; every reader uses the BC4 builders", () => {
-    for (const f of files.filter((x) => x.suffix !== ENVELOPE_OWNER)) {
+    // Class E files name the builders only as pinned signatures (their pin lists); they call none of them.
+    for (const f of files.filter((x) => x.suffix !== ENVELOPE_OWNER && x.cls !== "E")) {
       expect(stripSqlComments(f.sql), f.path).not.toMatch(/report_v3_metric\s*\(/);
       expect(stripSqlComments(f.sql), f.path).not.toMatch(/report_v3_evaluate\s*\(/);
     }
@@ -753,7 +754,8 @@ describe("PKG-B sale premium corrections (D2 §3.3-§3.7): …20 and its rollbac
     const firstB = versions.indexOf(pkgB[0]);
     expect(versions.slice(firstB, firstB + 2)).toEqual(pkgB);
     expect(versions.slice(0, firstB).every((v) => v < "20261104120020")).toBe(true);
-    expect(versions.slice(firstB + 2).every((v) => v >= "20261104120030")).toBe(true);
+    expect(versions[firstB + 2]).toBe("20261104120022_reports_v3_release_enable_pkg_b.sql");
+    expect(versions.slice(firstB + 3).every((v) => v >= "20261104120030")).toBe(true);
     expect(Number("20261104120020")).toBeGreaterThan(20261103191631);
   });
 
@@ -974,5 +976,79 @@ describe("PKG-C producing-call capture (D3 §3.6): …30 and …32 are class C, 
     }
     expect(WINDOW).toContain('"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"installed"');
     expect(WINDOW).toContain("Reports v3 must be disabled first");
+  });
+});
+
+describe("Reports v3 release files (release proposal R1–R5): staged enables, disables, preflight and read-back", () => {
+  const RELEASE = [
+    ["20261104120017_reports_v3_release_enable.sql", "A", "3.0.0", "20261104120016", "20261104120020"],
+    ["20261104120022_reports_v3_release_enable_pkg_b.sql", "B", "3.1.0", "20261104120021", "20261104120030"],
+    ["20261104120033_reports_v3_release_enable_pkg_c.sql", "C", "3.2.0", "20261104120032", "20261104120040"],
+    ["20261104120044_reports_v3_release_enable_pkg_d.sql", "D", "3.3.0", "20261104120043", "99999999999999"],
+  ] as const;
+  const READERS = [
+    "public.get_report_scope_v2(text)",
+    ...["call_summary", "call_volume", "disposition_breakdown", "campaign_performance", "lead_source_performance"]
+      .map((r) => `public.get_report_${r}_v2(date,date,uuid,text)`),
+    "public.get_report_scope_v3(text)",
+    ...["summary", "journey", "sales_appointments", "state_breakdown", "call_volume", "disposition_breakdown", "campaign_calls", "lead_source_calls"]
+      .map((r) => `public.get_report_${r}_v3(date,date,uuid,text)`),
+  ];
+  const all = readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /^\d{14}_/.test(n)).sort();
+
+  it("has exactly four release enables, each right after its package's last file", () => {
+    expect(all.filter((n) => n.includes("_reports_v3_release_enable"))).toEqual(RELEASE.map((r) => r[0]));
+    for (const [name, , , after, before] of RELEASE) {
+      const i = all.indexOf(name);
+      expect(all[i - 1].slice(0, 14), name).toBe(after);
+      if (i + 1 < all.length) expect(all[i + 1].slice(0, 14) >= before, name).toBe(true);
+    }
+  });
+
+  it("the ops enable is byte-equal to the highest-version release enable (PKG-D)", () => {
+    expect(read(`${OPS}/reports_v3_enable.sql`)).toBe(read(`${MIGRATIONS}/${RELEASE[3][0]}`));
+  });
+
+  it("every enable names its package and contract, pins the closure and grants exactly the 15 readers in one loop", () => {
+    for (const [name, pkg, contract] of RELEASE) {
+      const sql = read(`${MIGRATIONS}/${name}`);
+      expect(sql, name).toContain(`release enable, PKG-${pkg} state (contract ${contract})`);
+      expect(sql, name).toContain(`IS DISTINCT FROM '${contract}' THEN`);
+      expect(sql.trimStart().split("\n").find((l) => !l.startsWith("--")), name).toBe("SET LOCAL lock_timeout = '5s';");
+      const list = /v_readers text\[\] := ARRAY\[([\s\S]*?)\];/.exec(sql);
+      expect(list, name).not.toBeNull();
+      expect([...list![1].matchAll(/'([^']+)'/g)].map((m) => m[1]), name).toEqual(READERS);
+      expect(grants(sql), name).toEqual(["GRANT EXECUTE ON FUNCTION %s TO authenticated, service_role"]);
+      expect(stripSqlComments(sql), name).toMatch(/unpinned function in the report closure/);
+      expect(stripSqlComments(sql), name).toMatch(/pinned function outside the report closure/);
+      expect(stripSqlComments(sql), name).toMatch(/a\.grantee = 0/);
+      expect(stripSqlComments(sql), name).toMatch(/NOTIFY pgrst, 'reload schema';\s*$/);
+    }
+  });
+
+  it("the disables only revoke, refuse without v3 (v3 off) and never name a class W function", () => {
+    const v3off = stripSqlComments(read(`${OPS}/reports_v3_disable.sql`));
+    const allOff = stripSqlComments(read(`${OPS}/reports_all_disable.sql`));
+    expect(v3off).toMatch(/no v3 reader exists; refusing/);
+    for (const sql of [v3off, allOff]) {
+      expect(grants(sql)).toEqual([]);
+      expect(sql).toMatch(/REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role/);
+      for (const w of ["correct_policy_sale_premium", "record_appointment_outcome", "link_policy_appointment", "_handoff_v2", "retry_policy_sale_call_link"]) {
+        expect(sql).not.toContain(w);
+      }
+    }
+    expect(v3off).toContain("p.proname LIKE 'report\\_v3\\_%'");
+    expect(v3off).not.toMatch(/proname LIKE 'report\\_%'/);
+  });
+
+  it("the preflight and read-back are one read-only transaction that rolls back and writes nothing", () => {
+    for (const name of ["reports_v3_preflight.sql", "reports_v3_readback.sql"]) {
+      const sql = stripSqlComments(read(`${OPS}/${name}`));
+      expect(sql.trimStart().startsWith("BEGIN TRANSACTION READ ONLY;"), name).toBe(true);
+      expect(sql.trimEnd().endsWith("ROLLBACK;"), name).toBe(true);
+      // Outside string literals (the privilege names a has_table_privilege probe checks are not statements).
+      expect(sql.replace(/'(?:[^']|'')*'/g, "''"), name).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|CREATE|ALTER|DROP|REVOKE|COMMIT)\b/);
+      expect(grants(sql), name).toEqual([]);
+    }
   });
 });
