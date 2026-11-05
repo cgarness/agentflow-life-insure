@@ -1,5 +1,15 @@
 # AgentFlow Work Log
 
+## 2026-11-04 Pacific / November 5 UTC — P0 Dialer backend RELEASED AND VERIFIED; frontend pending
+
+Chris approved the exact database-only release from PR #515 at a7c8f74. Applied payloads once through Supabase migrations, in order: `20261105051018_dialer_reliability` and `20261105051037_dialer_admitted_call_counts`. These are the previously approved `20261104233202` and `20261104234307` payloads with identical SHA-256/SQL bytes; renamed repository files to the actual recorded versions to prevent replay. History has one exact SQL statement per migration, with matching payload MD5.
+
+**Verification:** All eight function body postimages/owners/security/search paths/ACLs match. Two columns, admission projection trigger and three new functions match the reviewed source; authenticated-only RPC grants and actor refusal verified. All 605 unrelated functions, 371 policies, 170 table security/ACL configurations, seven original call/session triggers and original call columns are unchanged. All 3,537 existing signed-admission projections agree (3,534 admitted, three refused, zero mismatches). Read-only synthetic nil-ID checks proved both RPCs reject a missing actor before writes. Advisors 265→267: only the two intentional actor/org-scoped authenticated SECURITY DEFINER RPC warnings; existing app_config/webhook_debug_log issues remain in the separate security scope. No real call or production test row.
+
+**Files/decisions:** SQL filenames and only their paths in the two synthetic runners; root/focused plans, this log, verification/manifest, new production-release.json and the existing dialer rule's release status. Application, Edge, RLS, test assertions and SQL bodies are unchanged. Main/production stays at 2b6f5ce; Reports overlap head remains f7ff977. No frontend merge/deploy, history repair, rollback or real media test. Prior a7c8f74 CI: all six workflows green; 606 dialer tests and native concurrency/rollback pass, full-repository comparison has no new failures. Final follow-up checks must complete after filename reconciliation.
+
+**Next:** Finish final branch checks, obtain separate exact frontend merge/release approval, verify Vercel and an authorized synthetic-contact call/disposition lifecycle. Do not replay either migration. Backend rollback remains separately gated and retains all history/additive metadata. See focused production-release.json and verification.md for hashes, installed state and advisor delta.
+
 ## 2026-11-04 Pacific / November 5 UTC — P0 Dialer PR #515 published; native CI passed; PRODUCTION RELEASE NOT APPROVED
 
 **Approval/publication:** Chris approved publishing the reviewed branch/PR, CI and possible previews. Draft [PR #515](https://github.com/cgarness/agentflow-life-insure/pull/515) publishes commit `2fc8dce8bbf2293d454c219d810e72fb184c6337`; its tree `52ee2f3b44a2289241ae21c8f45262ed40d19ac1` exactly matches reviewed local `87c1582a8cdf70d6bde5758842b1624f6e3f0d70`. Main/production remains `2b6f5ce`, Reports overlap head remains `f7ff977`. No main push, merge or production mutation.

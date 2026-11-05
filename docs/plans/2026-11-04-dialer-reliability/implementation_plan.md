@@ -1,7 +1,9 @@
 # AgentFlow P0 Dialer Reliability — implementation_plan.md
 
 Date: November 4, 2026 (America/Los_Angeles)
-Status: Chris approved isolated implementation, synthetic tests, read-only diagnosis, and then branch/PR publication, CI and possible previews on November 4, 2026. Draft PR #515 is published. Production database changes, merge and frontend release remain separately gated.
+Database gate update (November 5 UTC): Chris approved both exact migrations from a7c8f74. Applied once as 20261105051018 and 20261105051037; all eight postimages/ACLs, signed projection and unrelated security/function fingerprints verified. Paths are reconciled without changing SQL bytes. Frontend release remains unapproved.
+
+Status: Chris approved isolated implementation, synthetic tests, read-only diagnosis, and then branch/PR publication, CI and possible previews on November 4, 2026. Draft PR #515 is published. The exact database gate is now applied and verified; merge and frontend release remain separately gated.
 Implementation update (November 5 UTC): published source `2fc8dce8bbf2293d454c219d810e72fb184c6337` exactly matches the reviewed local tree. Native PostgreSQL 16.15 CI passed the actual migrations, concurrency in both admission/failure orders, DNC/claim races, exact rollback, reporting readers and recovery pin; 606 dialer tests passed again in CI. Final verification and release manifest supersede the original pre-build verification section below. Additional verification/package files: `scripts/tests/dialer-reliability/{engine,concurrency}.mjs`, the existing `.github/workflows/dialer-dnc-backend.yml` (disposable tests only), and this plan's `live-function-metadata.json`, `rollback.sql`, `manifest.json`, `verification.md`, and `publication.json`. Captured live readers preserve their exact authorization metadata; both candidate migrations and rollback refuse source/ACL drift. Production execution is not authorized by publication.
 Incident: Skip transitions incorrectly or rapidly; some Call clicks do not initiate dialing.
 Campaign supplied by Chris: Will Harrison — "Goat leads aged 11/3".

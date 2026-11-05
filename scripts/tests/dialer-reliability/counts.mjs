@@ -5,7 +5,7 @@ import {openSyntheticDatabase} from './engine.mjs';
 const read=p=>readFileSync(p,'utf8'),doc='docs/plans/2026-11-04-dialer-reliability/';
 const patches=JSON.parse(read(doc+'count-reader-predicates.json'));
 const candidate=name=>{const before=read(doc+name+'.before.sql'),[old,next]=patches[name];return before.replace(old,next);};
-const sql=read('supabase/migrations/20261104234307_dialer_admitted_call_counts.sql');
+const sql=read('supabase/migrations/20261105051037_dialer_admitted_call_counts.sql');
 for(const name of Object.keys(patches))assert.ok(sql.includes(candidate(name)),name+' preserves all other source');
 const db=await openSyntheticDatabase();
 try{

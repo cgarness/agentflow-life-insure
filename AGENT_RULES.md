@@ -606,7 +606,7 @@ Do **not** reintroduce server REST outbound + SIP bridge (`dialer-start-call`) u
 
 ## Dialer action ownership — November 4, 2026 (candidate; not released)
 
-This invariant accompanies the approved local P0 candidate in `docs/plans/2026-11-04-dialer-reliability`; production release is still separately gated.
+This invariant accompanies PR #515. The exact backend payloads were separately approved and applied as `20261105051018` and `20261105051037`; source/ACL/history/projection checks passed. Frontend merge/release and live media acceptance remain separately gated. See `docs/plans/2026-11-04-dialer-reliability/production-release.json`. Never replay the historical candidate versions or restore the old Reports recovery pin while the new call-facts reader is installed.
 
 - Queue membership ID owns the selected contact. Persist/re-sort/select in one commit; a stale index or URL echo must never rewind a committed transition. Only the owning action can release its pending guard; timers must not unlock unrelated work. Bind asynchronous work to a unique user/org/campaign visit, including leaving and returning to the same ID.
 - Skip and every navigation entrance preserve unsaved outcomes and in-flight saves. Save Only retains the current lead/lock; intentional manual redial remains supported. A calling-hours refusal pauses Auto Dial without persisting Skip or traversing leads. This supersedes the historical auto-skip exception in invariant #16 when this candidate is released.

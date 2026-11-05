@@ -32,17 +32,17 @@ try {
  }
  await db.exec('SET check_function_bodies=on;');
  await db.exec('ALTER FUNCTION public.start_dialer_session(uuid) SECURITY INVOKER;');
- await assert.rejects(db.exec(read('supabase/migrations/20261104233202_dialer_reliability.sql')),/preimage drift/);
+ await assert.rejects(db.exec(read('supabase/migrations/20261105051018_dialer_reliability.sql')),/preimage drift/);
  await db.exec('ROLLBACK; ALTER FUNCTION public.start_dialer_session(uuid) SECURITY DEFINER;');
  const beforeColumns=await db.query("SELECT count(*)::int n FROM information_schema.columns WHERE table_schema='public' AND table_name='calls' AND column_name='dialer_provider_admitted'");
  assert.equal(beforeColumns.rows[0].n,0,'drift refusal happens before additive DDL');
- await db.exec(read('supabase/migrations/20261104233202_dialer_reliability.sql'));
+ await db.exec(read('supabase/migrations/20261105051018_dialer_reliability.sql'));
  // Each reporting reader is executed against its complete dependency fixture in counts.mjs.
  await db.exec('SET check_function_bodies=off;');
  await db.exec('GRANT EXECUTE ON FUNCTION private.report_call_facts(uuid,timestamptz,timestamptz,uuid[]) TO authenticated;');
- await assert.rejects(db.exec(read('supabase/migrations/20261104234307_dialer_admitted_call_counts.sql')),/preimage drift/);
+ await assert.rejects(db.exec(read('supabase/migrations/20261105051037_dialer_admitted_call_counts.sql')),/preimage drift/);
  await db.exec('ROLLBACK; REVOKE EXECUTE ON FUNCTION private.report_call_facts(uuid,timestamptz,timestamptz,uuid[]) FROM authenticated;');
- await db.exec(read('supabase/migrations/20261104234307_dialer_admitted_call_counts.sql'));
+ await db.exec(read('supabase/migrations/20261105051037_dialer_admitted_call_counts.sql'));
  await db.exec('SET check_function_bodies=on;');
  for(const row of metadata) {
    const current=await db.query('SELECT proacl::text acl,prosecdef security_definer,provolatile volatility,proconfig config FROM pg_proc WHERE oid=$1::regprocedure',[row.signature]);
@@ -59,7 +59,7 @@ try {
  console.log('PASS dispatch failure, signed admission precedence, forged flags, legacy counts, tenancy, session mode');
  if(db.nativeUrl) await verifyDispatchContention(db.nativeUrl);
  else console.log('LIMIT: this embedded engine does not establish multi-session contention timing.');
- for(const name of ['20261104233202_dialer_reliability','20261104234307_dialer_admitted_call_counts']) {
+ for(const name of ['20261105051018_dialer_reliability','20261105051037_dialer_admitted_call_counts']) {
    await assert.rejects(db.exec(read(`supabase/migrations/${name}.sql`)),/preimage drift/);
    await db.exec('ROLLBACK;');
  }
