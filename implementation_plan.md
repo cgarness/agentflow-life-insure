@@ -1,3 +1,43 @@
+## 2026-11-05 (night) — Reports V2 production compatibility with PR #515 (integration branch only; nothing applied, merged or deployed)
+
+**Authorization:** Chris's message of 2026-11-05 ("Final production compatibility").
+- Approved: branch-only reconciliation with merged PR #515, and one disposable PostgreSQL 17.6 release-runner CI rehearsal with the real Supabase CLI 2.121.0.
+- Not approved: production migrations or reads, read-back as real users, merge or deploy.
+
+**Read-only state (repository records only; no production query):**
+- `main` is `09ec29a4` (PR #516 recorded the dialer frontend release on top of PR #515 `c9713060`).
+- The production history head recorded in `docs/plans/2026-11-04-dialer-reliability/production-release.json` is `20261105051037`.
+- No `20261105120…` version exists on `main`.
+
+**Analysis (before edits):**
+- PR #515's `report_call_facts` keeps a row only when `NOT dialer_admission_required OR dialer_provider_admitted IS TRUE`.
+- `dialer_provider_admitted` is a projection of the signed `private.dialer_outbound_admissions` rows, written by `calls_zz_sync_provider_admission` on every `calls` insert or update.
+- v3 (`…12`) already classifies the same evidence: attempt when admission is not required or is admitted, non_attempt when refused, unverified when no admission row exists.
+- So, with a current projection: v2 calls_made = v3 KPI 5. Refused and unverified rows stay visible in v3 as call_population coverage.
+- The old invariant (v2 − v3 = non_attempts + unverified) is replaced by v2 = v3 attempts, with independent expected counts. A stale projection (an admission written without a later `calls` write) is tested separately. v3 follows the signed row, and the difference is reported, not hidden.
+
+**Files (exact):**
+- Merge of `origin/main` into `claude/great-goodall-911azc-integration`. Every PR #515/#516 file is taken as on `main`.
+- Conflict resolution only where both sides edited: `WORK_LOG.md`, `implementation_plan.md`, `scripts/reports_integrity_fixture.py`, `src/pages/DialerPage.tsx` (the approved C and D mounts re-applied onto main's file) and `src/pages/__tests__/dialerPageReportsV2Exceptions.test.ts` (TwilioContext pin moved to main's bytes).
+- Compatibility pins (the `report_call_facts` preimage value only): `…10_reports_v3_foundation.sql`, `…12_reports_v3_call_journey_helpers.sql`, `…15_reports_v3_readers.sql`.
+- `scripts/reports_v3_fixture.py`:
+  - the production PR #515 v2 state, extracted verbatim from `20261105051018` and `20261105051037`;
+  - the regenerated pins;
+  - the renumbered versions.
+- Tests:
+  - `supabase/tests/reports_v3_calls_identity.sql`: the v2 row-set assertions under the new v2 contract, plus the admission-agreement cases;
+  - `supabase/tests/reports_v3_call_readers.sql`: V9;
+  - `supabase/tests/reports_v3_differential.sql`: only if its v2 comparison needs the new contract; the frozen reference manifest is not edited;
+  - `src/lib/__tests__/reportsV3Contracts.test.ts`.
+- Regenerated release files: the four release enables, `supabase/ops/reports_v3_enable.sql`, the `supabase/ops/reports_v3_readback.sql` fingerprints, and `scripts/reports_release.py` (pins, versions).
+- Renumbering, filename-only: every unapplied Reports V2 migration and rollback `20261104120NNN_*` becomes `20261105120NNN_*`, in the same order. Current references are updated; historical records keep the old names.
+- Rehearsal:
+  - `scripts/tests/reports_release_test.py`: strict mode, the CLI-version refusal, versions;
+  - `.github/workflows/reports-backend.yml`: one dispatch-only `release-rehearsal` job (PostgreSQL 17.6 with TLS, `supabase/setup-cli` 2.121.0, no secrets, no environment) and the renamed paths.
+- No v3 business logic changes unless a failing test proves the classification wrong.
+- Rollback safety for `…30`: tests in the existing commission runner prove what stays active after disable-v3 and that client edits are unaffected (`scripts/run_policy_commission_tests.sh`, only if a new assertion is needed). No destructive rollback.
+- This entry, `WORK_LOG.md` and the context snapshot.
+
 ## 2026-11-05 (later) — Reports V2 final release preparation: release files R1–R7 (integration branch only; nothing merged, applied, granted, enabled or deployed)
 
 **Authorization:** Chris's message of 2026-11-05 ("Final release preparation"). It approves building exactly R1–R7 of `docs/plans/2026-10-31-reports-v2/release-proposal.md`, branch only. A prepared script is not approval to execute it: no production migration, grant, RLS change, hosted stage, push to main, merge, deploy or production setting change.
