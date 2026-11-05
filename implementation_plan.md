@@ -1,3 +1,31 @@
+## 2026-11-05 — Reports V2 Dispositions team/personal bugfix, then release preparation (integration branch only; nothing merged, applied, enabled or deployed)
+
+**Authorization:** Chris's message of 2026-11-05 ("Complete the final Dispositions bugfix"). Narrow frontend changes only.
+
+**Conflict check:** `main` is still `2b6f5cef`; the integration branch head is `f7ff9779` with nothing newer. The only consumer of `deep_dive.unattributed` is `DispositionDeepDive.tsx:122-124`.
+
+**Defect:**
+- At team and personal scope, `get_report_disposition_breakdown_v3` returns `deep_dive.unattributed: null`. This is by design (`…15`: only an agency-scope request carries calls with no credited agent).
+- F's contract requires an object there, so the Dispositions panel fails closed at team and personal scope.
+- The shared test fixture sent an object at every scope, which hid the mismatch.
+
+**Change (exact files):**
+- `src/lib/reports-v3-schemas.ts`: `deep_dive.unattributed` becomes `.nullable()`. Nothing else changes.
+- `src/components/reports/DispositionDeepDive.tsx`: the campaign-tab attribution note adds `unattributed.total` only when the breakdown is present.
+  - Outside agency scope the note counts only the restricted-campaign calls of the scope's own agents.
+  - No agency value is substituted, and no zero is implied: the missing breakdown is not a part of the scope.
+- `src/lib/__tests__/reportsV3Fixtures.ts`: `unattributed` mirrors the SQL (an object at agency, `null` otherwise).
+- `src/components/reports/__tests__/reportsDialerIntelligence.test.tsx`: cases for agency, team and personal parsing and rendering; the note never counts missing calls as 0.
+
+**Verification:**
+- all nine readers at the three scopes against the SQL-generated integrated payload (`gate_k16`);
+- the Dispositions chart, deep dive and CSVs at the three scopes (visual harness);
+- relevant tests, `tsc --noEmit`, the app typecheck against the baseline, scoped lint, build, the visual gate and CI.
+
+**After this:**
+- No feature development.
+- Prepare the Reports release files (`…22`, `…33`, `…44`, the ops enable pins, the release-runner constants), the migration sequence and the final release checklist. These need Chris's approval before any file is created that is not on an approved list; only the plan and the checklist are written without it.
+
 ## 2026-11-04 (night, after integration) — Reports V2 KPI 16 integration defect fix (integration branch only; nothing merged, applied or deployed)
 
 **Authorization:** Chris's message of 2026-11-04 ("Fix the KPI 16 integration defect"). A surgical, branch-only change.
