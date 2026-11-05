@@ -16,6 +16,15 @@
 --
 -- Part 1 (above the scale marker) runs on the functional fixtures; part 2 on the 500k scale organization.
 -- =====================================================================================================
+-- The frozen baseline's call facts read their rows from private.report_call_facts (v2). Production replaced that
+-- reader in PR #515 (20261105051037: refused and unverified admissions dropped), which the baseline was never reviewed
+-- against, so the comparison runs on the v2 reader the baseline was reviewed with: the verbatim pre-PR #515 body
+-- recorded on main (md5 checked). The code under test never calls it; the PR #515 contract itself is proven by the
+-- functional suites (reports_v3_calls_identity.sql, reports_v3_call_readers.sql V9). Disposable database only.
+\i docs/plans/2026-11-04-dialer-reliability/report_call_facts.before.sql
+;
+SELECT rt.eq('differential: the baseline compares on its reviewed (pre-PR #515) v2 call reader', md5(prosrc), 'bacbfd0629221957cae28ba28728c8bd')
+  FROM pg_proc WHERE oid = 'private.report_call_facts(uuid,timestamptz,timestamptz,uuid[])'::regprocedure;
 -- Output paths come from the runner; without them the evidence is discarded, never written into the working tree.
 \if :{?dx_cases}
 \else
