@@ -1,5 +1,25 @@
 # AgentFlow Work Log
 
+## 2026-11-05 (evening) — Reports V2 release candidate FROZEN at `38bd32db`; STOPPED for approval (no merge, deploy or production stage)
+
+**Request:** Chris: one final release-runner rehearsal on the exact pinned commit, PostgreSQL 17.6 and CLI 2.121.0, disposable database only.
+
+**Change before the run** (`38bd32db`, test-only): the rehearsal's synthetic history is the verified production shape. It has 356 rows, head `20261105051037`, and is classified with the runner's own pins; any other count refuses.
+
+**Rehearsal:** run `42079824927`, job `release-rehearsal` on `38bd32db`: **17/17 passed**. It covered:
+- the 356-row baseline classified as pre-PKG-A, and a 355-row history refused;
+- A → B → C → D with each enable and read-back;
+- record-history writing 20 rows. Each row reproduced its pinned statement count and digest; the stage refuses a mismatch;
+- disable-all and re-enable;
+- the rollbacks 43 → 42 → 41 → baseline revert → 40 → 32 → 31, with history reverted;
+- refusals for CLI version drift, tampered or duplicate files, wrong confirmation, a non-main ref and history drift.
+
+Calls, sales and clients were unchanged.
+
+**Release candidate frozen:** `claude/great-goodall-911azc-integration` @ `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c`. Later commits on the branch may only be docs. Any SQL, runner or pin change unfreezes it and needs a new rehearsal.
+
+**Open:** the eight decisions on the approval sheet (scratchpad `REPORTS_V2_APPROVAL_SHEET.md`).
+
 ## 2026-11-05 (late night) — Reports V2 release-readiness checkpoint complete; STOPPED for approval (no production stage run, nothing modified in production)
 
 **Request:** Chris's message: complete the checkpoint with the independently verified production baseline (356 applied migrations, head `20261105051037_dialer_admitted_call_counts`, no Reports V3 migration applied).
