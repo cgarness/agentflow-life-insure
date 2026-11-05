@@ -1,0 +1,121 @@
+{
+  "pr": 515,
+  "published_commit": "2fc8dce8bbf2293d454c219d810e72fb184c6337",
+  "reviewed_local_commit": "87c1582a8cdf70d6bde5758842b1624f6e3f0d70",
+  "tree": "52ee2f3b44a2289241ae21c8f45262ed40d19ac1",
+  "native_dialer": {
+    "run": 41943152769,
+    "job": 126968704909,
+    "status": "success",
+    "postgres_version": "16.15",
+    "evidence": [
+      "2026-11-05T00:41:43.1570081Z server=127.0.0.1/32 version=16.15 (Debian 16.15-1.pgdg13+2)",
+      "2026-11-05T00:41:43.4551138Z PASS forward upgrade preserves legacy canonical duplicates",
+      "2026-11-05T00:41:43.7022330Z PASS dialer_disposition_dnc",
+      "2026-11-05T00:41:43.8173621Z PASS dialer_dnc_security",
+      "2026-11-05T00:41:43.9783598Z PASS dialer_dnc_matrix",
+      "2026-11-05T00:41:44.1412575Z PASS real PostgreSQL concurrency: simultaneous DNC, claim race, stale admission, duplicate saves, SKIP LOCKED",
+      "2026-11-05T00:41:44.1875670Z PASS replay refused",
+      "2026-11-05T00:41:44.3371445Z PASS reapplied function definitions, owners, search paths and ACLs match",
+      "2026-11-05T00:41:44.4057992Z PASS local restore/reapply and fail-closed pause",
+      "2026-11-05T00:41:44.6972583Z PASS both actual migrations apply; eight existing function ACLs, security modes and search paths unchanged",
+      "2026-11-05T00:41:44.7542628Z PASS existing dialer_disposition_dnc",
+      "2026-11-05T00:41:44.7949478Z PASS existing dialer_dnc_security",
+      "2026-11-05T00:41:44.8809111Z PASS existing dialer_dnc_matrix",
+      "2026-11-05T00:41:44.9066400Z PASS dispatch failure, signed admission precedence, forged flags, legacy counts, tenancy, session mode",
+      "2026-11-05T00:41:44.9781169Z PASS native row-lock contention in both orders: provider truth wins, no fabricated duration",
+      "2026-11-05T00:41:44.9965331Z PASS replay refusal, exact function rollback/ACL preservation, rollback replay refusal",
+      "2026-11-05T00:41:45.9629796Z PASS performance aggregates/details: legacy + admitted failure count; unconfirmed excluded",
+      "2026-11-05T00:42:05.0918084Z PASS Reports v2 regressions + unconfirmed/admitted inclusion",
+      "2026-11-05T00:42:39.6039336Z PASS versioned Reports recovery accepts only the new reviewed body and restores v2 grants",
+      "2026-11-05T00:43:24.5960373Z  Test Files  47 passed (47)",
+      "2026-11-05T00:43:24.5961819Z       Tests  606 passed (606)"
+    ],
+    "log_sha256": "55363e72316aa784b63ee7b2b4c97e44875a7b2e0ec0cdf7daec56ca5d08c9d1"
+  },
+  "preview_deployments": [
+    {
+      "id": "dpl_ArzDNSPo6fG9ZLGsXR73T75ijjX7",
+      "url": "https://agentflow-o7p5cnm2i-cgarness-projects.vercel.app",
+      "state": "READY",
+      "target": null,
+      "sha": "2fc8dce8bbf2293d454c219d810e72fb184c6337"
+    },
+    {
+      "id": "dpl_hQL5EbiDw94woubs51Pvtmz58ZWM",
+      "url": "https://agentflow-life-insure-fqwldcvlm-cgarness-projects.vercel.app",
+      "state": "READY",
+      "target": null,
+      "sha": "2fc8dce8bbf2293d454c219d810e72fb184c6337"
+    }
+  ],
+  "production_changed": false,
+  "approval": "Chris approved branch/PR publication, CI and possible previews. Production database and frontend release are not approved.",
+  "workflow_snapshot": [
+    {
+      "id": 41943152937,
+      "name": "Reports frontend verification",
+      "status": "in_progress",
+      "conclusion": null,
+      "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41943152937"
+    },
+    {
+      "id": 41943152881,
+      "name": "Reporting integrity",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41943152881"
+    },
+    {
+      "id": 41943152910,
+      "name": "SMS consent integration",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41943152910"
+    },
+    {
+      "id": 41943152769,
+      "name": "Dialer DNC integrity",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41943152769"
+    },
+    {
+      "id": 41943152733,
+      "name": "Reports backend verification",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41943152733"
+    },
+    {
+      "id": 41943152757,
+      "name": "UV profile sync verification",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/cgarness/agentflow-life-insure/actions/runs/41943152757"
+    }
+  ],
+  "workflow_snapshot_note": "The five completed workflows passed on the exact published implementation. Reports frontend verification was still running when this documentation-only update was prepared; the final PR head must finish every required check. GitHub may supersede an earlier run after the evidence update.",
+  "production": {
+    "sha": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
+    "deployment": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc",
+    "state": "READY",
+    "domain": "www.fflagent.com"
+  },
+  "limits": [
+    "No production database mutation, main merge, production deployment, real call or production fixture.",
+    "Native synthetic tests do not establish real Voice.js media/carrier delivery.",
+    "Full app typecheck and lint retain existing baseline debt; zero new errors in local exact-base comparison.",
+    "Updated frontend readers require the matching backend before live acceptance."
+  ],
+  "documentation_update_paths": [
+    "WORK_LOG.md",
+    "implementation_plan.md",
+    "docs/plans/2026-11-04-dialer-reliability/implementation_plan.md",
+    "docs/plans/2026-11-04-dialer-reliability/verification.md",
+    "docs/plans/2026-11-04-dialer-reliability/test-results.json",
+    "docs/plans/2026-11-04-dialer-reliability/publication.json",
+    "docs/plans/2026-11-04-dialer-reliability/manifest.json"
+  ],
+  "documentation_delivery": "Workspace transport became unavailable during the evidence-only follow-up. Documents were recovered from the published source, each original byte count/SHA-256 matched the reviewed manifest, and the evidence update was prepared through GitHub. Implementation and SQL source are unchanged."
+}

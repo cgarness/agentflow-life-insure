@@ -21,6 +21,7 @@ export async function getTodayCallCount(agentId: string, campaignId: string): Pr
   const { count, error } = await supabase
     .from("calls")
     .select("id", { count: "exact", head: true })
+    .or("dialer_admission_required.eq.false,dialer_provider_admitted.eq.true")
     .eq("agent_id", agentId)
     .eq("campaign_id", campaignId)
     .gte("created_at", startUtc.toISOString())
@@ -39,6 +40,7 @@ export async function getContactCallStats(contactIds: string[]) {
   const { data, error } = await supabase
     .from("calls")
     .select("contact_id, disposition_name, created_at")
+    .or("dialer_admission_required.eq.false,dialer_provider_admitted.eq.true")
     .in("contact_id", contactIds);
 
   if (error) {
@@ -143,7 +145,7 @@ export async function getLeadHistory(
 
   let callsQuery = supabase
     .from("calls")
-    .select("id, created_at, started_at, direction, disposition_name, duration, recording_url, twilio_call_sid, is_missed, missed_reason, outcome, agent_id, answered_by_agent_id, voicemail_id");
+    .select("id, created_at, started_at, direction, disposition_name, duration, recording_url, twilio_call_sid, is_missed, missed_reason, outcome, agent_id, answered_by_agent_id, voicemail_id, dialer_dispatch_error, dialer_provider_admitted");
 
   if (campaignLeadId) {
     callsQuery = callsQuery.or(
@@ -207,7 +209,7 @@ export async function getLeadHistory(
     if (row?.name) dispositionColorByName[row.name] = row.color;
   }
 
-  const callItems = (callsRes.data ?? []).map((c) => {
+  const callItems = ((callsRes.data ?? []) as unknown as Record<string, any>[]).map((c) => {
     const raw = c as any;
     const hasRecording =
       (raw.recording_url && raw.recording_url !== '__recording_pending__') ||
@@ -219,7 +221,9 @@ export async function getLeadHistory(
     return {
       id: c.id,
       type: "call" as const,
-      description: `${isCallsRowInboundDirection(c.direction) ? "Inbound" : "Outbound"} Call — ${formatDuration(c.duration ?? 0)}${
+      description: raw.dialer_dispatch_error && raw.dialer_provider_admitted !== true && !raw.twilio_call_sid
+        ? (raw.dialer_dispatch_error === "not_sent" ? "Outbound Call — not started" : "Outbound Call — dispatch unconfirmed")
+        : `${isCallsRowInboundDirection(c.direction) ? "Inbound" : "Outbound"} Call — ${formatDuration(c.duration ?? 0)}${
         inboundOutcome && inboundOutcome.tone !== "neutral" ? ` — ${inboundOutcome.label}` : ""
       }`,
       direction: isCallsRowInboundDirection(c.direction) ? "inbound" : "outbound",

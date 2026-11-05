@@ -69,6 +69,7 @@ interface UseDialerSessionReturn {
   sessionStats: SessionStats;
   setSessionStats: React.Dispatch<React.SetStateAction<SessionStats>>;
   activeSessionId: string | null;
+  activeSessionCampaignId: string | null;
   sessionStartedAt: string | null;
   sessionElapsedDisplay: number;
   setBaseSessionSeconds: (seconds: number) => void;
@@ -97,7 +98,7 @@ export function bestEffortEndDialerSessionRpc(
   }).catch(() => {});
 }
 
-export function useDialerSession(): UseDialerSessionReturn {
+export function useDialerSession(canLeaveCampaign?: () => boolean): UseDialerSessionReturn {
   const { user, profile } = useAuth();
   const { organizationId } = useOrganization();
   const { getDataScope, hasFeatureAccess, isLoading: permissionsLoading } =
@@ -135,14 +136,30 @@ export function useDialerSession(): UseDialerSessionReturn {
   const activeSessionCampaignRef = useRef<string | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const displayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startInFlightRef = useRef(false);
+  const identity = `${organizationId}:${user?.id}`;
+  const identityRef = useRef(identity); identityRef.current = identity;
+  const sessionIdentityRef = useRef<string | null>(null);
+  const startInFlightRef = useRef<{ key: string; promise: Promise<boolean> } | null>(null);
   // Accumulated trusted duration of CLOSED sessions today for the selected
   // campaign (P1 Build 3B). The live display = this base + active elapsed, so
   // Session Duration persists/resumes across leaving and re-entering a campaign.
   const baseSessionSecondsRef = useRef(0);
   const sessionStartedAtRef = useRef<string | null>(null);
 
-  const selectedCampaignId = searchParams.get("campaign");
+  const requestedCampaign = searchParams.get("campaign");
+  const campaignRouteRef = useRef({ identity, campaign: requestedCampaign });
+  const routeBlocked = campaignRouteRef.current.identity === identity && !!campaignRouteRef.current.campaign
+    && campaignRouteRef.current.campaign !== requestedCampaign && canLeaveCampaign?.() === false;
+  if (!routeBlocked) campaignRouteRef.current = { identity, campaign: requestedCampaign };
+  const selectedCampaignId = campaignRouteRef.current.campaign;
+  useEffect(() => {
+    if (!routeBlocked) return;
+    const restored = new URLSearchParams(searchParams);
+    restored.set("campaign", selectedCampaignId!);
+    setSearchParams(restored, { replace: true });
+    toast.error("Finish the current action and save the outcome before switching campaigns.");
+  }, [routeBlocked, searchParams, selectedCampaignId, setSearchParams]);
+  useEffect(() => () => { identityRef.current = "unmounted"; }, []);
 
   const setSelectedCampaignId = (id: string | null) => {
     if (id) setSearchParams({ campaign: id });
@@ -198,6 +215,10 @@ export function useDialerSession(): UseDialerSessionReturn {
     clearHeartbeatInterval();
     clearDisplayInterval();
   }, [clearHeartbeatInterval, clearDisplayInterval]);
+
+  useEffect(() => {
+    if (sessionIdentityRef.current && sessionIdentityRef.current !== identity) clearServerSessionLocalState();
+  }, [identity, clearServerSessionLocalState]);
 
   const startHeartbeatInterval = useCallback(
     (sessionId: string) => {
@@ -255,35 +276,40 @@ export function useDialerSession(): UseDialerSessionReturn {
       // Only short-circuit when the cached session is for THIS campaign. Any other request must
       // go to the server, which re-authorizes the active session's own campaign_id and refuses a
       // mismatch (start_dialer_session, migration 20260811201401).
-      if (activeSessionIdRef.current && activeSessionCampaignRef.current === campaignId) {
-        return true;
-      }
-      if (startInFlightRef.current) return false;
-
-      startInFlightRef.current = true;
-      try {
-        const session = await startDialerSession(campaignId);
-        activeSessionIdRef.current = session.id;
-        activeSessionCampaignRef.current = session.campaign_id ?? null;
-        sessionStartedAtRef.current = session.started_at;
-        setActiveSessionId(session.id);
-        setSessionStartedAt(session.started_at);
-        startHeartbeatInterval(session.id);
-        startDisplayInterval(session.started_at);
-        return true;
-      } catch {
-        // The caller (DialerPage) aborts the outbound call on a false result, so this must NOT
-        // promise the call will continue. Covers both an authorization refusal (mismatched /
-        // unauthorized campaign) and a transient tracking failure — in every case no call is placed.
-        toast.error(
-          "Couldn't start the dialer session for this campaign, so no call was placed. Please try again.",
-        );
+      if (activeSessionIdRef.current && activeSessionCampaignRef.current === campaignId
+          && sessionIdentityRef.current === identity) return true;
+      const key = `${identity}:${campaignId}`;
+      const pending = startInFlightRef.current;
+      if (pending) {
+        if (pending.key === key) return pending.promise;
+        toast.error("Another campaign session is starting. Wait for it to finish.");
         return false;
-      } finally {
-        startInFlightRef.current = false;
       }
+      const promise = (async () => {
+        try {
+          const session = await startDialerSession(campaignId);
+          if (identityRef.current !== identity) return false;
+          if (session.campaign_id !== campaignId) throw new Error("End the active campaign session before switching campaigns.");
+          activeSessionIdRef.current = session.id;
+          activeSessionCampaignRef.current = session.campaign_id;
+          sessionIdentityRef.current = identity;
+          sessionStartedAtRef.current = session.started_at;
+          setActiveSessionId(session.id); setSessionStartedAt(session.started_at);
+          startHeartbeatInterval(session.id); startDisplayInterval(session.started_at);
+          return true;
+        } catch (error) {
+          if (identityRef.current === identity) toast.error(
+            error && typeof error === "object" && "message" in error
+              ? `Call not started: ${String(error.message)}`
+              : "Couldn't start this campaign session. Please try again.");
+          return false;
+        }
+      })();
+      const entry = { key, promise }; startInFlightRef.current = entry;
+      try { return await promise; }
+      finally { if (startInFlightRef.current === entry) startInFlightRef.current = null; }
     },
-    [user?.id, startHeartbeatInterval, startDisplayInterval],
+    [user?.id, identity, startHeartbeatInterval, startDisplayInterval],
   );
 
   const endServerSession = useCallback(async () => {
@@ -329,6 +355,7 @@ export function useDialerSession(): UseDialerSessionReturn {
         .eq("organization_id", organizationId)
         .eq("status", "Active")
         .order("name", { ascending: true });
+      if (identityRef.current !== identity) return;
       if (error) {
         console.error("[Dialer] campaigns fetch:", error);
         if (!silent) {
@@ -355,7 +382,7 @@ export function useDialerSession(): UseDialerSessionReturn {
       }
       if (!silent) setCampaignsLoading(false);
     },
-    [organizationId, user?.id, permissionsLoading],
+    [organizationId, user?.id, permissionsLoading, identity],
   );
 
   useEffect(() => {
@@ -390,6 +417,7 @@ export function useDialerSession(): UseDialerSessionReturn {
     sessionStats,
     setSessionStats,
     activeSessionId,
+    activeSessionCampaignId: sessionIdentityRef.current === identity ? activeSessionCampaignRef.current : null,
     sessionStartedAt,
     sessionElapsedDisplay,
     setBaseSessionSeconds,

@@ -1,0 +1,36 @@
+import {createServer} from 'vite';
+import react from '@vitejs/plugin-react-swc';
+import {createRequire} from 'node:module';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const require=createRequire(import.meta.url);const {chromium}=require('playwright');
+const root=process.cwd();
+const server=await createServer({configFile:false,root:path.join(root,'scripts/tests/dialer-reliability/browser'),plugins:[react()],resolve:{alias:{'@':path.join(root,'src')}},css:{postcss:path.join(root,'postcss.config.js')},server:{host:'127.0.0.1',port:0,fs:{allow:[root]}}});
+await server.listen();let browser;
+try{
+ const portable=process.env.CHROMIUM_PACKAGE?(await import(process.env.CHROMIUM_PACKAGE)).default:null;
+ browser=await chromium.launch(portable?{headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE || await portable.executablePath(),args:portable.args}:{headless:true});const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/*',r=>new URL(r.request().url()).hostname==='127.0.0.1'?r.continue():r.abort());
+ await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`);
+ await page.getByRole('button',{name:'Load synthetic queue'}).click();
+ assert.equal(await page.getByTestId('selected').textContent(),'b');
+ await page.getByRole('button',{name:'Skip',exact:true}).evaluate(b=>{b.click();b.click();b.click();});
+ assert.equal(await page.getByTestId('writes').textContent(),'1');
+ await page.getByRole('button',{name:'Resolve response'}).click();
+ await page.waitForFunction(()=>document.querySelector('[data-testid=selected]')?.textContent==='a');
+ assert.equal(new URL(page.url()).searchParams.get('contact'),'contact-a');
+ await page.getByRole('button',{name:'Resort queue'}).click();assert.equal(await page.getByTestId('selected').textContent(),'a');
+ await page.getByLabel('Outcome notes').fill('Retain this synthetic draft');
+ assert.equal(await page.getByRole('button',{name:'Skip',exact:true}).isDisabled(),true);
+ await page.getByRole('button',{name:'External contact link'}).click();
+ assert.equal(await page.getByTestId('selected').textContent(),'a');
+ assert.equal(await page.getByLabel('Outcome notes').inputValue(),'Retain this synthetic draft');
+ await page.getByLabel('Outcome notes').fill('');
+ await page.getByRole('button',{name:'Call',exact:true}).evaluate(b=>{b.click();b.click();});
+ await page.getByRole('button',{name:'Switch scope'}).click();await page.getByRole('button',{name:'Resolve response'}).click();
+ assert.equal(await page.getByTestId('dials').textContent(),'0');
+ await page.getByRole('button',{name:'Load synthetic queue'}).click();await page.getByRole('button',{name:'Enable Auto Dial'}).click();
+ await page.waitForFunction(()=>document.querySelector('[data-testid=status]')?.textContent==='Outside calling hours');
+ assert.equal(await page.getByTestId('writes').textContent(),'1');assert.equal(await page.getByTestId('selected').textContent(),'b');
+ assert.deepEqual(errors,[]);console.log('PASS Chromium: rapid Skip, resort, URL, draft, stale Call, automatic hours pause; external network blocked');
+}finally{await browser?.close();await server.close();}

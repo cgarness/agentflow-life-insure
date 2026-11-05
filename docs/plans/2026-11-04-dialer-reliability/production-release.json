@@ -1,0 +1,236 @@
+{
+  "approval": "Chris approved the two exact database migrations from PR #515 at a7c8f74. Frontend merge/deployment and media tests remain unapproved.",
+  "source": "a7c8f74b387c94d26131e09c313d7e2a480aaffe",
+  "project": "jncvvsvckxhqgqvkppmj",
+  "verified_at": "2026-11-05T05:12:36.673Z",
+  "eightPostimages": true,
+  "unchangedFunctions": 605,
+  "unchangedPolicies": 371,
+  "unchangedTableSecurity": 170,
+  "unchangedTriggers": 7,
+  "history": [
+    {
+      "name": "dialer_reliability",
+      "sql_md5": "dee9dd2cbeb5a0254d1399a518e3d537",
+      "version": "20261105051018",
+      "statements": 1
+    },
+    {
+      "name": "dialer_admitted_call_counts",
+      "sql_md5": "98c0f8c87aaa4762a0cc0d2bf3386db4",
+      "version": "20261105051037",
+      "statements": 1
+    }
+  ],
+  "projection": {
+    "matched": 3537,
+    "refused": 3,
+    "admitted": 3534,
+    "mismatches": 0
+  },
+  "newFunctions": [
+    {
+      "acl": "{postgres=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "body_md5": "e2bed10fae2d26efdb4c6b2dad55becf",
+      "signature": "private.sync_dialer_provider_admission()",
+      "security_definer": true
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "body_md5": "3193ca3ccbce7c970565256e49da8a61",
+      "signature": "record_dialer_dispatch_failure(uuid,text)",
+      "security_definer": true
+    },
+    {
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "owner": "postgres",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "body_md5": "b09b2da7174c93e5dac45bed4bd20b8b",
+      "signature": "set_dialer_session_mode(uuid,boolean)",
+      "security_definer": true
+    }
+  ],
+  "constraint": "CHECK ((dialer_dispatch_error = ANY (ARRAY['not_sent'::text, 'unconfirmed'::text])))",
+  "schema": {
+    "columns": [
+      {
+        "name": "dialer_provider_admitted",
+        "type": "boolean",
+        "default": null,
+        "nullable": "YES"
+      },
+      {
+        "name": "dialer_dispatch_error",
+        "type": "text",
+        "default": null,
+        "nullable": "YES"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "calls_zz_sync_provider_admission",
+        "table": "calls",
+        "enabled": "O",
+        "definition": "CREATE TRIGGER calls_zz_sync_provider_admission BEFORE INSERT OR UPDATE ON public.calls FOR EACH ROW EXECUTE FUNCTION private.sync_dialer_provider_admission()"
+      }
+    ]
+  },
+  "advisors": {
+    "before": 265,
+    "after": 267,
+    "added": [
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable",
+        "detail": "Function `public.record_dialer_dispatch_failure(p_call_id uuid, p_reason text)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/record_dialer_dispatch_failure`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "metadata": {
+          "name": "record_dialer_dispatch_failure",
+          "schema": "public",
+          "language": "plpgsql",
+          "arguments": "p_call_id uuid, p_reason text",
+          "security_definer": true
+        }
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable",
+        "detail": "Function `public.set_dialer_session_mode(p_session_id uuid, p_enabled boolean)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/set_dialer_session_mode`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "metadata": {
+          "name": "set_dialer_session_mode",
+          "schema": "public",
+          "language": "plpgsql",
+          "arguments": "p_session_id uuid, p_enabled boolean",
+          "security_definer": true
+        }
+      }
+    ],
+    "removed": []
+  },
+  "actor_refusal": "PASS both new RPCs reject missing actor with 42501/not authenticated in explicit READ ONLY transaction; nil synthetic identifiers; rolled back.",
+  "frontend": {
+    "sha": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
+    "id": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc"
+  },
+  "migrations": [
+    {
+      "approved_path": "supabase/migrations/20261104233202_dialer_reliability.sql",
+      "recorded_path": "supabase/migrations/20261105051018_dialer_reliability.sql",
+      "sha256": "dc0fe4c680e8915e5a47735fb479c2347320be44b75042a06b3a633cc0707328",
+      "bytes": 17949
+    },
+    {
+      "approved_path": "supabase/migrations/20261104234307_dialer_admitted_call_counts.sql",
+      "recorded_path": "supabase/migrations/20261105051037_dialer_admitted_call_counts.sql",
+      "sha256": "46bda3ed1a6c6d2e82106d4809b0424c1beb26393f0bd306b6747ebf3af98940",
+      "bytes": 31253
+    }
+  ],
+  "postimages": [
+    {
+      "signature": "get_campaign_card_stats(uuid[])",
+      "owner": "postgres",
+      "body_md5": "7e533e56044e3224b32c57cf25bc2295",
+      "security_definer": true,
+      "volatility": "s",
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "acl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+    },
+    {
+      "signature": "get_performance_details(text,text,text,uuid,timestamp with time zone,integer)",
+      "owner": "postgres",
+      "body_md5": "c7d25d0edf7fcb1a28d0837da225a25b",
+      "security_definer": true,
+      "volatility": "s",
+      "config": [
+        "search_path=pg_catalog, pg_temp",
+        "statement_timeout=25s"
+      ],
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+    },
+    {
+      "signature": "get_profile_book_stats(text,text)",
+      "owner": "postgres",
+      "body_md5": "4a025d9e390c9663ac709661c28eedc8",
+      "security_definer": true,
+      "volatility": "s",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+    },
+    {
+      "signature": "get_trusted_today_dialer_stats_v2(uuid,timestamp with time zone,timestamp with time zone,date)",
+      "owner": "postgres",
+      "body_md5": "86591bc176db14718b6e7681b780401c",
+      "security_definer": true,
+      "volatility": "s",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+    },
+    {
+      "signature": "get_trusted_today_dialer_stats(uuid,timestamp with time zone,timestamp with time zone)",
+      "owner": "postgres",
+      "body_md5": "fba5d92b359c67311590c72906f04fb4",
+      "security_definer": true,
+      "volatility": "s",
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+    },
+    {
+      "signature": "private.performance_rows(uuid[],timestamp with time zone,timestamp with time zone,date,date,uuid[])",
+      "owner": "postgres",
+      "body_md5": "908181aa87fa524614e0debd249e1d10",
+      "security_definer": false,
+      "volatility": "s",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "signature": "private.report_call_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])",
+      "owner": "postgres",
+      "body_md5": "03b2c36446fb0b7dec0bac14b401a864",
+      "security_definer": true,
+      "volatility": "s",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "signature": "start_dialer_session(uuid)",
+      "owner": "postgres",
+      "body_md5": "f6190dfd31382d6389ac9f20c4254d36",
+      "security_definer": true,
+      "volatility": "v",
+      "config": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+    }
+  ],
+  "limits": [
+    "No production fixture, real call, Edge deployment, RLS policy change or historical session-mode repair.",
+    "No rollback executed; separate approval required.",
+    "Synthetic pre-release tests establish concurrency semantics; live media acceptance remains pending."
+  ]
+}

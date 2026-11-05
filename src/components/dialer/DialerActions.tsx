@@ -1,7 +1,7 @@
 import React from "react";
-import { Phone, PhoneOff, ArrowRight, FileText, ScrollText, Play } from "lucide-react";
+import { FileText, ScrollText, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
-import ClaimRing from "./ClaimRing";
+import { DialerPrimaryActions } from "./DialerPrimaryActions";
 import QueuePanel from "./QueuePanel";
 import TimeSelect from "./TimeSelect";
 import { formatTimeUntil } from "@/lib/queue-manager";
@@ -17,6 +17,9 @@ interface Disposition {
 }
 
 interface DialerActionsProps {
+  callBlockedReason?: string | null;
+  skipBlockedReason?: string | null;
+  callPending?: boolean;
   voiceCallState: string;
   voiceCallDuration: number;
   claimRingActive: boolean;
@@ -63,6 +66,7 @@ interface DialerActionsProps {
 }
 
 export const DialerActions: React.FC<DialerActionsProps> = ({
+  callBlockedReason, skipBlockedReason, callPending,
   voiceCallState,
   voiceCallDuration,
   claimRingActive,
@@ -112,41 +116,8 @@ export const DialerActions: React.FC<DialerActionsProps> = ({
   return (
     <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] shrink-0 flex flex-col h-full overflow-hidden">
       {/* Top Actions: Hang Up / Skip / Call */}
-      <div className="grid grid-cols-2 gap-2 mb-3 shrink-0">
-        {voiceCallState === "active" || voiceCallState === "dialing" || voiceCallState === "incoming" ? (
-          <button
-            onClick={onHangUp}
-            className="bg-destructive text-destructive-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-destructive/90 shadow-lg shadow-destructive/20"
-          >
-            <PhoneOff className="w-4 h-4" />
-            <span className="leading-none">Hang Up</span>
-            <span className="font-mono text-[9px] opacity-80">{fmtDuration(voiceCallDuration)}</span>
-          </button>
-        ) : (
-          <div className="relative">
-            <ClaimRing
-              active={claimRingActive}
-              campaignType={campaignType}
-              onClaim={() => {}}
-            />
-            <button
-              onClick={onCall}
-              className="w-full bg-success text-success-foreground rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-success/90 shadow-lg shadow-success/20"
-            >
-              <Phone className="w-4 h-4" />
-              <span className="leading-none">Call</span>
-            </button>
-          </div>
-        )}
-        <button
-          onClick={onSkip}
-          disabled={voiceCallState === "active" || voiceCallState === "dialing" || voiceCallState === "incoming"}
-          className="bg-accent text-accent-foreground border border-border rounded-xl py-2 flex flex-col items-center justify-center gap-1 text-sm font-semibold transition-all hover:bg-accent/80 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <ArrowRight className="w-4 h-4" />
-          <span className="leading-none">Skip</span>
-        </button>
-      </div>
+      <DialerPrimaryActions {...{ voiceCallState, voiceCallDuration, claimRingActive, campaignType,
+        fmtDuration, onHangUp, onCall, onSkip, callBlockedReason, skipBlockedReason, callPending }} />
 
       {tier4Label && (
         <div className="mb-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-500 text-center animate-in fade-in slide-in-from-top-1 duration-300">

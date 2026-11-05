@@ -48,7 +48,9 @@ export interface UseDialerStateMachineProps {
   /** Pause before auto-dial fires (from campaign `dial_delay_seconds`, clamped in the hook). */
   dialDelayMs?: number;
   onCall: () => void;
-  onSkip: () => void;
+  onBlocked?: () => void;
+  /** Retained for callers during rollout; automatic skipping is never invoked. */
+  onSkip?: () => void;
 }
 
 export interface UseDialerStateMachineReturn {
@@ -73,7 +75,7 @@ export function useDialerStateMachine({
   isAdvancing = false,
   dialDelayMs: dialDelayMsProp,
   onCall,
-  onSkip,
+  onBlocked,
 }: UseDialerStateMachineProps): UseDialerStateMachineReturn {
   const dialDelayMs = Math.min(
     MAX_DIAL_DELAY_MS,
@@ -89,7 +91,7 @@ export function useDialerStateMachine({
   })();
 
   const onCallRef = useLatestRef(onCall);
-  const onSkipRef = useLatestRef(onSkip);
+  const onBlockedRef = useLatestRef(onBlocked);
   const checkHoursRef = useLatestRef(checkCallingHours);
   const deferAutoDialRef = useLatestRef(shouldDeferAutoDial);
   const currentLeadRef = useLatestRef(currentLead);
@@ -115,7 +117,7 @@ export function useDialerStateMachine({
     const lead = currentLeadRef.current;
     const k = lead ? String(lead.id || lead.lead_id || "") : "";
     if (k) lastAutoDialedLeadId.current = k;
-  }, [clearAutoDialTimer]);
+  }, [clearAutoDialTimer, currentLeadRef]);
 
   const leadKey = currentLead ? String(currentLead.id || currentLead.lead_id || "") : "";
 
@@ -143,7 +145,7 @@ export function useDialerStateMachine({
   }, [clearAutoDialTimer]);
 
   useEffect(() => {
-    if (!hasDialedOnce.current) return;
+    if (!hasDialedOnce.current) { clearAutoDialTimer(); return; }
 
     if (
       !isAutoDialEnabled ||
@@ -167,7 +169,9 @@ export function useDialerStateMachine({
     if (checkHoursRef.current) {
       const leadState = lead.state || "";
       if (!checkHoursRef.current(leadState)) {
-        onSkipRef.current();
+        clearAutoDialTimer();
+        lastAutoDialedLeadId.current = leadKey;
+        onBlockedRef.current?.();
         return;
       }
     }
@@ -209,6 +213,13 @@ export function useDialerStateMachine({
         return;
       }
 
+      const latest = currentLeadRef.current;
+      if (!hasDialedOnce.current || !latest || deferAutoDialRef.current?.(latest)) return;
+      if (checkHoursRef.current && !checkHoursRef.current(latest.state || "")) {
+        lastAutoDialedLeadId.current = fireKey;
+        onBlockedRef.current?.();
+        return;
+      }
       lastAutoDialedLeadId.current = fireKey;
       onCallRef.current();
     }, dialDelayMs);
@@ -220,6 +231,7 @@ export function useDialerStateMachine({
     showWrapUp,
     isAdvancing,
     dialDelayMs,
+    checkHoursRef, currentLeadRef, deferAutoDialRef, hasDialedOnce, onBlockedRef, onCallRef,
     clearAutoDialTimer,
   ]);
 

@@ -9,6 +9,7 @@ export interface DialerSessionRecord {
   last_heartbeat_at: string;
   ended_at: string | null;
   status: "active" | "ended" | "abandoned";
+  auto_dial_enabled?: boolean;
 }
 
 function parseDialerSessionRow(data: unknown): DialerSessionRecord {
@@ -25,6 +26,7 @@ function parseDialerSessionRow(data: unknown): DialerSessionRecord {
     last_heartbeat_at: String(row.last_heartbeat_at),
     ended_at: row.ended_at != null ? String(row.ended_at) : null,
     status: row.status as DialerSessionRecord["status"],
+    auto_dial_enabled: row.auto_dial_enabled === true,
   };
 }
 
@@ -65,4 +67,12 @@ export async function endDialerSession(
     throw error;
   }
   return parseDialerSessionRow(data);
+}
+
+/** Metadata only: never changes the campaign preference or server timestamps. */
+export async function setDialerSessionMode(sessionId: string, enabled: boolean): Promise<void> {
+  const { error } = await (supabase as any).rpc("set_dialer_session_mode", {
+    p_session_id: sessionId, p_enabled: enabled,
+  });
+  if (error) throw new Error(error.message);
 }

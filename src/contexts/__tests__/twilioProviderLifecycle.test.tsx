@@ -23,6 +23,9 @@ type Handlers = {
 
 const ring = vi.hoisted(() => ({ calls: [] as unknown[] }));
 const outbound = vi.hoisted(() => ({
+  current:true, caller:"+15550001111", failures: [] as unknown[],
+  insertMode: "ok" as "ok" | "ambiguous" | "failed", afterInsert: null as null | (() => void),
+  recoveredIds: [] as unknown[],
   events: [] as string[], inserts: [] as unknown[], result: { data: { blocked: false, match: null }, error: null } as { data: unknown; error: unknown },
   pending: null as null | Promise<{ data: unknown; error: unknown }>,
 }));
@@ -54,10 +57,18 @@ vi.mock("@/contexts/AuthContext", () => ({
 vi.mock("@/integrations/supabase/client", () => {
   function makeBuilder(table: string) {
     let inserted = false;
+    let recordId: unknown;
     const b: Record<string, unknown> = {
       select() { return b; }, update() { return b; }, insert(payload: unknown) { inserted = true; if (table === "calls") { outbound.events.push("insert"); outbound.inserts.push(payload); } return b; }, upsert() { return b; },
-      eq() { return b; }, in() { return b; }, or() { return b; }, order() { return b; }, limit() { return b; }, neq() { return b; }, is() { return b; },
-      maybeSingle() { return Promise.resolve({ data: table === "calls" && inserted ? { id: "55555555-5555-4555-8555-555555555555" } : null, error: null }); },
+      eq(key: string,value: unknown) { if(key === "id")recordId=value;return b; }, in() { return b; }, or() { return b; }, order() { return b; }, limit() { return b; }, neq() { return b; }, is() { return b; },
+      maybeSingle() {
+        const row=outbound.inserts.at(-1) as {id:string}|undefined;
+        if(table === "calls" && inserted){outbound.afterInsert?.();return Promise.resolve(outbound.insertMode === "ok"?{data:{id:row!.id},error:null}:{data:null,error:{message:"insert response lost"}});}
+        if(table === "calls" && recordId && outbound.insertMode === "ambiguous"){
+          outbound.recoveredIds.push(recordId);return Promise.resolve({data:recordId===row?.id?{id:row.id}:null,error:null});
+        }
+        return Promise.resolve({data:null,error:null});
+      },
       single() { return Promise.resolve({ data: table === "calls" && inserted ? { id: "55555555-5555-4555-8555-555555555555" } : null, error: null }); },
       then(resolve: (v: unknown) => unknown) { return Promise.resolve({ data: table === "phone_numbers" ? [{ phone_number: "+15550001111", status: "active", assignment_type: "agency", is_default: true }] : [], error: null }).then(resolve); },
     };
@@ -67,7 +78,8 @@ vi.mock("@/integrations/supabase/client", () => {
   return {
     supabase: {
       from: (table: string) => makeBuilder(table),
-      rpc: (name: string) => {
+      rpc: (name: string, args:unknown) => {
+        if(name === "record_dialer_dispatch_failure") outbound.failures.push(args);
         if (name === "check_dialer_dnc") { outbound.events.push("verify"); return outbound.pending ?? Promise.resolve(outbound.result); }
         return Promise.resolve({ data: null, error: null });
       },
@@ -116,8 +128,9 @@ const Probe: React.FC = () => {
     <div>
       <span data-testid="status">{t.status}</span>
       <span data-testid="callState">{t.callState}</span>
+      <span data-testid="errorMessage">{t.errorMessage}</span>
       <button onClick={() => void t.answerIncomingCall()}>answer</button>
-      <button onClick={() => void t.makeCall("+15550002222", "+15550001111")}>dial</button>
+      <button onClick={() => void t.makeCall("+15550002222", outbound.caller, {isAttemptCurrent:()=>outbound.current})}>dial</button>
     </div>
   );
 };
@@ -185,6 +198,8 @@ const settle = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 beforeEach(() => {
   outbound.events = []; outbound.inserts = []; outbound.pending = null;
+  outbound.current=true;outbound.failures=[];outbound.caller="+15550001111";
+  outbound.insertMode="ok";outbound.afterInsert=null;outbound.recoveredIds=[];
   outbound.result = { data: { blocked: false, match: null }, error: null };
   ring.calls = [];
   mic.pending = [];
@@ -510,5 +525,57 @@ describe("TwilioProvider — Device lifecycle wiring (behavioral)", () => {
     await settle();
     expect(voice.inits).toHaveLength(1);
     expect(status()).not.toBe("ready");
+  });
+});
+
+
+describe("P0 outbound attempt ownership",()=>{
+  it("a lead change during the microphone prompt cancels before inserting or connecting",async()=>{
+    mount();await waitFor(()=>expect(voice.inits).toHaveLength(1));await registerLatest();
+    mic.gate=true;voice.dialFactory=fakeOutboundCall;
+    await act(async()=>screen.getByText("dial").click());
+    await waitFor(()=>expect(mic.pending).toHaveLength(1));outbound.current=false;
+    await act(async()=>mic.pending.shift()!());
+    expect(outbound.inserts).toHaveLength(0);expect(outbound.events).not.toContain("connect");
+    expect(mic.streams.at(-1)!.track.stop).toHaveBeenCalled();
+  });
+  it.each([['NotAllowedError','Allow it'],['NotFoundError','No microphone'],['NotReadableError','busy or unavailable']])("%s makes no call row or Voice.js dispatch and explains recovery",async(name,message)=>{
+    mount();await waitFor(()=>expect(voice.inits).toHaveLength(1));await registerLatest();
+    vi.spyOn(navigator.mediaDevices,"getUserMedia").mockRejectedValueOnce(new DOMException("unavailable",name));
+    await act(async()=>screen.getByText("dial").click());
+    expect(outbound.inserts).toHaveLength(0);expect(outbound.events).not.toContain("connect");
+    expect(status()).toBe("error");
+    expect(screen.getByTestId("errorMessage")).toHaveTextContent(message);
+  });
+  it("an ambiguous insert recovers the original UUID and connects once without another insert",async()=>{
+    mount();await waitFor(()=>expect(voice.inits).toHaveLength(1));await registerLatest();
+    outbound.insertMode="ambiguous";voice.dialFactory=fakeOutboundCall;
+    await act(async()=>{screen.getByText("dial").click();screen.getByText("dial").click();});
+    expect(outbound.inserts).toHaveLength(1);
+    expect(outbound.recoveredIds).toEqual([(outbound.inserts[0] as {id:string}).id]);
+    expect(outbound.events.filter(e=>e==="connect")).toHaveLength(1);
+    expect(outbound.failures).toHaveLength(0);
+  });
+  it.each(['insert','device'])("a pre-connect %s failure retains one not-sent receipt and does not connect",async failure=>{
+    mount();await waitFor(()=>expect(voice.inits).toHaveLength(1));await registerLatest();
+    if(failure==='insert')outbound.insertMode="failed";else outbound.afterInsert=()=>{voice.registered=null;};
+    await act(async()=>screen.getByText("dial").click());
+    expect(outbound.inserts).toHaveLength(1);expect(outbound.events).not.toContain("connect");
+    expect(outbound.failures).toEqual([{p_call_id:(outbound.inserts[0] as {id:string}).id,p_reason:"not_sent"}]);
+    expect(callState()).toBe("idle");
+  });
+  it("an unauthorized caller ID creates no attempt",async()=>{
+    mount();await waitFor(()=>expect(voice.inits).toHaveLength(1));await registerLatest();outbound.caller="+15559999999";
+    await act(async()=>screen.getByText("dial").click());
+    expect(outbound.inserts).toHaveLength(0);expect(outbound.events).not.toContain("connect");
+  });
+  it("a rejected connect records one uncertain attempt and never invents duration or disposition",async()=>{
+    mount();await waitFor(()=>expect(voice.inits).toHaveLength(1));await registerLatest();
+    voice.dialFactory=()=>{throw new Error("transport rejected");};
+    await act(async()=>screen.getByText("dial").click());
+    expect(outbound.events.filter(e=>e==="connect")).toHaveLength(1);expect(outbound.inserts).toHaveLength(1);
+    const row=outbound.inserts[0] as {id:string;attempt_id:string};
+    expect(row.id).toBe(row.attempt_id);expect(row).not.toHaveProperty("duration");expect(row).not.toHaveProperty("disposition_name");
+    expect(outbound.failures).toEqual([{p_call_id:row.id,p_reason:"unconfirmed"}]);expect(callState()).toBe("idle");
   });
 });

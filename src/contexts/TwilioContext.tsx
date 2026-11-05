@@ -137,6 +137,8 @@ interface OrphanCall {
 
 /** Options for makeCall — pass contact/campaign metadata for single-point call record creation. */
 export interface MakeCallOptions {
+  /** Original page action must still own its user/org/campaign/contact after every preflight await. */
+  isAttemptCurrent?: () => boolean;
   contactId?: string | null;
   campaignId?: string | null;
   campaignLeadId?: string | null;
@@ -2211,9 +2213,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return undefined;
     }
 
+    const assertAttemptCurrent = () => {
+      if (opts?.isAttemptCurrent?.() === false) throw new Error("The selected lead changed. Call was not started.");
+    };
     // Reserve before auth/microphone/DNC awaits, not after them.
     isDialingRef.current = true;
+    let attemptedCallId: string | null = null;
+    let connectInvoked = false;
     try {
+    assertAttemptCurrent();
     endStateProcessedRef.current = false;
 
     const { data: { session: existing }, error: getErr } = await supabase.auth.getSession();
@@ -2241,6 +2249,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return undefined;
     }
 
+    assertAttemptCurrent();
     const orgIdClaim = session.user.app_metadata?.organization_id;
     if (!orgIdClaim) {
       toast.error("Security Block: No Valid Organization Token.");
@@ -2255,13 +2264,20 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       mediaStreamRef.current = await navigator.mediaDevices.getUserMedia(VOICE_MIC_CAPTURE);
     } catch (err) {
-      console.error("Microphone permission denied:", err);
+      console.error("Microphone unavailable:", err);
+      const name = err && typeof err === "object" && "name" in err ? String(err.name) : "";
+      const message = name === "NotFoundError" || name === "DevicesNotFoundError"
+        ? "No microphone was found. Connect your headset and retry the phone connection."
+        : name === "NotReadableError" || name === "TrackStartError"
+          ? "The microphone is busy or unavailable. Close other audio apps and retry the phone connection."
+          : "Microphone access is required. Allow it in your browser, then retry the phone connection.";
       setStatus("error");
-      setErrorMessage("Microphone access is required to make calls. Please allow microphone access in your browser and try again.");
-      toast.error("Microphone access is required to place calls.");
+      setErrorMessage(message);
+      toast.error(message);
       return undefined;
     }
 
+    assertAttemptCurrent();
     lastCallLogDirectionRef.current = "outbound";
     setLastCallDirection("outbound");
 
@@ -2315,6 +2331,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const destination = toE164(destinationNumber);
       const dnc = await checkDNC(destination, organizationId, opts?.campaignLeadId);
+      assertAttemptCurrent();
       if (dnc.blocked) throw new Error("This number is on the agency DNC list. Call was not started.");
       // An identity change during verification invalidates this outbound attempt.
       if (authUserIdRef.current !== session.user.id || organizationIdRef.current !== organizationId) {
@@ -2324,6 +2341,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setCallState("dialing");
       // A deliberate attempt owns one client UUID; an ambiguous insert response resolves this same row.
       const attemptId = crypto.randomUUID();
+      attemptedCallId = attemptId;
       // ── SINGLE CALL RECORD CREATION ──
       let { data: callRecord, error: callError } = await (supabase as any)
         .from('calls')
@@ -2357,6 +2375,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (!recovered.error && recovered.data) { callRecord = recovered.data; callError = null; }
       }
       if (authUserIdRef.current !== session.user.id || organizationIdRef.current !== organizationId) throw new Error("Your session changed. Call was not started.");
+      assertAttemptCurrent();
       if (callError) throw new Error(`Failed to create call record: ${callError.message}`);
       if (!callRecord) throw new Error("Failed to create call record: no data returned");
 
@@ -2384,6 +2403,8 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         callId: callRecord.id,
       });
 
+      assertAttemptCurrent();
+      connectInvoked = true;
       const call = await twilioMakeCall({
         to: toE164(destinationNumber),
         callerId: toE164(callerIdUsed),
@@ -2411,8 +2432,20 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       return callRecord.id;
     } catch (err: any) {
+      let failureMessage = connectInvoked
+        ? "Dialing could not be confirmed. Check call history before retrying."
+        : (err.message || "Failed to start call");
+      if (attemptedCallId) {
+        try {
+          const { error } = await (supabase as any).rpc("record_dialer_dispatch_failure", {
+            p_call_id: attemptedCallId, p_reason: connectInvoked ? "unconfirmed" : "not_sent",
+          });
+          if (error) failureMessage += " Call status could not be saved.";
+        } catch { failureMessage += " Call status could not be saved."; }
+        if (activeCallIdRef.current === attemptedCallId) activeCallIdRef.current = null;
+      }
       console.error("Failed to start call:", err);
-      toast.error(err.message || "Failed to start call");
+      toast.error(failureMessage);
       outboundRemoteAnsweredRef.current = false;
       outboundRingStartedAtRef.current = 0;
       setOutboundRingSessionId(null);

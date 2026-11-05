@@ -1,0 +1,22 @@
+{
+  "get_campaign_card_stats": [
+    "      ON ca.campaign_lead_id = cl.id",
+    "      ON ca.campaign_lead_id = cl.id\n     AND (NOT ca.dialer_admission_required OR ca.dialer_provider_admitted IS TRUE)"
+  ],
+  "report_call_facts": [
+    "    WHERE c.organization_id = p_org",
+    "    WHERE c.organization_id = p_org\n      AND (NOT c.dialer_admission_required OR c.dialer_provider_admitted IS TRUE)"
+  ],
+  "performance_rows": [
+    "   AND lower(coalesce(c.direction,''))",
+    "   AND (NOT c.dialer_admission_required OR c.dialer_provider_admitted IS TRUE)\n   AND lower(coalesce(c.direction,''))"
+  ],
+  "get_performance_details": [
+    "    AND c.created_at>=bounds.start_at",
+    "    AND (NOT c.dialer_admission_required OR c.dialer_provider_admitted IS TRUE)\n    AND c.created_at>=bounds.start_at"
+  ],
+  "get_profile_book_stats": [
+    "    WHERE p_time_zone IS NOT NULL",
+    "    WHERE p_time_zone IS NOT NULL\n      AND (NOT cl.dialer_admission_required OR cl.dialer_provider_admitted IS TRUE)"
+  ]
+}

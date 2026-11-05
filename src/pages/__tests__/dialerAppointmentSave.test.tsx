@@ -44,6 +44,9 @@ const h = vi.hoisted(() => ({
   emptyQueue: false,
   renewal: "owned" as "owned" | "lost" | "error",
   failAdvance: false,
+  queueRows: null as null | Record<string, unknown>[],
+  advancePending: null as Promise<unknown> | null,
+  sessionPending: null as Promise<unknown> | null,
   failRelease: false,
   /** Fail only the appointments INSERTs whose payload matches (e.g. the appointment but not the shadow). */
   failAppointmentWhen: null as null | ((payload: Record<string, unknown>) => boolean),
@@ -106,7 +109,9 @@ vi.mock("@/integrations/supabase/client", () => ({
       h.events.push(`rpc:${name}`);
       if (name === "get_trusted_today_dialer_stats_v2") return Promise.resolve({data:[{calls_made:0,contacted_calls:0,total_talk_seconds:0,policies_sold:h.trustedPolicies,session_duration_seconds:0,closed_session_duration_seconds:0,active_session_id:null,active_session_started_at:null,
         policy_date_basis:"sold_date",policy_sale_date:args.p_sale_date}],error:null});
+      if (name === "check_dialer_dnc") return Promise.resolve({data:{blocked:false,match:null},error:null});
       if (name === "save_disposition_with_booking") {
+        if (h.advancePending) return h.advancePending;
         const booking = args.p_appointment as Record<string,unknown>|null;
         args=args.p_input as Record<string,unknown>;
         if (h.failCallWrite) return Promise.resolve({ data: null, error: { message: "boom:calls" } });
@@ -133,6 +138,7 @@ vi.mock("@/integrations/supabase/client", () => ({
         : { data: h.renewal === "owned", error: null });
       if (name === "release_lead_lock") return Promise.resolve({ data: true, error: null });
       if (name === "start_dialer_session") {
+        if (h.sessionPending) return h.sessionPending;
         return Promise.resolve({ data: { id: "sess-1", campaign_id: CAMP, started_at: new Date().toISOString() }, error: null });
       }
       return Promise.resolve({ data: [], error: null });
@@ -158,10 +164,10 @@ const stable = vi.hoisted(() => {
   const twilio = {
     status: "ready", errorMessage: null, callState: "idle", callDuration: 0,
     currentCall: null, availableNumbers: [], selectedCallerNumber: null,
-    setSelectedCallerNumber: () => {}, makeCall: vi.fn(async () => null), hangUp: () => {},
+    setSelectedCallerNumber: () => {}, makeCall: vi.fn(async ():Promise<string|null> => null), hangUp: () => {},
     lastCallDirection: null, hangUpOrphan: () => {}, dismissOrphanCall: () => {},
     orphanCall: null, initializeClient: async () => {}, destroyClient: () => {},
-    getSmartCallerId: async () => null, setCallerIdCampaignGroupId: () => {},
+    getSmartCallerId: async () => "+15550001111", setCallerIdCampaignGroupId: () => {},
     applyDialSessionRingTimeout: () => {},
   };
   const branding = { formatDate: (d: unknown) => String(d), formatDateTime: (d: unknown) => String(d), branding: {} };
@@ -235,7 +241,7 @@ vi.mock("@/lib/dialer-api", async (orig) => {
   const actual = await orig<typeof import("@/lib/dialer-api")>();
   return {
     ...actual,
-    getCampaignLeads: vi.fn(async () => [LEAD_ROW]),
+    getCampaignLeads: vi.fn(async () => h.queueRows ?? [LEAD_ROW]),
     getLeadHistory: vi.fn(async () => []),
     getContactCallStats: vi.fn(async () => ({})),
     saveAppointment: (...args: Parameters<typeof actual.saveAppointment>) => {
@@ -258,6 +264,8 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = Element.prototype.scrollIntoView ?? (() => {});
   h.writes = []; h.rpc = []; h.events = []; h.failAppointmentInsert = false; h.campaignType = "Personal";
   h.failAdvance = false; h.failRelease = false;
+  h.queueRows=null; h.advancePending=null; h.sessionPending=null;
+  stable.twilio.status="ready"; stable.twilio.makeCall.mockReset().mockResolvedValue(null);
   h.failAppointmentWhen = null; h.refreshMode = "resolve"; calendar.v = null;
   h.failCallWrite = false; h.emptyQueue = false; h.renewal = "owned";
   h.tableData = {}; h.trustedPolicies = 0;
@@ -612,6 +620,8 @@ describe("Team lead details with the existing lock lifecycle", () => {
     await waitFor(() => expect(screen.queryByTestId("team-open-lead-details")).toBeNull());
     expect(h.rpc.filter((r) => r.name === "get_next_queue_lead")).toHaveLength(1);
     expect(screen.getByLabelText("Callback time")).toHaveValue("2:30 PM");
+    expect(screen.getByRole("button", { name: /^call$/i })).toBeDisabled();
+    expect(screen.getByText(/Lead lock is not confirmed/)).toBeInTheDocument();
     expect(advanceCalls()).toHaveLength(0);
     expect(h.toast.success).not.toHaveBeenCalled();
   }, 30000);
@@ -704,4 +714,50 @@ describe("failure isolation", () => {
     expect(h.toast.success).not.toHaveBeenCalled();expect(calendar.addAppointment).not.toHaveBeenCalled();
   });
 
+});
+
+
+describe("P0 real Dialer page actions", () => {
+  it("rapid Skip clicks persist once and resort to exactly one next contact", async () => {
+    const next={...LEAD_ROW,id:"d0000000-0000-4000-8000-000000000002",lead_id:"e0000000-0000-4000-8000-000000000002",first_name:"Second"};
+    h.queueRows=[LEAD_ROW,next];
+    let resolve!: (v:unknown)=>void;h.advancePending=new Promise(r=>{resolve=r;});
+    await mountOnLead();
+    const skip=screen.getByRole("button",{name:"Skip"});
+    act(()=>{fireEvent.click(skip);fireEvent.click(skip);fireEvent.click(skip);});
+    await waitFor(()=>expect(h.rpc.filter(r=>r.name==="save_disposition_with_booking")).toHaveLength(1));
+    expect(skip).toBeDisabled();
+    await act(async()=>resolve({data:{id:CL,status:"Skipped",call_attempts:0,retry_eligible_at:"2099-01-01T00:00:00Z",disposition_version:1,replayed:false,lock_released:false,call_id:null,contact_id:LEAD,contact_type:"lead",dnc_suppressed:false},error:null}));
+    await screen.findByText("Second Probe");
+    expect(h.rpc.filter(r=>r.name==="save_disposition_with_booking")).toHaveLength(1);
+    expect(screen.queryByText("Jane Probe")).not.toBeInTheDocument();
+  });
+  it("Skip and arrows cannot discard a callback draft or a failed save", async () => {
+    h.queueRows=[LEAD_ROW,{...LEAD_ROW,id:"d0000000-0000-4000-8000-000000000002",first_name:"Second"}];
+    await mountOnLead();pickDisposition(/^call back$/i);fillCallback("2026-11-06","2:00 PM");
+    expect(screen.getByRole("button",{name:"Skip"})).toBeDisabled();
+    expect(screen.getByTitle("Next Lead")).toBeDisabled();
+    h.failAdvance=true;fireEvent.click(screen.getByRole("button",{name:/^Save & Next$/i}));
+    await waitFor(()=>expect(h.toast.error).toHaveBeenCalledWith("DNC persistence failed"));
+    fireEvent.click(screen.getByRole("button",{name:"Skip"}));
+    expect(screen.getByLabelText("Callback time")).toHaveValue("2:00 PM");
+    expect(screen.getByText("Jane Probe")).toBeInTheDocument();
+  });
+  it("rapid Call clicks share one preflight and never write optimistic call telemetry", async () => {
+    let resolve!: (v:unknown)=>void;h.sessionPending=new Promise(r=>{resolve=r;});
+    stable.twilio.makeCall.mockResolvedValue("f0000000-0000-4000-8000-000000000099");
+    await mountOnLead();const call=screen.getByRole("button",{name:/^Call$/});
+    act(()=>{fireEvent.click(call);fireEvent.click(call);fireEvent.click(call);});
+    await waitFor(()=>expect(h.rpc.filter(r=>r.name==="start_dialer_session")).toHaveLength(1));
+    expect(stable.twilio.makeCall).not.toHaveBeenCalled();
+    await act(async()=>resolve({data:{id:"sess-1",campaign_id:CAMP,started_at:new Date().toISOString()},error:null}));
+    await waitFor(()=>expect(stable.twilio.makeCall).toHaveBeenCalledTimes(1));
+    expect(h.rpc.filter(r=>Number(r.args.p_calls_made)>0)).toHaveLength(0);
+  });
+  it("Call shows readiness and does not dispatch while the phone is connecting", async () => {
+    stable.twilio.status="connecting";await mountOnLead();
+    expect(screen.getByRole("button",{name:/^Call$/})).toBeDisabled();
+    expect(screen.getByText(/Phone is connecting/)).toBeInTheDocument();
+    expect(stable.twilio.makeCall).not.toHaveBeenCalled();
+  });
 });
