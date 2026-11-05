@@ -46,7 +46,7 @@ DB = f'reports_release_{PID}'
 ROLE = f'reports_release_{PID}_recorder'
 ROLE_PASSWORD = hashlib.sha256(os.urandom(32)).hexdigest()[:32]
 DB_ENV = BASE_ENV | {'PGDATABASE': DB}
-HISTORY_ROWS, HISTORY_HEAD = 351, '20261103191631'
+HISTORY_ROWS, HISTORY_HEAD = 351, '20261105051037'  # synthetic rows; the head is the recorded production head
 EXPECT = None  # set after the runner module loads
 
 spec = importlib.util.spec_from_file_location('reports_release', RUNNER)
@@ -167,18 +167,18 @@ def test_file_and_cli_gates():
         (root / target).write_bytes(files[target] + b'\n')
         stops(lambda: m.files_gate(root), f'{target}: {size:,} bytes, SHA-256 {digest[:8]}…')
         (root / target).write_bytes(files[target])
-        second = root / 'supabase/migrations/20261104120099_reports_v3_readers.sql'
+        second = root / 'supabase/migrations/20261105120099_reports_v3_readers.sql'
         second.write_bytes(files[m.ITEMS[5].path])
         stops(lambda: m.files_gate(root), 'exactly one reports_v3_readers')
         second.unlink()
-        pending = root / 'supabase/migrations/pending/20261104120015_reports_v3_readers.sql'
+        pending = root / 'supabase/migrations/pending/20261105120015_reports_v3_readers.sql'
         pending.parent.mkdir(parents=True, exist_ok=True)
         pending.write_bytes(files[m.ITEMS[5].path])
         stops(lambda: m.files_gate(root), 'no pending Reports v3 copy')
     finally:
         shutil.rmtree(root)
     ok('file tampering, duplicate and pending copies fail before any connection')
-    for stage, confirm, ref, label in [('apply-20261104120010', 'check', 'refs/heads/main', 'explicit stage confirmation'),
+    for stage, confirm, ref, label in [('apply-20261105120010', 'check', 'refs/heads/main', 'explicit stage confirmation'),
                                        ('check', 'check', 'refs/heads/feature', 'main dispatch only'),
                                        ('drop-everything', 'drop-everything', 'refs/heads/main', 'explicit stage confirmation')]:
         with patch.dict(os.environ, {'GITHUB_REF': ref, 'STAGE': stage, 'CONFIRM': confirm}):
@@ -278,54 +278,54 @@ def test_release(files):
     ok('the unpinned production baseline refuses every stage')
     assert run(t, 'check', files).applied == 0
     stops(lambda: m.run_stage('record-history', t, EXPECT, files, CLI), 'record-history needs installed, unrecorded files')
-    stops(lambda: m.run_stage('apply-20261104120011', t, EXPECT, files, CLI), 'apply-20261104120011 is the next stage in release order')
+    stops(lambda: m.run_stage('apply-20261105120011', t, EXPECT, files, CLI), 'apply-20261105120011 is the next stage in release order')
     stops(lambda: m.run_stage('read-back', t, EXPECT, files, CLI), 'read-back needs Reports v3 enabled')
     ok('check (preflight) is read-only; out-of-order, read-back and record-history refuse before PKG-A')
 
     # PKG-A
     for item in m.ITEMS[:6]:
         assert run(t, item.stage, files).applied == m.ITEMS.index(item) + 1
-    stops(lambda: m.run_stage('apply-enable-20261104120017', t, EXPECT, files, CLI),
-          'apply-enable-20261104120017 is the next stage in release order')
+    stops(lambda: m.run_stage('apply-enable-20261105120017', t, EXPECT, files, CLI),
+          'apply-enable-20261105120017 is the next stage in release order')
     assert run(t, 'apply-index-concurrently', files).applied == 7
-    assert run(t, 'apply-enable-20261104120017', files).enabled
+    assert run(t, 'apply-enable-20261105120017', files).enabled
     run(t, 'read-back', files)
     assert run(t, 'check', files).enabled
-    stops(lambda: m.run_stage('apply-20261104120010', t, EXPECT, files, CLI), 'apply-20261104120010 is the next stage in release order')
-    stops(lambda: m.run_stage('apply-20261104120020', t, EXPECT, files, CLI),
+    stops(lambda: m.run_stage('apply-20261105120010', t, EXPECT, files, CLI), 'apply-20261105120010 is the next stage in release order')
+    stops(lambda: m.run_stage('apply-20261105120020', t, EXPECT, files, CLI),
           'the previous package is recorded in history before the next package starts')
     assert len(record(t, files).recorded) == 8
     ok('PKG-A: six transactional files, the concurrent index, the enable, read-back and 8 history rows')
 
     # PKG-B (the v3-only window)
-    stops(lambda: m.run_stage('apply-20261104120020', t, EXPECT, files, CLI),
-          'apply-20261104120020 runs inside the v3-only window (disable-v3 first)')
+    stops(lambda: m.run_stage('apply-20261105120020', t, EXPECT, files, CLI),
+          'apply-20261105120020 runs inside the v3-only window (disable-v3 first)')
     assert not run(t, 'disable-v3', files).enabled
-    for stage in ('apply-20261104120020', 'apply-20261104120021', 'apply-enable-20261104120022'):
+    for stage in ('apply-20261105120020', 'apply-20261105120021', 'apply-enable-20261105120022'):
         run(t, stage, files)
     run(t, 'read-back', files)
     assert len(record(t, files).recorded) == 11
     ok('PKG-B: disable-v3, …20, …21, the PKG-B enable, read-back, history')
 
     # PKG-C (…30 and …31 with Reports v3 on; …32 in the window)
-    for stage in ('apply-20261104120030', 'apply-20261104120031'):
+    for stage in ('apply-20261105120030', 'apply-20261105120031'):
         assert run(t, stage, files).enabled
-    stops(lambda: m.run_stage('apply-20261104120032', t, EXPECT, files, CLI),
-          'apply-20261104120032 runs inside the v3-only window (disable-v3 first)')
+    stops(lambda: m.run_stage('apply-20261105120032', t, EXPECT, files, CLI),
+          'apply-20261105120032 runs inside the v3-only window (disable-v3 first)')
     run(t, 'disable-v3', files)
-    for stage in ('apply-20261104120032', 'apply-enable-20261104120033'):
+    for stage in ('apply-20261105120032', 'apply-enable-20261105120033'):
         run(t, stage, files)
     assert len(record(t, files).recorded) == 15
     ok('PKG-C: …30, …31, disable-v3, …32, the PKG-C enable, read-back, history')
 
     # PKG-D (the category baseline between …40 and …41)
-    run(t, 'apply-20261104120040', files)
-    stops(lambda: m.run_stage('apply-20261104120041', t, EXPECT, files, CLI), 'apply-20261104120041 is the next stage in release order')
+    run(t, 'apply-20261105120040', files)
+    stops(lambda: m.run_stage('apply-20261105120041', t, EXPECT, files, CLI), 'apply-20261105120041 is the next stage in release order')
     run(t, 'category-baseline', files)
-    for stage in ('apply-20261104120041', 'apply-20261104120042'):
+    for stage in ('apply-20261105120041', 'apply-20261105120042'):
         run(t, stage, files)
     run(t, 'disable-v3', files)
-    for stage in ('apply-20261104120043', 'apply-enable-20261104120044'):
+    for stage in ('apply-20261105120043', 'apply-enable-20261105120044'):
         run(t, stage, files)
     final = record(t, files)
     assert len(final.recorded) == 20 and final.contract == '3.3.0' and final.applied == len(m.ITEMS)
@@ -344,24 +344,24 @@ def test_release(files):
     ok('disable-all leaves class W on; re-enable restores the PKG-D pins and passes read-back')
 
     # Recovery: the guarded rollbacks in reverse order, with history reverted.
-    stops(lambda: m.run_stage('rollback-20261104120043', t, EXPECT, files, CLI),
-          'rollback-20261104120043 needs Reports v3 disabled (disable-v3 first)')
+    stops(lambda: m.run_stage('rollback-20261105120043', t, EXPECT, files, CLI),
+          'rollback-20261105120043 needs Reports v3 disabled (disable-v3 first)')
     run(t, 'disable-v3', files)
-    stops(lambda: m.run_stage('rollback-20261104120041', t, EXPECT, files, CLI),
-          'rollback-20261104120041 needs 20261104120041 to be the last installed file of its package')
-    for stage in ('rollback-20261104120043', 'rollback-20261104120042', 'rollback-20261104120041'):
+    stops(lambda: m.run_stage('rollback-20261105120041', t, EXPECT, files, CLI),
+          'rollback-20261105120041 needs 20261105120041 to be the last installed file of its package')
+    for stage in ('rollback-20261105120043', 'rollback-20261105120042', 'rollback-20261105120041'):
         run(t, stage, files)
-    stops(lambda: m.run_stage('rollback-20261104120040', t, EXPECT, files, CLI),
-          'rollback-20261104120040 needs 20261104120040 to be the last installed file of its package')
+    stops(lambda: m.run_stage('rollback-20261105120040', t, EXPECT, files, CLI),
+          'rollback-20261105120040 needs 20261105120040 to be the last installed file of its package')
     run(t, 'category-baseline-revert', files)
-    run(t, 'rollback-20261104120040', files)
-    after_d = run(t, 'rollback-20261104120032', files)
+    run(t, 'rollback-20261105120040', files)
+    after_d = run(t, 'rollback-20261105120032', files)
     assert after_d.contract == '3.1.0'
-    run(t, 'rollback-20261104120031', files)
-    stops(lambda: m.run_stage('rollback-20261104120020', t, EXPECT, files, CLI),
-          'rollback-20261104120020 needs 20261104120020 to be the last installed file of its package')
+    run(t, 'rollback-20261105120031', files)
+    stops(lambda: m.run_stage('rollback-20261105120020', t, EXPECT, files, CLI),
+          'rollback-20261105120020 needs 20261105120020 to be the last installed file of its package')
     state = quiet(lambda: m.classify(t, EXPECT))[0]
-    assert state.applied == m.ITEMS.index(next(i for i in m.ITEMS if i.version == '20261104120031'))
+    assert state.applied == m.ITEMS.index(next(i for i in m.ITEMS if i.version == '20261105120031'))
     assert len(state.recorded) == 12  # PKG-A, PKG-B and …30 stay recorded
     assert run(t, 're-enable', files).enabled
     assert source_digest() == before

@@ -57,7 +57,7 @@ BEGIN
   END IF;
   -- The pinned v2 call and session readers this file builds on (full-window class, D3 §3.1).
   IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = to_regprocedure('private.report_call_facts(uuid,timestamptz,timestamptz,uuid[])')
-                   AND md5(prosrc) = 'bacbfd0629221957cae28ba28728c8bd' AND prosecdef AND proowner = 'postgres'::regrole
+                   AND md5(prosrc) = '03b2c36446fb0b7dec0bac14b401a864' AND prosecdef AND proowner = 'postgres'::regrole
                    AND proconfig = ARRAY['search_path=pg_catalog, pg_temp'])
      OR NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = to_regprocedure('private.report_session_seconds(uuid,timestamptz,timestamptz,uuid[])')
                    AND md5(prosrc) = '3d33b720751a1913c81ad284ae6ffd43')

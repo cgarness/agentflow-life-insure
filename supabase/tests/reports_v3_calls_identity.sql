@@ -47,9 +47,28 @@ SELECT rt.eq('another organization''s client is never resolved', private.report_
 -- -----------------------------------------------------------------------------------------------------
 -- 2. Call facts: the pinned v2 row set, attempt classes, contacted flags, credit, identity.
 -- -----------------------------------------------------------------------------------------------------
-SELECT rt.eq('exactly the v2 report_call_facts row set',
-  (SELECT array_agg(f.call_id ORDER BY f.call_id) FROM private.report_v3_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00') f),
+-- Production v2 (PR #515, 20261105051037) keeps a row only when admission is not required or the signed admission is
+-- projected as admitted. v3 keeps every v2 row plus the refused and unverified outbound rows, which it classifies and
+-- discloses as coverage instead of counting.
+SELECT rt.eq('v2 (PR #515) is exactly the v3 rows that are not refused or unverified',
+  (SELECT array_agg(f.call_id ORDER BY f.call_id) FROM private.report_v3_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00') f
+    WHERE f.attempt_class IS DISTINCT FROM 'non_attempt' AND f.attempt_class IS DISTINCT FROM 'unverified'),
   (SELECT array_agg(v.call_id ORDER BY v.call_id) FROM private.report_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00', NULL) v));
+SELECT rt.eq('independent counts (J): v3 rows | v2 rows | legacy attempts | admitted attempts | refused | unverified | inbound',
+  (SELECT count(*) || '|' || (SELECT count(*) FROM private.report_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00', NULL))
+          || '|' || count(*) FILTER (WHERE f.attempt_class = 'attempt' AND NOT c.dialer_admission_required)
+          || '|' || count(*) FILTER (WHERE f.attempt_class = 'attempt' AND c.dialer_admission_required)
+          || '|' || count(*) FILTER (WHERE f.attempt_class = 'non_attempt') || '|' || count(*) FILTER (WHERE f.attempt_class = 'unverified')
+          || '|' || count(*) FILTER (WHERE f.direction_class = 'inbound')
+     FROM private.report_v3_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00') f JOIN public.calls c ON c.id = f.call_id),
+  '33|31|9|20|1|1|2');
+-- The backfill projects only rows that have an admission, so a pre-PR #515 row with none stays NULL; v2's IS TRUE reads
+-- NULL as not admitted, the same as v3's unverified.
+SELECT rt.eq('the projected dialer_provider_admitted counts exactly as the signed admission for every admission-required call (J)',
+  (SELECT count(*) FILTER (WHERE (c.dialer_provider_admitted IS TRUE) IS DISTINCT FROM coalesce(a.admitted, false)) || '|'
+          || count(*) FILTER (WHERE c.dialer_provider_admitted IS NULL AND a.call_id IS NULL)
+     FROM public.calls c LEFT JOIN private.dialer_outbound_admissions a ON a.organization_id = c.organization_id AND a.call_id = c.id
+    WHERE c.organization_id = rt.v3('J') AND c.dialer_admission_required), '0|1');
 SELECT rt.eq('every carried v2 column unchanged',
   (SELECT count(*) FROM private.report_v3_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00') f
      JOIN private.report_call_facts(rt.v3('J'), '2026-09-01 07:00+00', '2026-11-01 07:00+00', NULL) v ON v.call_id = f.call_id
@@ -68,6 +87,41 @@ SELECT rt.eq('a genuine failed attempt remains a call', rt.cclass('JC_FAIL'), 'a
 SELECT rt.eq('a busy attempt remains a call', rt.cclass('JC_BUSY'), 'attempt|true|false|false|false');
 SELECT rt.eq('a refused admission is a proven non-attempt', rt.cclass('JC8n'), 'non_attempt|false|false|false|false');
 SELECT rt.eq('no admission row is unverified, not an attempt', rt.cclass('JC7u'), 'unverified|false|false|false|false');
+-- PR #515 agreement (rolled back): the projection follows the signed admission on every calls write; v3 reads the signed
+-- row itself. A refused or missing admission is never a call in either; an admission recorded after the last calls write
+-- leaves the projection stale until the next write, and only then do v2 and v3 differ (v3 follows the signed evidence).
+SAVEPOINT pr515;
+INSERT INTO rt.v3_ids VALUES ('PX_ADM', 'c3f5ff00-0000-0000-0000-000000000001'), ('PX_REF', 'c3f5ff00-0000-0000-0000-000000000002'),
+  ('PX_UNV', 'c3f5ff00-0000-0000-0000-000000000003'), ('PX_STALE', 'c3f5ff00-0000-0000-0000-000000000004'),
+  ('PX_LEG', 'c3f5ff00-0000-0000-0000-000000000005'), ('PX_IN', 'c3f5ff00-0000-0000-0000-000000000006');
+INSERT INTO public.calls (id, organization_id, agent_id, direction, created_at, duration, status, dialer_admission_required)
+SELECT rt.v3(k.name), rt.v3('J'), rt.v3('JA1'), k.dir, '2026-10-20 18:00+00'::timestamptz + k.n * interval '1 minute', 60, 'completed', k.req
+  FROM (VALUES (1, 'PX_ADM', 'outbound', true), (2, 'PX_REF', 'outbound', true), (3, 'PX_UNV', 'outbound', true),
+               (4, 'PX_STALE', 'outbound', true), (5, 'PX_LEG', 'outbound', false), (6, 'PX_IN', 'inbound', false)) AS k(n, name, dir, req);
+INSERT INTO private.dialer_outbound_admissions (organization_id, call_id, parent_sid, destination, admitted, reason)
+VALUES (rt.v3('J'), rt.v3('PX_ADM'), 'PS-PX_ADM', '+13105550000', true, NULL),
+       (rt.v3('J'), rt.v3('PX_REF'), 'PS-PX_REF', '+13105550000', false, 'dnc'),
+       (rt.v3('J'), rt.v3('PX_STALE'), 'PS-PX_STALE', '+13105550000', true, NULL);
+-- The provider status callback writes the call row after admission (as in production); the stale row gets no write.
+UPDATE public.calls SET status = 'completed' WHERE id IN (rt.v3('PX_ADM'), rt.v3('PX_REF'));
+CREATE FUNCTION rt.px(p_name text) RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT concat_ws('|', coalesce(c.dialer_provider_admitted::text, '-'),
+         (SELECT count(*) FROM private.report_call_facts(rt.v3('J'), '2026-10-20 07:00+00', '2026-10-21 07:00+00', NULL) v WHERE v.call_id = c.id),
+         (SELECT coalesce(f.attempt_class, f.direction_class) FROM private.report_v3_call_facts(rt.v3('J'), '2026-10-20 07:00+00', '2026-10-21 07:00+00') f
+           WHERE f.call_id = c.id))
+    FROM public.calls c WHERE c.id = rt.v3(p_name);
+$$;
+SELECT rt.eq('PR #515: provider-admitted outbound counts in v2 and is a v3 attempt', rt.px('PX_ADM'), 'true|1|attempt');
+SELECT rt.eq('PR #515: a refused admission is not a call in v2, and a disclosed non-attempt in v3', rt.px('PX_REF'), 'false|0|non_attempt');
+SELECT rt.eq('PR #515: no admission evidence is not a confirmed dial in v2, and unverified (kept as coverage) in v3', rt.px('PX_UNV'),
+  'false|0|unverified');
+SELECT rt.eq('PR #515: a legacy outbound row counts in both', rt.px('PX_LEG'), '-|1|attempt');
+SELECT rt.eq('PR #515: inbound rows are kept in both (journey evidence)', rt.px('PX_IN'), '-|1|inbound');
+SELECT rt.eq('PR #515: an admission recorded after the last calls write leaves the projection stale; v3 follows the signed row',
+  rt.px('PX_STALE'), 'false|0|attempt');
+UPDATE public.calls SET status = 'completed' WHERE id = rt.v3('PX_STALE');
+SELECT rt.eq('PR #515: the next calls write projects it, and v2 and v3 agree again', rt.px('PX_STALE'), 'true|1|attempt');
+ROLLBACK TO SAVEPOINT pr515;
 SELECT rt.eq('exactly 45 s is not contacted', rt.cclass('JC_45'), 'attempt|true|false|false|false');
 SELECT rt.eq('46 s is contacted', rt.cclass('JC_46'), 'attempt|true|true|false|true');
 SELECT rt.eq('No Answer at 100 s is not contacted', rt.cclass('JC_NA100'), 'attempt|true|false|false|false');

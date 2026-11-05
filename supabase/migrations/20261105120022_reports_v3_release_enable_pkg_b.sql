@@ -1,6 +1,6 @@
 -- =====================================================================================================
--- Reports V2 (v3) release enable, PKG-C state (contract 3.2.0). Privilege class E (plan §2.8).
--- Byte copy: supabase/migrations/20261104120033_reports_v3_release_enable_pkg_c.sql. The highest-version release-enable migration is byte-equal to
+-- Reports V2 (v3) release enable, PKG-B state (contract 3.1.0). Privilege class E (plan §2.8).
+-- Byte copy: supabase/migrations/20261105120022_reports_v3_release_enable_pkg_b.sql. The highest-version release-enable migration is byte-equal to
 -- supabase/ops/reports_v3_enable.sql; earlier ones are pinned by SHA-256 in scripts/reports_release.py.
 --
 -- 1. Pins: every function in the report closure (the 15 v2 pins, the 12 closure helpers, every private.report_v3_%
@@ -45,7 +45,7 @@ BEGIN
     ('private.report_access_v2(text,uuid)', 'a221335ae305cee01097bc796d5e7cdd', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_agency_time_zone(uuid)', '27feaed00c03895fce8bfd6b2cd24207', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_agent_name(text,text)', '23d45e5c19d951d0d663c629ed85c945', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_call_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])', 'bacbfd0629221957cae28ba28728c8bd', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
+    ('private.report_call_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])', '03b2c36446fb0b7dec0bac14b401a864', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_integrity_quality(uuid,timestamp with time zone,timestamp with time zone,uuid[])', 'c1355d551fba0cc2217150f5531d1b31', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_meta(text,uuid,text,text,date,date,timestamp with time zone,timestamp with time zone)', '6faa38495ac0bbd2d837c4c959cada25', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_monthly_amount(text)', '405647c4982f4b9475f834efa6f2beee', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
@@ -60,7 +60,7 @@ BEGIN
     ('private.report_v3_agent_call_stats(uuid,uuid[],timestamp with time zone,timestamp with time zone)', '9788eb3a871ccbe16529ed884b7d8ddb', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamp with time zone,timestamp with time zone,text,timestamp with time zone)', '65d10033c8a7c11b4cd2e907fb79abc4', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_attempt_kpis(jsonb)', 'd937e26e871ea5755200c4bf92c33c84', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_v3_basis_flags()', '3e24b2d732ed3a9fae76a529330330f9', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
+    ('private.report_v3_basis_flags()', '8be6613a0e47ff70a6e39add30caf593', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_call_counts(uuid,uuid[],timestamp with time zone,timestamp with time zone)', 'acfff57c1ff6f9007680bc839a4ce2bc', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_call_facts(uuid,timestamp with time zone,timestamp with time zone)', 'ec935ad4f9c9a313f9a6b6377173d97c', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_call_kpis(jsonb,numeric)', '17afab4defdf73a654f6e7af79d5f01e', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
@@ -94,7 +94,7 @@ BEGIN
     ('private.report_v3_reason_codes()', '18c6401749d2f38038d551b45f6da47b', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_reason_kind(text)', 'b6f308598b1415c69284fcff14a6a5a3', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_roster(uuid,uuid[],uuid,uuid[])', '25d91bbbbf02fc94bba5db867da51d52', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_v3_sale_call_links(uuid,timestamp with time zone)', 'c4663a1cbe444794e506616f0bd57004', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
+    ('private.report_v3_sale_call_links(uuid,timestamp with time zone)', '524305fb5f52be8b0dc92d4e9815371f', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_sale_facts(uuid,uuid[],date,date)', '58f733c509f2fa9c9558779169810a47', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_sale_premium(public.wins,numeric)', '7210ea4fcb18d8c08dc7458fb0c9ddc0', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_session_quality(uuid,timestamp with time zone,timestamp with time zone,uuid[])', '069dabf0ab83e0002a508133a75bf1c5', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
@@ -220,8 +220,8 @@ BEGIN
   IF v_drift IS NOT NULL THEN
     RAISE EXCEPTION 'Reports v3 enable: pinned function outside the report closure: %', v_drift;
   END IF;
-  IF private.report_v3_basis_flags() ->> 'contract_version' IS DISTINCT FROM '3.2.0' THEN
-    RAISE EXCEPTION 'Reports v3 enable: contract version is not 3.2.0';
+  IF private.report_v3_basis_flags() ->> 'contract_version' IS DISTINCT FROM '3.1.0' THEN
+    RAISE EXCEPTION 'Reports v3 enable: contract version is not 3.1.0';
   END IF;
 
   FOR f IN SELECT p.oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace

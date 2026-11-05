@@ -1,4 +1,4 @@
--- Rollback for 20261104120031_policy_sale_call_link_capture (D3 §8). Class C: no GRANT.
+-- Rollback for 20261105120031_policy_sale_call_link_capture (D3 §8). Class C: no GRANT.
 -- Disables capture without breaking a sale: the _v2 handoffs stay callable and return source_call_link
 -- {status: 'disabled'}; the retry RPC and the status read are sealed. Links and failure records are kept (never
 -- dropped). Re-enabling is a new reviewed migration, never a replay of …31.

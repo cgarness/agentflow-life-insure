@@ -62,7 +62,7 @@ SELECT rt.eq('V1 a genuine failed attempt stays counted (RC4: no outcome, 0 s, n
   '1 1 1');
 
 -- -----------------------------------------------------------------------------------------------------
--- V9: v2 is unchanged, and v2 calls_made − v3 KPI 5 = non_attempts + unverified (2 = 1 + 1).
+-- V9: v2 keeps its pinned bodies, and production v2 calls_made (PR #515) = v3 KPI 5.
 -- -----------------------------------------------------------------------------------------------------
 SELECT rt.eq('V9 v2 readers keep their pinned bodies',
   (SELECT string_agg(p.proname || ':' || md5(p.prosrc), ' ' ORDER BY p.proname COLLATE "C") FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -70,10 +70,13 @@ SELECT rt.eq('V9 v2 readers keep their pinned bodies',
   'get_report_call_summary_v2:23c21fa14b07edaeaa3901e76b243d66 get_report_call_volume_v2:a4a5e82f36e124fa8ee9d581229ef455 '
   || 'get_report_campaign_performance_v2:8d8bee228b2bed67076e2547f506264d get_report_disposition_breakdown_v2:ae4611201b9add696bfd92f4576fdd7b '
   || 'get_report_lead_source_performance_v2:8d85fff93300966502964b500eb46166 get_report_scope_v2:26a2d64831975668a492dfda2e369aac');
-SELECT rt.eq('V9 v2 calls_made − v3 KPI 5 = non_attempts + unverified',
-  (rt.call(rt.v3('ADM1'), rt.v3('O1'), $q$SELECT public.get_report_call_summary_v2('2026-10-01', '2026-10-31', NULL, 'agency')$q$) #>> '{totals,calls_made}')::int
-    - rt.kpi(rt.v3r('ADM1', 'summary'), 5)::int,
-  1 + 1);
+-- Production v2 since PR #515 (20261105051037) drops refused and unverified admissions, so it now equals v3 KPI 5;
+-- v3 still discloses those rows as call_population coverage (independent counts: 10 attempts, 1 refused, 1 unverified).
+SELECT rt.eq('V9 v2 calls_made (PR #515) = v3 KPI 5 = 10; v3 still discloses 1 non-attempt and 1 unverified',
+  (rt.call(rt.v3('ADM1'), rt.v3('O1'), $q$SELECT public.get_report_call_summary_v2('2026-10-01', '2026-10-31', NULL, 'agency')$q$) #>> '{totals,calls_made}')
+    || '|' || rt.kpi(rt.v3r('ADM1', 'summary'), 5) || '|' || (rt.v3r('ADM1', 'call_volume') #>> '{call_population,non_attempts}')
+    || '|' || (rt.v3r('ADM1', 'call_volume') #>> '{call_population,unverified}'),
+  '10|10|1|1');
 
 -- -----------------------------------------------------------------------------------------------------
 -- V4: hidden campaigns contribute only through "Other campaigns" (no id, name or type); V6 call-only

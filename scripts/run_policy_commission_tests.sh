@@ -509,9 +509,9 @@ if [ "${PC_MEASURE:-}" = 1 ]; then
   DB_URL="$DB_URL" bash "$ROOT/scripts/tests/policy_commission/measure_center_reads.sh"
 fi
 # ── 6. Reports V2 PKG-C producing-call capture (D3 §3.6, §7): guards, suite L1-L16, rollback, regressions, boundaries ──
-CALL_LINKS="$ROOT/supabase/migrations/20261104120030_policy_sale_call_links.sql"
-CALL_CAPTURE="$ROOT/supabase/migrations/20261104120031_policy_sale_call_link_capture.sql"
-CALL_CAPTURE_ROLLBACK="$ROOT/supabase/migrations/rollback/20261104120031_policy_sale_call_link_capture.rollback.sql"
+CALL_LINKS="$ROOT/supabase/migrations/20261105120030_policy_sale_call_links.sql"
+CALL_CAPTURE="$ROOT/supabase/migrations/20261105120031_policy_sale_call_link_capture.sql"
+CALL_CAPTURE_ROLLBACK="$ROOT/supabase/migrations/rollback/20261105120031_policy_sale_call_link_capture.rollback.sql"
 # The production column calls.voicemail_id (20260915053646) is not in the commission fixture; added for these proofs.
 voicemail_column() { sql -c "ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS voicemail_id uuid" >/dev/null; }
 pkgc_db() { new_db "$1" ${2:-}; voicemail_column; sql -1 -f "$CALL_LINKS" >/dev/null; sql -1 -f "$CALL_CAPTURE" >/dev/null; }

@@ -1,4 +1,4 @@
--- Rollback for 20261104120042_policy_appointment_attributions (D4 §8). Privilege class C: no GRANT.
+-- Rollback for 20261105120042_policy_appointment_attributions (D4 §8). Privilege class C: no GRANT.
 -- Drops the three RPCs and closes the attribution capture window. The attributions table and every row are kept.
 -- Refuses while the …43 reader body (which reads the attributions) is installed.
 SET LOCAL lock_timeout = '2s';

@@ -1,4 +1,4 @@
--- Rollback for 20261104120040_appointment_type_categories (D4 §3.2). Privilege class C: no GRANT.
+-- Rollback for 20261105120040_appointment_type_categories (D4 §3.2). Privilege class C: no GRANT.
 -- Drops the guard and audit triggers and their functions only. The business_category column, its CHECK and the audit
 -- history are kept, so captured snapshots and the audited type history survive. Refuses while the evidence capture
 -- capture (…41) is still installed.

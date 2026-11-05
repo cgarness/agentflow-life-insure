@@ -31,7 +31,7 @@ BEGIN
     -- The 15 v2 pins (supabase/ops/reports_integrity_enable.sql).
     ('private.report_session_facts(uuid,timestamptz,timestamptz,uuid[])', '245c7ce4f7bf47f6347595822f70a947', false, 's'),
     ('private.report_session_seconds(uuid,timestamptz,timestamptz,uuid[])', '3d33b720751a1913c81ad284ae6ffd43', true, 's'),
-    ('private.report_call_facts(uuid,timestamptz,timestamptz,uuid[])', 'bacbfd0629221957cae28ba28728c8bd', true, 's'),
+    ('private.report_call_facts(uuid,timestamptz,timestamptz,uuid[])', '03b2c36446fb0b7dec0bac14b401a864', true, 's'),
     ('public.get_report_call_summary(date,date,uuid)', '34cdfab92f6acaa5a383c743088c1720', true, 's'),
     ('private.report_integrity_quality(uuid,timestamptz,timestamptz,uuid[])', 'c1355d551fba0cc2217150f5531d1b31', false, 's'),
     ('private.report_access_v2(text,uuid)', 'a221335ae305cee01097bc796d5e7cdd', true, 's'),

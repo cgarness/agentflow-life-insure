@@ -1,6 +1,6 @@
 -- =====================================================================================================
 -- Reports V2 (v3) release enable, PKG-D state (contract 3.3.0). Privilege class E (plan §2.8).
--- Byte copy: supabase/migrations/20261104120044_reports_v3_release_enable_pkg_d.sql. The highest-version release-enable migration is byte-equal to
+-- Byte copy: supabase/migrations/20261105120044_reports_v3_release_enable_pkg_d.sql. The highest-version release-enable migration is byte-equal to
 -- supabase/ops/reports_v3_enable.sql; earlier ones are pinned by SHA-256 in scripts/reports_release.py.
 --
 -- 1. Pins: every function in the report closure (the 15 v2 pins, the 12 closure helpers, every private.report_v3_%
@@ -51,7 +51,7 @@ BEGIN
     ('private.report_access_v2(text,uuid)', 'a221335ae305cee01097bc796d5e7cdd', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_agency_time_zone(uuid)', '27feaed00c03895fce8bfd6b2cd24207', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_agent_name(text,text)', '23d45e5c19d951d0d663c629ed85c945', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_call_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])', 'bacbfd0629221957cae28ba28728c8bd', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
+    ('private.report_call_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])', '03b2c36446fb0b7dec0bac14b401a864', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_integrity_quality(uuid,timestamp with time zone,timestamp with time zone,uuid[])', 'c1355d551fba0cc2217150f5531d1b31', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_meta(text,uuid,text,text,date,date,timestamp with time zone,timestamp with time zone)', '6faa38495ac0bbd2d837c4c959cada25', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_monthly_amount(text)', '405647c4982f4b9475f834efa6f2beee', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),

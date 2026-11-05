@@ -128,10 +128,10 @@ V3_READERS = ['public.get_report_scope_v3(text)'] + [f'public.get_report_{r}_v3(
     'summary', 'journey', 'sales_appointments', 'state_breakdown', 'call_volume', 'disposition_breakdown',
     'campaign_calls', 'lead_source_calls')]
 ENABLE_PACKAGES = {  # package → (release-enable migration, contract version)
-    'A': ('20261104120017_reports_v3_release_enable.sql', '3.0.0'),
-    'B': ('20261104120022_reports_v3_release_enable_pkg_b.sql', '3.1.0'),
-    'C': ('20261104120033_reports_v3_release_enable_pkg_c.sql', '3.2.0'),
-    'D': ('20261104120044_reports_v3_release_enable_pkg_d.sql', '3.3.0')}
+    'A': ('20261105120017_reports_v3_release_enable.sql', '3.0.0'),
+    'B': ('20261105120022_reports_v3_release_enable_pkg_b.sql', '3.1.0'),
+    'C': ('20261105120033_reports_v3_release_enable_pkg_c.sql', '3.2.0'),
+    'D': ('20261105120044_reports_v3_release_enable_pkg_d.sql', '3.3.0')}
 
 
 def closure_cte(indent='  '):
@@ -318,8 +318,29 @@ def release_steps(package):
         yield f'disable-v3 after re-enable (PKG-{package})', v2.read('supabase/ops/reports_v3_disable.sql') + 'SELECT rt.assert_sealed_v3(true, false);'
 
 
+PR515_RELIABILITY = 'supabase/migrations/20261105051018_dialer_reliability.sql'
+PR515_COUNTS = 'supabase/migrations/20261105051037_dialer_admitted_call_counts.sql'
+
+
+def pr515_v2_state():
+    """Production's PR #515 v2 state, verbatim (both migrations are applied in production): the signed-admission
+    projection (calls.dialer_provider_admitted, its BEFORE INSERT OR UPDATE trigger and the backfill) from …051018, and
+    the admitted-call report_call_facts from …051037. The rest of those files touches dialer functions that the Reports
+    fixture does not hold; it is proven by scripts/tests/dialer-reliability."""
+    reliability = v2.read(PR515_RELIABILITY)
+    a = reliability.index('ALTER TABLE public.calls ADD COLUMN dialer_provider_admitted boolean;')
+    end = 'WHERE c.organization_id=a.organization_id AND c.id=a.call_id AND c.dialer_admission_required;'
+    projection = reliability[a:reliability.index(end, a) + len(end)]
+    counts = v2.read(PR515_COUNTS)
+    b = counts.index('CREATE OR REPLACE FUNCTION private.report_call_facts(')
+    reader = counts[b:counts.index('\n$function$\n', b) + len('\n$function$\n')] + ';'
+    return '\n'.join([projection, reader,
+        "SELECT rt.eq('PR #515 report_call_facts is the production body', md5(prosrc), '03b2c36446fb0b7dec0bac14b401a864') "
+        "FROM pg_proc WHERE oid = 'private.report_call_facts(uuid,timestamptz,timestamptz,uuid[])'::regprocedure;"])
+
+
 CORRECTION_SUITE = 'supabase/tests/policy_sale_premium_correction.sql'
-CORRECTION_ROLLBACK = 'supabase/migrations/rollback/20261104120020_policy_sale_premium_corrections.rollback.sql'
+CORRECTION_ROLLBACK = 'supabase/migrations/rollback/20261105120020_policy_sale_premium_corrections.rollback.sql'
 MANIFEST_CHECK = 'supabase/ops/reporting-accuracy/check_sale_correction_manifest.sql'
 # md5(pg_get_functiondef) postimages (D2 §3.7): PKG-A (…10, …11, live choke point) and PKG-B (…21).
 PKG_A_BASIS = {'report_v3_sale_premium(public.wins,numeric)': '37800ccc8ada2fae26b86dd5a610eb09',
@@ -448,20 +469,20 @@ def pkg_d_steps(back=False):
     yield 'PKG-D appointment dependencies (verbatim baseline objects)', appointment_dependencies()
     yield 'appointment facts refuse to run before the evidence and attributions', v2.refused(
         facts, 'Reports v3 appointment facts: the appointment evidence (…41) and attributions (…42) must be applied first')
-    yield '20261104120040_appointment_type_categories', categories
+    yield '20261105120040_appointment_type_categories', categories
     yield 'seeded appointment types for the v3 organizations', 'SELECT public.seed_default_appointment_types(id) FROM public.organizations ORDER BY id;'
-    yield '20261104120041_appointment_occurrence_evidence', evidence
+    yield '20261105120041_appointment_occurrence_evidence', evidence
     yield 'attributions refuse appointments_select drift', v2.refused(
         "ALTER POLICY appointments_select ON public.appointments USING (organization_id = public.get_org_id());" + links,
         'Policy appointment attributions: appointments_select drift')
-    yield '20261104120042_policy_appointment_attributions', links
+    yield '20261105120042_policy_appointment_attributions', links
     yield 'attributions replay refuses', v2.refused(links, 'Policy appointment attributions: refusing replay')
     yield 'appointment facts refuse while Reports v3 is enabled', v2.refused(v3_on + facts, 'Reports v3 appointment facts: Reports v3 must be disabled first')
     yield 'appointment facts refuse stub drift', v2.refused(
         'ALTER FUNCTION private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamptz,timestamptz,text,timestamptz) COST 101;\n' + facts,
         'Reports v3 appointment facts: stub or basis flags preimage drift')
     yield 'policy appointment attribution regressions (rolled back)', v2.read('supabase/tests/policy_appointment_attributions.sql')
-    yield '20261104120043_reports_v3_appointment_facts', facts
+    yield '20261105120043_reports_v3_appointment_facts', facts
     yield 'appointment facts replay refuses', v2.refused(facts, 'Reports v3 appointment facts: refusing replay')
     yield from release_steps('D')
     yield 'v3 sales appointments on captured evidence (rolled back)', appointment_facts_suite()[1]
@@ -499,7 +520,7 @@ def pkg_b_steps(then=lambda: (), keep=None):
                    "(to_regprocedure('private.policy_sale_effective_premium(public.wins,numeric)') IS NOT NULL), 'false:false:true');")
     yield 'sale premium basis refuses to run before the corrections ledger', v2.refused(
         basis, 'Reports v3 sale premium basis: the corrections ledger (…20) must be applied first')
-    yield '20261104120020_policy_sale_premium_corrections', corrections
+    yield '20261105120020_policy_sale_premium_corrections', corrections
     yield 'sale premium basis refuses while Reports v3 is enabled', v2.refused(
         v3_on + basis, 'Reports v3 sale premium basis: Reports v3 must be disabled first')
     yield 'sale premium basis refuses sale premium stub drift', v2.refused(
@@ -507,7 +528,7 @@ def pkg_b_steps(then=lambda: (), keep=None):
         'Reports v3 sale premium basis: PKG-A preimage drift')
     yield 'sale premium basis refuses basis flags drift', v2.refused(
         flags_drift + basis, 'Reports v3 sale premium basis: PKG-A preimage drift')
-    yield '20261104120021_reports_v3_sale_premium_basis', basis
+    yield '20261105120021_reports_v3_sale_premium_basis', basis
     yield 'sale premium basis postimages', basis_state('PKG-B postimages in place', PKG_B_BASIS)
     yield 'sale premium basis replay refuses', v2.refused(basis, 'Reports v3 sale premium basis: refusing replay')
     yield from release_steps('B')
@@ -566,7 +587,7 @@ def pkg_b_steps(then=lambda: (), keep=None):
 
 
 CALL_LINK_SUITE = 'supabase/tests/policy_sale_call_links.sql'
-CALL_LINK_WINDOW_ROLLBACK = 'supabase/migrations/rollback/20261104120032_reports_v3_sale_call_links.rollback.sql'
+CALL_LINK_WINDOW_ROLLBACK = 'supabase/migrations/rollback/20261105120032_reports_v3_sale_call_links.rollback.sql'
 LINK_STUB = 'report_v3_sale_call_links(uuid,timestamptz)'
 PKG_C_BASIS = {LINK_STUB: '998bad67912edf1d113b4f72417520d7', 'report_v3_basis_flags()': '9c6c9d5e9a2ca2b985e027e72cd5e10d'}
 PKG_C_PREIMAGE = {LINK_STUB: '769d31d180bf61264b0609e87b3ea24f', 'report_v3_basis_flags()': '67c6a60a1004b4596a4a61487a41d17b'}
@@ -595,7 +616,7 @@ def pkg_c_steps(back=False):
         return
     yield 'sale call links window refuses to run before the link table', v2.refused(
         window, 'Reports v3 sale call links: the link table (…30) must be applied first')
-    yield '20261104120030_policy_sale_call_links', links
+    yield '20261105120030_policy_sale_call_links', links
     yield 'sale call links replay refuses', v2.refused(links, 'Sale call links: refusing replay')
     yield 'sale call links window rollback refuses before the window', v2.refused(
         rollback, 'Reports v3 sale call links rollback: the …32 postimages are not in place')
@@ -605,7 +626,7 @@ def pkg_c_steps(back=False):
         'ALTER FUNCTION private.report_v3_sale_call_links(uuid,timestamptz) COST 101;\n' + window, 'Reports v3 sale call links: preimage drift')
     yield 'sale call links window refuses basis flags drift', v2.refused(
         flags_drift + window, 'Reports v3 sale call links: preimage drift')
-    yield '20261104120032_reports_v3_sale_call_links', window
+    yield '20261105120032_reports_v3_sale_call_links', window
     yield 'sale call links window postimages', basis_state('PKG-C postimages in place', PKG_C_BASIS)
     yield 'sale call links window replay refuses', v2.refused(window, 'Reports v3 sale call links: refusing replay')
     yield from release_steps('C')
@@ -646,6 +667,8 @@ def steps():
     yield 'verbatim premium choke point (20261005161623)', premium_choke_point()
     yield 'v3 synthetic fixtures', v2.read('supabase/tests/reports_v3_fixtures.sql')
     yield 'v3 call and journey fixtures', v2.read('supabase/tests/reports_v3_journey_fixtures.sql')
+    # After the synthetic history loads, as in production: …051018's backfill projects the signed admissions that exist.
+    yield 'production PR #515 v2 state (signed-admission projection, admitted-call report_call_facts)', pr515_v2_state()
     yield 'preflight (read only) passes before v3', no_transaction(v2.read('supabase/ops/reports_v3_preflight.sql'))
     yield 'disable-v3 refuses before any v3 reader exists', v2.refused(
         v2.read('supabase/ops/reports_v3_disable.sql'), 'Reports v3 disable: no v3 reader exists; refusing')
@@ -665,14 +688,14 @@ def steps():
     yield 'foundation refuses v2 reader drift', v2.refused(
         'ALTER FUNCTION public.get_report_scope_v2(text) SET search_path = public;' + foundation,
         'Reports v3 foundation: v2 or closure preimage drift')
-    yield '20261104120010_reports_v3_foundation', foundation
+    yield '20261105120010_reports_v3_foundation', foundation
     yield 'foundation replay refuses', v2.refused(foundation, 'Reports v3 foundation: refusing replay')
     yield 'call journey refuses to run before sale facts', v2.refused(call_journey, 'Reports v3 call journey: the foundation')
     yield 'v3 contract', contract_head
     yield 'sale facts refuse premium choke-point drift', v2.refused(
         'ALTER FUNCTION private.performance_sale_monthly(public.wins,numeric) SECURITY DEFINER;' + sale_facts,
         'Reports v3 sale facts: premium choke point drift')
-    yield '20261104120011_reports_v3_sale_facts', sale_facts
+    yield '20261105120011_reports_v3_sale_facts', sale_facts
     yield 'sale facts replay refuses', v2.refused(sale_facts, 'Reports v3 sale facts: refusing replay')
     yield 'v3 sale facts', v2.read('supabase/tests/reports_v3_sale_facts.sql')
     yield 'appointment stub refuses to run before the call and journey helpers', v2.refused(
@@ -680,7 +703,7 @@ def steps():
     yield 'call journey refuses v2 call reader drift', v2.refused(
         'ALTER FUNCTION private.report_call_facts(uuid,timestamptz,timestamptz,uuid[]) SECURITY INVOKER;' + call_journey,
         'Reports v3 call journey: v2 call reader drift')
-    yield '20261104120012_reports_v3_call_journey_helpers', call_journey
+    yield '20261105120012_reports_v3_call_journey_helpers', call_journey
     yield 'call journey replay refuses', v2.refused(call_journey, 'Reports v3 call journey: refusing replay')
     yield 'v3 calls and identity', v2.read('supabase/tests/reports_v3_calls_identity.sql')
     yield 'v3 journeys', v2.read('supabase/tests/reports_v3_journey.sql')
@@ -694,7 +717,7 @@ def steps():
         "DO $drift$ BEGIN EXECUTE replace(pg_get_functiondef('private.report_v3_kpi_ids(text)'::regprocedure), "
         "'ARRAY[12, 15, 16, 17, 18]', 'ARRAY[12, 15, 16, 18, 17]'); END $drift$;" + appointment_stub,
         'Reports v3 appointment stub: contract drift')
-    yield '20261104120013_reports_v3_appointment_facts_stub', appointment_stub
+    yield '20261105120013_reports_v3_appointment_facts_stub', appointment_stub
     yield 'appointment stub replay refuses', v2.refused(appointment_stub, 'Reports v3 appointment stub: refusing replay')
     for label, alteration in [
             ('a changed body', "'WHEN ''texas''               THEN ''TX''', 'WHEN ''texas''               THEN ''OK'''"),
@@ -707,7 +730,7 @@ def steps():
         'ALTER TABLE public.campaign_leads DROP COLUMN state;' + state_helpers,
         'Reports v3 state helpers: dependency column missing: public.campaign_leads.state')
     yield 'readers refuse to run before the state helpers', v2.refused(readers, 'Reports v3 readers: the helpers (…10 to …14)')
-    yield '20261104120014_reports_v3_state_helpers', state_helpers
+    yield '20261105120014_reports_v3_state_helpers', state_helpers
     yield 'state helpers replay refuses', v2.refused(state_helpers, 'Reports v3 state helpers: refusing replay')
     yield 'readers refuse v2 reader drift', v2.refused(
         'ALTER FUNCTION public.get_report_call_volume_v2(date,date,uuid,text) SET search_path = public;' + readers,
@@ -715,7 +738,7 @@ def steps():
     yield 'readers refuse closure-helper drift', v2.refused(
         'ALTER FUNCTION private.report_visible_campaigns(uuid) SECURITY DEFINER;' + readers,
         'Reports v3 readers: v2 or closure preimage drift: private.report_visible_campaigns')
-    yield '20261104120015_reports_v3_readers', readers
+    yield '20261105120015_reports_v3_readers', readers
     yield 'readers replay refuses', v2.refused(readers, 'Reports v3 readers: refusing replay')
     yield 'v3 readers are created sealed', 'SELECT rt.assert_sealed(true); SELECT rt.assert_sealed_v3(true, false); SELECT rt.assert_v3_helper_shape();'
     # The concurrent index, run as the release runner will: outside a transaction, lock_timeout 2s, then the
@@ -733,7 +756,7 @@ def steps():
     yield 'index file keeps the invalid leftover (IF NOT EXISTS)', no_transaction(run_index)
     yield 'index check refuses the invalid leftover', "SELECT rt.expect_sql_failure('SELECT rt.v3_index_check()', 'report_v3_calls_org_campaign_lead is not valid');"
     yield 'invalid index leftover removed', no_transaction('DROP INDEX public.report_v3_calls_org_campaign_lead;')
-    yield '20261104120016_reports_v3_calls_campaign_lead_index', no_transaction(run_index)
+    yield '20261105120016_reports_v3_calls_campaign_lead_index', no_transaction(run_index)
     yield 'index definition and validity', 'SELECT rt.v3_index_check();'
     yield 'v3 appointment facts', appointment_facts_suite()[0]
     yield 'v3 state helpers and reader', v2.read('supabase/tests/reports_v3_state_breakdown.sql')

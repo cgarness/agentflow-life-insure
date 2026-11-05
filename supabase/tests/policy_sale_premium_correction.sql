@@ -1,5 +1,5 @@
 -- PKG-B audited sale premium corrections (D2 §3.3-§3.6, §6, §9). Synthetic fixtures only, on the reporting fixture's
--- verbatim sale writers (scripts/reporting_fixture.py policy mode) after 20261104120020 is applied.
+-- verbatim sale writers (scripts/reporting_fixture.py policy mode) after 20261105120020 is applied.
 -- The two RPCs are sealed by …20 (class C); they are granted to authenticated only inside this step and revoked at
 -- its end, the way …21 will grant them.
 

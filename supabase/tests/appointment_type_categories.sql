@@ -1,5 +1,5 @@
 -- PKG-D appointment type categories (D4 §3.2, §7). Synthetic organizations only (reporting_fixture.py appointments
--- mode), after 20261104120040 and before the category baseline. The six seeded orgs' 36 locked defaults predate …40,
+-- mode), after 20261105120040 and before the category baseline. The six seeded orgs' 36 locked defaults predate …40,
 -- so they are still unclassified.
 SELECT test_assert((SELECT count(*) = 36 AND bool_and(business_category = 'unclassified') FROM appointment_types), '36 pre-…40 defaults stay unclassified');
 SELECT test_assert(NOT has_function_privilege(r, f, 'EXECUTE'), r || ' cannot execute ' || f)

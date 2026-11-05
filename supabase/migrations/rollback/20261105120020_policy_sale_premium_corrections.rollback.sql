@@ -1,4 +1,4 @@
--- Rollback for 20261104120020_policy_sale_premium_corrections (D2 §10). Privilege class C: no GRANT.
+-- Rollback for 20261105120020_policy_sale_premium_corrections (D2 §10). Privilege class C: no GRANT.
 -- It runs only while Reports v3 is disabled. It always seals the correction writer and the history reader.
 -- With an empty ledger and the PKG-B postimages still in place (…20's private.performance_sale_monthly, and either
 -- the PKG-A or, after …21, the PKG-B bodies of private.report_v3_sale_premium and private.report_v3_basis_flags), it

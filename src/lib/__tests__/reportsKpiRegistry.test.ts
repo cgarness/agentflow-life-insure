@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_STRIP_KPIS, HIGHLIGHT_KPIS, KPI_REGISTRY, PRODUCTION_KPIS, sqlFields } from "@/lib/reports-kpi-registry";
 import { READER_KPI_IDS, REPORT_V3_KPI_IDS } from "@/lib/reports-v3-schemas";
 
-const foundation = readFileSync("supabase/migrations/20261104120010_reports_v3_foundation.sql", "utf8");
+const foundation = readFileSync("supabase/migrations/20261105120010_reports_v3_foundation.sql", "utf8");
 const sqlRegistry = JSON.parse(foundation.match(/\$registry\$([\s\S]*?)\$registry\$/)![1]);
 
 describe("KPI registry", () => {

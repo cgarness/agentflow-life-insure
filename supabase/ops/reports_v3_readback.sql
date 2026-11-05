@@ -16,7 +16,7 @@
 --    agent-filter scope, each as the matching actor of the busiest organization that has one (team is skipped, with a
 --    notice, only when no Team Leader has an active downline): each response is a v3 payload of the installed
 --    contract and each read takes at most 4 s (the statement limit is 60 s per scope).
--- 5. §2.10 invariant at agency scope: v2 calls_made − v3 KPI 5 = non_attempts + unverified.
+-- 5. §2.10 invariant at agency scope since PR #515 (v2 counts only admitted or legacy rows): v2 calls_made = v3 KPI 5.
 -- Payloads never leave the transaction; only the check that failed is reported.
 -- =====================================================================================================
 BEGIN TRANSACTION READ ONLY;
@@ -98,10 +98,10 @@ BEGIN
     INTO v_count, v_md5, v_owner
     FROM report_closure c JOIN pg_proc p ON p.oid = c.oid;
   IF (v_contract, v_count, v_md5) NOT IN (VALUES
-      ('3.0.0', 88::bigint, 'eb073e36ec1ef37eacfd1b9a162b3afa'),
-      ('3.1.0', 88::bigint, 'cbbba0e89ad15d28f77b4e2bc9aacfdb'),
-      ('3.2.0', 88::bigint, '6ef7697afd9ca9195079f767f891470b'),
-      ('3.3.0', 97::bigint, '60276040ffd4d8acfd5425deadd5349d')) THEN
+      ('3.0.0', 88::bigint, 'b000f93832fb6ac2f8b5aba75d696627'),
+      ('3.1.0', 88::bigint, '7df7ed61c61a3559956b375386f04002'),
+      ('3.2.0', 88::bigint, '32b9875eafb1d5e1cf75920f501459cf'),
+      ('3.3.0', 97::bigint, 'c5f3fb976d27f5dafad346066bb043b9')) THEN
     RAISE EXCEPTION 'Reports v3 read-back: report closure does not match the harness pins for contract %', v_contract;
   END IF;
   IF v_owner <> 0 THEN
@@ -221,11 +221,9 @@ BEGIN
   IF v_scope = 'agency' AND v_agent IS NULL THEN
     EXECUTE format('SELECT public.get_report_call_summary_v2(%L::date, %L::date, NULL, %L)', v_start, v_end, v_scope) INTO v_payload;
     IF (v_payload #>> '{totals,calls_made}')::bigint
-       - (SELECT (e ->> 'value')::bigint FROM jsonb_array_elements(public.get_report_summary_v3(v_start, v_end, NULL, v_scope) -> 'metrics') e
-           WHERE (e ->> 'id')::int = 5)
-       IS DISTINCT FROM (SELECT (x.pop ->> 'non_attempts')::bigint + (x.pop ->> 'unverified')::bigint
-                           FROM (SELECT public.get_report_call_volume_v3(v_start, v_end, NULL, v_scope) -> 'call_population' AS pop) x) THEN
-      RAISE EXCEPTION 'Reports v3 read-back: v2 calls_made − v3 KPI 5 is not non_attempts + unverified';
+       IS DISTINCT FROM (SELECT (e ->> 'value')::bigint FROM jsonb_array_elements(public.get_report_summary_v3(v_start, v_end, NULL, v_scope) -> 'metrics') e
+                          WHERE (e ->> 'id')::int = 5) THEN
+      RAISE EXCEPTION 'Reports v3 read-back: v2 calls_made (PR #515) is not v3 KPI 5';
     END IF;
   END IF;
   EXECUTE 'RESET ROLE';

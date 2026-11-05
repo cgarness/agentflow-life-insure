@@ -1,4 +1,4 @@
--- Rollback for 20261104120032_reports_v3_sale_call_links (D3 §8). Class C: no GRANT.
+-- Rollback for 20261105120032_reports_v3_sale_call_links (D3 §8). Class C: no GRANT.
 -- Runs only while Reports v3 is disabled and only from the exact …32 postimages. It restores the PKG-A link stub and
 -- the PKG-B (…21) basis flags byte for byte; links stay stored (KPI 38 returns to sale_call_link_not_captured).
 SET LOCAL lock_timeout = '2s';

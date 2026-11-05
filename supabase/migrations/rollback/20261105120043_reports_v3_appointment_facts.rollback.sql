@@ -1,4 +1,4 @@
--- Rollback for 20261104120043_reports_v3_appointment_facts (D4 §8). Privilege class C: no GRANT. Runs only while
+-- Rollback for 20261105120043_reports_v3_appointment_facts (D4 §8). Privilege class C: no GRANT. Runs only while
 -- Reports v3 is disabled. It restores the exact …13 stub and the PKG-C basis flags (3.2.0), then drops the helpers
 -- …43 added. Evidence and attributions are kept. Refuses unless the …43 postimages are in place (a later package that
 -- replaced the flags needs its own reviewed rollback).

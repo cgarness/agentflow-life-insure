@@ -1,5 +1,5 @@
 // PKG-C producing-call capture: multi-session failure boundaries (D3 §2.12, §7). Disposable policy commission test
-// database only (scripts/run_policy_commission_tests.sh, after 20261104120030/…31). Synthetic data.
+// database only (scripts/run_policy_commission_tests.sh, after 20261105120030/…31). Synthetic data.
 //   T-LOCK    a held lock on the link table: the sale commits, the link fails within the 100ms bound and is recorded
 //   T-CANCEL  a statement cancelled while the sale waits: the whole call rolls back (no sale, link or failure row)
 //   T-REPLAY  the same request afterwards: the handoff and the link step both run

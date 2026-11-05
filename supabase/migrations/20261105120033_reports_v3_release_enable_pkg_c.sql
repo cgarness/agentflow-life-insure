@@ -1,6 +1,6 @@
 -- =====================================================================================================
--- Reports V2 (v3) release enable, PKG-D state (contract 3.3.0). Privilege class E (plan §2.8).
--- Byte copy: supabase/migrations/20261104120044_reports_v3_release_enable_pkg_d.sql. The highest-version release-enable migration is byte-equal to
+-- Reports V2 (v3) release enable, PKG-C state (contract 3.2.0). Privilege class E (plan §2.8).
+-- Byte copy: supabase/migrations/20261105120033_reports_v3_release_enable_pkg_c.sql. The highest-version release-enable migration is byte-equal to
 -- supabase/ops/reports_v3_enable.sql; earlier ones are pinned by SHA-256 in scripts/reports_release.py.
 --
 -- 1. Pins: every function in the report closure (the 15 v2 pins, the 12 closure helpers, every private.report_v3_%
@@ -37,12 +37,6 @@ DECLARE
     'public.get_report_lead_source_calls_v3(date,date,uuid,text)'];
 BEGIN
   FOR f IN SELECT * FROM (VALUES
-    ('private.appointment_assignee_at_start(uuid)', '34ece70aa4d822892e1e0f32f1499dd6', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.appointment_evidence_classify(uuid,text,text,timestamp with time zone,timestamp with time zone)', '1af4856b29f8fd26d866575cbbdb53b5', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.appointment_evidence_row(public.appointments)', 'e6ed9b520b80f3010b73f3b797da2dea', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.appointment_occurrence_state(uuid,timestamp with time zone)', '1b3361e1479306b242a6b5bf81e0b5b9', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.appointment_status_key(text)', 'b23468fbf0a566b9656519c599600be3', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.appointment_type_state_at(uuid,timestamp with time zone)', 'b840075a8589511d16fbce7dc6f36b0b', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.campaign_actor()', '16cca1989b7648593f90244786d60958', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.performance_monthly(boolean,numeric,numeric)', '7e7063317a34f37d90faf14914b98827', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.performance_sale_monthly(public.wins,numeric)', 'fee9032d4c2509d4fd99d7313e9f7230', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
@@ -51,7 +45,7 @@ BEGIN
     ('private.report_access_v2(text,uuid)', 'a221335ae305cee01097bc796d5e7cdd', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_agency_time_zone(uuid)', '27feaed00c03895fce8bfd6b2cd24207', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_agent_name(text,text)', '23d45e5c19d951d0d663c629ed85c945', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_call_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])', 'bacbfd0629221957cae28ba28728c8bd', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
+    ('private.report_call_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])', '03b2c36446fb0b7dec0bac14b401a864', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_integrity_quality(uuid,timestamp with time zone,timestamp with time zone,uuid[])', 'c1355d551fba0cc2217150f5531d1b31', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_meta(text,uuid,text,text,date,date,timestamp with time zone,timestamp with time zone)', '6faa38495ac0bbd2d837c4c959cada25', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_monthly_amount(text)', '405647c4982f4b9475f834efa6f2beee', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
@@ -64,12 +58,9 @@ BEGIN
     ('private.report_session_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])', '245c7ce4f7bf47f6347595822f70a947', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_session_seconds(uuid,timestamp with time zone,timestamp with time zone,uuid[])', '3d33b720751a1913c81ad284ae6ffd43', true, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_agent_call_stats(uuid,uuid[],timestamp with time zone,timestamp with time zone)', '9788eb3a871ccbe16529ed884b7d8ddb', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_v3_appointment_counts(jsonb,uuid,boolean)', 'ed95462d7fe8f194c2d3b24042de484a', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamp with time zone,timestamp with time zone,text,timestamp with time zone)', '5d2e5ef7fa71bbc8bf951dad96a8ba34', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_v3_appointment_gap(uuid,uuid,timestamp with time zone,timestamp with time zone)', 'fe8dcff5c607a00d317e9d4a6a328ce6', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_v3_appointment_kpis(jsonb,text,text,jsonb,boolean)', 'bb7d0c6b3b5c030ae970b73c1f529508', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
+    ('private.report_v3_appointment_facts(uuid,uuid[],uuid[],timestamp with time zone,timestamp with time zone,text,timestamp with time zone)', '65d10033c8a7c11b4cd2e907fb79abc4', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_attempt_kpis(jsonb)', 'd937e26e871ea5755200c4bf92c33c84', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
-    ('private.report_v3_basis_flags()', 'f8ec6855680ce2d0d53c9437f3506ab6', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
+    ('private.report_v3_basis_flags()', '3e24b2d732ed3a9fae76a529330330f9', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_call_counts(uuid,uuid[],timestamp with time zone,timestamp with time zone)', 'acfff57c1ff6f9007680bc839a4ce2bc', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_call_facts(uuid,timestamp with time zone,timestamp with time zone)', 'ec935ad4f9c9a313f9a6b6377173d97c', false, 's', '{"search_path=pg_catalog, pg_temp"}'),
     ('private.report_v3_call_kpis(jsonb,numeric)', '17afab4defdf73a654f6e7af79d5f01e', false, 'i', '{"search_path=pg_catalog, pg_temp"}'),
@@ -229,8 +220,8 @@ BEGIN
   IF v_drift IS NOT NULL THEN
     RAISE EXCEPTION 'Reports v3 enable: pinned function outside the report closure: %', v_drift;
   END IF;
-  IF private.report_v3_basis_flags() ->> 'contract_version' IS DISTINCT FROM '3.3.0' THEN
-    RAISE EXCEPTION 'Reports v3 enable: contract version is not 3.3.0';
+  IF private.report_v3_basis_flags() ->> 'contract_version' IS DISTINCT FROM '3.2.0' THEN
+    RAISE EXCEPTION 'Reports v3 enable: contract version is not 3.2.0';
   END IF;
 
   FOR f IN SELECT p.oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace

@@ -1,5 +1,5 @@
 -- Reports V2 PKG-C producing-call capture (D3 §3.6, §7 L1–L16). Synthetic data only, on the policy commission
--- fixture and harness (both commission migrations) after 20261104120030 and 20261104120031, run by
+-- fixture and harness (both commission migrations) after 20261105120030 and 20261105120031, run by
 -- scripts/run_policy_commission_tests.sh. The production column calls.voicemail_id is added by the runner first.
 \set ON_ERROR_STOP on
 SET client_min_messages = warning;

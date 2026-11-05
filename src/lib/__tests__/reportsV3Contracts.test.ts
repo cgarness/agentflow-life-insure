@@ -46,7 +46,7 @@ const OPS_CLASS: Record<string, PrivilegeClass> = {
 /** The only migration that may build a KPI envelope directly; every other file uses the builders. */
 const ENVELOPE_OWNER = "reports_v3_foundation";
 /** Class C files that replace PKG-A stubs under exact preimage guards (each pinned in its own describe). */
-const PREIMAGE_REPLACERS = ["reports_v3_sale_call_links", "20261104120032_reports_v3_sale_call_links.rollback.sql"];
+const PREIMAGE_REPLACERS = ["reports_v3_sale_call_links", "20261105120032_reports_v3_sale_call_links.rollback.sql"];
 const CONCURRENT_INDEX = "reports_v3_calls_campaign_lead_index";
 
 const MIGRATIONS = "supabase/migrations";
@@ -744,20 +744,20 @@ describe("Reports v3 performance acceptance and differential evidence", () => {
 });
 
 describe("PKG-B sale premium corrections (D2 §3.3-§3.7): …20 and its rollback are class C", () => {
-  const FORWARD = `${MIGRATIONS}/20261104120020_policy_sale_premium_corrections.sql`;
-  const ROLLBACK = `${ROLLBACKS}/20261104120020_policy_sale_premium_corrections.rollback.sql`;
+  const FORWARD = `${MIGRATIONS}/20261105120020_policy_sale_premium_corrections.sql`;
+  const ROLLBACK = `${ROLLBACKS}/20261105120020_policy_sale_premium_corrections.rollback.sql`;
   const forward = stripSqlComments(read(FORWARD));
   const rollback = stripSqlComments(read(ROLLBACK));
 
-  it("is numbered after every PKG-A file and above the production head 20261103191631; …21 follows it", () => {
+  it("is numbered after every PKG-A file and above the production head 20261105051037; …21 follows it", () => {
     const versions = readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /_reports_v3_|_policy_sale_premium_corrections/.test(n)).sort();
-    const pkgB = ["20261104120020_policy_sale_premium_corrections.sql", "20261104120021_reports_v3_sale_premium_basis.sql"];
+    const pkgB = ["20261105120020_policy_sale_premium_corrections.sql", "20261105120021_reports_v3_sale_premium_basis.sql"];
     const firstB = versions.indexOf(pkgB[0]);
     expect(versions.slice(firstB, firstB + 2)).toEqual(pkgB);
-    expect(versions.slice(0, firstB).every((v) => v < "20261104120020")).toBe(true);
-    expect(versions[firstB + 2]).toBe("20261104120022_reports_v3_release_enable_pkg_b.sql");
-    expect(versions.slice(firstB + 3).every((v) => v >= "20261104120030")).toBe(true);
-    expect(Number("20261104120020")).toBeGreaterThan(20261103191631);
+    expect(versions.slice(0, firstB).every((v) => v < "20261105120020")).toBe(true);
+    expect(versions[firstB + 2]).toBe("20261105120022_reports_v3_release_enable_pkg_b.sql");
+    expect(versions.slice(firstB + 3).every((v) => v >= "20261105120030")).toBe(true);
+    expect(Number("20261105120020")).toBeGreaterThan(20261105051037);
   });
 
   it("grants nothing, in the migration or its rollback", () => {
@@ -818,7 +818,7 @@ describe("PKG-B sale premium corrections (D2 §3.3-§3.7): …20 and its rollbac
 });
 
 describe("PKG-B …21 (D2 §3.7): Reports v3 reads the effective premium; class W", () => {
-  const BASIS = `${MIGRATIONS}/20261104120021_reports_v3_sale_premium_basis.sql`;
+  const BASIS = `${MIGRATIONS}/20261105120021_reports_v3_sale_premium_basis.sql`;
   const basis = stripSqlComments(read(BASIS));
 
   it("replaces only the PKG-A stub and basis flags, behind their md5 postimages, and refuses while v3 is enabled or on replay", () => {
@@ -847,18 +847,18 @@ describe("PKG-B …21 (D2 §3.7): Reports v3 reads the effective premium; class 
 describe("PKG-D batch D1 (D4 §3.2–§3.4): privilege classes of the appointment evidence files", () => {
   const OUTCOME = "GRANT EXECUTE ON FUNCTION public.record_appointment_outcome(uuid, uuid, timestamptz, text) TO authenticated";
   const FILES: Array<[string, PrivilegeClass]> = [
-    [`${MIGRATIONS}/20261104120040_appointment_type_categories.sql`, "C"],
-    [`${ROLLBACKS}/20261104120040_appointment_type_categories.rollback.sql`, "C"],
-    [`${MIGRATIONS}/20261104120041_appointment_occurrence_evidence.sql`, "W"],
-    [`${ROLLBACKS}/20261104120041_appointment_occurrence_evidence.rollback.sql`, "C"],
+    [`${MIGRATIONS}/20261105120040_appointment_type_categories.sql`, "C"],
+    [`${ROLLBACKS}/20261105120040_appointment_type_categories.rollback.sql`, "C"],
+    [`${MIGRATIONS}/20261105120041_appointment_occurrence_evidence.sql`, "W"],
+    [`${ROLLBACKS}/20261105120041_appointment_occurrence_evidence.rollback.sql`, "C"],
     [`${OPS}/appointment_type_category_baseline.sql`, "R"],
     [`${OPS}/appointment_type_category_baseline_revert.sql`, "R"],
     [`${OPS}/appointment_evidence_disable.sql`, "R"],
     [`${OPS}/appointment_evidence_enable.sql`, "W"],
-    [`${MIGRATIONS}/20261104120042_policy_appointment_attributions.sql`, "W"],
-    [`${ROLLBACKS}/20261104120042_policy_appointment_attributions.rollback.sql`, "C"],
-    [`${MIGRATIONS}/20261104120043_reports_v3_appointment_facts.sql`, "C"],
-    [`${ROLLBACKS}/20261104120043_reports_v3_appointment_facts.rollback.sql`, "C"],
+    [`${MIGRATIONS}/20261105120042_policy_appointment_attributions.sql`, "W"],
+    [`${ROLLBACKS}/20261105120042_policy_appointment_attributions.rollback.sql`, "C"],
+    [`${MIGRATIONS}/20261105120043_reports_v3_appointment_facts.sql`, "C"],
+    [`${ROLLBACKS}/20261105120043_reports_v3_appointment_facts.rollback.sql`, "C"],
     [`${OPS}/reporting-accuracy/appointment_evidence_preflight.sql`, "R"],
   ];
   const LINKS = [
@@ -902,12 +902,12 @@ describe("PKG-D batch D1 (D4 §3.2–§3.4): privilege classes of the appointmen
 });
 
 describe("PKG-D …43 (D4 §3.6): the Sales Appointments helper replaces only the stub and the flags", () => {
-  const sql = stripSqlComments(read(`${MIGRATIONS}/20261104120043_reports_v3_appointment_facts.sql`));
+  const sql = stripSqlComments(read(`${MIGRATIONS}/20261105120043_reports_v3_appointment_facts.sql`));
   it("guards the …13 stub and the PKG-C flags (release order B → C → D) and installs 3.3.0 with all three bases", () => {
     expect(sql).toContain("'22b1c13bfc5c20dbd9bbe2fe61d2e31e'");
     expect(sql).toContain("'9c6c9d5e9a2ca2b985e027e72cd5e10d'");
     expect(sql).not.toContain("'67c6a60a1004b4596a4a61487a41d17b'");
-    const rollback = stripSqlComments(read(`${ROLLBACKS}/20261104120043_reports_v3_appointment_facts.rollback.sql`));
+    const rollback = stripSqlComments(read(`${ROLLBACKS}/20261105120043_reports_v3_appointment_facts.rollback.sql`));
     expect(rollback).toContain("'9c6c9d5e9a2ca2b985e027e72cd5e10d'");
     expect(rollback).toContain('"contract_version":"3.2.0","corrections":"audited_ledger","sale_call_links":"installed","appointment_evidence":"not_installed"');
     expect(sql).toContain('"contract_version":"3.3.0","corrections":"audited_ledger","sale_call_links":"installed","appointment_evidence":"installed"');
@@ -922,11 +922,11 @@ describe("PKG-D …43 (D4 §3.6): the Sales Appointments helper replaces only th
 });
 
 describe("PKG-C producing-call capture (D3 §3.6): …30 and …32 are class C, …31 is class W", () => {
-  const LINKS = stripSqlComments(read(`${MIGRATIONS}/20261104120030_policy_sale_call_links.sql`));
-  const CAPTURE = stripSqlComments(read(`${MIGRATIONS}/20261104120031_policy_sale_call_link_capture.sql`));
-  const CAPTURE_ROLLBACK = stripSqlComments(read(`${ROLLBACKS}/20261104120031_policy_sale_call_link_capture.rollback.sql`));
-  const WINDOW = stripSqlComments(read(`${MIGRATIONS}/20261104120032_reports_v3_sale_call_links.sql`));
-  const WINDOW_ROLLBACK = stripSqlComments(read(`${ROLLBACKS}/20261104120032_reports_v3_sale_call_links.rollback.sql`));
+  const LINKS = stripSqlComments(read(`${MIGRATIONS}/20261105120030_policy_sale_call_links.sql`));
+  const CAPTURE = stripSqlComments(read(`${MIGRATIONS}/20261105120031_policy_sale_call_link_capture.sql`));
+  const CAPTURE_ROLLBACK = stripSqlComments(read(`${ROLLBACKS}/20261105120031_policy_sale_call_link_capture.rollback.sql`));
+  const WINDOW = stripSqlComments(read(`${MIGRATIONS}/20261105120032_reports_v3_sale_call_links.sql`));
+  const WINDOW_ROLLBACK = stripSqlComments(read(`${ROLLBACKS}/20261105120032_reports_v3_sale_call_links.rollback.sql`));
   const C_ALLOWLIST = [
     "GRANT EXECUTE ON FUNCTION public.record_client_policy_handoff_v2(uuid,uuid,jsonb,boolean,jsonb,uuid) TO authenticated",
     "GRANT EXECUTE ON FUNCTION public.convert_lead_to_client_with_sales_handoff_v2(uuid,uuid,uuid,jsonb,uuid,jsonb,uuid) TO authenticated",
@@ -982,10 +982,10 @@ describe("PKG-C producing-call capture (D3 §3.6): …30 and …32 are class C, 
 
 describe("Reports v3 release files (release proposal R1–R5): staged enables, disables, preflight and read-back", () => {
   const RELEASE = [
-    ["20261104120017_reports_v3_release_enable.sql", "A", "3.0.0", "20261104120016", "20261104120020"],
-    ["20261104120022_reports_v3_release_enable_pkg_b.sql", "B", "3.1.0", "20261104120021", "20261104120030"],
-    ["20261104120033_reports_v3_release_enable_pkg_c.sql", "C", "3.2.0", "20261104120032", "20261104120040"],
-    ["20261104120044_reports_v3_release_enable_pkg_d.sql", "D", "3.3.0", "20261104120043", "99999999999999"],
+    ["20261105120017_reports_v3_release_enable.sql", "A", "3.0.0", "20261105120016", "20261105120020"],
+    ["20261105120022_reports_v3_release_enable_pkg_b.sql", "B", "3.1.0", "20261105120021", "20261105120030"],
+    ["20261105120033_reports_v3_release_enable_pkg_c.sql", "C", "3.2.0", "20261105120032", "20261105120040"],
+    ["20261105120044_reports_v3_release_enable_pkg_d.sql", "D", "3.3.0", "20261105120043", "99999999999999"],
   ] as const;
   const READERS = [
     "public.get_report_scope_v2(text)",
@@ -1065,7 +1065,7 @@ describe("Reports v3 release runner (R6): file pins and stages", () => {
       expect(bytes.length, path).toBe(size);
       expect(createHash("sha256").update(bytes).digest("hex"), path).toBe(sha);
     }
-    for (const name of readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /^2026110412\d{4}_/.test(n))) {
+    for (const name of readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /^2026110512\d{4}_/.test(n))) {
       expect(pins.some(([p]) => p === `${MIGRATIONS}/${name}`), name).toBe(true);
     }
   });
@@ -1075,5 +1075,19 @@ describe("Reports v3 release runner (R6): file pins and stages", () => {
     expect(runner).toMatch(/^RECORDED = \{i\.version: \(0, UNPINNED\) for i in ITEMS if i\.version\}$/m);
     expect(runner).not.toMatch(/'db', 'push'|'migration', 'up'|db reset/);
     expect(runner).toMatch(/require\(os\.environ\.get\('GITHUB_REF'\) == 'refs\/heads\/main', 'main dispatch only'\)/);
+  });
+});
+
+describe("Reports V2 migration order above the production head (renumbered after PR #515)", () => {
+  it("every Reports V2 migration and rollback sorts above 20261105051037, the recorded production head, in release order", () => {
+    const all = readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /^\d{14}_.*\.sql$/.test(n)).sort();
+    const ours = all.filter((n) => n.startsWith("2026110512"));
+    expect(ours.length).toBe(20); // PKG-A 8, PKG-B 3, PKG-C 4, PKG-D 5
+    expect(all.slice(-20)).toEqual(ours);
+    expect(all[all.length - 21]).toBe("20261105051037_dialer_admitted_call_counts.sql");
+    expect(all.filter((n) => n.startsWith("2026110412"))).toEqual([]);
+    for (const name of readdirSync(join(ROOT, ROLLBACKS)).filter((n) => /_(reports_v3|policy_sale|appointment|policy_appointment)/.test(n) && n.startsWith("202611"))) {
+      expect(name.startsWith("2026110512"), name).toBe(true);
+    }
   });
 });

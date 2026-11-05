@@ -1,5 +1,5 @@
 -- PKG-D appointment occurrence evidence (D4 §3.4, §7). Synthetic data only (reporting_fixture.py appointments mode),
--- after the category baseline and 20261104120041. Agent test_uuid(11) books for assignee test_uuid(12); test_uuid(19)
+-- after the category baseline and 20261105120041. Agent test_uuid(11) books for assignee test_uuid(12); test_uuid(19)
 -- is an Admin. The bookings go through the verbatim booking writer (create_appointment_once → persist_booking).
 CREATE FUNCTION public.t_appt(n integer) RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT id FROM public.appointments WHERE booking_request_id = public.test_uuid(n) $$;

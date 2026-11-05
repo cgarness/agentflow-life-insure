@@ -1,4 +1,4 @@
--- Rollback for 20261104120041_appointment_occurrence_evidence (D4 §8). Privilege class C: no GRANT.
+-- Rollback for 20261105120041_appointment_occurrence_evidence (D4 §8). Privilege class C: no GRANT.
 -- Drops the capture trigger and the outcome RPC and closes the open capture windows ('rolled_back'). Every evidence
 -- table and row is kept; readers see the disabled interval as capture_gap. A re-forward is a new reviewed migration.
 SET LOCAL lock_timeout = '2s';
