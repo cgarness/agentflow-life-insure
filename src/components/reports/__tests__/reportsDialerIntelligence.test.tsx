@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { buildV3Bundle, T_SELF, T_PEER } from "@/lib/__tests__/reportsV3Fixtures";
+import { reportDispositionsV3Schema } from "@/lib/reports-v3-schemas";
 vi.mock("recharts", async () => {
   const actual = await vi.importActual<typeof import("recharts")>("recharts");
   return { ...actual, ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div className="h-[300px] w-[600px]">{children}</div> };
@@ -69,3 +70,37 @@ describe("Call flow and deep dive", () => {
     expect(retry).toHaveBeenCalled();
   });
 });
+
+describe("Disposition deep dive at team and personal scope (unattributed breakdown is agency-only)", () => {
+  const scoped = (requestedScope: "agency" | "team" | "personal", patch?: (d: Record<string, any>) => void) => {
+    const d = buildV3Bundle({ requestedScope, startDate: "2026-07-01", endDate: "2026-07-14" }).dispositionsV3;
+    patch?.(d);
+    return d;
+  };
+  const openCampaigns = () => {
+    fireEvent.click(screen.getByRole("button", { name: /disposition deep dive/i }));
+    fireEvent.click(screen.getByRole("button", { name: "By campaign" }));
+  };
+  it.each(["team", "personal"] as const)("the %s payload (unattributed null) parses through the v3 contract", (scope) => {
+    expect(scoped(scope).deep_dive.unattributed).toBeNull();
+    expect(reportDispositionsV3Schema.safeParse(scoped(scope)).success).toBe(true);
+  });
+  it("agency: the attribution note counts restricted-campaign and unattributed calls", () => {
+    render(<DispositionDeepDive dispositions={scoped("agency", d => { d.deep_dive.other_campaigns.total = 20; d.deep_dive.unattributed.total = 5; })} />);
+    openCampaigns();
+    expect(screen.getByText(/25 calls have unavailable campaign attribution/)).toBeTruthy();
+  });
+  it("team: without the agency-only breakdown the note counts only the scope's own restricted-campaign calls", () => {
+    render(<DispositionDeepDive dispositions={scoped("team", d => { d.deep_dive.other_campaigns.total = 20; })} />);
+    openCampaigns();
+    expect(screen.getByText(/20 calls have unavailable campaign attribution/)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/NaN|undefined|null/);
+  });
+  it("personal: no restricted-campaign calls and no unattributed breakdown shows no note and no zero claim", () => {
+    render(<DispositionDeepDive dispositions={scoped("personal")} />);
+    openCampaigns();
+    expect(screen.queryByText(/unavailable campaign attribution/)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/NaN|undefined|null|\b0 calls have/);
+  });
+});
+

@@ -103,6 +103,10 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
     [counted, series, mode],
   );
 
+  // Calls the campaign breakdown cannot show: restricted campaigns, plus (agency scope only) calls with no credited
+  // agent. Outside agency scope that breakdown is not part of the scope, so it adds nothing rather than a stand-in.
+  const unavailableAttribution = dispositions.deep_dive.other_campaigns.total + (dispositions.deep_dive.unattributed?.total ?? 0);
+
   const handleExport = onExport
     ? () =>
         onExport(
@@ -119,9 +123,9 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
         <ReportSegmented ariaLabel="Show values as" value={mode} onChange={(next) => setMode(next)} options={MODES} />
       </div>
 
-      {tab === "campaign" && (dispositions.deep_dive.other_campaigns.total + dispositions.deep_dive.unattributed.total) > 0 && (
+      {tab === "campaign" && unavailableAttribution > 0 && (
         <p className="text-xs text-muted-foreground mb-3">
-          {formatCount((dispositions.deep_dive.other_campaigns.total + dispositions.deep_dive.unattributed.total))} calls have unavailable campaign attribution (missing or restricted).
+          {formatCount(unavailableAttribution)} calls have unavailable campaign attribution (missing or restricted).
         </p>
       )}
       {chartData.length === 0 ? (

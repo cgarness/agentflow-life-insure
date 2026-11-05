@@ -241,7 +241,9 @@ export function buildV3Bundle(a: BundleArgs): Record<string, any> {
       duration_buckets: ["0-30s", "30s-2m", "2-5m", "5-15m", "15m+"].map((r, i) => ({ range: r, calls: i === 0 ? 120 : i === 1 ? 80 : 0 })),
       deep_dive: { by_agent: agents.map((g, i) => ({ agent_id: g.agent_id, name: g.name, total: i === 0 ? 200 : 0, counts: i === 0 ? { "d-answered": 150, none: 50 } : {} })),
         by_campaign: [{ campaign_id: T_CAMPAIGN, name: "Spring Leads", total: 150, counts: { "d-answered": 150 } }],
-        without_campaign: { total: 50, counts: { none: 50 } }, other_campaigns: { total: 0, counts: {} }, unattributed: { total: 0, counts: {} } } },
+        without_campaign: { total: 50, counts: { none: 50 } }, other_campaigns: { total: 0, counts: {} },
+        // As the SQL reader: calls with no credited agent are part of an agency request only; null at team and personal.
+        unattributed: agency ? { total: 0, counts: {} } : null } },
     campaignsV3: { ...meta("campaign_calls"), metrics: [], call_population: pop(),
       campaigns: [{ campaign_id: T_CAMPAIGN, name: "Spring Leads", type: "Personal", ...callRow(150, 40) }],
       calls_without_campaign: callRow(30, 6), other_campaigns: callRow(20, 4) },

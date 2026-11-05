@@ -203,7 +203,8 @@ export const reportDispositionsV3Schema = z.object({
     by_campaign: z.array(z.object({ campaign_id: z.string().uuid(), name: z.string(), total: count, counts: z.record(z.string(), count) }).strict()),
     without_campaign: z.object({ total: count, counts: z.record(z.string(), count) }).strict(),
     other_campaigns: z.object({ total: count, counts: z.record(z.string(), count) }).strict(),
-    unattributed: z.object({ total: count, counts: z.record(z.string(), count) }).strict(),
+    // Calls with no credited agent belong to an agency request only; the reader sends null at team and personal scope.
+    unattributed: z.object({ total: count, counts: z.record(z.string(), count) }).strict().nullable(),
   }).strict(),
 }).strict();
 
