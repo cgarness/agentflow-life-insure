@@ -1,5 +1,31 @@
 # AgentFlow Work Log
 
+## 2026-11-05 (late night) — Reports V2 release-readiness checkpoint complete; STOPPED for approval (no production stage run, nothing modified in production)
+
+**Request:** Chris's message: complete the checkpoint with the independently verified production baseline (356 applied migrations, head `20261105051037_dialer_admitted_call_counts`, no Reports V3 migration applied).
+
+**Differential:** the PostgreSQL 17.6 rerun on the reconciled code `0276b185` passed (run `42058677685`: `differential` ✔, 0 mismatches against the reviewed baseline; `postgres` ✔).
+
+**Runner pins:**
+- `scripts/reports_release.py` now pins `PRODUCTION_ROWS_BEFORE` 356 and `PRODUCTION_HEAD_BEFORE` `20261105051037`.
+- It pins all 20 recorded-row digests captured by Supabase CLI 2.121.0 on PostgreSQL 17.6 (run `42051570639`). The 34 pinned files are byte-identical to that run.
+- The rehearsal test now records against the pins; the contracts pin the values.
+
+**Checks run:**
+- Contracts: 86/86.
+- Runner static gates: 34 files, 20 digests, the baseline.
+- The disposable rehearsal was not re-run with the pins. It needs the CI job, which was used once under the earlier approval.
+
+**Open:** the approval sheet (scratchpad `REPORTS_V2_APPROVAL_SHEET.md`):
+- the performance exception;
+- the Package C recovery boundary;
+- the privacy/security review and production read-back;
+- the AGENT_RULES amendments;
+- the B6 classifications;
+- the category baseline;
+- the visual/CSV review;
+- the staged production release.
+
 ## 2026-11-05 (night) — Reports V2 production compatibility with PR #515 (integration `0276b185`); STOPPED for approval (nothing applied, read from production, merged or deployed)
 
 **Request:** Chris's message of 2026-11-05 ("Final production compatibility"): branch-only reconciliation, plus one disposable PostgreSQL 17.6 release-runner rehearsal with CLI 2.121.0. The plan and file list were recorded first (`e7b6dd91`).
