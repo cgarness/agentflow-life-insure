@@ -1,0 +1,255 @@
+{
+  "status": "Released and verified; real media acceptance remains unverified",
+  "evidence_date": "2026-11-04 America/Los_Angeles / 2026-11-05 UTC",
+  "approval": "Chris explicitly approved merging PR #515 at 1e98c55 and the frontend production release after the separate database gate.",
+  "pull_request": 515,
+  "approved_head": "1e98c55ad8d10f88dbc5f62b6d9c4c4405b94cc5",
+  "merge_commit": "c9713060949b431ca49b884869165f39e7065666",
+  "merge_time_utc": "2026-11-05T06:13:17Z",
+  "approved_and_merged_tree": "0003afb4957ff3efd0c932d40ad829a06ec6eef4",
+  "prior_main": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
+  "merge_method": "Expected-head-protected PR merge; no direct main push. Merge tree exactly equals approved source tree.",
+  "production": [
+    {
+      "project": "agentflow",
+      "id": "dpl_BoEcDFmvef9oFmLBmJNwP6zTyPga",
+      "ready_state": "READY",
+      "target": "production",
+      "commit": "c9713060949b431ca49b884869165f39e7065666",
+      "url": "agentflow-ps4ob39la-cgarness-projects.vercel.app",
+      "aliases": [
+        "www.fflagent.com",
+        "agentflow-eta.vercel.app",
+        "fflagent.com",
+        "agentflow-cgarness-projects.vercel.app",
+        "agentflow-git-main-cgarness-projects.vercel.app"
+      ],
+      "ready_utc": "2026-11-05T06:13:45.993Z"
+    },
+    {
+      "project": "agentflow-life-insure",
+      "id": "dpl_AVZq3FJJY63CWyVazLWgH1ih36PS",
+      "ready_state": "READY",
+      "target": "production",
+      "commit": "c9713060949b431ca49b884869165f39e7065666",
+      "url": "agentflow-life-insure-42ujz1ma4-cgarness-projects.vercel.app",
+      "aliases": [
+        "agentflow-life-insure.vercel.app",
+        "agentflow-life-insure-cgarness-projects.vercel.app",
+        "agentflow-life-insure-git-main-cgarness-projects.vercel.app"
+      ],
+      "ready_utc": "2026-11-05T06:13:56.048Z"
+    }
+  ],
+  "served_bundle": {
+    "url": "https://www.fflagent.com/assets/index-BIiTv98T.js",
+    "http_status": 200,
+    "bytes": 4883799,
+    "sha256": "f0f32a6d5bf741173ae6a1a6c4ab5a6451ea6817090fb73acefa153e82f3e870",
+    "verified_markers": [
+      "record_dialer_dispatch_failure",
+      "Auto Dial paused: this lead is outside calling hours.",
+      "Save the current outcome before calling again.",
+      "Phone is connecting. Wait for Ready before calling.",
+      "set_dialer_session_mode",
+      "dialer_provider_admitted"
+    ]
+  },
+  "browser": {
+    "public_shell": "PASS",
+    "login_url": "https://www.fflagent.com/login",
+    "login_render": "PASS; Welcome Back and expected fields",
+    "console": "No application errors in captured log; three browser-extension metadata errors excluded by chrome-extension source",
+    "authenticated_dialer": "Not tested: signed out",
+    "real_media": "Not tested; no authorized synthetic call endpoint and no real prospect call"
+  },
+  "runtime_observation": {
+    "deployment": "dpl_BoEcDFmvef9oFmLBmJNwP6zTyPga",
+    "window": "30m at 2026-11-05T06:16Z",
+    "levels": [
+      "error",
+      "fatal"
+    ],
+    "group_by": "level",
+    "result": "No returned runtime error/fatal groups",
+    "limit": "Vercel function/daemon logs do not establish browser or Voice.js media health."
+  },
+  "ci": {
+    "head": "1e98c55ad8d10f88dbc5f62b6d9c4c4405b94cc5",
+    "workflows": [
+      {
+        "id": 41972930631,
+        "name": "Reporting integrity",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 41972930544,
+        "name": "UV profile sync verification",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 41972930569,
+        "name": "SMS consent integration",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 41972930710,
+        "name": "Dialer DNC integrity",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 41972930564,
+        "name": "Reports backend verification",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 41972930700,
+        "name": "Reports frontend verification",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "previews": [
+      {
+        "context": "Vercel – agentflow",
+        "state": "success",
+        "target_url": "https://vercel.com/cgarness-projects/agentflow/F2TryAmoaAj1rPnbuFvHxH2hPD8L"
+      },
+      {
+        "context": "Vercel – agentflow-life-insure",
+        "state": "success",
+        "target_url": "https://vercel.com/cgarness-projects/agentflow-life-insure/8Usw26jhus8GC7FGSVoTb9qN4B2h"
+      }
+    ],
+    "focused_vitest": "606 passed, 47 files",
+    "native_postgres": "16.15; both admission/failure lock orders, DNC/claim/save contention, exact rollback/drift/replay guards and reporting readers passed",
+    "full_repository": "6765 baseline / 6801 candidate passing tests; one pre-existing failed test and nine pre-existing failed files; zero new failures or unhandled runtime errors",
+    "application_types": "79 baseline / 79 candidate / zero new",
+    "root_tsc": "PASS",
+    "full_lint": "11 baseline / 11 candidate errors, zero new; 152 to 142 warnings",
+    "changed_file_lint": "PASS",
+    "build": "PASS",
+    "synthetic_browser": "PASS with external network blocked"
+  },
+  "database": {
+    "evidence": "production-release.json",
+    "applied_versions": [
+      "20261105051018",
+      "20261105051037"
+    ],
+    "replayed_during_frontend_release": false,
+    "premerge_function_recheck": "All eight installed body hashes and authorization metadata still match the reviewed postimages",
+    "premerge_function_metadata": [
+      {
+        "signature": "start_dialer_session(uuid)",
+        "body_md5": "f6190dfd31382d6389ac9f20c4254d36",
+        "owner": "postgres",
+        "security_definer": true,
+        "volatility": "v",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+      },
+      {
+        "signature": "get_campaign_card_stats(uuid[])",
+        "body_md5": "7e533e56044e3224b32c57cf25bc2295",
+        "owner": "postgres",
+        "security_definer": true,
+        "volatility": "s",
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+      },
+      {
+        "signature": "get_trusted_today_dialer_stats(uuid,timestamp with time zone,timestamp with time zone)",
+        "body_md5": "fba5d92b359c67311590c72906f04fb4",
+        "owner": "postgres",
+        "security_definer": true,
+        "volatility": "s",
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+      },
+      {
+        "signature": "get_profile_book_stats(text,text)",
+        "body_md5": "4a025d9e390c9663ac709661c28eedc8",
+        "owner": "postgres",
+        "security_definer": true,
+        "volatility": "s",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+      },
+      {
+        "signature": "private.report_call_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])",
+        "body_md5": "03b2c36446fb0b7dec0bac14b401a864",
+        "owner": "postgres",
+        "security_definer": true,
+        "volatility": "s",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "acl": "{postgres=X/postgres}"
+      },
+      {
+        "signature": "get_performance_details(text,text,text,uuid,timestamp with time zone,integer)",
+        "body_md5": "c7d25d0edf7fcb1a28d0837da225a25b",
+        "owner": "postgres",
+        "security_definer": true,
+        "volatility": "s",
+        "config": [
+          "search_path=pg_catalog, pg_temp",
+          "statement_timeout=25s"
+        ],
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+      },
+      {
+        "signature": "private.performance_rows(uuid[],timestamp with time zone,timestamp with time zone,date,date,uuid[])",
+        "body_md5": "908181aa87fa524614e0debd249e1d10",
+        "owner": "postgres",
+        "security_definer": false,
+        "volatility": "s",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "acl": "{postgres=X/postgres}"
+      },
+      {
+        "signature": "get_trusted_today_dialer_stats_v2(uuid,timestamp with time zone,timestamp with time zone,date)",
+        "body_md5": "86591bc176db14718b6e7681b780401c",
+        "owner": "postgres",
+        "security_definer": true,
+        "volatility": "s",
+        "config": [
+          "search_path=pg_catalog, pg_temp"
+        ],
+        "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}"
+      }
+    ],
+    "edge_deployment": false,
+    "rls_change": false
+  },
+  "conflicts": {
+    "reports_branch": "claude/great-goodall-911azc-integration",
+    "reports_head": "bfa6ff9627b435a73c48b8c1572a2609b16a93e6",
+    "review": "Five commits since f7ff977 add Reports nullable unattributed display/schema/tests and documentation; no new dialer or SQL overlap. Existing appointment type/sourceCallId/API forwarding integration and new live call-facts recovery pin remain coordination requirements."
+  },
+  "rollback": {
+    "frontend_previous_deployment": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc",
+    "backend": "Additive backend may stay if frontend rolls back; guarded SQL rollback requires separate approval. No rollback or migration replay performed."
+  },
+  "remaining": [
+    "Use an authorized synthetic contact/endpoint for real microphone, carrier audio and full live disposition acceptance.",
+    "Correlate any new failed click by time and attempt ID; Will's historic failed click remains uncorrelated.",
+    "Preserve Reports appointment type/source-call mounts and refresh recovery pin before future Reports release."
+  ]
+}

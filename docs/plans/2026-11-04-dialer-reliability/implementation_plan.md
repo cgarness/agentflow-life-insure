@@ -1,5 +1,15 @@
 # AgentFlow P0 Dialer Reliability — implementation_plan.md
 
+## P0 Dialer frontend released — PR #515 / c971306
+
+Chris approved exact head 1e98c55; PR #515 is merged as c971306 with an identical application tree. Both production deployments are READY, www.fflagent.com serves the verified hotfix bundle, and public/login browser smoke passes. All six final-head workflows passed; all eight installed backend postimages were rechecked before merge. Database versions 20261105051018 and 20261105051037 were already applied and were not replayed. No Edge/RLS change or real call.
+
+This documentation-only release follow-up records completion in WORK_LOG.md, this plan, AGENT_RULES.md release status, focused implementation_plan.md, verification.md, manifest.json and new frontend-release.json. Application/SQL/test/workflow bytes stay unchanged. Real microphone/carrier and full live disposition acceptance remains unverified without an authorized synthetic endpoint. Reports head bfa6ff9 adds no new dialer/SQL overlap; preserve its existing appointment type/sourceCallId mounts and coordinate the new live reader/recovery pin.
+
+The dated sections below are historical planning snapshots; their completed publication/database/frontend gates do not authorize replaying migrations.
+
+## Historical implementation and gate snapshots
+
 Date: November 4, 2026 (America/Los_Angeles)
 Database gate update (November 5 UTC): Chris approved both exact migrations from a7c8f74. Applied once as 20261105051018 and 20261105051037; all eight postimages/ACLs, signed projection and unrelated security/function fingerprints verified. Paths are reconciled without changing SQL bytes. Frontend release remains unapproved.
 

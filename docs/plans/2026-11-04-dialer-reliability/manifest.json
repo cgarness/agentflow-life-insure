@@ -1,9 +1,9 @@
 {
-  "status": "production database applied and verified; frontend merge/deployment not approved",
+  "status": "Production database and frontend released and verified; live media acceptance remains unverified",
   "base": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
   "branch": "hotfix/dialer-reliability-20261104",
-  "production_deployment": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc",
-  "reports_conflict_head": "f7ff977992a873f23ac9bbe27eeadd878a3f83be",
+  "production_deployment": "dpl_BoEcDFmvef9oFmLBmJNwP6zTyPga",
+  "reports_conflict_head": "bfa6ff9627b435a73c48b8c1572a2609b16a93e6",
   "migrations": [
     {
       "path": "supabase/migrations/20261105051018_dialer_reliability.sql",
@@ -30,7 +30,7 @@
     "lint": "11 baseline / 11 candidate / 0 new; scoped 0 errors",
     "build": "PASS",
     "native_concurrency": "PASS native PostgreSQL 16.15; both failure/admission lock orders, DNC/claim/save races",
-    "ci": "Five workflows passed on published source; full frontend comparison pending at evidence-update time. Require final-head checks."
+    "ci": "All six workflows passed on approved head 1e98c55; zero new full-repository test/type/lint failures. See frontend-release.json."
   },
   "files": [
     {
@@ -40,13 +40,13 @@
     },
     {
       "path": "AGENT_RULES.md",
-      "bytes": 353261,
-      "sha256": "f5a9773f444b8531346ad8a4d7b4f7a8a2419cbab109cf1d93b5af413889fefe"
+      "bytes": 353422,
+      "sha256": "1a0fd2df57f544ea9a4ed519ef613293d26ef71c1fbee7ccbef763e0d26637cb"
     },
     {
       "path": "WORK_LOG.md",
-      "bytes": 75730,
-      "sha256": "fd9a792316eb992b01ba2b132afe34d17172f91fb3b9c45bd5b07c73a66b7b21"
+      "bytes": 78850,
+      "sha256": "b3c45b8e858853b9230397622b0dd130cb1d46a9eb25a629053b261e69afcb3b"
     },
     {
       "path": "docs/plans/2026-11-04-dialer-reliability/baseline-comparison.json",
@@ -85,8 +85,8 @@
     },
     {
       "path": "docs/plans/2026-11-04-dialer-reliability/implementation_plan.md",
-      "bytes": 30294,
-      "sha256": "32cf62d5571670d40d6577d68a281ca82986d2c3b834a14f8a43f1046610b91f"
+      "bytes": 31563,
+      "sha256": "179faeadc585b325fdfa3cb23adf503ceec422b08512a84b0a6e214908e440c4"
     },
     {
       "path": "docs/plans/2026-11-04-dialer-reliability/live-function-metadata.json",
@@ -135,13 +135,13 @@
     },
     {
       "path": "docs/plans/2026-11-04-dialer-reliability/verification.md",
-      "bytes": 20468,
-      "sha256": "d36473fa5b4c685442d39fc231e481df99127d6f8319cb8461abb511c40be136"
+      "bytes": 22798,
+      "sha256": "dbee9eb2176d0c91267e6ee84562a5558c8bc4f143b478941ac9e099923684fa"
     },
     {
       "path": "implementation_plan.md",
-      "bytes": 731523,
-      "sha256": "57939ed23a1d130fda429cb423b03414f27e246acc788e8ba263658e02236752"
+      "bytes": 732743,
+      "sha256": "14ad5cdfdbf3740e9b1c4abea3ea592342c42c6a6376280e7b5949a38528fbf2"
     },
     {
       "path": "scripts/reports_integrity_fixture.py",
@@ -297,6 +297,11 @@
       "path": "supabase/tests/dialer_reliability.sql",
       "bytes": 5075,
       "sha256": "5ed30326dff924ec0d753cc3f3ae39d83e48a6bef4be9e58f10b18a050c457cd"
+    },
+    {
+      "path": "docs/plans/2026-11-04-dialer-reliability/frontend-release.json",
+      "bytes": 10072,
+      "sha256": "249cb2a9833babf7701c95d9e44e3091b0809ceea942334b447ab4062b445941"
     }
   ],
   "publication": {
@@ -305,5 +310,7 @@
     "source_tree": "52ee2f3b44a2289241ae21c8f45262ed40d19ac1",
     "evidence": "docs/plans/2026-11-04-dialer-reliability/publication.json"
   },
-  "production_database_record": "docs/plans/2026-11-04-dialer-reliability/production-release.json"
+  "production_database_record": "docs/plans/2026-11-04-dialer-reliability/production-release.json",
+  "production_frontend_record": "docs/plans/2026-11-04-dialer-reliability/frontend-release.json",
+  "production_merge_commit": "c9713060949b431ca49b884869165f39e7065666"
 }
