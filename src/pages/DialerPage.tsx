@@ -1,7 +1,7 @@
 import { bookingTimes } from "@/lib/appointmentPersistence";
 import { useDispositionPersistence } from "@/hooks/useDispositionPersistence";
 import { applyPersistedDisposition, verifyOutboundAdmission, type DispositionInput } from "@/lib/dialer-disposition";
-import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -42,7 +42,7 @@ import { getCallStatus, type TwilioCall } from "@/lib/twilio-voice";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { checkDNC } from "@/utils/dncCheck";
-import { resolveManualDialDecision, runGatedCall, runGatedDispatch, type DialIntent } from "@/pages/dialerCallGate";
+import { callBlockReason, resolveManualDialDecision, runGatedCall, type DialIntent } from "@/pages/dialerCallGate";
 import { logActivity } from "@/lib/activityLogger";
 import { formatPhoneNumber } from "@/utils/phoneUtils";
 import { dispositionsSupabaseApi } from "@/lib/supabase-dispositions";
@@ -137,6 +137,9 @@ import {
 } from "@/hooks/useDialerCampaignPresence";
 import { collectAssigneeIds } from "@/components/dialer/campaignSelectionModel";
 import { releaseAllAgentLocks, releaseAllAgentLocksBeacon } from "@/lib/dialer-queue";
+import { setDialerSessionMode } from "@/lib/supabase-dialer-sessions";
+import { useDialerNavigation, useDialerContactUrl } from "@/hooks/useDialerNavigation";
+import { navigationBlockReason } from "@/lib/dialer-navigation";
 import { useDialerStateMachine } from "@/hooks/useDialerStateMachine";
 import { HistorySkeleton, LeadInfoSkeleton } from "@/components/dialer/DialerSkeletons";
 import { DialerHeaderStats } from "@/components/dialer/DialerHeaderStats";
@@ -424,17 +427,27 @@ function writeHeaderStatsCache(
   }
 }
 
+const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'removed', 'Failed', 'Closed Won'];
+
 export default function DialerPage() {
   /* --- state --- */
+  const { user, profile, isImpersonating } = useAuth();
+  const { organizationId } = useOrganization();
+
   const [searchParams, setSearchParams] = useSearchParams();
   const [fetchingFromUrl, setFetchingFromUrl] = useState(false);
+  const navigationGuardRef = useRef<() => string | null>(() => null);
   const {
     campaigns, setCampaigns, campaignsLoading, campaignsViewAll, refetchCampaigns,
     selectedCampaignId, setSelectedCampaignId, selectedCampaign,
     sessionStats, setSessionStats,
-    activeSessionId, sessionStartedAt, sessionElapsedDisplay, setBaseSessionSeconds,
+    activeSessionId, activeSessionCampaignId, sessionStartedAt, sessionElapsedDisplay, setBaseSessionSeconds,
     startServerSession, endServerSession, bestEffortEndServerSession,
-  } = useDialerSession();
+  } = useDialerSession(() => !navigationGuardRef.current());
+
+  const hasSelectedCampaign = !!selectedCampaign;
+  const selectedCampaignType = selectedCampaign?.type;
+  const reloadLockLeadRef = useRef<() => void>(() => {});
 
   const visibleCampaignIds = useMemo(
     () => campaigns.map((c: { id: string }) => c.id),
@@ -444,17 +457,27 @@ export default function DialerPage() {
     () => visibleCampaignIds.slice().sort().join(","),
     [visibleCampaignIds],
   );
-  const [leadQueue, setLeadQueue] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const navigationScope = `${organizationId}:${user?.id}:${selectedCampaignId}`;
+  const navigation = useDialerNavigation<any>(navigationScope);
+  const { leadQueue, setLeadQueue, currentLead, currentLeadIndex, setCurrentLeadIndex,
+    commitQueue, begin: beginTransition, capture: captureVisit, isBusy, getSelection, isAdvancing } = navigation;
+  const scopeRef = useRef(navigationScope); scopeRef.current = navigationScope;
+  const queueLoadRef = useRef(0);
+  const lockLoadRef = useRef<{ scope: object; promise: Promise<boolean | null> } | null>(null);
+  const [callPreflightOwner, setCallPreflightOwner] = useState<object | null>(null);
+  const callPreflight = callPreflightOwner === navigation.scopeIdentity;
+  const [settingsLoadedScope, setSettingsLoadedScope] = useState("");
+  const modeWriteRef = useRef(Promise.resolve());
   const [leadCallStats, setLeadCallStats] = useState<Record<string, { calls_today: number; total_calls: number; last_disposition: string | null }>>({});
-  const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
-  const currentLead = leadQueue[currentLeadIndex] ?? null;
   const persistCurrentDisposition = useDispositionPersistence();
   const dispositionVisitRef = useRef({ key: "", generation: 0 });
-  const dispositionVisitKey = `${selectedCampaignId ?? ""}:${currentLead?.id ?? ""}`;
+  const dispositionVisitKey = `${navigationScope}:${currentLead?.id ?? ""}`;
   if (dispositionVisitRef.current.key !== dispositionVisitKey) {
     dispositionVisitRef.current = { key: dispositionVisitKey, generation: dispositionVisitRef.current.generation + 1 };
   }
   const dispositionSaveRef = useRef(false);
+  const dispositionSaveOwnerRef = useRef<symbol | null>(null);
+  const [, setDispositionSaving] = useState(false);
   const convertedVisitRef = useRef<{ generation: number; clientId: string } | null>(null);
 
   // Team/Open: campaign_leads.id whose lock is SERVER-CONFIRMED for this agent —
@@ -462,35 +485,23 @@ export default function DialerPage() {
   // reveal is gated strictly on this (never optimistic client state), so a lost
   // claim race can't flash another agent's lead (Issue 5, Dialer QA polish).
   const [confirmedLockLeadId, setConfirmedLockLeadId] = useState<string | null>(null);
+  const confirmedLockLeadIdRef = useRef(confirmedLockLeadId);
+  confirmedLockLeadIdRef.current = confirmedLockLeadId;
 
   // Fetch precise queue exact stats when the leadQueue changes. Limit to the queue we actually see to optimize.
   useEffect(() => {
     if (leadQueue.length === 0) return;
+    let cancelled = false;
     const fetchStats = async () => {
       // Just fetch for the first 50 to avoid massive payload if queue is huge, or all if small
       const idsToFetch = leadQueue.slice(0, 75).map(l => String(l.lead_id || l.id)).filter(Boolean);
       const results = await getContactCallStats(idsToFetch);
-      setLeadCallStats(results);
+      if (!cancelled) setLeadCallStats(results);
     };
-    fetchStats();
+    void fetchStats();
+    return () => { cancelled = true; };
   }, [leadQueue]);
 
-  // Keep index in range (e.g. after handleAdvance with an empty queue computed index -1).
-  useEffect(() => {
-    const len = leadQueue.length;
-    setCurrentLeadIndex((i) => {
-      if (len === 0) return 0;
-      if (i < 0 || i >= len) return Math.max(0, Math.min(i, len - 1));
-      return i;
-    });
-  }, [leadQueue]);
-
-  const [isAdvancing, setIsAdvancingState] = useState(false);
-  const isAdvancingRef = useRef(false);
-  const setIsAdvancing = useCallback((val: boolean) => {
-    isAdvancingRef.current = val;
-    setIsAdvancingState(val);
-  }, []);
   const [loadingLeads, setLoadingLeads] = useState(false);
 
   const isQueueExhausted = useMemo(() => {
@@ -547,7 +558,6 @@ export default function DialerPage() {
   const [noteError, setNoteError] = useState(false);
   const [showWrapUp, setShowWrapUp] = useState(false);
   const pendingDispositionDraftRef = useRef(false);
-  pendingDispositionDraftRef.current = !!(currentCallId || selectedDisp || noteText.trim() || showWrapUp);
   const [showCallbackModal, setShowCallbackModal] = useState(false);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [showFullViewDrawer, setShowFullViewDrawer] = useState(false);
@@ -568,52 +578,18 @@ export default function DialerPage() {
   const [aptNotes, setAptNotes] = useState("");
   const [dialerStats, setDialerStats] = useState<DialerDailyStats | null>(null);
 
-  // Keep ?contact= aligned with whichever lead is at currentLeadIndex.
-  // Do NOT gate on isAdvancing — advance/skip/queue/arrow handlers bump the index while
-  // isAdvancing is true; if we skip URL writes here, the contact→index effect still sees
-  // the old ?contact= and snaps the index back (glitchy arrows / save & next).
-  const lastSyncedLeadIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (loadingLeads || !currentLead) return;
-
-    const leadId = String(currentLead.lead_id || currentLead.id || "");
-    const currentParam = searchParams.get("contact");
-
-    // Only conditionally sync if the lead ITSELF changed, to avoid fighting the browser Back button
-    if (leadId !== lastSyncedLeadIdRef.current) {
-      lastSyncedLeadIdRef.current = leadId;
-      if (leadId && leadId !== String(currentParam ?? "")) {
-        const newParams = new URLSearchParams(searchParams);
-        newParams.set("contact", leadId);
-        setSearchParams(newParams, { replace: true });
-      }
-    }
-  }, [currentLead, loadingLeads, searchParams, setSearchParams]);
-
   const contactParam = searchParams.get("contact");
-
-  // Deep-link / browser back: when ?contact= or queue contents change, jump to that lead.
-  // Must NOT depend on currentLeadIndex — otherwise this runs on every arrow click with a
-  // stale URL for one frame and overwrites the index before the URL effect above runs.
-  useEffect(() => {
-    if (loadingLeads) return;
-    if (!contactParam || showFullViewDrawer || fetchingFromUrl) return;
-
-    // Ignore URL jumps if we are in the middle of programmatic advancing/skipping.
-    // This prevents stale ?contact= URL from overwriting the queue index while transitions happen.
-    if (isAdvancingRef.current) return;
-
-    const leadId = String(currentLead?.lead_id || currentLead?.id || "");
-    if (contactParam === leadId) return;
-
-    const match = leadQueue.find(
-      l => String(l.lead_id ?? "") === contactParam || String(l.id ?? "") === contactParam
-    );
-    if (!match) return;
-    const idx = leadQueue.indexOf(match);
-    setCurrentLeadIndex((cur) => (cur === idx ? cur : idx));
-  }, [contactParam, leadQueue, showFullViewDrawer, fetchingFromUrl, loadingLeads, currentLead]);
+  useDialerContactUrl({
+    scope: navigationScope, contact: contactParam, lead: currentLead, queue: leadQueue,
+    loading: loadingLeads || fetchingFromUrl || showFullViewDrawer,
+    blocked: () => !!navigationGuardRef.current(), select: setCurrentLeadIndex,
+    canSelect: lead => !lead.dnc_suppressed && !TERMINAL_STATUSES.includes(lead.status || "") && getLeadTier(lead, new Date()) !== 4,
+    write: (contact) => {
+      const params = new URLSearchParams(searchParams);
+      if (contact) params.set("contact", contact); else params.delete("contact");
+      setSearchParams(params, { replace: true });
+    },
+  });
   // Campaign id whose TRUSTED header stats have resolved at least once. Drives
   // the header skeleton so the cards never flash the initial zeros while the
   // trusted reconcile (calls/wins/dialer_sessions) is still in flight, and
@@ -648,6 +624,7 @@ export default function DialerPage() {
   /** Mirrors state for ring-timeout callback (avoids stale React closures). */
   const currentCallIdRef = useRef<string | null>(null);
   const twilioCallStateRef = useRef<string>("idle");
+  twilioCallStateRef.current = twilioCallState;
   const twilioCurrentCallRef = useRef<TwilioCall | null>(null);
   const lastCallDirectionRef = useRef<"inbound" | "outbound">("outbound");
   const isAutoDispositioningRef = useRef(false);
@@ -655,8 +632,6 @@ export default function DialerPage() {
   const hasProcessedEndedState = useRef(false);
   /** True while handling an inbound WebRTC session — skips campaign auto-dispose / wrap-up on end. */
   const wasInboundSessionRef = useRef(false);
-  /** After applyQueueLifecycle mutates the queue, index is applied in the same paint via useLayoutEffect */
-  const pendingLifecycleLeadRef = useRef<{ id: string | null } | null>(null);
   /**
    * Guard #5: the campaign_lead whose advancement is mid-flight (or just-ended,
    * not yet persisted). A lead must NOT be re-dialed until advance_campaign_lead
@@ -668,8 +643,20 @@ export default function DialerPage() {
   /** The most recent persisted advance_campaign_lead row — lets the Personal
    *  queue re-sort use authoritative DB values instead of stale React state. */
   const lastAdvancedLeadRef = useRef<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const { user, profile, isImpersonating } = useAuth();
-  const { organizationId } = useOrganization();
+  const savedDraftRef = useRef<string | null>(null);
+  const draftFingerprint = JSON.stringify([currentCallId, selectedDisp?.id, noteText, callbackDate?.toISOString(), callbackTime, aptTitle, aptDate, aptStartTime, aptEndTime, aptNotes]);
+  pendingDispositionDraftRef.current = !!(currentCallId || selectedDisp || noteText.trim() || showWrapUp || showCallbackModal || showAppointmentModal)
+    && savedDraftRef.current !== draftFingerprint;
+  navigationGuardRef.current = () => navigationBlockReason({
+    busy: isBusy(), callState: twilioCallStateRef.current,
+    saving: dispositionSaveRef.current || !!pendingAdvanceRef.current || standaloneBookingPendingRef.current,
+    draft: pendingDispositionDraftRef.current,
+  });
+  const canNavigate = useCallback(() => {
+    const reason = navigationGuardRef.current();
+    if (reason) { toast.error(reason); return false; }
+    return true;
+  }, []);
   const trustedScope = `${organizationId}:${user?.id}:${selectedCampaignId}:${userLocalDayBounds(resolveUserTimeZone()).startIso}`;
   const trustedScopeRef = useRef(trustedScope); trustedScopeRef.current = trustedScope;
   const standaloneBookingScope = `${organizationId}:${user?.id}:${dispositionVisitRef.current.generation}:${showCallbackModal}`;
@@ -836,7 +823,7 @@ export default function DialerPage() {
 
   // ── Auto-Dial state ──
   // ── Auto-Dial settings and telemetry (replaces AutoDialer class) ──
-  const [autoDialEnabled, setAutoDialEnabled] = useState(true);
+  const [autoDialEnabled, setAutoDialEnabled] = useState(false);
   const ringTimeoutRef = useRef<number>(DEFAULT_OUTBOUND_RING_SEC); // synced with TwilioContext + campaign / phone_settings
   /** Outbound only: when Twilio entered `dialing` (used to honor full ring timeout on early SDK disconnect). */
   const outboundDialStartedAtRef = useRef<number | null>(null);
@@ -1534,15 +1521,17 @@ export default function DialerPage() {
     staleTime: 1000 * 60 * 60,
   });
 
-  // Resolve the "best" number to display when lead or override changes
+  // Late caller-ID previews must not label the next lead with the previous lead's number.
   useEffect(() => {
+    let cancelled = false;
     const resolve = async () => {
-      const contactPhone = currentLead?.phone || "";
-      const contactId = currentLead?.lead_id || currentLead?.id || "";
-      const smartId = await getSmartCallerId(contactPhone, contactId, { localPresenceEnabled });
-      setDisplayedFromNumber(smartId);
+      try {
+        const smartId = await getSmartCallerId(currentLead?.phone || "", currentLead?.lead_id || currentLead?.id || "", { localPresenceEnabled });
+        if (!cancelled) setDisplayedFromNumber(smartId);
+      } catch { if (!cancelled) setDisplayedFromNumber(""); }
     };
-    resolve();
+    void resolve();
+    return () => { cancelled = true; };
   }, [currentLead, selectedCallerNumber, getSmartCallerId, localPresenceEnabled]);
 
   // ── Owned phone numbers (removed local fetching, now using TwilioContext) ──
@@ -1577,14 +1566,15 @@ export default function DialerPage() {
    * on `selectedCampaign` being available in the closure. When omitted,
    * the type is fetched directly from the campaigns table (self-sufficient).
    */
-  const loadLockModeLead = useCallback(async (overrideCampaignType?: string): Promise<boolean | null> => {
+  const performLockModeLoad = useCallback(async (overrideCampaignType?: string): Promise<boolean | null> => {
     if (!selectedCampaignId) return false;
+    const transition = beginTransition(false)!;
+    const isCurrent = transition.isScopeCurrent;
     const confirmTeamDisplay = beginTeamLeadDisplayLoad();
     setLoadingLeads(true);
-    setIsAdvancing(true);
     try {
       // Resolve campaign type: use override, then closure, then fetch from DB
-      let resolvedType = overrideCampaignType || selectedCampaign?.type;
+      let resolvedType = overrideCampaignType || selectedCampaignType;
       let campaignData: any = null;
       if (!resolvedType) {
         const { data } = await supabase
@@ -1612,7 +1602,12 @@ export default function DialerPage() {
       }
       const filters: QueueFilters = (campaignData?.queue_filters as QueueFilters) ?? {};
 
+      if (!isCurrent()) return null;
       const lock = await getNextLead(selectedCampaignId, resolvedType, filters);
+      if (!isCurrent()) {
+        if (lock) await releaseLock(lock.id);
+        return null;
+      }
       if (!lock) {
         setConfirmedLockLeadId(null);
         setLeadQueue([]);
@@ -1628,6 +1623,7 @@ export default function DialerPage() {
         .eq("id", lock.id)
         .maybeSingle();
 
+      if (!isCurrent()) { await releaseLock(lock.id); return null; }
       let merged: any = lock;
       if (fullRow) {
         const { lead: leadData, ...campaignLead } = fullRow as any;
@@ -1643,8 +1639,7 @@ export default function DialerPage() {
         };
       }
 
-      setLeadQueue([merged]);
-      setCurrentLeadIndex(0);
+      commitQueue([merged], merged.id);
       // Lock is now server-confirmed for this agent (claim RPC returned this row)
       // — the contact card may reveal. Set together with the lead so reveal and
       // data land in the same render.
@@ -1653,37 +1648,59 @@ export default function DialerPage() {
       setHasMoreLeads(false); // lock mode = one lead at a time
       // Start heartbeat using campaign_leads.id (the lock key)
       startHeartbeat(lock.id, () => {
-        if (dispositionVisitRef.current.key !== `${selectedCampaignId}:${lock.id}`) return;
+        if (!isCurrent()) return;
+        if (dispositionVisitRef.current.key !== `${navigationScope}:${lock.id}`) return;
         // Mask a lost lock immediately. A draft must survive a failed save or
         // renewal; otherwise preserve the existing next-lead recovery behavior.
         setConfirmedLockLeadId(null);
         emitQueueMetricsRefresh();
-        if (pendingDispositionDraftRef.current || dispositionSaveRef.current) {
+        if (pendingDispositionDraftRef.current || dispositionSaveRef.current || isBusy() || ["dialing", "active", "incoming"].includes(twilioCallStateRef.current)) {
           setIsPaused(true);
           toast.error("Lead lock was lost. Your draft is retained; refresh the queue before continuing.");
         } else {
-          void loadLockModeLead();
+          reloadLockLeadRef.current();
         }
       });
       emitQueueMetricsRefresh();
       return true;
     } catch (err) {
+      if (!isCurrent()) return null;
       console.error("[loadLockModeLead] Error:", err);
       setConfirmedLockLeadId(null);
       setIsPaused(true);
       toast.error("Failed to load next lead. Queue remains paused.");
       return null;
     } finally {
-      setLoadingLeads(false);
-      setTimeout(() => setIsAdvancing(false), 100);
+      if (isCurrent()) setLoadingLeads(false);
+      transition.finish();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaignId, selectedCampaign, getNextLead, startHeartbeat, beginTeamLeadDisplayLoad]);
+  }, [selectedCampaignId, selectedCampaignType, getNextLead, startHeartbeat, beginTeamLeadDisplayLoad, navigationScope, beginTransition, commitQueue, releaseLock, setLeadQueue, isBusy]);
+
+  // Serialize claims across campaign changes; stale claims are released before another claim starts.
+  const loadLockModeLead = useCallback((override?: string): Promise<boolean | null> => {
+    const previous = lockLoadRef.current;
+    if (previous?.scope === navigation.scopeIdentity) return previous.promise;
+    const scope = navigation.scopeIdentity;
+    const ownsVisit = captureVisit();
+    const promise = (async () => {
+      if (previous) await previous.promise;
+      if (!ownsVisit()) return null;
+      return performLockModeLoad(override);
+    })();
+    const entry = { scope, promise }; lockLoadRef.current = entry;
+    void promise.finally(() => { if (lockLoadRef.current === entry) lockLoadRef.current = null; });
+    return promise;
+  }, [navigation.scopeIdentity, captureVisit, performLockModeLoad]);
+
+  reloadLockLeadRef.current = () => { void loadLockModeLead(); };
 
   const fetchLeadsBatch = useCallback(async (campaignId: string, offset: number, clear = false) => {
+    const scope = navigationScope;
+    const revision = captureVisit();
     setLoadingLeads(true);
     try {
       const leads = await getCampaignLeads(campaignId, organizationId, BATCH_SIZE, offset);
+      if (scopeRef.current !== scope || !revision()) return;
       if (leads.length < BATCH_SIZE) {
         setHasMoreLeads(false);
       } else {
@@ -1691,20 +1708,21 @@ export default function DialerPage() {
       }
       
       if (clear) {
-        setLeadQueue(leads);
-        setCurrentLeadIndex(0);
+        if (!revision()) return;
+        commitQueue(leads, leads[0]?.id ?? null);
         setCurrentOffset(BATCH_SIZE);
       } else {
-        setLeadQueue(prev => [...prev, ...leads]);
+        setLeadQueue(prev => [...prev, ...leads.filter(lead => !prev.some(existing => existing.id === lead.id))]);
         setCurrentOffset(prev => prev + BATCH_SIZE);
       }
     } catch (err: any) {
+      if (scopeRef.current !== scope) return;
       console.error("[Dialer] Fetch Error (batch):", err);
       toast.error("Failed to load leads: " + (err.message || "Unknown error"));
     } finally {
-      setLoadingLeads(false);
+      if (scopeRef.current === scope) setLoadingLeads(false);
     }
-  }, [organizationId]);
+  }, [organizationId, navigationScope, captureVisit, commitQueue, setLeadQueue]);
 
   useEffect(() => {
     if (!selectedCampaignId) {
@@ -1721,7 +1739,7 @@ export default function DialerPage() {
     // However, we also need lockMode to be correctly computed, which depends
     // on selectedCampaign. If campaigns haven't loaded yet and lockMode is
     // incorrectly false, we'd run the wrong path. Guard against this:
-    if (lockMode === false && !selectedCampaign) {
+    if (lockMode === false && !hasSelectedCampaign) {
       // campaigns not loaded yet — lockMode may be incorrectly false.
       // Wait for campaigns to load before deciding the loading path.
       return;
@@ -1733,7 +1751,7 @@ export default function DialerPage() {
     // `undefined` here. Previously only the race guard above happened to block this path;
     // that was a loading guard, not an access rule. `useDialerSession` clears the bad
     // param and `start_dialer_session` refuses server-side, but no lead may load either.
-    if (!selectedCampaign) {
+    if (!hasSelectedCampaign) {
       setLeadQueue([]);
       setCurrentLeadIndex(0);
       setCurrentOffset(0);
@@ -1742,112 +1760,56 @@ export default function DialerPage() {
       return;
     }
 
-    // Load leads, then check for saved queue position
+    const scope = navigationScope;
+    const request = ++queueLoadRef.current;
+    let cancelled = false;
+    const isCurrent = () => !cancelled && scopeRef.current === scope && queueLoadRef.current === request;
+    // Do not publish a partial queue while a late resume response can still move it.
     const loadWithResume = async () => {
+      const transition = beginTransition(false)!;
       setLoadingLeads(true);
       try {
         const leads = await getCampaignLeads(selectedCampaignId, organizationId, BATCH_SIZE, 0);
-        if (leads.length < BATCH_SIZE) {
-          setHasMoreLeads(false);
-        } else {
-          setHasMoreLeads(true);
-        }
-
-        // ── Queue Lifecycle: fetch retry interval + pre-populate retry_eligible_at ──
-        let campaignRetryInterval = 24;
-        try {
-          const { data: campData } = await supabase
-            .from('campaigns')
-            .select('retry_interval_hours, retry_interval_minutes')
-            .eq('id', selectedCampaignId)
-            .maybeSingle();
-          if (campData?.retry_interval_hours != null) {
-            campaignRetryInterval = campData.retry_interval_hours as number;
-            setRetryIntervalHours(campaignRetryInterval);
-          }
-          if (campData?.retry_interval_minutes != null) {
-            setRetryIntervalMinutes(campData.retry_interval_minutes as number);
-          }
-        } catch { /* non-critical */ }
-
-        const now = new Date();
-        const enriched = leads as CampaignLead[];
-
-        const sorted = sortQueue(enriched, now);
-        setLeadQueue(sorted);
-        setCurrentOffset(BATCH_SIZE);
-
-        // Check for saved queue position (with 60-minute staleness window)
+        if (!isCurrent()) return;
+        const sorted = sortQueue(leads as CampaignLead[], new Date());
+        const eligible = (lead: CampaignLead) => getLeadTier(lead, new Date()) !== 4
+          && !lead.dnc_suppressed && !TERMINAL_STATUSES.includes(lead.status || "");
+        let selectedId = sorted.find(eligible)?.id ?? null;
         if (user?.id) {
-          try {
-            const { data: savedState } = await (supabase as any) // eslint-disable-line @typescript-eslint/no-explicit-any
-              .from('dialer_queue_state')
-              .select('current_lead_id, queue_index, updated_at')
-              .eq('user_id', user.id)
-              .eq('campaign_id', selectedCampaignId)
-              .maybeSingle();
-
-            if (savedState) {
-              // ── Change 4: 60-minute staleness window ──
-              const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes
-              const savedUpdatedAt = savedState.updated_at ? new Date(savedState.updated_at).getTime() : 0;
-              const isStale = (Date.now() - savedUpdatedAt) > STALE_THRESHOLD_MS;
-
-              if (isStale) {
-                setCurrentLeadIndex(0);
-                toast.info("Session expired — starting from the top");
-              } else {
-                const savedIndex = sorted.findIndex(
-                  (l: any) => (l.lead_id || l.id) === savedState.current_lead_id
-                );
-                if (savedIndex >= 0) {
-                  setCurrentLeadIndex(savedIndex);
-                  toast.success("Resuming where you left off");
-                } else {
-                  setCurrentLeadIndex(0);
-                }
-              }
-            } else {
-              setCurrentLeadIndex(0);
-            }
-          } catch {
-            setCurrentLeadIndex(0);
+          const { data: saved } = await (supabase as any).from('dialer_queue_state')
+            .select('current_lead_id, updated_at').eq('user_id', user.id)
+            .eq('campaign_id', selectedCampaignId).maybeSingle();
+          if (!isCurrent()) return;
+          if (saved && Date.now() - new Date(saved.updated_at).getTime() < 60 * 60_000) {
+            const resume = sorted.find(l => (l.lead_id || l.id) === saved.current_lead_id && eligible(l));
+            if (resume) selectedId = resume.id;
           }
-        } else {
-          setCurrentLeadIndex(0);
         }
-      } catch (err: any) {
-        console.error("[Dialer] Fetch Error (resume):", err);
-        toast.error("Failed to load leads: " + (err.message || "Unknown error"));
+        if (!isCurrent()) return;
+        commitQueue(sorted, selectedId);
+        setCurrentOffset(BATCH_SIZE); setHasMoreLeads(leads.length === BATCH_SIZE);
+      } catch (err) {
+        if (isCurrent()) toast.error("Failed to load leads: " + (err instanceof Error ? err.message : "Unknown error"));
       } finally {
-        setLoadingLeads(false);
+        if (isCurrent()) setLoadingLeads(false);
+        transition.finish();
       }
     };
 
     if (lockMode) {
       // Team / Open Pool: atomic lock-based single-lead loading
       // Pass the campaign type explicitly to avoid closure staleness
-      loadLockModeLead(selectedCampaign?.type);
+      void loadLockModeLead(selectedCampaignType);
     } else {
-      loadWithResume();
+      void loadWithResume();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaignId, selectedCampaign, lockMode, user?.id, organizationId]);
+    return () => { cancelled = true; };
+  }, [selectedCampaignId, hasSelectedCampaign, selectedCampaignType, lockMode, user?.id, organizationId, navigationScope, beginTransition, commitQueue, loadLockModeLead, setCurrentLeadIndex, setLeadQueue]);
   // Reset hasDialedOnce when campaign changes so the first call must always be manual
   useEffect(() => {
     hasDialedOnce.current = false;
     return () => { hasDialedOnce.current = false; };
-  }, [selectedCampaignId]);
-
-  // ── Sync auto-dial prefs from campaign list row (refined when syncSettings runs) ──
-  useEffect(() => {
-    if (!selectedCampaign) return;
-    const campaignAutoDialValue = selectedCampaign.auto_dial_enabled;
-    // Only sync if the campaign has an explicit setting (not null/undefined)
-    if (campaignAutoDialValue != null) {
-      setAutoDialEnabled(campaignAutoDialValue);
-    }
-  }, [selectedCampaignId, selectedCampaign]);
+  }, [navigationScope]);
 
   // Scope the outbound caller-ID pool to this campaign's Number Group (Phase 2g).
   useEffect(() => {
@@ -1991,8 +1953,9 @@ export default function DialerPage() {
       leadId: string,
       opts?: { signal?: AbortSignal; campaignLeadId?: string | null }
     ) => {
+    const isCurrent = captureVisit();
     const signal = opts?.signal;
-    if (isAdvancingRef.current) return;
+    if (isBusy()) return;
     historySessionCacheRef.current.delete(leadId);
     setLoadingHistory(true);
     try {
@@ -2000,7 +1963,7 @@ export default function DialerPage() {
         signal,
         campaignLeadId: opts?.campaignLeadId,
       });
-      if (!signal?.aborted) {
+      if (!signal?.aborted && isCurrent()) {
         historySessionCacheRef.current.set(leadId, data);
         setHistory(data);
       }
@@ -2009,11 +1972,11 @@ export default function DialerPage() {
         console.warn("Failed to load history:", err);
       }
     } finally {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && isCurrent()) {
         setLoadingHistory(false);
       }
     }
-  }, [organizationId]);
+  }, [organizationId, captureVisit, isBusy]);
 
   /** Refetch timeline for a lead when the voice pipeline delivers `recording_url` after wrap-up (no isAdvancing guard). */
   const refreshHistoryForLeadQuiet = useCallback(
@@ -2186,50 +2149,20 @@ export default function DialerPage() {
    * re-sorts the queue, and advances the dialer head to the next dialable lead.
    * Called after every disposition save in both the manual and auto-dispose paths.
    */
-  const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'removed', 'Closed Won'];
   const applyQueueLifecycle = useCallback((
     disposedLead: CampaignLead,
     dispositionName: string,
     callbackDueAt: string | null,
   ) => {
-    setIsAdvancing(true);
     const now = new Date();
-    // Functional update avoids a stale leadQueue when the call-end effect runs before
-    // a queued React render (Personal campaigns could otherwise apply dispositions to []).
-    setLeadQueue(prev => {
-      const newQueue = applyDispositionToQueue(
-        prev as CampaignLead[],
-        disposedLead,
-        dispositionName,
-        getRetryIntervalMinutes(),
-        callbackDueAt,
-        now,
-      );
-      const nextIndex = newQueue.findIndex(
-        lead => !TERMINAL_STATUSES.includes((lead as any).status || '')
-             && getLeadTier(lead as CampaignLead, now) !== 4
-      );
-      
-      // If no valid leads left, flag by setting nextIndex = -1 but keep UI on current lead
-      if (nextIndex === -1) {
-        setAutoDialEnabled(false);
-      }
-      
-      const safeIndex = nextIndex === -1 ? 0 : nextIndex;
-      pendingLifecycleLeadRef.current = { id: newQueue[safeIndex]?.id ?? null };
-      return newQueue;
-    });
-
-    setTimeout(() => setIsAdvancing(false), 100);
-  }, [getRetryIntervalMinutes]);
-
-  useLayoutEffect(() => {
-    const p = pendingLifecycleLeadRef.current;
-    if (p === null) return;
-    pendingLifecycleLeadRef.current = null;
-    const index = Math.max(0, leadQueue.findIndex(lead => lead.id === p.id));
-    setCurrentLeadIndex((cur) => (cur === index ? cur : index));
-  }, [leadQueue]);
+    const newQueue = applyDispositionToQueue(getSelection().queue as CampaignLead[], disposedLead,
+      dispositionName, getRetryIntervalMinutes(), callbackDueAt, now);
+    const next = newQueue.find(lead => lead.id !== disposedLead.id
+      && !TERMINAL_STATUSES.includes(lead.status || '') && !lead.dnc_suppressed
+      && getLeadTier(lead, now) !== 4);
+    if (!next) setAutoDialEnabled(false);
+    commitQueue(newQueue, next?.id ?? null);
+  }, [getRetryIntervalMinutes, getSelection, commitQueue]);
 
   /* --- call handlers --- */
 
@@ -2244,28 +2177,24 @@ export default function DialerPage() {
   const [pendingOverrideId, setPendingOverrideId] = useState<string | null>(null);
 
   const _executeLeadSelect = useCallback((idx: number) => {
-    const lead = leadQueue[idx];
-    const leadId = lead?.lead_id || lead?.id;
-    if (leadId) {
-      const newParams = new URLSearchParams(searchParams);
-      newParams.set("contact", String(leadId));
-      setSearchParams(newParams, { replace: true });
-    }
-    setIsAdvancing(true);
+    if (!canNavigate()) return;
     setCurrentLeadIndex(idx);
-    if (twilioCallState === "idle" || twilioCallState === "ended") {
-      setShowWrapUp(false);
-    }
-    setTimeout(() => setIsAdvancing(false), 500);
-  }, [leadQueue, searchParams, setSearchParams, twilioCallState]);
+    setShowWrapUp(false);
+    setSelectedDisp(null); setNoteText(""); setCurrentCallId(null);
+    savedDraftRef.current = null;
+  }, [canNavigate, setCurrentLeadIndex]);
 
   // ── Lead Selection Handler (with isAdvancing guard) ──
   const handleLeadSelect = useCallback((idx: number) => {
-    if (isAdvancingRef.current) return;
+    if (!canNavigate()) return;
     if (idx === currentLeadIndex) return;
 
     const lead = leadQueue[idx];
     if (!lead) return;
+    if (lead.dnc_suppressed || TERMINAL_STATUSES.includes(lead.status || "")) {
+      toast.error("This lead is no longer eligible in the campaign queue.");
+      return;
+    }
     if (getLeadTier(lead as CampaignLead, new Date()) === 4) {
       // Show confirmation modal for Tier 4 instead of blocking entirely
       setPendingOverrideId(lead.id);
@@ -2274,7 +2203,7 @@ export default function DialerPage() {
     }
 
     _executeLeadSelect(idx);
-  }, [currentLeadIndex, leadQueue, autoDialEnabled, _executeLeadSelect]);
+  }, [currentLeadIndex, leadQueue, autoDialEnabled, _executeLeadSelect, canNavigate]);
 
   const confirmOverrideSelect = useCallback(() => {
     if (pendingOverrideId === null) return;
@@ -2285,10 +2214,10 @@ export default function DialerPage() {
   }, [pendingOverrideId, leadQueue, _executeLeadSelect]);
 
   const handleAdvance = useCallback(async () => {
-    if (isAdvancingRef.current || dispositionSaveRef.current) return;
+    if (!canNavigate() || getSelection().selectedId !== currentLead?.id) return;
     const leadId = currentLead?.id;
     const visit = dispositionVisitRef.current.generation;
-    setIsAdvancing(true);
+    const transition = beginTransition(false)!;
     try {
       if (lockMode && leadId) await releaseLock(leadId);
       if (dispositionVisitRef.current.generation !== visit) return;
@@ -2309,9 +2238,9 @@ export default function DialerPage() {
       setIsPaused(true);
       toast.error(error instanceof Error ? error.message : "Unable to release this lead. Please retry.");
     } finally {
-      setIsAdvancing(false);
+      transition.finish();
     }
-  }, [lockMode, currentLead?.id, leadQueue, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer]);
+  }, [lockMode, currentLead?.id, leadQueue, stopHeartbeat, releaseLock, loadLockModeLead, cancelClaimTimer, beginTransition, canNavigate, getSelection, setCurrentLeadIndex]);
 
   /**
    * The ONE shared call into the canonical advancement RPC. Both the auto No-Answer
@@ -2323,12 +2252,13 @@ export default function DialerPage() {
    * is persisted. Returns the advanced row, or null on failure (failure surfaces).
    */
   const runAdvanceCampaignLead = useCallback(async (args: Omit<DispositionInput, "operationId">) => {
+    const ownsVisit = captureVisit();
     const visitKey = `${args.campaignLeadId}:${dispositionVisitRef.current.generation}`;
     pendingAdvanceRef.current = args.campaignLeadId;
     try {
       if (args.callId) await verifyOutboundAdmission(args.callId);
       const persisted = await persistCurrentDisposition({ ...args, visitKey });
-      adoptPersistedClaim(persisted.claimed_lead_id);
+      if (ownsVisit()) adoptPersistedClaim(persisted.claimed_lead_id);
       return persisted;
     } catch (error) {
       setIsPaused(true);
@@ -2337,11 +2267,12 @@ export default function DialerPage() {
     } finally {
       if (pendingAdvanceRef.current === args.campaignLeadId) pendingAdvanceRef.current = null;
     }
-  }, [persistCurrentDisposition, adoptPersistedClaim]);
+  }, [persistCurrentDisposition, adoptPersistedClaim, captureVisit]);
 
   const handleSkip = useCallback(async () => {
-    if (isAdvancingRef.current) return;
-    setIsAdvancing(true);
+    if (!canNavigate() || getSelection().selectedId !== currentLead?.id) return;
+    const transition = beginTransition();
+    if (!transition) return;
     const skippedLead = currentLead;
     const visit = dispositionVisitRef.current.generation;
     try {
@@ -2396,7 +2327,6 @@ export default function DialerPage() {
       setConfirmedLockLeadId(null); // mask until the next claim re-confirms (Issue 5)
       // Load next lead atomically for Team/Open
       await loadLockModeLead();
-      setIsAdvancing(false);
       return;
     }
 
@@ -2422,7 +2352,7 @@ export default function DialerPage() {
         toast.error("Could not skip this lead: " + (error instanceof Error ? error.message : String(error)));
       }
     } finally {
-      setIsAdvancing(false);
+      transition.finish();
     }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2439,45 +2369,34 @@ export default function DialerPage() {
     return startServerSession(selectedCampaignId);
   }, [selectedCampaignId, startServerSession]);
 
-  const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string) => {
-    // Final outbound choke point (also reached by the caller-ID "Call Anyway" override): the dispatch
-    // closure runs ONLY when the campaign session is authorized (runGatedDispatch), so a refusal
-    // dispatches nothing and touches no dial refs.
-    const visit = dispositionVisitRef.current.generation;
-    return runGatedDispatch(ensureCampaignSession, async () => {
-    if (dispositionVisitRef.current.generation !== visit) return false;
+  const proceedWithCall = useCallback(async (leadPhone: string, callerNumber: string, contactId?: string, ownsAttempt = captureVisit()) => {
+    if (!ownsAttempt() || !(await ensureCampaignSession()) || !ownsAttempt()) return false;
     lastDialCampaignLeadIdRef.current = currentLead?.id ?? null;
     lastUsedCallerId.current = callerNumber;
-    // Consolidated: MakeCallOptions passes all metadata to TwilioContext.makeCall
-    // where the single call record is created.
     const opts: MakeCallOptions = {
-      contactId: contactId || null,
-      campaignId: selectedCampaignId || null,
+      contactId: contactId || null, campaignId: selectedCampaignId || null,
       campaignLeadId: currentLead?.id || null,
       contactName: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim() || null,
-      contactPhone: leadPhone,
+      contactPhone: leadPhone, isAttemptCurrent: ownsAttempt,
     };
     const callId = await twilioMakeCall(leadPhone, callerNumber || undefined, opts);
-    if (dispositionVisitRef.current.generation !== visit) return false;
+    if (!ownsAttempt()) return false;
     if (!callId) { setIsPaused(true); return false; }
     setCurrentCallId(callId);
     return true;
-    });
-  }, [twilioMakeCall, selectedCampaignId, currentLead, ensureCampaignSession]);
+  }, [twilioMakeCall, selectedCampaignId, currentLead, ensureCampaignSession, captureVisit]);
 
-  const initiateCall = useCallback(async (leadPhone: string, contactId: string) => {
-    if (!user) {
-      toast.error("Authentication required to make calls. Please log in again.");
-      return false;
-    }
-    const visit = dispositionVisitRef.current.generation;
+  const initiateCall = useCallback(async (leadPhone: string, contactId: string, ownsAttempt = captureVisit()) => {
+    if (!user?.id) throw new Error("Sign in again before calling.");
     const smartCallerId = await getSmartCallerId(leadPhone, contactId, { localPresenceEnabled });
-    if (dispositionVisitRef.current.generation !== visit) return false;
-    return proceedWithCall(leadPhone, smartCallerId, contactId);
-  }, [getSmartCallerId, user?.id, proceedWithCall, localPresenceEnabled]);
+    if (!ownsAttempt()) return false;
+    if (!smartCallerId) throw new Error("No eligible outbound caller ID is available for this campaign.");
+    return proceedWithCall(leadPhone, smartCallerId, contactId, ownsAttempt);
+  }, [getSmartCallerId, user?.id, proceedWithCall, localPresenceEnabled, captureVisit]);
 
   const handleSelectCampaign = useCallback(
     async (campaignId: string) => {
+      if (!canNavigate()) return;
       // Authorize/start the session FIRST; only switch the selected campaign when it succeeds.
       // A mismatch (an active session for another campaign) or an unauthorized campaign returns
       // false, so the selection does not change and the user stays where they were.
@@ -2485,10 +2404,11 @@ export default function DialerPage() {
       if (!ok) return;
       setSelectedCampaignId(campaignId);
     },
-    [setSelectedCampaignId, startServerSession],
+    [setSelectedCampaignId, startServerSession, canNavigate],
   );
 
   const handleEndDialerSession = useCallback(async () => {
+    if (!canNavigate()) return;
     await endServerSession();
     void reconcileTrustedStats();
     if (lockMode && selectedCampaignId) {
@@ -2512,7 +2432,7 @@ export default function DialerPage() {
     setLeadQueue([]);
     setCurrentLeadIndex(0);
   }, [
-    endServerSession,
+    endServerSession, canNavigate, setCurrentLeadIndex, setLeadQueue,
     reconcileTrustedStats,
     lockMode,
     selectedCampaignId,
@@ -2522,54 +2442,38 @@ export default function DialerPage() {
     setSelectedCampaignId,
   ]);
 
-  const handleCall = useCallback(async (intent: DialIntent = "manual") => {
-    if (!currentLead) {
-      toast.error("No lead selected");
-      return;
-    }
-
-    // Manual repeat calls are intentional user actions. A completed call/wrap-up
-    // does NOT lock the agent out of calling the same lead again. Auto-dial remains
-    // strict so it cannot recreate the historical rapid-redial loop.
-    const currentCallAlreadySaved =
-      !!currentCallId && lastAdvancedLeadRef.current?.call_id === currentCallId;
-    const dialDecision = resolveManualDialDecision({
-      intent,
-      callState: twilioCallState,
-      dispositionSavePending: dispositionSaveRef.current,
-      pendingAdvanceForCurrentLead: pendingAdvanceRef.current === currentLead.id,
-      hasCurrentCall: !!currentCallId,
-      showWrapUp,
-      // A saved "Save Only" wrap-up is not an unsaved draft and may be called again.
-      hasDraft: !currentCallAlreadySaved && !!(selectedDisp || noteText.trim()),
-    });
-
-    if (dialDecision === "blocked-wrap-up") return;
-    if (dialDecision === "blocked-active") {
-      if (intent === "manual") toast.error("Finish the current call before placing another.");
-      return;
-    }
-    if (dialDecision === "blocked-persisting") {
-      if (intent === "manual") toast.error("The previous call is still saving. Try again in a moment.");
-      return;
-    }
-    if (dialDecision === "blocked-draft") {
-      toast.error("Save or clear the current outcome before calling again.");
-      return;
-    }
-
-    if (twilioStatus === "error") {
-      toast.error(twilioErrorMessage || "Dialer error. Please check your settings.");
-      return;
-    }
-
+  const callGateInput = (intent: DialIntent) => ({
+    intent, callState: twilioCallState, dispositionSavePending: dispositionSaveRef.current,
+    pendingAdvanceForCurrentLead: pendingAdvanceRef.current === currentLead?.id,
+    hasCurrentCall: !!currentCallId, showWrapUp,
+    hasDraft: savedDraftRef.current !== draftFingerprint && !!(selectedDisp || noteText.trim() || callbackDate || callbackTime || aptTitle || aptDate || aptNotes),
+    ready: twilioStatus === "ready", hasLead: !!currentLead && !!selectedCampaign,
+    eligibilityError: lockMode && confirmedLockLeadId !== currentLead?.id
+      ? "Lead lock is not confirmed. Refresh the queue before calling." : null,
+    busy: isBusy() || loadingLeads, readinessError: twilioErrorMessage,
+  });
+  const callBlockedReason = callBlockReason(callGateInput("manual"));
+  const handleCall = async (intent: DialIntent = "manual") => {
+    const gate = callGateInput(intent);
+    const blocked = callBlockReason(gate);
+    if (blocked) { if (intent === "manual") toast.error(blocked); return; }
+    if (getSelection().selectedId !== currentLead?.id) return;
+    const transition = beginTransition();
+    if (!transition) return;
+    const ownsAttempt = () => transition.isCurrent()
+      && (!lockMode || confirmedLockLeadIdRef.current === currentLead?.id);
+    const dialDecision = resolveManualDialDecision(gate);
+    const preflightOwner = navigation.scopeIdentity;
+    setCallPreflightOwner(preflightOwner);
+    try {
     // The whole sequence runs through the shared `runGatedCall` helper (src/pages/dialerCallGate.ts)
     // so the ordering guarantee is the tested production path: campaign-session authorization runs
-    // BEFORE any DNC processing, optimistic stat increment, or Twilio dispatch, and a false session
-    // result aborts before all three. A cached session for a DIFFERENT campaign no longer slips
+    // BEFORE DNC processing or Twilio dispatch. A false session aborts without a call count.
+    // A cached session for a DIFFERENT campaign no longer slips
     // through — the gate goes to the server, which refuses a mismatch.
     let dnc: Awaited<ReturnType<typeof checkDNC>> | null = null;
     const outcome = await runGatedCall({
+      isCurrent: ownsAttempt,
       ensureSession: ensureCampaignSession,
       checkDnc: async () => {
         dnc = await checkDNC(currentLead.phone, organizationId, currentLead.id);
@@ -2580,79 +2484,22 @@ export default function DialerPage() {
         toast.error(error instanceof Error ? error.message : "Unable to verify DNC status. Call was not started.");
       },
       onDncBlocked: () => {
-        // ── DNC enforcement (TCPA) ──
-        // Automated/predictive: hard block, no override, advance to next lead.
-        // Manual click-to-call: dispatch warning event; only Admin/Super Admin may override.
-        if (autoDialEnabled) {
-          toast.warning(
-            `Skipped ${formatPhoneNumber(currentLead.phone)} — on agency DNC list.`,
-            { description: dnc?.match?.reason || undefined }
-          );
-          if (organizationId) {
-            void logActivity({
-              action: `Predictive dialer blocked DNC number ${formatPhoneNumber(currentLead.phone)}`,
-              category: "telephony",
-              organizationId,
-              userId: user?.id,
-              userName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
-              metadata: {
-                phoneNumber: currentLead.phone,
-                leadId: currentLead.lead_id || currentLead.id || null,
-                reason: dnc?.match?.reason || null,
-                source: "predictive_dnc_block",
-              },
-            });
-          }
-          handleAdvance();
+        setIsPaused(true);
+        if (intent === "auto") {
+          toast.warning("Auto Dial paused: this lead is on the agency DNC list.");
           return;
         }
-        window.dispatchEvent(
-          new CustomEvent("dnc-warning", {
-            detail: { lead: currentLead, reason: dnc?.match?.reason ?? "" },
-          })
-        );
+        window.dispatchEvent(new CustomEvent("dnc-warning", { detail: { lead: currentLead, reason: dnc?.match?.reason ?? "" } }));
       },
       incrementStats: () => {
-        const now = new Date().toISOString();
-        const isFirstCall = !dialerStats?.session_started_at;
-        // Optimistic local update
-        setDialerStats(prev => {
-          if (!prev) {
-            return {
-              id: "",
-              agent_id: user?.id || "",
-              stat_date: new Date().toISOString().split("T")[0],
-              calls_made: 1,
-              calls_connected: 0,
-              total_talk_seconds: 0,
-              policies_sold: 0,
-              amd_skipped: 0,
-              session_started_at: now,
-              session_duration_seconds: 0,
-              last_updated_at: now,
-            };
-          }
-          return {
-            ...prev,
-            calls_made: prev.calls_made + 1,
-            session_started_at: prev.session_started_at ?? now,
-            last_updated_at: now,
-          };
-        });
-        // Persist to Supabase (fire-and-forget)
-        if (user?.id) {
-          upsertDialerStats(user.id, {
-            calls_made: 1,
-            session_started_at: isFirstCall ? now : null,
-          }).catch(() => {});
-        }
+        // Dispatch is not provider admission. Trusted counters reconcile signed facts only.
         hasDialedOnce.current = true;
         callWasAnswered.current = false;
-        setSessionStats(prev => ({ ...prev, calls_made: prev.calls_made + 1 }));
+        void reconcileTrustedStats();
       },
       dispatch: () => {
         const contactId = currentLead.lead_id || currentLead.id || "";
-        return initiateCall(currentLead.phone, contactId);
+        return initiateCall(currentLead.phone, contactId, ownsAttempt);
       },
     });
 
@@ -2672,15 +2519,15 @@ export default function DialerPage() {
       setAptNotes("");
       lastAdvancedLeadRef.current = null;
     }
-  }, [currentLead, currentCallId, showWrapUp, selectedDisp, noteText, twilioCallState, twilioStatus, twilioErrorMessage, dialerStats, user?.id, initiateCall, organizationId, autoDialEnabled, handleAdvance, profile, ensureCampaignSession]);
+    if (outcome === "stale") toast.info("The selected lead changed. Call was cancelled.");
+    } finally {
+      setCallPreflightOwner(owner => owner === preflightOwner ? null : owner);
+      transition.finish();
+    }
+  };
 
-  const handleManualCall = useCallback(() => {
-    void handleCall("manual");
-  }, [handleCall]);
-
-  const handleAutoCall = useCallback(() => {
-    void handleCall("auto");
-  }, [handleCall]);
+  const handleManualCall = () => { void handleCall("manual"); };
+  const handleAutoCall = () => { void handleCall("auto"); };
 
   const handleHangUp = useCallback(() => {
     console.log("[Dialer] Hang up — duration:", twilioCallDuration);
@@ -2697,7 +2544,9 @@ export default function DialerPage() {
     if (!lead || dispositionSaveRef.current) return;
     if (!currentCallId) { setIsPaused(true); return; }
     const visit = dispositionVisitRef.current.generation;
-    dispositionSaveRef.current = true;
+    const saveOwner = Symbol("disposition-save");
+    dispositionSaveOwnerRef.current = saveOwner;
+    dispositionSaveRef.current = true; setDispositionSaving(true);
     try {
       const advanced = await runAdvanceCampaignLead({
         campaignLeadId: lead.id,
@@ -2734,7 +2583,10 @@ export default function DialerPage() {
       void refreshHistoryForLeadQuiet(contactId, lead.id);
       window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
     } finally {
-      dispositionSaveRef.current = false;
+      if (dispositionSaveOwnerRef.current === saveOwner) {
+        dispositionSaveRef.current = false; setDispositionSaving(false);
+        dispositionSaveOwnerRef.current = null;
+      }
     }
   }, [currentCallId, currentLead, lockMode, applyQueueLifecycle, runAdvanceCampaignLead, loadLockModeLead, stopHeartbeat, reconcileTrustedStats, refreshHistoryForLeadQuiet]);
 
@@ -3293,6 +3145,8 @@ export default function DialerPage() {
   useEffect(() => {
     if (!selectedCampaignId || !organizationId) return;
 
+    let cancelled = false;
+    setAutoDialEnabled(false);
     const syncSettings = async () => {
       // 1. Fetch Campaign Settings. Dial delay is a system standard
       // (SYSTEM_AUTO_DIAL_DELAY_MS) — no campaign dial_delay_seconds column.
@@ -3302,6 +3156,7 @@ export default function DialerPage() {
         .eq("id", selectedCampaignId)
         .maybeSingle();
 
+      if (cancelled) return;
       if (campaignData) {
         setCallingHoursStart((campaignData.calling_hours_start as string)?.slice(0, 5) ?? "09:00");
         setCallingHoursEnd((campaignData.calling_hours_end as string)?.slice(0, 5) ?? "21:00");
@@ -3309,7 +3164,8 @@ export default function DialerPage() {
         if (campaignData.retry_interval_minutes != null) {
           setRetryIntervalMinutes(campaignData.retry_interval_minutes);
         }
-        setAutoDialEnabled(campaignData.auto_dial_enabled ?? true);
+        setAutoDialEnabled(campaignData.auto_dial_enabled === true);
+        setSettingsLoadedScope(navigationScope);
         setLocalPresenceEnabled(campaignData.local_presence_enabled ?? true);
       }
 
@@ -3321,6 +3177,7 @@ export default function DialerPage() {
         .select("require_licensed_state_access")
         .eq("id", selectedCampaignId)
         .maybeSingle() as unknown as Promise<{ data: { require_licensed_state_access: boolean | null } | null; error: unknown }>);
+      if (cancelled) return;
       setRequireLicensedStateAccess(!licErr && licRow ? (licRow.require_licensed_state_access ?? false) : false);
 
       const { data: ringCampaignRow, error: ringCampaignErr } = await supabase
@@ -3341,6 +3198,7 @@ export default function DialerPage() {
         .eq("organization_id", organizationId)
         .maybeSingle();
 
+      if (cancelled) return;
       const phoneRing = phoneData?.ring_timeout;
       const effectiveRing = resolveOutboundRingSeconds(campaignRing, phoneRing);
       ringTimeoutRef.current = effectiveRing;
@@ -3352,9 +3210,20 @@ export default function DialerPage() {
     twilioInitialize();
 
     return () => {
-      // Cleanup
+      cancelled = true;
     };
-  }, [selectedCampaignId, organizationId, twilioInitialize, twilioApplyDialSessionRingTimeout]);
+  }, [selectedCampaignId, organizationId, user?.id, twilioInitialize, twilioApplyDialSessionRingTimeout, navigationScope, setSessionStats]);
+
+  useEffect(() => {
+    if (!activeSessionId || activeSessionCampaignId !== selectedCampaignId || settingsLoadedScope !== navigationScope) return;
+    let cancelled = false;
+    modeWriteRef.current = modeWriteRef.current.catch(() => {}).then(async () => {
+      if (cancelled) return;
+      try { await setDialerSessionMode(activeSessionId, autoDialEnabled); }
+      catch { if (!cancelled) toast.error("Session mode could not be recorded. Your Auto Dial setting is unchanged."); }
+    });
+    return () => { cancelled = true; };
+  }, [activeSessionId, activeSessionCampaignId, selectedCampaignId, autoDialEnabled, settingsLoadedScope, navigationScope]);
 
   useEffect(() => {
     return () => {
@@ -3380,18 +3249,18 @@ export default function DialerPage() {
 
   // ── Two-Lane State Machine Hook ──
   const { machineState, autoDialCountdownActive, cancelAutoDialCountdown } = useDialerStateMachine({
-    isAutoDialEnabled: autoDialEnabled && !isPaused,
+    isAutoDialEnabled: settingsLoadedScope === navigationScope && autoDialEnabled && !isPaused,
     twilioCallState,
     twilioStatus,
     currentLead,
     hasDialedOnce,
     showWrapUp,
-    isAdvancing,
+    isAdvancing: isAdvancing || callPreflight || pendingDispositionDraftRef.current,
     dialDelayMs: SYSTEM_AUTO_DIAL_DELAY_MS,
     checkCallingHours: memoizedCheckHours,
     shouldDeferAutoDial,
     onCall: handleAutoCall,
-    onSkip: handleSkip,
+    onBlocked: () => { setIsPaused(true); toast.info("Auto Dial paused: this lead is outside calling hours."); },
   });
 
 
@@ -3403,8 +3272,7 @@ export default function DialerPage() {
     };
     window.addEventListener("auto-dial-lead-closed", handleLeadClosed);
     return () => window.removeEventListener("auto-dial-lead-closed", handleLeadClosed);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [handleAdvance]);
 
   // ── DNC warning event ──
   useEffect(() => {
@@ -3555,7 +3423,9 @@ export default function DialerPage() {
       if (period === 'AM' && hours24 === 12) hours24 = 0;
       callbackDueAtISO = new Date(callbackDate.getFullYear(), callbackDate.getMonth(), callbackDate.getDate(), hours24, parseInt(min || '0', 10)).toISOString();
     }
-    dispositionSaveRef.current = true;
+    const saveOwner = Symbol("disposition-save");
+    dispositionSaveOwnerRef.current = saveOwner;
+    dispositionSaveRef.current = true; setDispositionSaving(true);
     try {
       const advanced = await runAdvanceCampaignLead({
         campaignLeadId: lead.id,
@@ -3571,6 +3441,7 @@ export default function DialerPage() {
       });
       if (!advanced || !isSameVisit()) return false;
       lastAdvancedLeadRef.current = advanced;
+      savedDraftRef.current = draftFingerprint;
       setLeadQueue((prev) => applyPersistedDisposition(prev, lead.id, advanced));
       // Save Only keeps this persisted (possibly terminal) row visible in wrap-up.
       // Save & Next removes/reorders by this ID only after confirmed persistence/release.
@@ -3588,7 +3459,10 @@ export default function DialerPage() {
       }
       return false;
     } finally {
-      dispositionSaveRef.current = false;
+      if (dispositionSaveOwnerRef.current === saveOwner) {
+        dispositionSaveRef.current = false; setDispositionSaving(false);
+        dispositionSaveOwnerRef.current = null;
+      }
     }
   };
 
@@ -4228,11 +4102,7 @@ export default function DialerPage() {
                 onClick={() => {
                   setShowCallerIdWarning(false);
                   if (pendingCall) {
-                    proceedWithCall(
-                      pendingCall.leadPhone,
-                      pendingCall.proposedNumber,
-                      pendingCall.contactId
-                    );
+                    handleManualCall();
                   }
                   setPendingCall(null);
                 }}
@@ -4276,6 +4146,7 @@ export default function DialerPage() {
             <label className="text-xs text-muted-foreground font-medium">Auto-Dial</label>
             <Switch
               checked={autoDialEnabled}
+              disabled={settingsLoadedScope !== navigationScope}
               onCheckedChange={(checked) => {
                 setAutoDialEnabled(checked);
                 if (!checked) setIsPaused(false);
@@ -4373,36 +4244,16 @@ export default function DialerPage() {
                   {/* Arrows */}
                   <div className="flex items-center">
                     <button 
-                      onClick={() => {
-                        if (currentLeadIndex > 0) {
-                          setIsAdvancing(true);
-                          setCurrentLeadIndex(i => i - 1);
-                          setShowWrapUp(false);
-                          setSelectedDisp(null);
-                          setNoteText("");
-                          setNoteError(false);
-                          setTimeout(() => setIsAdvancing(false), 100);
-                        }
-                      }}
-                      disabled={currentLeadIndex === 0}
+                      onClick={() => handleLeadSelect(currentLeadIndex - 1)}
+                      disabled={currentLeadIndex <= 0 || !!navigationGuardRef.current()}
                       className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
                       title="Previous Lead"
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
                     <button 
-                      onClick={() => {
-                        if (currentLeadIndex < leadQueue.length - 1) {
-                          setIsAdvancing(true);
-                          setCurrentLeadIndex(i => i + 1);
-                          setShowWrapUp(false);
-                          setSelectedDisp(null);
-                          setNoteText("");
-                          setNoteError(false);
-                          setTimeout(() => setIsAdvancing(false), 100);
-                        }
-                      }}
-                      disabled={currentLeadIndex >= leadQueue.length - 1}
+                      onClick={() => handleLeadSelect(currentLeadIndex + 1)}
+                      disabled={currentLeadIndex >= leadQueue.length - 1 || !!navigationGuardRef.current()}
                       className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded disabled:opacity-30 disabled:hover:bg-transparent"
                       title="Next Lead"
                     >
@@ -4539,6 +4390,9 @@ export default function DialerPage() {
 
         {/* ── RIGHT COLUMN (Controls & Outcomes) ── */}
         <DialerActions
+          callBlockedReason={callBlockedReason}
+          skipBlockedReason={navigationGuardRef.current()}
+          callPending={callPreflight}
           voiceCallState={twilioCallState}
           voiceCallDuration={twilioCallDuration}
           claimRingActive={claimRingActive}

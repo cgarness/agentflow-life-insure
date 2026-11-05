@@ -5,8 +5,8 @@ import { join } from "node:path";
 
 /**
  * Reports V2 telephony boundary (D3 §4 and §7, D4 §4, A-§7).
- * - TwilioContext is never edited by PKG-C or PKG-D. It is pinned to its bytes on origin/main 2b6f5cef (the integration
- *   branch carries main's file, so the earlier -pkg-c base hash is no longer accepted).
+ * - TwilioContext is never edited by PKG-C or PKG-D. It is pinned to its bytes on origin/main 09ec29a4 (PR #515's
+ *   re-entrancy and single-leg Voice.js changes; the integration branch carries main's file unchanged).
  * - DialerPage carries exactly the approved PKG-C clause A-§7(a): `sourceCallId={currentCallId}` on the existing
  *   ConvertLeadModal mount, and nothing else from Reports V2. A clause check, not a whole-file hash, so unrelated main
  *   changes (such as the one-line hasDraft change) do not trip it.
@@ -16,7 +16,7 @@ const ROOT = join(__dirname, "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
-const TWILIO_CONTEXT_MAIN = "f93605b97dc4fce5c2f75fb574ddaa9570788a4d441fae1d059d561eca7b7c20";
+const TWILIO_CONTEXT_MAIN = "4a567164f27bb8661918b93a2d7a1569f15ec96065158406f296612937ef356a";
 
 describe("Reports V2 telephony boundary", () => {
   it("TwilioContext.tsx is byte-identical to main", () => {

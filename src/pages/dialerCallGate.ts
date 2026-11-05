@@ -38,8 +38,9 @@ export function resolveManualDialDecision(input: ManualDialGateInput): ManualDia
   }
   return "dial";
 }
-export type GatedCallOutcome = "no-session" | "dnc-blocked" | "verification-failed" | "not-started" | "dispatched";
+export type GatedCallOutcome = "no-session" | "dnc-blocked" | "verification-failed" | "not-started" | "dispatched" | "stale";
 export interface GatedCallSteps {
+  isCurrent?: () => boolean;
   ensureSession: () => Promise<boolean>;
   checkDnc: () => Promise<boolean>;
   onDncBlocked: () => void;
@@ -48,19 +49,22 @@ export interface GatedCallSteps {
   dispatch: () => Promise<boolean>;
 }
 export async function runGatedCall(steps: GatedCallSteps): Promise<GatedCallOutcome> {
-  if (!(await steps.ensureSession())) return "no-session";
+  const current = () => steps.isCurrent?.() !== false;
   try {
-    if (await steps.checkDnc()) {
-      steps.onDncBlocked();
-      return "dnc-blocked";
-    }
+    if (!current()) return "stale";
+    if (!(await steps.ensureSession())) return "no-session";
+    if (!current()) return "stale";
+    const blocked = await steps.checkDnc();
+    if (!current()) return "stale";
+    if (blocked) { steps.onDncBlocked(); return "dnc-blocked"; }
+    if (!(await steps.dispatch())) return "not-started";
+    if (!current()) return "stale";
+    steps.incrementStats();
+    return "dispatched";
   } catch (error) {
-    steps.onVerificationFailed?.(error);
+    if (current()) steps.onVerificationFailed?.(error);
     return "verification-failed";
   }
-  if (!(await steps.dispatch())) return "not-started";
-  steps.incrementStats();
-  return "dispatched";
 }
 export async function runGatedDispatch(
   ensureSession: () => Promise<boolean>,
@@ -68,4 +72,19 @@ export async function runGatedDispatch(
 ): Promise<boolean> {
   if (!(await ensureSession())) return false;
   return dispatch();
+}
+
+export function callBlockReason(input: ManualDialGateInput & {
+  ready: boolean; hasLead: boolean; busy: boolean; readinessError?: string | null; eligibilityError?: string | null;
+}): string | null {
+  if (!input.hasLead) return "Select a lead to call.";
+  if (input.busy) return "Please wait for the current action to finish.";
+  if (input.eligibilityError) return input.eligibilityError;
+  const decision = resolveManualDialDecision(input);
+  if (decision === "blocked-active") return "Finish the current call first.";
+  if (decision === "blocked-persisting") return "The previous outcome is still saving.";
+  if (decision === "blocked-draft") return "Save the current outcome before calling again.";
+  if (decision === "blocked-wrap-up") return "Complete the current outcome before Auto Dial resumes.";
+  if (!input.ready) return input.readinessError || "Phone is connecting. Wait for Ready before calling.";
+  return null;
 }
