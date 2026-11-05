@@ -156,6 +156,16 @@ def test_file_and_cli_gates():
         assert item.path in m.PINS, item.path
     quiet(lambda: m.cli_gate(CLI))
     ok('34 checksum-pinned files (every migration, release enable, ops script and rollback) and the pinned CLI')
+    # Negative control only: a stand-in that reports another CLI version must be refused before any connection.
+    drift = Path(tempfile.mkdtemp(prefix='reports-cli-drift-'))
+    try:
+        stub = drift / 'supabase'
+        stub.write_text('#!/bin/sh\necho 2.120.0\n')
+        stub.chmod(0o755)
+        stops(lambda: m.cli_gate(str(stub)), f'pinned Supabase CLI {m.CLI_VERSION}')
+    finally:
+        shutil.rmtree(drift)
+    ok('a different Supabase CLI version is refused (version drift)')
     root = Path(tempfile.mkdtemp(prefix='reports-gates-'))
     try:
         for p in m.PINS:
@@ -194,7 +204,7 @@ def fresh():
     psql(f'DROP DATABASE IF EXISTS {DB} WITH (FORCE)', 'postgres')
     psql(f'CREATE DATABASE {DB}', 'postgres')
     sql = ''.join('\\echo ' + label + '\nBEGIN;\n' + (s if isinstance(s, str) else s[1]) + '\nCOMMIT;\n'
-                  for label, s in cut(list(fixture.steps()), 'v3 call and journey fixtures'))
+                  for label, s in cut(list(fixture.steps()), 'production PR #515 v2 state'))
     psql(stdin=sql)
     # The two live sale handoffs …31 wraps, verbatim from their migration (…31 pins their definitions).
     tracking = (ROOT / 'supabase/migrations/20261019170000_policy_commission_tracking.sql').read_text()

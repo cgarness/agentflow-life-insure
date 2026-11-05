@@ -279,6 +279,26 @@ W_WRITERS_ON = ("SELECT rt.eq('class W RPCs keep their authenticated EXECUTE', (
                 "'link_policy_appointment', 'correct_policy_appointment_link')), {want});")
 
 
+# …30's clients.lead_id guard is not a report function: disable-v3 and disable-all leave it on (the PKG-C recovery
+# boundary). It refuses only a lead_id change by a non-postgres writer; every other client column still edits, and the
+# SECURITY DEFINER conversion and client-edit RPCs run as postgres. Probe with a throwaway table editor (rolled back).
+LEAD_GUARD_ACTIVE = "\n".join([
+    "SELECT rt.eq('…30 clients_lead_id_guard stays enabled and sealed', (SELECT tgenabled::text FROM pg_trigger "
+    "WHERE tgrelid = 'public.clients'::regclass AND tgname = 'clients_lead_id_guard') || ':' || "
+    "has_function_privilege('authenticated', 'private.guard_client_lead_id()', 'EXECUTE'), 'O:false');",
+    "SAVEPOINT lead_guard;",
+    "CREATE ROLE rt_lead_guard_editor NOLOGIN BYPASSRLS;",
+    "GRANT SELECT, UPDATE ON public.clients TO rt_lead_guard_editor;",
+    "DO $g$ DECLARE v_id uuid := (SELECT id FROM public.clients ORDER BY id LIMIT 1); BEGIN "
+    "EXECUTE 'SET LOCAL ROLE rt_lead_guard_editor'; "
+    "UPDATE public.clients SET last_name = last_name || '' WHERE id = v_id; "
+    "BEGIN UPDATE public.clients SET lead_id = gen_random_uuid() WHERE id = v_id; "
+    "RAISE EXCEPTION 'the lead guard did not refuse a lead_id change'; "
+    "EXCEPTION WHEN insufficient_privilege THEN IF SQLERRM <> 'Client lead lineage is read-only' THEN RAISE; END IF; END; "
+    "EXECUTE 'RESET ROLE'; END $g$;",
+    "ROLLBACK TO SAVEPOINT lead_guard;"])
+
+
 def release_steps(package):
     """The release-enable, read-back and disable stages at one package state (D1 §3.10, §9.6), ending as they began:
     v2 enabled, v3 sealed. Each release enable passes only at its own state; the ops disables never touch class W."""
@@ -303,13 +323,14 @@ def release_steps(package):
         + read_only_body('reports_v3_readback.sql'), 'Reports v3 read-back: unexpected privileges on public.get_report_journey_v3')
     yield f'release enable replay is idempotent (PKG-{package})', release_file(package) + 'SELECT rt.assert_sealed_v3(true, true);'
     yield f'disable-v3 (PKG-{package})', v2.read('supabase/ops/reports_v3_disable.sql') + 'SELECT rt.assert_sealed_v3(true, false);' + (
+        LEAD_GUARD_ACTIVE if package in ('C', 'D') else '') + (
         W_WRITERS_ON.format(want="'correct_policy_sale_premium:true:false get_client_policy_sale_premiums:true:false'") if package in ('B', 'C') else
         W_WRITERS_ON.format(want="'correct_policy_appointment_link:true:false correct_policy_sale_premium:true:false get_client_policy_sale_premiums:true:false "
                                  "get_policy_appointment_links:true:false link_policy_appointment:true:false record_appointment_outcome:true:false'")
         if package == 'D' else '')
     if package in ('A', 'D'):
         yield f'disable-all (PKG-{package})', release_file(package) + v2.read('supabase/ops/reports_all_disable.sql') + (
-            'SELECT rt.assert_sealed_v3(false, false);') + (W_WRITERS_ON.format(
+            'SELECT rt.assert_sealed_v3(false, false);') + (LEAD_GUARD_ACTIVE if package == 'D' else '') + (W_WRITERS_ON.format(
                 want="'correct_policy_appointment_link:true:false correct_policy_sale_premium:true:false get_client_policy_sale_premiums:true:false "
                      "get_policy_appointment_links:true:false link_policy_appointment:true:false record_appointment_outcome:true:false'") if package == 'D' else '')
         yield f're-enable after disable-all (PKG-{package}{", the ops enable" if package == "D" else ""})', (

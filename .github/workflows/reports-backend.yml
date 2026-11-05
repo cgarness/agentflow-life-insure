@@ -47,6 +47,10 @@ on:
         description: 'Only run the two isolated agency journey reader comparisons with the baseline (30 and 366 days; up to 350 minutes each; correctness, not performance acceptance)'
         type: boolean
         default: false
+      release_rehearsal:
+        description: 'Also rehearse the Reports release runner (scripts/reports_release.py) on disposable PostgreSQL 17.6 with the pinned Supabase CLI 2.121.0; no secrets, no production path'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -392,3 +396,38 @@ jobs:
           name: reports-v3-perf-verdict-${{ github.run_id }}
           path: ${{ runner.temp }}/aggregate.json
           retention-days: 14
+
+  release-rehearsal:
+    if: ${{ inputs.release_rehearsal && !inputs.journey_comparisons }}
+    name: Reports release runner rehearsal (Supabase CLI 2.121.0, PostgreSQL 17.6, isolated TLS, no secrets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: PostgreSQL client and PyYAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client python3-yaml
+      - name: Start disposable PostgreSQL 17.6 on loopback with TLS
+        run: |
+          docker run --detach --name reports-release-postgres --network host \
+            -e POSTGRES_PASSWORD=isolated-test-only \
+            postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929 \
+            -c listen_addresses=127.0.0.1 -c port=5432 -c ssl=on \
+            -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U postgres; then exit 0; fi
+            sleep 1
+          done
+          docker logs reports-release-postgres || true
+          exit 1
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.121.0
+      - name: A -> B -> C -> D, enable and read-back, history, disable and recovery, refusals (pinned SQL only)
+        env:
+          REPORTS_RELEASE_PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:5432
+        run: python3 -I scripts/tests/reports_release_test.py
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm --force reports-release-postgres
