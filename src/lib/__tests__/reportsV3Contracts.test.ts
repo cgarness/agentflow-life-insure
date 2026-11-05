@@ -1056,7 +1056,7 @@ describe("Reports v3 release files (release proposal R1–R5): staged enables, d
 
 describe("Reports v3 release runner (R6): file pins and stages", () => {
   const runner = read("scripts/reports_release.py");
-  const pins = [...runner.matchAll(/^    '(supabase\/[^']+)': \((\d+), '([0-9a-f]{64})'\),$/gm)].map((m) => [m[1], Number(m[2]), m[3]] as const);
+  const pins = [...runner.matchAll(/^ {4}'(supabase\/[^']+)': \((\d+), '([0-9a-f]{64})'\),$/gm)].map((m) => [m[1], Number(m[2]), m[3]] as const);
 
   it("pins every migration, release enable, ops script and rollback it can run at its committed bytes", () => {
     expect(pins.length).toBe(34);
