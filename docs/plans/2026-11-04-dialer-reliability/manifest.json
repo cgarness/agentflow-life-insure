@@ -1,5 +1,5 @@
 {
-  "status": "local candidate; no publication, merge, deployment or production mutation",
+  "status": "published draft PR #515; CI/preview approved; no production mutation, merge or production deployment",
   "base": "2b6f5cefe4f4d7980ab670067a5634e320cd20fd",
   "branch": "hotfix/dialer-reliability-20261104",
   "production_deployment": "dpl_6Ue8L6EDqwhqfThT4UJeUA9wuDZc",
@@ -29,7 +29,8 @@
     "application_typecheck": "79 baseline / 79 candidate / 0 new",
     "lint": "11 baseline / 11 candidate / 0 new; scoped 0 errors",
     "build": "PASS",
-    "native_concurrency": "NOT RUN; release prerequisite"
+    "native_concurrency": "PASS native PostgreSQL 16.15; both failure/admission lock orders, DNC/claim/save races",
+    "ci": "Five workflows passed on published source; full frontend comparison pending at evidence-update time. Require final-head checks."
   },
   "files": [
     {
@@ -41,11 +42,6 @@
       "path": "AGENT_RULES.md",
       "bytes": 352947,
       "sha256": "053dc7d602b184c6eb911bda79ec37c4727f14635d14ab8433058af6c29cef48"
-    },
-    {
-      "path": "WORK_LOG.md",
-      "bytes": 70523,
-      "sha256": "ac5201e7b4455a89a86b163115654d48a47bd3fff04ddc0ab708e9e83352a1a8"
     },
     {
       "path": "docs/plans/2026-11-04-dialer-reliability/baseline-comparison.json",
@@ -73,19 +69,19 @@
       "sha256": "6644589a962c0dec5e1d1c9e4f1d0e15fa3a6ce6d8c13413b059b3f8005ebd19"
     },
     {
-      "path": "docs/plans/2026-11-04-dialer-reliability/get_trusted_today_dialer_stats.before.sql",
-      "bytes": 3789,
-      "sha256": "c038b49829ce37eaa83d8d38f7a20b54cf19f6c9d1dd1b234fce61d470311d68"
-    },
-    {
       "path": "docs/plans/2026-11-04-dialer-reliability/get_trusted_today_dialer_stats_v2.before.sql",
       "bytes": 4075,
       "sha256": "36318c40411e88c3d0fa100b22674393ceb7eaa0ba1feea182175a92108d51c8"
     },
     {
+      "path": "docs/plans/2026-11-04-dialer-reliability/get_trusted_today_dialer_stats.before.sql",
+      "bytes": 3789,
+      "sha256": "c038b49829ce37eaa83d8d38f7a20b54cf19f6c9d1dd1b234fce61d470311d68"
+    },
+    {
       "path": "docs/plans/2026-11-04-dialer-reliability/implementation_plan.md",
-      "bytes": 29457,
-      "sha256": "000b795981124a529795190b7d4dc10644cc6ef39fb7285fffbf91513d5eb35e"
+      "bytes": 29942,
+      "sha256": "df2d3b65cafb60239d6cc93a878cb0cf73285e5d621d0db2cefc140bd1d33e3d"
     },
     {
       "path": "docs/plans/2026-11-04-dialer-reliability/live-function-metadata.json",
@@ -96,6 +92,11 @@
       "path": "docs/plans/2026-11-04-dialer-reliability/performance_rows.before.sql",
       "bytes": 3937,
       "sha256": "8c7dd6968576875e8fb07a002bbdaf162c82829f666c061960e88401341cf447"
+    },
+    {
+      "path": "docs/plans/2026-11-04-dialer-reliability/publication.json",
+      "bytes": 6232,
+      "sha256": "e9e1be1afdadc74a4573e37b08d661bf9560c62c94c3c4b619b48808cddb1feb"
     },
     {
       "path": "docs/plans/2026-11-04-dialer-reliability/report_call_facts.before.sql",
@@ -119,18 +120,18 @@
     },
     {
       "path": "docs/plans/2026-11-04-dialer-reliability/test-results.json",
-      "bytes": 2456,
-      "sha256": "88a1b0d2080a19336390fde64f1fc470b6ac99bd8d55fff8204822e3df173df0"
+      "bytes": 3288,
+      "sha256": "e35a39325f6f8b46c8ee549d03fb12e5561f0dcb9111c41d76ade81eddc0de1e"
     },
     {
       "path": "docs/plans/2026-11-04-dialer-reliability/verification.md",
-      "bytes": 17525,
-      "sha256": "68a84467f4a4036199da819feaf318e91cb55b443113f4dfb18001922b948eef"
+      "bytes": 18619,
+      "sha256": "3bbd1fb30e636f607188f634064b636b2e30f7140876694d4591118ced55f559"
     },
     {
       "path": "implementation_plan.md",
-      "bytes": 729748,
-      "sha256": "faaad0627c7c4a1a02a77fffd008d351336ea70e8c108c9621ca2c735007e80b"
+      "bytes": 730393,
+      "sha256": "8bf25cc081f6f196f1ae166665b1747528a23e87a551646b9a0e94fb4df601fc"
     },
     {
       "path": "scripts/reports_integrity_fixture.py",
@@ -173,6 +174,11 @@
       "sha256": "1a4c492bdb17731304e47f84e89c4e01db18fa67e6bbd8ba9385dd5d7771f120"
     },
     {
+      "path": "src/components/dialer/__tests__/dialerPrimaryActions.test.tsx",
+      "bytes": 1409,
+      "sha256": "9509150e95a450bb91de1ee659cf1057bccb170b9163ca4c5b6a4e71968cf389"
+    },
+    {
       "path": "src/components/dialer/DialerActions.tsx",
       "bytes": 13907,
       "sha256": "fd91a8c691f3c7aa7530853c74c5bb9701628ae5bf2644839134fba2ebf96634"
@@ -183,19 +189,14 @@
       "sha256": "ccc8c02348c4b42ceb173424efb84aca59c2dd3caab9dcd180079f79a2093f50"
     },
     {
-      "path": "src/components/dialer/__tests__/dialerPrimaryActions.test.tsx",
-      "bytes": 1409,
-      "sha256": "9509150e95a450bb91de1ee659cf1057bccb170b9163ca4c5b6a4e71968cf389"
+      "path": "src/contexts/__tests__/twilioProviderLifecycle.test.tsx",
+      "bytes": 32707,
+      "sha256": "4dc7fd768404fb6bd5e73dbc5298dfa230f29fb4c074f8acedb298075799e4cf"
     },
     {
       "path": "src/contexts/TwilioContext.tsx",
       "bytes": 103539,
       "sha256": "4a567164f27bb8661918b93a2d7a1569f15ec96065158406f296612937ef356a"
-    },
-    {
-      "path": "src/contexts/__tests__/twilioProviderLifecycle.test.tsx",
-      "bytes": 32707,
-      "sha256": "4dc7fd768404fb6bd5e73dbc5298dfa230f29fb4c074f8acedb298075799e4cf"
     },
     {
       "path": "src/hooks/__tests__/dialerNavigation.test.tsx",
@@ -243,11 +244,6 @@
       "sha256": "e19bbdce1f875caf22d60d1ce9d972b59952973ac353efa32c1f582b4b982fc1"
     },
     {
-      "path": "src/pages/DialerPage.tsx",
-      "bytes": 207190,
-      "sha256": "5af98ee33d1aeb07f7304d8b16d9b8c9ee8db464729ae759107f31c120846fca"
-    },
-    {
       "path": "src/pages/__tests__/dialerAppointmentSave.test.tsx",
       "bytes": 43938,
       "sha256": "d8975922796fdf54b600b6b1c8bbdf4234ef7fbf28176acd4b0b6c1da16d4def"
@@ -268,6 +264,11 @@
       "sha256": "75192bce40634d1bf24dfef9fa3f9195c9c7a198ea5ec99b1024684b2755b102"
     },
     {
+      "path": "src/pages/DialerPage.tsx",
+      "bytes": 207190,
+      "sha256": "5af98ee33d1aeb07f7304d8b16d9b8c9ee8db464729ae759107f31c120846fca"
+    },
+    {
       "path": "supabase/migrations/20261104233202_dialer_reliability.sql",
       "bytes": 17949,
       "sha256": "dc0fe4c680e8915e5a47735fb479c2347320be44b75042a06b3a633cc0707328"
@@ -286,6 +287,17 @@
       "path": "supabase/tests/dialer_reliability.sql",
       "bytes": 5075,
       "sha256": "5ed30326dff924ec0d753cc3f3ae39d83e48a6bef4be9e58f10b18a050c457cd"
+    },
+    {
+      "path": "WORK_LOG.md",
+      "bytes": 73278,
+      "sha256": "c204eeae30a13237269cc2aa19464b362b753f0ecf6759ac2983825cc9ec28c7"
     }
-  ]
+  ],
+  "publication": {
+    "pr": 515,
+    "source_commit": "2fc8dce8bbf2293d454c219d810e72fb184c6337",
+    "source_tree": "52ee2f3b44a2289241ae21c8f45262ed40d19ac1",
+    "evidence": "docs/plans/2026-11-04-dialer-reliability/publication.json"
+  }
 }

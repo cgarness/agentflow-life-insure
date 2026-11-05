@@ -1,8 +1,8 @@
 # AgentFlow P0 Dialer Reliability — implementation_plan.md
 
 Date: November 4, 2026 (America/Los_Angeles)
-Status: Chris approved isolated implementation, synthetic tests and read-only diagnosis on November 4, 2026. Production mutations, publication, merge and deployment remain unapproved.
-Implementation update (November 5 UTC): candidate is implemented locally. Final verification and release manifest supersede the original pre-build verification section below. Additional verification/package files: `scripts/tests/dialer-reliability/{engine,concurrency}.mjs`, the existing `.github/workflows/dialer-dnc-backend.yml` (disposable tests only), and this plan's `live-function-metadata.json`, `rollback.sql`, `manifest.json`, and `verification.md`. Captured live readers preserve their exact authorization metadata; both candidate migrations and rollback refuse source/ACL drift. These files do not authorize publication or production execution.
+Status: Chris approved isolated implementation, synthetic tests, read-only diagnosis, and then branch/PR publication, CI and possible previews on November 4, 2026. Draft PR #515 is published. Production database changes, merge and frontend release remain separately gated.
+Implementation update (November 5 UTC): published source `2fc8dce8bbf2293d454c219d810e72fb184c6337` exactly matches the reviewed local tree. Native PostgreSQL 16.15 CI passed the actual migrations, concurrency in both admission/failure orders, DNC/claim races, exact rollback, reporting readers and recovery pin; 606 dialer tests passed again in CI. Final verification and release manifest supersede the original pre-build verification section below. Additional verification/package files: `scripts/tests/dialer-reliability/{engine,concurrency}.mjs`, the existing `.github/workflows/dialer-dnc-backend.yml` (disposable tests only), and this plan's `live-function-metadata.json`, `rollback.sql`, `manifest.json`, `verification.md`, and `publication.json`. Captured live readers preserve their exact authorization metadata; both candidate migrations and rollback refuse source/ACL drift. Production execution is not authorized by publication.
 Incident: Skip transitions incorrectly or rapidly; some Call clicks do not initiate dialing.
 Campaign supplied by Chris: Will Harrison — "Goat leads aged 11/3".
 
@@ -14,7 +14,7 @@ Campaign supplied by Chris: Will Harrison — "Goat leads aged 11/3".
 - Supabase project metadata: AGENTFLOW CRM, `jncvvsvckxhqgqvkppmj`, ACTIVE_HEALTHY. This is a project health status, not a diagnosis of individual clicks.
 - Live read-only source inspection: twilio-voice-webhook v61, ACTIVE, verify_jwt=false. It validates provider requests and calls admit_twilio_outbound before issuing outbound TwiML.
 - Read authoritative AGENT_RULES.md (relevant telephony, queue, disposition, tenancy and workflow sections), VISION.md, latest main WORK_LOG.md entries, existing root plan, all seven requested application files, and related session, lock, disposition, caller-ID, Voice.js and test code.
-- Initial review was read-only. After approval, local implementation and disposable synthetic tests were completed; read-only SQL verified campaign/session facts and live source. No production mutation, outbound call, publication or deployment has occurred.
+- Initial review was read-only. After approval, local implementation and disposable synthetic tests were completed; read-only SQL verified campaign/session facts and live source. Separately approved publication created draft PR #515 and two READY previews. No production mutation, outbound call, main merge or production deployment has occurred.
 - After approval, live SQL verified the manual campaign setting, the eight newest sessions carrying true Auto Dial metadata, the default/omitted field in session creation, and 32 sampled provider-admitted calls. See verification.md for exact scope and limits.
 - No failed click has yet been correlated to a specific readiness, microphone, authorization, caller-ID, transport or provider error. Successful recent calls do not identify the failed-click cause.
 
@@ -170,7 +170,7 @@ Ran the actual unchanged pure queue and call-gate helpers with synthetic inputs 
 - A thrown synthetic dispatch error rejected out of runGatedCall and did not invoke the verification error handler.
 - These are diagnostic checks of existing code, not hotfix acceptance tests.
 
-Those were the initial diagnostic checks. The implementation and final results now appear in verification.md; native PostgreSQL contention and real carrier/media tests remain explicitly unverified.
+Those were the initial diagnostic checks. The implementation and final results now appear in verification.md; native PostgreSQL contention subsequently passed in CI. Real carrier/media tests remain explicitly unverified.
 
 ## 8. Acceptance matrix after build approval
 

@@ -1,5 +1,17 @@
 # AgentFlow Work Log
 
+## 2026-11-04 Pacific / November 5 UTC — P0 Dialer PR #515 published; native CI passed; PRODUCTION RELEASE NOT APPROVED
+
+**Approval/publication:** Chris approved publishing the reviewed branch/PR, CI and possible previews. Draft [PR #515](https://github.com/cgarness/agentflow-life-insure/pull/515) publishes commit `2fc8dce8bbf2293d454c219d810e72fb184c6337`; its tree `52ee2f3b44a2289241ae21c8f45262ed40d19ac1` exactly matches reviewed local `87c1582a8cdf70d6bde5758842b1624f6e3f0d70`. Main/production remains `2b6f5ce`, Reports overlap head remains `f7ff977`. No main push, merge or production mutation.
+
+**Verification:** Native PostgreSQL 16.15 CI run `41943152769` passed both actual migrations, eight existing function ACL/security/search-path checks, forged admission and cross-tenant refusals, new session-mode/failure-receipt/count semantics, exact rollback/drift/replay checks, report readers and recovery pin. Failure/admission row-lock contention passed in both orders; existing DNC/claim/stale-admission/duplicate-save/SKIP LOCKED concurrency passed. All 606 dialer tests in 47 files passed again. SMS, Reporting integrity, Reports backend and all three UV jobs passed; the full Reports frontend exact-base comparison was still running when this evidence update was prepared. Final-head checks remain required. Existing app type/lint debt and real-media limits are unchanged.
+
+**Files/decisions:** Documentation-only follow-up: root implementation_plan.md and WORK_LOG.md; focused implementation_plan.md, verification.md, test-results.json, manifest.json and new publication.json. No application, migration, rollback, workflow or test bytes change. Workspace transport became unavailable during this follow-up; the original published documents were read back and checked against their recorded byte counts/SHA-256 before updating through GitHub. Exact implementation stays on the already-published review branch.
+
+**Migrations/deploys:** Both automatic preview deployments are READY (`dpl_ArzDNSPo6fG9ZLGsXR73T75ijjX7`, `dpl_hQL5EbiDw94woubs51Pvtmz58ZWM`). They are previews, not production. The two SQL candidates `20261104233202_dialer_reliability.sql` and `20261104234307_dialer_admitted_call_counts.sql` remain unapplied, with unchanged hashes in the verification record. No Edge change, production fixture or real call.
+
+**Next gates:** Finish final-head CI, separately approve those exact production migrations, recheck live preimages/ACLs and apply/verify in order, then obtain the separate frontend merge/release approval. Full signed-in acceptance requires the matching backend; real media/provider callbacks need an authorized synthetic-contact test. The specific failed-click cause remains unconfirmed. Production is unchanged.
+
 ## 2026-11-04 Pacific / November 5 UTC — P0 Dialer reliability implemented locally; RELEASE NOT APPROVED
 
 **Approval/baseline:** Chris approved the reviewed isolated implementation and synthetic tests. Branch `hotfix/dialer-reliability-20261104` is based on production/main `2b6f5cefe4f4d7980ab670067a5634e320cd20fd`; Vercel production remains READY at that SHA. No publication, merge, deployment or production mutation. Reports V2 advanced to `f7ff977992a873f23ac9bbe27eeadd878a3f83be` with two Work Log-only commits; its appointment type/source-call mounts and live Reports reader/recovery pin remain explicit integration overlaps.

@@ -43,25 +43,44 @@
   "lint": {
     "output_sha256": "f819c7f4029339cd69d82f8f19e0e424e959ad43590c089c2d32cb0457c5a628",
     "summary": [
-      "\u2716 153 problems (11 errors, 142 warnings)"
+      "✖ 153 problems (11 errors, 142 warnings)"
     ]
   },
   "scoped_lint": {
     "output_sha256": "85a3a61308aab566869693111b8b09e5b3dfd5b6f5a5a33f8ac3e30066c5cff1",
     "summary": [
-      "\u2716 21 problems (0 errors, 21 warnings)"
+      "✖ 21 problems (0 errors, 21 warnings)"
     ]
   },
   "build": {
     "output_sha256": "b6e5bb4b5c4fa5cfd51e5e14ea5d808a58f373cde2f5cbc5dc78f62653acecf3",
     "summary": [
-      "\u2713 built in 20.07s"
+      "✓ built in 20.07s"
     ]
   },
   "native_postgresql": {
-    "status": "not run; required CI gate"
+    "status": "PASS",
+    "engine": "PostgreSQL 16.15",
+    "source": "2fc8dce8bbf2293d454c219d810e72fb184c6337",
+    "run": 41943152769,
+    "job": 126968704909,
+    "log_sha256": "55363e72316aa784b63ee7b2b4c97e44875a7b2e0ec0cdf7daec56ca5d08c9d1",
+    "summary": [
+      "Both actual migrations, original ACL/security/search paths, drift/replay refusal and exact rollback passed.",
+      "Failure/admission row locks passed in both orders; provider truth wins without fabricated duration.",
+      "Existing simultaneous DNC, queue claim, stale admission, duplicate saves and SKIP LOCKED tests passed.",
+      "Report readers and versioned Reports recovery pin passed."
+    ]
   },
   "production_changes": {
     "status": "none"
-  }
+  },
+  "ci_vitest": {
+    "status": "PASS",
+    "files": 47,
+    "tests": 606,
+    "source": "2fc8dce8bbf2293d454c219d810e72fb184c6337",
+    "run": 41943152769
+  },
+  "ci_publication_record": "publication.json"
 }
