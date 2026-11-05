@@ -46,7 +46,7 @@ DB = f'reports_release_{PID}'
 ROLE = f'reports_release_{PID}_recorder'
 ROLE_PASSWORD = hashlib.sha256(os.urandom(32)).hexdigest()[:32]
 DB_ENV = BASE_ENV | {'PGDATABASE': DB}
-HISTORY_ROWS, HISTORY_HEAD = 351, '20261105051037'  # synthetic rows; the head is the recorded production head
+HISTORY_ROWS, HISTORY_HEAD = 356, '20261105051037'  # the verified production shape: 356 rows, this head
 EXPECT = None  # set after the runner module loads
 
 spec = importlib.util.spec_from_file_location('reports_release', RUNNER)
@@ -56,7 +56,7 @@ spec.loader.exec_module(m)
 fspec = importlib.util.spec_from_file_location('reports_v3_fixture', FIXTURE)
 fixture = importlib.util.module_from_spec(fspec)
 fspec.loader.exec_module(fixture)
-EXPECT = m.Expect(HISTORY_ROWS, HISTORY_HEAD)
+EXPECT = m.Expect(m.PRODUCTION_ROWS_BEFORE, m.PRODUCTION_HEAD_BEFORE)  # the runner's own pinned baseline
 PASSES = 0
 
 
@@ -274,9 +274,11 @@ def test_release(files):
     fresh()
     t = target()
     before = source_digest()
-    stops(lambda: m.classify(t, m.Expect(m.PRODUCTION_ROWS_BEFORE, m.PRODUCTION_HEAD_BEFORE)),
+    assert (HISTORY_ROWS, HISTORY_HEAD) == (m.PRODUCTION_ROWS_BEFORE, m.PRODUCTION_HEAD_BEFORE)
+    assert quiet(lambda: m.classify(t, EXPECT))[0].applied == 0
+    stops(lambda: m.classify(t, m.Expect(m.PRODUCTION_ROWS_BEFORE - 1, m.PRODUCTION_HEAD_BEFORE)),
           'every other history row is the pinned baseline')
-    ok('history that differs from the pinned production baseline (356 rows, head 20261105051037) refuses every stage')
+    ok('the pinned production baseline (356 rows, head 20261105051037) classifies as pre-PKG-A; any other count refuses')
     assert run(t, 'check', files).applied == 0
     stops(lambda: m.run_stage('record-history', t, EXPECT, files, CLI), 'record-history needs installed, unrecorded files')
     stops(lambda: m.run_stage('apply-20261105120011', t, EXPECT, files, CLI), 'apply-20261105120011 is the next stage in release order')
