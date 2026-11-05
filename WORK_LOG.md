@@ -1,5 +1,67 @@
 # AgentFlow Work Log
 
+## 2026-11-05 (later) — Reports V2 release files R1–R7 built and rehearsed on disposable databases (integration `41b5c5a8`); STOPPED for approval (nothing merged, applied, granted, enabled or deployed)
+
+**Request:** Chris's message of 2026-11-05 ("Final release preparation"). It approves building R1–R7 of `release-proposal.md`, branch only. The plan entry and file list were recorded first (`64d56ad4`, merged into integration as `e06cf491`). No production database was read or written.
+
+**Conflict check (blocking for any hosted Reports stage):**
+- `main` moved to `c9713060` (PR #515, the dialer fix), which is already applied in production as `20261105051018` and `…051037`.
+- It replaced `private.report_call_facts`. The new body adds the provider-admission predicate, and md5(prosrc) changed from `bacbfd06…` to `03b2c364…`.
+- So `…10`, `…12` and `…15` would refuse in production, every R1/R4/R5 pin set inherits the old value, and v3 call facts lack the predicate.
+- PR #515 also changed `DialerPage.tsx` and `TwilioContext.tsx`.
+- The reconciliation needs Chris's approval of the exact files.
+
+**Built (`dd5c0230`, `a7d0ef1e`, `41b5c5a8`):**
+- **R1/R4/R5 enables.** `reports_v3_enable.sql` (= `…44`), `…17`, `…22` and `…33`. Each pins the whole report closure by md5(prosrc), definer, volatility, proconfig and owner: 88 / 88 / 88 / 97 functions at A / B / C / D. The pins were generated from the disposable database by `reports_v3_fixture.py --part enable-pins` and rendered with `--render-enable`.
+  - The database recomputes the closure and must equal the pin set exactly.
+  - Then the pattern REVOKE, EXECUTE on the 15 readers TO authenticated, service_role, and the PUBLIC / anon / effective-privilege checks.
+  - `policy_sale_effective_premium` is not in the closure: no report body calls it (the B stub reads the ledger head). This is a recorded deviation from D2's file list.
+- **R2 disables.** `reports_v3_disable.sql` and `reports_all_disable.sql`: class R; class W is never named.
+- **R3 preflight and read-back.**
+  - Preflight: refuses unless the state is pre-v3 with the 27 tuples and the v2 matrix; prints aggregates only, including the PR #515 admission counts.
+  - Read-back: a per-contract closure fingerprint; the 15-reader matrix; anon membership and `private` USAGE; class W authenticated-only or sealed; the package tables' RLS and grants; the index; role-simulated reads of all nine readers at four scopes (≤ 4 s each); the v2 − v3 invariant.
+- **R6 runner.**
+  - `reports_release.py`: 35 stages; 34 files SHA-256 pinned; catalog and history classified before every write; the v3-only window enforced; the previous package recorded before the next starts; record-history refuses while the CLI digests are UNPINNED.
+  - `reports_release_test.py`: the rehearsal.
+  - `reports-release.yml`: dispatch-only on main, the `cgarness` environment, two scoped secrets.
+- **R7.**
+  - Fixture: each enable, read-back, idempotent replay, disable-v3 and disable-all at its state; the 12 cross-state refusals; the drift, unpinned and privilege probes; the recovery to PKG-A after the D, C and B rollbacks.
+  - Contracts: the release-file and runner-pin describes. Two older assertions were narrowed: the builder check skips class E pin lists, and the B order check now expects `…22`.
+
+**Verification:**
+- **Cross-state enable matrix:** 4 pass, 12 refuse.
+- **Local, PostgreSQL 16.15:**
+  - `run_reports_v3_tests.sh` (with the correction and integrated payloads), reporting integrity, policy commission and reports integrity: all exit 0.
+  - `tsc` 0; app typecheck: no new error; build 0; ESLint 0 errors after one fix (`41b5c5a8`).
+  - Vitest: 6,930 tests, no new failure by identity.
+  - Contracts: 85/85.
+- **Runner rehearsal: 16/16, local diagnostic only (not release evidence).** It ran on PostgreSQL 16.15 with the repository's CLI 2.84.5 behind a scratch version shim; downloading 2.121.0 was refused. The recorder role was given ownership of the history schema, which the older CLI needs.
+  - Covered: A → B → C → D, 20 history rows recorded by the real CLI and re-verified, disable-all / re-enable, and the rollbacks 43 → 42 → 41 → baseline revert → 40 → 32 → 31 with history reverted.
+  - Refused as designed: out of order, outside the v3-only window, history drift, file tampering and the unpinned production baseline.
+  - Calls, sales and clients unchanged.
+- **CI, PostgreSQL 17.6, on `a7d0ef1e`:**
+  - Reports backend `41983315849`: `postgres` ✔ (the fixture with every release stage), differential ✔, negative control ✔.
+  - Reporting integrity `41983319378` ✔; Policy commission `41983322878` ✔.
+- **Performance acceptance FAILED (run `41983315849`, both runs).** 144 of 147 combinations pass. The three misses are all at agency scope over 366 days (p95 run 1 / run 2):
+  - summary 2,921 / 2,958 ms (target 2,000);
+  - state breakdown 2,883 / 2,969 ms (target 2,000);
+  - journey 4,624 / 4,631 ms (target 4,000).
+
+  These are the same combinations as before. No optimization was attempted.
+
+**Open (approval checklist):**
+- Performance decision.
+- The PR #515 reconciliation.
+- A CI job for the runner rehearsal on 17.6 with CLI 2.121.0.
+- Renumbering, then re-pinning the runner's files, history baseline and recorded digests.
+- The PKG-A / …30 structural rollback decision.
+- ★1 / ★4 / E1–E6 / ★5.
+- The AGENT_RULES amendments.
+- B6; the 36-type baseline; census item 7; CSV and visual approval.
+- Each stage in order; final approval.
+
+The readiness report is in the session scratchpad (`REPORTS_V2_RELEASE_READINESS.md`).
+
 ## 2026-11-05 — Reports V2 Dispositions team/personal bugfix (integration `6cd89f24`); feature development stopped; release proposal prepared (nothing merged, applied, enabled or deployed)
 
 **Request:** Chris's message of 2026-11-05 ("Complete the final Dispositions bugfix").
