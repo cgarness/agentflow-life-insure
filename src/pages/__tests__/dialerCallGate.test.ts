@@ -163,3 +163,19 @@ describe("resolveManualDialDecision — intentional repeat calls", () => {
     })).toBe("blocked-draft");
   });
 });
+
+it.each(["session", "DNC", "dispatch"])("surfaces an unexpected %s rejection without telemetry", async stage => {
+  const failure = new Error(`failed:${stage}`);
+  const reject = async () => { throw failure; };
+  const steps = makeSteps({ onVerificationFailed: vi.fn(),
+    ...(stage === "session" ? {ensureSession:reject} : stage === "DNC" ? {checkDnc:reject} : {dispatch:reject}) });
+  expect(await runGatedCall(steps)).toBe("verification-failed");
+  expect(steps.onVerificationFailed).toHaveBeenCalledWith(failure);
+  expect(steps.incrementStats).not.toHaveBeenCalled();
+});
+it("does not dial a newly selected lead after an old session response", async () => {
+  let finish!:(v:boolean)=>void;let current=true;
+  const steps=makeSteps({ensureSession:()=>new Promise(r=>{finish=r;}),isCurrent:()=>current});
+  const result=runGatedCall(steps);current=false;finish(true);
+  expect(await result).toBe("stale");expect(steps.checkDnc).not.toHaveBeenCalled();expect(steps.dispatch).not.toHaveBeenCalled();expect(steps.incrementStats).not.toHaveBeenCalled();
+});

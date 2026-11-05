@@ -156,3 +156,16 @@ describe("Campaign Detail dial authorization is bound to the current campaign id
     expect(derive(undefined, { campaignId: CAMP_A, allowed: true })).toBeNull();
   });
 });
+
+
+it("joins identical in-flight session starts, but visibly refuses a different campaign", async () => {
+  let finish!: (v:{id:string;campaign_id:string;started_at:string})=>void;
+  h.startImpl=()=>new Promise(resolve=>{finish=resolve;});
+  const {result}=renderHook(()=>useDialerSession());
+  let a!:Promise<boolean>,b!:Promise<boolean>,other!:Promise<boolean>;
+  act(()=>{a=result.current.startServerSession(CAMP_A);b=result.current.startServerSession(CAMP_A);other=result.current.startServerSession(CAMP_B);});
+  expect(h.startCalls).toEqual([CAMP_A]);
+  await expect(other).resolves.toBe(false);
+  await act(async()=>{finish({id:"s-shared",campaign_id:CAMP_A,started_at:"2026-11-04T00:00:00Z"});await Promise.all([a,b]);});
+  await expect(a).resolves.toBe(true);await expect(b).resolves.toBe(true);
+});

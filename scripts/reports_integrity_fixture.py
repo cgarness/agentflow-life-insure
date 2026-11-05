@@ -44,9 +44,10 @@ def steps():
  second=read('supabase/migrations/20261006043738_reports_scopes_and_policy_premium.sql')
  disable=read('supabase/ops/reports_disable.sql')
  # The applied 20261006 release enable (historical pins) proves the shipped recovery path; the current ops
- # enable carries the corrected overlap reader pin and is proven by the correction release steps below.
+ # snapshot carries the corrected overlap reader pin and is proven by the correction release steps below.
+ # The newer signed-call pin is tested separately by scripts/tests/dialer-reliability/counts.mjs.
  enable=read('supabase/migrations/20261006044003_reports_integrity_release_enable.sql')
- corrected_enable=read('supabase/ops/reports_integrity_enable.sql')
+ corrected_enable=read('docs/plans/2026-11-04-dialer-reliability/reports_integrity_enable.before.sql')
  release_disable=migration('reports_overlap_release_disable')
  release_enable=migration('reports_overlap_release_enable')
  correction=migration('reports_integrity_quality_overlap_seconds')

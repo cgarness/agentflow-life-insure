@@ -1,0 +1,99 @@
+[
+  {
+    "signature": "start_dialer_session(uuid)",
+    "owner": "postgres",
+    "body_md5": "46b60b52c623b6825ccfa70076801b20",
+    "security_definer": true,
+    "volatility": "v",
+    "config": [
+      "search_path=pg_catalog, pg_temp"
+    ],
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "candidate_body_md5": "f6190dfd31382d6389ac9f20c4254d36"
+  },
+  {
+    "signature": "get_campaign_card_stats(uuid[])",
+    "owner": "postgres",
+    "body_md5": "4d5cdfd5281ed0f9f6e3bcd40a5ff0ac",
+    "security_definer": true,
+    "volatility": "s",
+    "config": [
+      "search_path=public, pg_temp"
+    ],
+    "acl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "candidate_body_md5": "7e533e56044e3224b32c57cf25bc2295"
+  },
+  {
+    "signature": "get_trusted_today_dialer_stats(uuid,timestamp with time zone,timestamp with time zone)",
+    "owner": "postgres",
+    "body_md5": "361906f79d4b6a80f681b9fe0cf4db2a",
+    "security_definer": true,
+    "volatility": "s",
+    "config": [
+      "search_path=public, pg_temp"
+    ],
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "candidate_body_md5": "fba5d92b359c67311590c72906f04fb4"
+  },
+  {
+    "signature": "get_profile_book_stats(text,text)",
+    "owner": "postgres",
+    "body_md5": "38e98ae690b7dc781fadb5d1a858f11e",
+    "security_definer": true,
+    "volatility": "s",
+    "config": [
+      "search_path=pg_catalog, pg_temp"
+    ],
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "candidate_body_md5": "4a025d9e390c9663ac709661c28eedc8"
+  },
+  {
+    "signature": "private.report_call_facts(uuid,timestamp with time zone,timestamp with time zone,uuid[])",
+    "owner": "postgres",
+    "body_md5": "bacbfd0629221957cae28ba28728c8bd",
+    "security_definer": true,
+    "volatility": "s",
+    "config": [
+      "search_path=pg_catalog, pg_temp"
+    ],
+    "acl": "{postgres=X/postgres}",
+    "candidate_body_md5": "03b2c36446fb0b7dec0bac14b401a864"
+  },
+  {
+    "signature": "get_performance_details(text,text,text,uuid,timestamp with time zone,integer)",
+    "owner": "postgres",
+    "body_md5": "f583b067528b38b6713007ecccd84650",
+    "security_definer": true,
+    "volatility": "s",
+    "config": [
+      "search_path=pg_catalog, pg_temp",
+      "statement_timeout=25s"
+    ],
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "candidate_body_md5": "c7d25d0edf7fcb1a28d0837da225a25b"
+  },
+  {
+    "signature": "private.performance_rows(uuid[],timestamp with time zone,timestamp with time zone,date,date,uuid[])",
+    "owner": "postgres",
+    "body_md5": "d7f486b3b303ce96d3c96c64b511c76d",
+    "security_definer": false,
+    "volatility": "s",
+    "config": [
+      "search_path=pg_catalog, pg_temp"
+    ],
+    "acl": "{postgres=X/postgres}",
+    "candidate_body_md5": "908181aa87fa524614e0debd249e1d10"
+  },
+  {
+    "signature": "get_trusted_today_dialer_stats_v2(uuid,timestamp with time zone,timestamp with time zone,date)",
+    "owner": "postgres",
+    "body_md5": "b00c02b0e1bab7d57ddd273dc720d1ca",
+    "security_definer": true,
+    "volatility": "s",
+    "config": [
+      "search_path=pg_catalog, pg_temp"
+    ],
+    "acl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "candidate_body_md5": "86591bc176db14718b6e7681b780401c"
+  }
+]

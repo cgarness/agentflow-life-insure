@@ -604,6 +604,17 @@ Do **not** reintroduce server REST outbound + SIP bridge (`dialer-start-call`) u
 
 ---
 
+## Dialer action ownership — November 4, 2026 (candidate; not released)
+
+This invariant accompanies the approved local P0 candidate in `docs/plans/2026-11-04-dialer-reliability`; production release is still separately gated.
+
+- Queue membership ID owns the selected contact. Persist/re-sort/select in one commit; a stale index or URL echo must never rewind a committed transition. Only the owning action can release its pending guard; timers must not unlock unrelated work. Bind asynchronous work to a unique user/org/campaign visit, including leaving and returning to the same ID.
+- Skip and every navigation entrance preserve unsaved outcomes and in-flight saves. Save Only retains the current lead/lock; intentional manual redial remains supported. A calling-hours refusal pauses Auto Dial without persisting Skip or traversing leads. This supersedes the historical auto-skip exception in invariant #16 when this candidate is released.
+- One click owns one preflight and one attempt UUID. Keep all provider re-entrancy guards and single-leg browser `device.connect()`. Revalidate original action ownership after asynchronous gates; Call readiness and queue-lock refusal must be visible.
+- A prepared `calls` row or resolved SDK connect is not signed provider admission. The candidate projects existing private admission evidence into `dialer_provider_admitted` using a server trigger; new count readers include legacy rows and signed admitted attempts only. Failed dispatch receipts remain in history. An ambiguous dispatch is neither No Answer nor permission to auto-retry. Duration and terminal provider truth remain webhook-owned.
+- Session `auto_dial_enabled` is metadata: initialize it from the campaign and synchronize the current runtime toggle only for the actor's active authorized session. It does not authorize dialing or prove historical automatic calls. Never rewrite historical session timestamps to fix metadata.
+- The two candidate migrations, guarded rollback, and Reports recovery pin are one reviewed package. Refresh live source/ACL fingerprints and coordinate Reports V2 before applying it. No frontend-first release: new column/RPC readers require the approved backend first.
+
 ## 7. Component Standards
 
 - React components **< 200 lines** — extract to `src/components/...`.

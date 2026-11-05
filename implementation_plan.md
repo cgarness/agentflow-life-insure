@@ -1,3 +1,7 @@
+## 2026-11-04 — P0 Dialer reliability — IMPLEMENTED LOCALLY, RELEASE NOT APPROVED
+
+Chris approved the reviewed plan and file manifest. Local implementation and synthetic verification are complete; native concurrency CI and release gates remain. Results and exact package: docs/plans/2026-11-04-dialer-reliability/verification.md and manifest.json. Isolated branch: hotfix/dialer-reliability-20261104, base 2b6f5cefe4f4d7980ab670067a5634e320cd20fd. Full plan and intended files: docs/plans/2026-11-04-dialer-reliability/implementation_plan.md. Read-only campaign diagnosis is allowed; no production mutation, remote publication, main merge or deployment. Reports V2 overlap is limited to appointment type and sourceCallId mounts; preserve them.
+
 # 2026-11-03 Pacific — Toll-Free Number Purchasing release approved; backend verified
 
 Chris approved the concrete implementation, exact migration, six complete Edge payloads and frontend release. PR #513 publishes the approved source tree. Production migration `20261104041151_phone_number_purchase_operations` is applied once and read back; the pending file was renamed with identical SQL bytes. SMS v61, workflow v50, consent worker v26, ClearPath v25, search v59 and buy v65 are live with all source bytes and configuration verified. Existing phone ownership/routing/policies remain unchanged; no number purchase, designation, call or SMS occurred.

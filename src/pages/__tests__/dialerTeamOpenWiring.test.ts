@@ -3,8 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
- * Source contract for the Team / Open lead-details wiring in DialerPage (the page is too large to
- * mount in a unit test). Each assertion pins one approved rule so a later edit cannot silently undo it.
+ * Source contract for the Team / Open lead-details wiring, complementing the mounted-page tests. Each assertion pins one approved rule so a later edit cannot silently undo it.
  */
 const src = readFileSync(resolve(__dirname, "../DialerPage.tsx"), "utf8");
 const body = (startMarker: string, endMarker: string) => {
@@ -84,7 +83,7 @@ describe("DialerPage — Team/Open lead details wiring", () => {
   });
 
   it("the loader only ADDS the RLS-governed master row; the lock / claim calls are unchanged", () => {
-    const loader = body("const loadLockModeLead = useCallback(", "const fetchLeadsBatch = useCallback(");
+    const loader = body("const performLockModeLoad = useCallback(", "const fetchLeadsBatch = useCallback(");
     expect(loader).toContain("master_lead: leadData ?? null");
     expect(loader).toContain("await getNextLead(selectedCampaignId, resolvedType, filters)");
     expect(loader).toContain("setConfirmedLockLeadId(lock.id);");

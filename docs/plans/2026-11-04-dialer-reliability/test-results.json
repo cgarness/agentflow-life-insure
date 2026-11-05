@@ -1,0 +1,67 @@
+{
+  "vitest": {
+    "output_sha256": "94a378dd088816e19c9d4ce423315b494c55b1a32aacdc16d31500d26589ac96",
+    "summary": [
+      "Test Files  47 passed (47)",
+      "Tests  606 passed (606)"
+    ]
+  },
+  "browser": {
+    "output_sha256": "7a9e056d3f90d23201ce49d89e448978f2abea38acdc6c43f7d66b104e799f15",
+    "summary": [
+      "PASS Chromium: rapid Skip, resort, URL, draft, stale Call, automatic hours pause; external network blocked"
+    ]
+  },
+  "database": {
+    "output_sha256": "7848319ab64c8efddbe77628840e7bcfa236236d222b8f6d77d10d571f6fbc3f",
+    "summary": [
+      "PASS both actual migrations apply; eight existing function ACLs, security modes and search paths unchanged",
+      "PASS existing dialer_disposition_dnc",
+      "PASS existing dialer_dnc_security",
+      "PASS existing dialer_dnc_matrix",
+      "PASS dispatch failure, signed admission precedence, forged flags, legacy counts, tenancy, session mode",
+      "LIMIT: this embedded engine does not establish multi-session contention timing.",
+      "PASS replay refusal, exact function rollback/ACL preservation, rollback replay refusal"
+    ]
+  },
+  "reporting": {
+    "output_sha256": "cc9646cb042735f68cbc3f377a9107d8e76f8f240df1b94d02dc01487ebd10c0",
+    "summary": [
+      "PASS performance aggregates/details: legacy + admitted failure count; unconfirmed excluded",
+      "PASS Reports v2 regressions + unconfirmed/admitted inclusion",
+      "PASS versioned Reports recovery accepts only the new reviewed body and restores v2 grants"
+    ]
+  },
+  "root_typecheck": {
+    "output_sha256": "7125f194612fcff2f454c05d848e7cb71facc1967b4d5017e25b34fdee3ba74f",
+    "summary": []
+  },
+  "application_typecheck": {
+    "output_sha256": "efa91bca685127dd18d27698a842d3ef4ef76a567a07e83237e96fb0040abcc1",
+    "summary": []
+  },
+  "lint": {
+    "output_sha256": "f819c7f4029339cd69d82f8f19e0e424e959ad43590c089c2d32cb0457c5a628",
+    "summary": [
+      "\u2716 153 problems (11 errors, 142 warnings)"
+    ]
+  },
+  "scoped_lint": {
+    "output_sha256": "85a3a61308aab566869693111b8b09e5b3dfd5b6f5a5a33f8ac3e30066c5cff1",
+    "summary": [
+      "\u2716 21 problems (0 errors, 21 warnings)"
+    ]
+  },
+  "build": {
+    "output_sha256": "b6e5bb4b5c4fa5cfd51e5e14ea5d808a58f373cde2f5cbc5dc78f62653acecf3",
+    "summary": [
+      "\u2713 built in 20.07s"
+    ]
+  },
+  "native_postgresql": {
+    "status": "not run; required CI gate"
+  },
+  "production_changes": {
+    "status": "none"
+  }
+}
