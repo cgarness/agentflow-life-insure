@@ -9,8 +9,9 @@
 -- 2. Privilege matrix (catalog ACLs and existing role memberships): exactly the 15 report readers are executable,
 --    by authenticated and service_role only; no report function has a PUBLIC or anon entry; anon is not a member of
 --    authenticated or service_role; anon and authenticated have no USAGE on schema private.
--- 3. Class W application RPCs that are installed are executable by authenticated only; the package tables have RLS
---    on and no client privilege; the concurrent calls index is valid and ready.
+-- 3. Class W application RPCs that are installed are executable by authenticated only, or sealed (a guarded package
+--    rollback seals them); the package tables have RLS on and no client privilege; the concurrent calls index is valid
+--    and ready.
 -- 4. Role-simulated reads of all nine v3 readers over the agency's last 30 days, at agency, team, personal and
 --    agent-filter scope, each as the matching actor of the busiest organization that has one (team is skipped, with a
 --    notice, only when no Team Leader has an active downline): each response is a v3 payload of the installed
@@ -136,7 +137,7 @@ BEGIN
     CONTINUE WHEN f.oid IS NULL;
     IF (SELECT coalesce(string_agg(a.grantee::regrole::text || ':' || a.privilege_type, ',' ORDER BY a.grantee::regrole::text), '')
           FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-         WHERE p.oid = f.oid AND a.grantee <> p.proowner) IS DISTINCT FROM 'authenticated:EXECUTE' THEN
+         WHERE p.oid = f.oid AND a.grantee <> p.proowner) NOT IN ('authenticated:EXECUTE', '') THEN
       RAISE EXCEPTION 'Reports v3 read-back: class W privileges drifted on %', f.w;
     END IF;
   END LOOP;

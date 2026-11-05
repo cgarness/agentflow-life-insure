@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 const ROOT = join(__dirname, "..", "..", "..");
@@ -1050,5 +1051,29 @@ describe("Reports v3 release files (release proposal R1–R5): staged enables, d
       expect(sql.replace(/'(?:[^']|'')*'/g, "''"), name).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|CREATE|ALTER|DROP|REVOKE|COMMIT)\b/);
       expect(grants(sql), name).toEqual([]);
     }
+  });
+});
+
+describe("Reports v3 release runner (R6): file pins and stages", () => {
+  const runner = read("scripts/reports_release.py");
+  const pins = [...runner.matchAll(/^    '(supabase\/[^']+)': \((\d+), '([0-9a-f]{64})'\),$/gm)].map((m) => [m[1], Number(m[2]), m[3]] as const);
+
+  it("pins every migration, release enable, ops script and rollback it can run at its committed bytes", () => {
+    expect(pins.length).toBe(34);
+    for (const [path, size, sha] of pins) {
+      const bytes = readFileSync(join(ROOT, path));
+      expect(bytes.length, path).toBe(size);
+      expect(createHash("sha256").update(bytes).digest("hex"), path).toBe(sha);
+    }
+    for (const name of readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /^2026110412\d{4}_/.test(n))) {
+      expect(pins.some(([p]) => p === `${MIGRATIONS}/${name}`), name).toBe(true);
+    }
+  });
+
+  it("keeps the unknowable production values unpinned (fail closed) and never runs db push or migration up", () => {
+    expect(runner).toMatch(/^PRODUCTION_HEAD_BEFORE = UNPINNED$/m);
+    expect(runner).toMatch(/^RECORDED = \{i\.version: \(0, UNPINNED\) for i in ITEMS if i\.version\}$/m);
+    expect(runner).not.toMatch(/'db', 'push'|'migration', 'up'|db reset/);
+    expect(runner).toMatch(/require\(os\.environ\.get\('GITHUB_REF'\) == 'refs\/heads\/main', 'main dispatch only'\)/);
   });
 });
