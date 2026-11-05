@@ -194,8 +194,10 @@ def test_file_and_cli_gates():
         with patch.dict(os.environ, {'GITHUB_REF': ref, 'STAGE': stage, 'CONFIRM': confirm}):
             stops(lambda: m.main(['run']), label)
     ok('wrong confirmation, unknown stage and non-main branch refused')
-    assert m.PRODUCTION_HEAD_BEFORE == m.UNPINNED and all(d == m.UNPINNED for _, d in m.RECORDED.values())
-    ok('the production history baseline and recorded CLI digests are UNPINNED until renumbering (fail closed)')
+    assert (m.PRODUCTION_ROWS_BEFORE, m.PRODUCTION_HEAD_BEFORE) == (356, '20261105051037')
+    assert sorted(m.RECORDED) == sorted(i.version for i in m.ITEMS if i.version)
+    assert all(c > 0 and re.fullmatch(r'[0-9a-f]{64}', d) for c, d in m.RECORDED.values())
+    ok('the verified production history baseline (356 rows, head 20261105051037) and all 20 CLI digests are pinned')
 
 
 # ── the disposable release database ────────────────────────────────────────────────────────────────────────────────
@@ -260,21 +262,10 @@ def run(t, stage, files):
 
 
 def record(t, files):
-    """record-history with the CLI's own rows as the pins: unpinned refuses first; each candidate is recorded with the
-    real CLI, read and reverted; then the stage runs with exactly those values and must reproduce them."""
+    """record-history with the pinned CLI digests: the stage records each file with the real CLI and must reproduce the
+    pinned statement count and digest (a mismatch stops the stage)."""
     state, _ = quiet(lambda: m.classify(t, EXPECT))
-    pending = [i for i in m.ITEMS[:state.applied] if i.version and i.version not in state.recorded]
-    stops(lambda: m.run_stage('record-history', t, EXPECT, files, CLI), f'recorded CLI statements for {pending[0].version} are pinned')
-    pins = {}
-    for item in pending:
-        quiet(lambda: m.repair(t, item.version, 'applied', files[item.path], CLI))
-        name, count, digest, *_ = m.recorded_row(t, item.version).split('|')
-        assert name == m.NAMES[item.version] and int(count) > 0, item.version
-        pins[item.version] = (int(count), digest)
-        print(f'HISTORY PIN CANDIDATE: {item.version} {count} {digest}', flush=True)
-        quiet(lambda: m.repair(t, item.version, 'reverted', files[item.path], CLI))
-    with patch.dict(m.RECORDED, pins):
-        after = run(t, 'record-history', files)
+    after = run(t, 'record-history', files)
     assert after.recorded == tuple(i.version for i in m.ITEMS[:state.applied] if i.version)
     return after
 
@@ -284,8 +275,8 @@ def test_release(files):
     t = target()
     before = source_digest()
     stops(lambda: m.classify(t, m.Expect(m.PRODUCTION_ROWS_BEFORE, m.PRODUCTION_HEAD_BEFORE)),
-          'production history baseline is pinned (after the renumbering above the production head)')
-    ok('the unpinned production baseline refuses every stage')
+          'every other history row is the pinned baseline')
+    ok('history that differs from the pinned production baseline (356 rows, head 20261105051037) refuses every stage')
     assert run(t, 'check', files).applied == 0
     stops(lambda: m.run_stage('record-history', t, EXPECT, files, CLI), 'record-history needs installed, unrecorded files')
     stops(lambda: m.run_stage('apply-20261105120011', t, EXPECT, files, CLI), 'apply-20261105120011 is the next stage in release order')

@@ -1070,9 +1070,11 @@ describe("Reports v3 release runner (R6): file pins and stages", () => {
     }
   });
 
-  it("keeps the unknowable production values unpinned (fail closed) and never runs db push or migration up", () => {
-    expect(runner).toMatch(/^PRODUCTION_HEAD_BEFORE = UNPINNED$/m);
-    expect(runner).toMatch(/^RECORDED = \{i\.version: \(0, UNPINNED\) for i in ITEMS if i\.version\}$/m);
+  it("pins the verified production baseline and every CLI digest, and never runs db push or migration up", () => {
+    expect(runner).toMatch(/^PRODUCTION_ROWS_BEFORE = 356$/m);
+    expect(runner).toMatch(/^PRODUCTION_HEAD_BEFORE = '20261105051037'$/m);
+    const recorded = [...runner.matchAll(/^ {4}'(2026110512\d{4})': \((\d+), '([0-9a-f]{64})'\),$/gm)].map((x) => x[1]);
+    expect(recorded).toEqual(readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /^2026110512\d{4}_/.test(n)).map((n) => n.slice(0, 14)).sort());
     expect(runner).not.toMatch(/'db', 'push'|'migration', 'up'|db reset/);
     expect(runner).toMatch(/require\(os\.environ\.get\('GITHUB_REF'\) == 'refs\/heads\/main', 'main dispatch only'\)/);
   });

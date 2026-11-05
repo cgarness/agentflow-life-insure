@@ -153,12 +153,34 @@ PINS = {
     'supabase/ops/reports_v3_enable.sql': (25534, 'c23f949f2f98f1e147d44dfa603a2bc70019909df3eba637d6fca0ee441a03b3'),
 }
 NAMES = {i.version: Path(i.path).name[15:-4] for i in ITEMS if i.version}
-# The production history baseline before PKG-A, and the CLI's recorded row per version (statement count and SHA-256
-# of the concatenated statements). Pinned only after the filename-only renumbering above the then-current head
-# (today 20261105051037) and a rehearsal with exactly PostgreSQL 17.6 and Supabase CLI 2.121.0. Unpinned fails closed.
-PRODUCTION_ROWS_BEFORE = 0
-PRODUCTION_HEAD_BEFORE = UNPINNED
-RECORDED = {i.version: (0, UNPINNED) for i in ITEMS if i.version}
+# The production history baseline before PKG-A (independently verified, 2026-11-05: 356 applied migrations, head
+# 20261105051037_dialer_admitted_call_counts, no Reports V3 migration applied), and the CLI's recorded row per version
+# (statement count and SHA-256 of the concatenated statements), captured by supabase migration repair with exactly
+# Supabase CLI 2.121.0 on PostgreSQL 17.6 (CI run 42051570639) from the pinned bytes below. Any other value refuses.
+PRODUCTION_ROWS_BEFORE = 356
+PRODUCTION_HEAD_BEFORE = '20261105051037'
+RECORDED = {
+    '20261105120010': (31, 'b9d232b67ad4f82cb3c80fb373a374d24de821249082dc8df51f852a00013051'),
+    '20261105120011': (13, '74ec3d89dd30c012c0546b244160738c1dcde63b8a30fc84b74ad38e3b102241'),
+    '20261105120012': (40, 'a273b46a26b2b993aec82a8d4d44836fcda223733c8b49102e615a703ec41ad1'),
+    '20261105120013': (6, '00f137fe3f77d9f707cec6ed929c2a5c3cb33552961ecb6a2444a2e69af24966'),
+    '20261105120014': (11, 'fe4b8005d44f008be42be07dfcb530b99439f934886c66ca7836ce7f73297ef3'),
+    '20261105120015': (32, '2620d8494264229e3715b3c508f48f803a2963e7188c9d8e3d083aed4e5f93f0'),
+    '20261105120016': (1, '45d7f42cca7b1ab7fa9e52adae90cc5e94b31ce7bf30a5409225e90d8d6bed80'),
+    '20261105120017': (3, 'a8ccde415cdaf69ab58bf9ca95097036434e403c4dfeb4c30b6da5b3192422a2'),
+    '20261105120020': (25, 'ad3cee6d4ed167fa79b83ce162e1c24cc4da16f4c2a38cc4f67f4d38865d9aac'),
+    '20261105120021': (13, '099dd2093f855fe94a3b549d2eaec9cf744929c1e152b65bf683ba786d459ed2'),
+    '20261105120022': (3, '23163481bb90cb95d99f51cf924e9147edb88b94cd88ce3e8cab06a2ae1649cd'),
+    '20261105120030': (14, 'e7299b966c56ed3a16551c87c6019396e9c030df1dab6e08adf2e4347dc8476a'),
+    '20261105120031': (21, '948f05c3d016090b371640835a647ef926f65c942a16ffee3940ee9c8a7f3b47'),
+    '20261105120032': (9, '112d08b575efc9965b057b67b0bcf32239c06495bd7b14d0017b516013fa56e8'),
+    '20261105120033': (3, '3126a14d0074fbd19081414ec1c91b59d9284e3df5b9579a5d43c6c30a56d5f5'),
+    '20261105120040': (22, 'af5f721548e7e92d84a4ce877ddbbfc0e598edeb275300d3db611e2d589e8618'),
+    '20261105120041': (41, '23e3626f973e52d7369315a649dc43b02f280fa284fbe57ce1d7a608156ef64c'),
+    '20261105120042': (34, 'b7a3ae20414f2fa2ef3a43f0436f3c6223a0b1f37bfd2902ba3fccac867ebbc9'),
+    '20261105120043': (13, 'c1ca9c4f3d1153ddac565b1ecde9d23fa20a8c8ca899a90b837658677e5785e3'),
+    '20261105120044': (3, '96db6d3b94e5f0292ad8dec0607895b32f99ed77d51425baf3bbb7afe3a9da37'),
+}
 
 STAGES = (('check', 'read-back', 'record-history', 'disable-v3', 'disable-all', 're-enable')
           + tuple(i.stage for i in ITEMS) + ('category-baseline-revert',) + tuple('rollback-' + v for v in ROLLBACKS))
