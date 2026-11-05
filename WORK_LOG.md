@@ -1,5 +1,47 @@
 # AgentFlow Work Log
 
+## 2026-11-05 — Reports V2 Dispositions team/personal bugfix (integration `6cd89f24`); feature development stopped; release proposal prepared (nothing merged, applied, enabled or deployed)
+
+**Request:** Chris's message of 2026-11-05 ("Complete the final Dispositions bugfix").
+- Read first: AGENT_RULES.md, VISION.md and the WORK_LOG.
+- Conflict check: `main` is still `2b6f5cef`, and no work is newer than the integration branch.
+- The plan entry was recorded first (`be6d8f06` merge).
+
+**Fix (`6cd89f24`; frontend only):**
+- `reports-v3-schemas.ts`: `deep_dive.unattributed` is `.nullable()`. The SQL reader sends it only for an agency request, because calls with no credited agent are not part of a team or personal scope.
+- `DispositionDeepDive.tsx`: the campaign-tab note adds those calls only when the breakdown is present. No agency value is substituted and no zero is implied.
+- `reportsV3Fixtures.ts`: the fixture mirrors the SQL. It had sent an object at every scope, which hid the defect.
+- `reportsDialerIntelligence.test.tsx`: four cases.
+- **Red/green:** red before the fix (team and personal failed the contract; the deep dive crashed on `null`). Green after it: 39 of 39.
+
+**Verification:**
+- **SQL-generated payloads (synthetic, contract 3.3.0):** all nine readers parse at agency, team and personal: 27 of 27 for the scale Admin and 18 of 18 for the scale Team Leader.
+- **Dispositions chart, deep dive and CSVs at every scope:** a browser check on the unchanged harness pages.
+  - Admin: 30 of 30, with agency at 32,497 calls.
+  - Team Leader: 20 of 20, with team at 6,034 calls over 11 agents and personal at 317. Each Team Leader view has `unattributed: null`.
+  - The outcomes and deep-dive CSV totals equal the payload, with no `null`, `NaN` or `undefined`, no error panel and no "0" stand-in.
+  - The Team Leader run used a scratchpad-only copy of the harness config, because the repo config accepts only an Admin file with an agency bundle.
+- **Static, Vitest and visual:**
+  - `tsc --noEmit` 0;
+  - app typecheck: no new error against the baseline;
+  - scoped eslint: 0 errors;
+  - build 0;
+  - Vitest: 6,923 tests, no new failure by identity;
+  - the visual gate `verify.mjs`: 474 of 474.
+- **CI (PostgreSQL 17.6), Reports backend run `41974560561`:** postgres and differential success.
+- No SQL changed, so the earlier SQL runners and CI on `580f206b` still apply.
+
+**Release preparation (needs approval):** `docs/plans/2026-10-31-reports-v2/release-proposal.md` lists:
+- the release files still to build (the ops enable, disable, preflight and read-back scripts; the `…17`, `…22`, `…33` and `…44` release-enable copies; the protected runner, its test and the workflow);
+- the migration sequence A → B → C → D → F with every stage;
+- the final checklist.
+
+No release file was created.
+
+**Migrations and deployments:** none applied; hosted head `20261104041151`.
+
+**Blockers:** those in the release proposal's checklist.
+
 ## 2026-11-04 (night) — Reports V2 KPI 16 integration defect fixed; final review prepared (integration branch `580f206b`; nothing merged, applied or deployed)
 
 **Request:** Chris's message of 2026-11-04 ("Fix the KPI 16 integration defect"), a surgical branch-only change.
