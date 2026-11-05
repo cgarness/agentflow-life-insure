@@ -1,5 +1,50 @@
 # AgentFlow Work Log
 
+## 2026-11-05 (night) — Reports V2 production compatibility with PR #515 (integration `0276b185`); STOPPED for approval (nothing applied, read from production, merged or deployed)
+
+**Request:** Chris's message of 2026-11-05 ("Final production compatibility"): branch-only reconciliation, plus one disposable PostgreSQL 17.6 release-runner rehearsal with CLI 2.121.0. The plan and file list were recorded first (`e7b6dd91`).
+
+**Merge (`a48b1f3e`):**
+- `main` `09ec29a4` (PR #515 and #516) was merged. Every dialer file is identical to `main`: TwilioContext, DialerPage action ownership and readiness, signed admission counting, and the integrity pin.
+- The approved C/D DialerPage mounts merged cleanly.
+- The TwilioContext boundary pin moved to main's bytes.
+
+**Compatibility (`3fc1f7db`):**
+- **Fixture:** production's PR #515 v2 state, verbatim from `…051018` and `…051037`, applied after the synthetic history.
+- **Pins:** `…10`, `…12`, `…15` and the preflight moved to `report_call_facts` `03b2c364`. No v3 logic changed.
+- **Tests, with independent counts:**
+  - v2 = v3 minus refused and unverified (J: 33 / 31; 9 legacy, 20 admitted, 1 refused, 1 unverified, 2 inbound);
+  - the projection counts as the signed admission;
+  - the refused, unverified, legacy, inbound and stale-projection cases;
+  - V9 and the read-back invariant are now v2 = KPI 5.
+- **Renumbered** `20261104120NNN` → `20261105120NNN` (above `20261105051037`). All pins were regenerated (88 / 88 / 88 / 97), the read-back fingerprints and the runner's 34 file pins.
+
+**Rollback safety and rehearsal (`743755d9`):**
+- `clients_lead_id_guard` stays enabled after disable-v3 and disable-all. Other client columns edit; a `lead_id` change by a non-postgres writer is refused (red-checked).
+- The runner test now carries the PR #515 state and checks for CLI version drift.
+- `reports-backend.yml` has a dispatch-only `release-rehearsal` job.
+
+**Differential (`0276b185`):**
+- The frozen baseline reads v2 call rows. Under PR #515 it lost an unverified call that v3 keeps: 144 journey payloads differed by one KPI 21 member each.
+- The comparison now runs on the baseline's reviewed pre-PR #515 reader (verbatim from main, md5 checked). The reference and its manifest are unchanged.
+- Local result: 0 mismatches.
+
+**Verification:**
+- **CI, PostgreSQL 17.6, on `743755d9`:**
+  - release-rehearsal with the real CLI 2.121.0: **17/17** (run `42051570639`); the CLI digests are printed there and stay UNPINNED;
+  - `postgres` ✔; Reporting integrity `42051577337` ✔; Policy commission `42051583900` ✔;
+  - the differential failed (the reader change above).
+- **Local gate on `743755d9`:** `tsc` 0; app typecheck: no new error; ESLint 0; build 0; Vitest 6,967 tests, no new failure; all SQL suites exit 0.
+- **Performance:** no rerun. The last enforced result (`41983315849`) is FAIL at agency-366 (summary, state, journey).
+
+**Open:**
+- the performance decision;
+- the production history baseline and CLI digest pins (needs production-read approval);
+- acceptance of the PKG-C recovery boundary;
+- production-user read-back and the privacy decisions;
+- AGENT_RULES amendments, B6, the category baseline, census item 7, CSV and visual approval;
+- each stage in order, then the merge and deploy.
+
 ## 2026-11-05 (later) — Reports V2 release files R1–R7 built and rehearsed on disposable databases (integration `41b5c5a8`); STOPPED for approval (nothing merged, applied, granted, enabled or deployed)
 
 **Request:** Chris's message of 2026-11-05 ("Final release preparation"). It approves building R1–R7 of `release-proposal.md`, branch only. The plan entry and file list were recorded first (`64d56ad4`, merged into integration as `e06cf491`). No production database was read or written.
