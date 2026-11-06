@@ -1,3 +1,13 @@
+## Remaining Havana correction — November 6 approved follow-up
+
+This supersedes earlier 44/46-path scope snapshots: the PR now includes 48 changed paths. The five paths in this follow-up are `supabase/tests/reports_integrity.sql`, `supabase/tests/performance_sold_date.sql`, `implementation_plan.md`, `WORK_LOG.md` and this record. The two tests use the historical November 2, 2025 Havana transition with unchanged counts and boundary/weekday expectations. T-2 sessions and frozen release files are unchanged. No further test still assumes a 2026 Havana fall-back after the repository search.
+
+Root TypeScript/build pass; configured selected tests 974 pass/1 skip. App TypeScript 79 errors and lint 11 errors/142 warnings match main by identity. All 36 frozen files byte-match 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Existing disposable PGlite counts harness passes all three groups: performance/Sold Date regressions, Reports v2 regression/admission inclusion, and exact versioned recovery. Native concurrency and final-head checks remain separately observed in automatic CI.
+
+Publication and automatic CI/preview attempts are approved; final hosted results will be recorded on PR #517. No manual dispatch, production operation, integration setting change, merge or release stage. Prior head 9b673e06 had five passing workflows and DNC blocked by T-1; both Vercel previews passed and Supabase preview was skipped. All independent review, owner acceptance, reporting-zone and fresh assembled-v3 native rehearsal gates remain open. B6 and the actual frozen 3.3.0 evidence package are unchanged.
+
+---
+
 ## November 6 follow-up — approved historical Havana fixture correction
 
 This addendum supersedes historical not-published/44-file statements below. Draft PR #517 was published at 7400de623f96737f84dd638220dc1e564e173392. Chris then approved two additional test paths, the existing plan/work-log/readiness updates, local checks and publication with automatic CI/preview attempts. The PR has 46 changed paths after this follow-up. No production release authorization.

@@ -1,3 +1,14 @@
+## November 6, 2026 — Approved remaining Havana test correction
+
+Chris approved the exact additional historical-date diff on PR #517, local validation, documentation and publication with automatic CI/preview attempts. Base: 9b673e06a7157e51066862e8b1079a1d17ccc929. Exact intended files:
+- `supabase/tests/reports_integrity.sql`
+- `supabase/tests/performance_sold_date.sql`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Move the T-1 Havana edge samples and window/bucket expectations to November 2, 2025, preserving all counts and boundary assertions. Move the two performance Sold Date repeated-midnight samples to the same historical day. Preserve existing historical T-2 sessions. Run counts/recovery and relevant tests, root/app TypeScript, lint/build with baseline identity comparison. Verify all 36 frozen release files unchanged. Publish these five files only; observe automatic checks. No dispatch, merge, production execution or settings change. Independent reviewer and owner acceptance remain pending.
+
 ## November 6, 2026 — Approved Havana fixture correction for PR #517
 
 Chris approved the two-file test scope expansion, existing documentation updates, local validation and publication with automatic CI/preview attempts. Base PR head: 7400de623f96737f84dd638220dc1e564e173392; main: 09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d. No merge, dispatch, production execution or integration setting change.

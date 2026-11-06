@@ -1,5 +1,13 @@
 # AgentFlow Work Log
 
+## November 6, 2026 — Remaining Havana test correction approved; PR #517 release gates OPEN
+
+Chris approved `supabase/tests/reports_integrity.sql` and `supabase/tests/performance_sold_date.sql`, plus the existing root plan/work log/readiness updates, validation and publication with automatic CI/preview attempts. The T-1 integrity edge samples, windows and buckets now use November 2, 2025. The performance Sold Date samples now genuinely exercise both historical midnight occurrences. Existing T-2 session evidence, assertions/counts, application code and frozen release bytes are preserved. Total PR scope is 48 paths; this follow-up changes exactly those two tests, `implementation_plan.md`, `WORK_LOG.md` and `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`.
+
+**Verification:** root TypeScript/build pass; configured Reports/dialer selection 974 pass/1 skip/no failures. App TypeScript 79 errors and lint 11 errors/142 warnings match main by identity. All 36 frozen files match candidate 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Existing disposable counts/recovery harness verification is detailed in the readiness addendum. Final-head native CI results are recorded on PR #517 after publication; embedded success alone is not native acceptance.
+
+**State:** base 9b673e06a7157e51066862e8b1079a1d17ccc929; main unchanged at 09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d. Prior head had five passing workflows and DNC failing at the now-corrected T-1 assertion; both Vercel previews passed and Supabase Preview was skipped (no associated branch after the initial branch-limit failure). No production migration/write, dispatch, settings change, merge or release stage. Independent reviewer/sign-off, owner visual/CSV/map acceptance, confirmed reporting zones and native assembled-v3 rehearsal remain open. Completed B6 result remains 2 distinct discrepancies; no classification/correction.
+
 ## November 6, 2026 — PR #517 Havana historical fixture correction; release gates OPEN
 
 Chris approved two additional test files and updates to the existing plan, work log and readiness record, including publication with automatic CI/preview attempts. The inherited T9 assertion predicted a November 2026 Havana fall-back removed by IANA tzdb 2026f. Use the historical November 2, 2025 transition instead: k30 precedes the day; k31 and new k39 exercise both midnight-hour occurrences. Preserve 25-hour bounds, first-midnight selection, bucket/total parity, Los Angeles, spring-forward and calendar-day property checks. The fixture completeness guard now expects 39 calls.

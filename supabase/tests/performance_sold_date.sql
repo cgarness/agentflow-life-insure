@@ -26,8 +26,8 @@ SELECT test_assert(test_window('America/New_York','week','2026-10-19T03:59:00Z')
 SELECT test_assert(test_window('America/New_York','week','2026-10-19T04:00:00Z')='2026-10-19|2026-10-20|2026-10-12|2026-10-19','Monday 12:00 AM EDT starts the new week');
 SELECT test_assert(test_window('Pacific/Kiritimati','day','2026-10-16T10:30:00Z')='2026-10-17|2026-10-18|2026-10-16|2026-10-17','UTC+14 is a day ahead of the UTC date');
 SELECT test_assert(test_window('Pacific/Pago_Pago','day','2026-10-17T10:30:00Z')='2026-10-16|2026-10-17|2026-10-15|2026-10-16','UTC-11 is a day behind the UTC date');
-SELECT test_assert(test_window('America/Havana','day','2026-11-01T04:30:00Z')='2026-11-01|2026-11-02|2026-10-31|2026-11-01','Havana first midnight hour');
-SELECT test_assert(test_window('America/Havana','day','2026-11-01T05:30:00Z')='2026-11-01|2026-11-02|2026-10-31|2026-11-01','Havana repeated midnight hour stays on the same date');
+SELECT test_assert(test_window('America/Havana','day','2025-11-02T04:30:00Z')='2025-11-02|2025-11-03|2025-11-01|2025-11-02','Havana first midnight hour');
+SELECT test_assert(test_window('America/Havana','day','2025-11-02T05:30:00Z')='2025-11-02|2025-11-03|2025-11-01|2025-11-02','Havana repeated midnight hour stays on the same date');
 SELECT test_reject($q$SELECT * FROM private.performance_sale_window('America/Los_Angeles','quarter',now())$q$,'22023');
 SELECT test_reject($q$SELECT * FROM private.performance_sale_window(NULL,'month',now())$q$,'22023');
 -- A missing, reversed or oversized window fails; it can never silently return zero sales.
