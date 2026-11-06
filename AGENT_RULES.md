@@ -1469,3 +1469,55 @@ The approved room build is gated by `VITE_INBOUNDS_ROOM`. `/inbounds` must open 
 - Toll-free SMS remains disabled **before** the shared A2P legacy bypass for all seven NANP prefixes. Inventory capability, Trust Hub and 10DLC status do not authorize toll-free messaging. The shared guard must reach twilio-sms, workflow-executor, sms-consent-worker and clearpath-lead-alert.
 - Inbounds dedication remains a separate authenticated `set_inbounds_number` action. The purchase inserts an ordinary, nondefault agency number; it becomes excluded from outbound only after designation. Never bypass the room guard with a service-role assignment or resurrect a dedicated number in the final caller-ID fallback.
 - Release only separately approved full packages from `scripts/prepare-phone-number-release.mjs`. Re-fetch and compare all six live baselines; preserve unrelated source bytes, especially buy's deployed callback helper, workflow/worker dispatch/signature code and ClearPath's already-live handler. Keep `verify_jwt=false`. Migration `20261104041151` is applied once (SHA-256 faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8); do not replay it. Backend search v59/buy v65/SMS v61/workflow v50/worker v26/ClearPath v25 are deployed and every source byte verified. Frontend is pending final PR #513 checks/merge. No real purchase or designation was performed. See `docs/plans/2026-11-03-toll-free-number-purchasing/production-release.json`.
+
+
+## Reports V2 Package A — approved, not deployed (November 5, 2026 Pacific)
+
+The following clauses supersede only the named Reports provisions when Package A is installed. This review branch stages backend files; it does not assert deployment. Later-package amendments remain in the focused plan until their release stage.
+
+
+**A-30 (#30, :334).** "…until then production schema/function changes go through the deliberate MCP path or a protected dispatch-only, main-only runner with a cgarness environment reviewer (Reports V2: `.github/workflows/reports-release.yml`), never a git merge."
+
+**A-38 lead (#38, new first bullet).** "Reports V2 (`basis_version reports_v3`) reads only get_report_scope_v3, get_report_summary_v3, get_report_journey_v3, get_report_sales_appointments_v3, get_report_state_breakdown_v3, get_report_call_volume_v3, get_report_disposition_breakdown_v3, get_report_campaign_calls_v3 and get_report_lead_source_calls_v3. Pages built before Reports V2 keep reading the v2 readers with their v2 meaning; a page never shows one family's numbers under the other's meaning. The v3 call readers return call-only fields."
+
+**A-38a (:497, replacing the parenthetical).** "(before Reports V2: `supabase/ops/reports_disable.sql`; after reports_v3 ships: `supabase/ops/reports_all_disable.sql`. reports_disable.sql alone leaves v3 executable; reports_integrity_enable.sql re-enables v2 only.)"
+
+**A-38b (:506, prefix).** "With v3 live, run reports_v3_disable.sql (or reports_all_disable.sql) first."
+
+**A-38s (:498, security contract; Option A and ★4 conditionally approved; independent sign-off pending).** "v3 readers may read same-organization history inside SECURITY DEFINER only to classify the in-scope credited population, and return scoped aggregates. Activity on identities with no in-scope credited event never changes a personal or team payload. On in-scope identities, out-of-scope activity may change only these aggregate effects (Option A, ★4 and E1–E6 conditionally approved by Chris; named independent exact-SQL security review, organization-isolation and permission verification, S1–S15/S14a/S14b verification, and separately authorized production-user read-back remain release gates):
+(E1) an earlier contact or sale removes the person from an in-scope first-contact or first-time-buyer population, or makes 1 Call Close No;
+(E2) earlier out-of-scope attempts count in Calls to first contact;
+(E3) a purchase from any seller within 30 days counts as a success or an attributed policy, or leaves an appointment unresolved when it is not linked;
+(E4) state grouping uses the identity's current recorded state, including a campaign-membership copy reached through any same-org call;
+(E5) an unresolved call to a number recorded for the person, placed before the person's anchor, makes that person unassessable for the KPI whose gate it touches (19 could-qualify calls; 21 any call; 38 could-qualify calls before the linked sale call). Numberless calls and other people's activity never change personal or team results; organization-wide unknown-history diagnostics appear only at unfiltered agency scope;
+(E6) New leads in the lead-source breakdown follows current lead assignment.
+Coverage and unresolved counts use only in-scope credited items. Differencing filtered results can isolate one person's effect; this is conditionally accepted only for E1–E6 and is not a security certification. No production-user impersonation or read-back is authorized by this rule."
+
+**A-38c (:500, metric canon for v3).**
+- Replace "There is no conversion rate of any kind" with: "v2 has no conversion rate. v3 percentages are exactly those marked percent in the Reports V2 metric registry (8 Call contact rate, 17 Appointment show rate, 18 Appointment close rate, 19 Contact-to-sale rate, 38 1 Call Close), each over an explicit population with numerator, denominator and coverage; 18 and 19 use 30-day groups (Sold Date 0–30 days after the anchor, mature at the agency day start of anchor+31) and show the observed result to date with an In progress status while any member is pending; dividing unrelated period totals stays forbidden."
+- Add: "v3 Calls made counts confirmed attempts only: eligible pre-admission rows and server-admitted rows, including the signed admission projection preserved by PR #515. Refused admissions are excluded as proven non-attempts, and rows with no admission record are excluded and disclosed as not verified as dialed. Raw rows are never changed. Production v2 Reports already uses the admitted-attempt basis from PR #515: for identical scope and bounds, v2 calls_made equals v3 KPI 5. Do not describe v2 Reports as counting every raw outbound row. Leaderboard, Dashboard and Trusted Dialer retain their existing production definitions; changing those definitions needs separate approval. Preserve PR #515/#516 provider admission, re-entrancy and telemetry behavior. Unique prospects use the structural identity lead:<root lead>/client:<id> with unresolved calls disclosed, never a call: fallback. For v3, Sales Appointments follow the Sales Appointment evidence invariant, not #23."
+
+**A-38d (:502 and Part B :715).** "Reports V2 computes Calls per policy, Contacted calls per policy and Prospects reached per policy for every permitted scope and agent filter (placing-agent calls ÷ original-seller policies, same period), labelled Period averages; the organization-only restriction applies to v2 payloads only."
+
+**A-38e (:501).** Prefix the existing text with "v2:", then add: "Reports V2 (reports_v3) counts original policy sale events (wins with policy_id and sold_date) on the agency Sold Date, credited to the original seller, at the effective sale premium; stored policies without a sale event are excluded and disclosed at agency scope only."
+
+**A-38h (#38, new bullet; history completeness).** "v3 journey gates are metric-specific. Days to first sale needs a trustworthy lead receipt, an assessable first sale and their order, and never depends on call history. Contact-to-sale rate and Calls to first contact include prospects who never buy; they exclude a person only on that person's own conflicting evidence: an unknown or later receipt, a captured phone change, or an unresolved call to one of the person's recorded numbers that could have qualified (any such call for Calls to first contact). 1 Call Close needs an explicit sale-call link; uncertainty makes a buyer Unclassified, never No, and a confirmed unanswered attempt does not disqualify a verified one-call close. Recorded numbers are used only to rule out relatedness — never to link, merge, deduplicate or attribute a call — and the absence of a match is not proof of complete history."
+
+**A-38p (#38, new bullet; precision and status).** "Report values are rounded exactly once at display or export, from exact numerators and denominators. Evidence status (available / partial / unavailable) and 30-day maturity are separate; a zero value never hides incomplete evidence."
+
+**A-41 (#41, :536–547).**
+- "The full enable is reports_v3_enable.sql: a harness-generated md5(prosrc) list of the 15 v2 pins, 12 closure helpers, every v3 body and their non-report dependencies. It grants EXECUTE on exactly six v2 + nine v3 readers to authenticated and service_role and nothing else."
+- "reports_integrity_enable.sql is the v2-only enable (it seals v3); use it only in recovery R2 after a frontend rollback. reports_disable.sql is pre-v3 only."
+- "Additive v3 objects are created sealed and need no v2 downtime. Helpers pinned in reports_integrity_enable.sql need the full window; helpers pinned only in reports_v3_enable.sql use the v3-only window. A change to report_agency_time_zone or report_permission_flags makes reports_v3_enable refuse until its pins are regenerated."
+- "Reports V2 SQL files carry a privilege class (creation: no GRANT; enable: the 15 report readers to authenticated, service_role; application RPC: the listed functions to authenticated only); a static test enforces the class map. rpc_report_* are never granted."
+- Mark the current-owner premium bullet as v2-only.
+
+**A-42 (#42, :557).** "**Reports v2 (`*_v2`) are unchanged** (#38, #41): stored policies, Sold Date and current assignment. **Reports V2 (`*_v3`)** counts `wins` events by agency Sold Date, credited to the original seller, at the effective sale premium (#40)."
+
+**A-§5 (Contacted, :574).** "Order: resolved No Answer → not contacted even above 45 s; then duration > 45; then counts_as_contacted. Reports V2 journeys apply it to answered inbound calls (agent_id or forwarded_answered, no voicemail) without adding them to outbound totals."
+
+**Hygiene (same PR as A-38).**
+- `:582`: standard lead fields are applied as `20261028040215`.
+- `:972`: `20261021200000` is applied.
+- `:286`, `:508`, `:532` and the `:618` parenthetical: the "Proposed #42, NOT applied" notes are superseded, because #42 shipped on 2026-10-16.
+- Replace claims of a complete 74-file CSV golden with the verified historical evidence at `docs/plans/2026-10-11-ui-copy-cleanup-v2/evidence/csv-capture`: the old cleanup comparison recorded 61 captures and explicitly could not reconstruct 13 historical files. That evidence is not Reports V2 CSV acceptance; use the itemized V2 review and its stated gaps.

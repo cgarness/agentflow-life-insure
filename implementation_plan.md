@@ -1,3 +1,56 @@
+## Reports V2 review preparation — November 5, 2026 Pacific
+
+Approved scope: local review branch only; no publication/PR/hosted execution until separately approved. Frozen source 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Independent reviewer/sign-off pending. Validate exact B6 hash 181e8b55e38f787fe3cf567d3b311ee3f56b92901ff9579e0668ed7beb597729 before unchanged read-only production execution. Build integrated 3.3.0 synthetic evidence using frozen harness. No settings, production writes or source changes.
+
+Exact intended file list:
+
+- `supabase/migrations/20261105120010_reports_v3_foundation.sql`
+- `supabase/migrations/20261105120011_reports_v3_sale_facts.sql`
+- `supabase/migrations/20261105120012_reports_v3_call_journey_helpers.sql`
+- `supabase/migrations/20261105120013_reports_v3_appointment_facts_stub.sql`
+- `supabase/migrations/20261105120014_reports_v3_state_helpers.sql`
+- `supabase/migrations/20261105120015_reports_v3_readers.sql`
+- `supabase/migrations/20261105120016_reports_v3_calls_campaign_lead_index.sql`
+- `supabase/migrations/20261105120017_reports_v3_release_enable.sql`
+- `supabase/migrations/20261105120020_policy_sale_premium_corrections.sql`
+- `supabase/migrations/20261105120021_reports_v3_sale_premium_basis.sql`
+- `supabase/migrations/20261105120022_reports_v3_release_enable_pkg_b.sql`
+- `supabase/migrations/20261105120030_policy_sale_call_links.sql`
+- `supabase/migrations/20261105120031_policy_sale_call_link_capture.sql`
+- `supabase/migrations/20261105120032_reports_v3_sale_call_links.sql`
+- `supabase/migrations/20261105120033_reports_v3_release_enable_pkg_c.sql`
+- `supabase/migrations/20261105120040_appointment_type_categories.sql`
+- `supabase/migrations/20261105120041_appointment_occurrence_evidence.sql`
+- `supabase/migrations/20261105120042_policy_appointment_attributions.sql`
+- `supabase/migrations/20261105120043_reports_v3_appointment_facts.sql`
+- `supabase/migrations/20261105120044_reports_v3_release_enable_pkg_d.sql`
+- `supabase/ops/appointment_type_category_baseline.sql`
+- `supabase/migrations/rollback/20261105120043_reports_v3_appointment_facts.rollback.sql`
+- `supabase/migrations/rollback/20261105120042_policy_appointment_attributions.rollback.sql`
+- `supabase/migrations/rollback/20261105120041_appointment_occurrence_evidence.rollback.sql`
+- `supabase/migrations/rollback/20261105120040_appointment_type_categories.rollback.sql`
+- `supabase/migrations/rollback/20261105120032_reports_v3_sale_call_links.rollback.sql`
+- `supabase/migrations/rollback/20261105120031_policy_sale_call_link_capture.rollback.sql`
+- `supabase/migrations/rollback/20261105120020_policy_sale_premium_corrections.rollback.sql`
+- `supabase/ops/reports_v3_disable.sql`
+- `supabase/ops/reports_all_disable.sql`
+- `supabase/ops/reports_v3_readback.sql`
+- `supabase/ops/reports_v3_preflight.sql`
+- `supabase/ops/appointment_type_category_baseline_revert.sql`
+- `supabase/ops/reports_v3_enable.sql`
+- `scripts/reports_release.py`
+- `.github/workflows/reports-release.yml`
+- `AGENT_RULES.md`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/release-proposal.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/map-provenance.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/security-review-2026-11-06.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Validation: root tsc, app typecheck, lint, build and existing relevant tests, comparing baseline failure identities. Record actual findings in focused release-readiness evidence.
+
 ## P0 Dialer frontend released — PR #515 / c971306
 
 Chris approved exact head 1e98c55; PR #515 is merged as c971306 with an identical application tree. Both production deployments are READY, www.fflagent.com serves the verified hotfix bundle, and public/login browser smoke passes. All six final-head workflows passed; all eight installed backend postimages were rechecked before merge. Database versions 20261105051018 and 20261105051037 were already applied and were not replayed. No Edge/RLS change or real call.
@@ -8531,3 +8584,7 @@ Chris instructed getting SMS working after A2P approval. The prepared backend re
 ## 2026-10-09 — Google OAuth verification preparation
 
 Chris authorized starting the submission work, with verification prioritized over broader integration usability. The scoped plan is [Google verification preparation](docs/plans/2026-10-09-google-verification/implementation_plan.md). It covers public legal review pages, homepage links, the existing logo and an evidence-based submission packet. Final legal publication and any production backend release remain separate concrete gates.
+
+## Preparation verification result — November 6, 2026 UTC
+
+44-file scope prepared; all 36 frozen files unchanged. B6 completed after 55/55 synthetic checks and returned 2 distinct discrepant sale events (premium and Sold Date flags separate). Three reporting zones remain unconfirmed. Final contract-3.3.0 synthetic package: 44 screenshots, 37 CSVs, 474/474 browser checks plus 30/30 supplemental checks. Root typecheck/build pass; app typecheck/lint findings match main by identity; Reports tests 384 passed/1 skipped. Independent reviewer remains unappointed; owner visual/CSV/map acceptance and publication approval are pending. See evidence/release-readiness-2026-11-06.md in the focused plan directory for the full closeout and disclosed embedded-database limits. No production mutation or hosted execution.

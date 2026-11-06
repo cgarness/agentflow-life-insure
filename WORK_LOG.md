@@ -1,5 +1,13 @@
 # AgentFlow Work Log
 
+## November 5, 2026 Pacific / November 6 UTC — Reports V2 review preparation COMPLETE; release gates OPEN
+
+**Scope:** local `docs/reports-v2-review-20261105` from main `09ec29a4`; frozen candidate `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c` preserved. Exactly 44 approved files: 34 pinned SQL, unchanged runner/workflow and eight docs, enumerated in the focused release-readiness record. Root AGENT_RULES stages only Package A clauses. Package B FullScreenContactView exception is limited to the existing single onPolicyRecordChanged prop; no extra mount/refactoring.
+
+**Verification:** all 36 frozen files byte-equal; local 34-pin runner check passes. Root tsc and build pass. App typecheck 79 errors; lint 11 errors/142 warnings: identical to main by identity. Reports tests on both: 384 pass/1 skip. B6 approved hash passed 55 isolated checks, then unchanged read-only production execution returned 44 events and 2 distinct discrepancies, each with separate premium/Sold Date flags; redacted output only, classification pending. Contract-3.3.0 A+B+C+D synthetic evidence contains 44 screenshots/37 actual exports, 474/474 browser checks and 30/30 supplemental checks. Embedded visual DB uses a non-concurrent index and skips eight native index negative controls; not a new native release rehearsal. Prior frozen 17/17 native evidence retained.
+
+**Migrations/deploys:** NONE in production; no schema/data/category/policy/zone write, impersonation, dispatch, push, PR, merge or deployment. Three one-active-user organizations have missing company_settings rows and need confirmed IANA reporting zones. Independent reviewer unappointed; security and owner visual/CSV/map acceptance remain open. Draft #486 premium overlap and shared docs work must be rechecked. Next approval is publication of the exact prepared commit and a draft PR, explicitly accepting Supabase preview, six matching Actions workflows and possible Vercel previews. See the release-readiness record and attached actual review files.
+
 ## 2026-11-04 Pacific / November 5 UTC — P0 Dialer frontend RELEASED AND VERIFIED
 
 Chris approved PR #515 at `1e98c55ad8d10f88dbc5f62b6d9c4c4405b94cc5` after the database gate. Merged through the PR with expected-head protection as `c9713060949b431ca49b884869165f39e7065666`; the merged tree exactly matches the approved tree `0003afb4957ff3efd0c932d40ad829a06ec6eef4`. No direct main push. Both Vercel production builds are READY; agentflow deployment `dpl_BoEcDFmvef9oFmLBmJNwP6zTyPga` serves www.fflagent.com at that commit.
