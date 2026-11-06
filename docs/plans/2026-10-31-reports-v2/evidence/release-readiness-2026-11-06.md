@@ -1,3 +1,19 @@
+## November 6 follow-up — approved historical Havana fixture correction
+
+This addendum supersedes historical not-published/44-file statements below. Draft PR #517 was published at 7400de623f96737f84dd638220dc1e564e173392. Chris then approved two additional test paths, the existing plan/work-log/readiness updates, local checks and publication with automatic CI/preview attempts. The PR has 46 changed paths after this follow-up. No production release authorization.
+
+Additional paths: `supabase/tests/reports_fixtures.sql` and `supabase/tests/reports_rpc.sql`. Only those two tests and `implementation_plan.md`, `WORK_LOG.md`, this readiness record change in the follow-up. All 36 frozen release files still match candidate 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c.
+
+The obsolete 2026 Havana fall-back assertion is replaced with the historical November 2, 2025 transition. Samples at 04:30Z and 05:30Z prove both local 00:30 occurrences; exact bounds remain 04:00Z to next-day 05:00Z. Prior-day count is 1, fall-back-day and midnight-hour counts are 2. Los Angeles/spring-forward/day-boundary coverage remains. References: https://www.iana.org/time-zones/releases/2026f and https://data.iana.org/time-zones/tzdb-2026f/northamerica.
+
+Local verification: root TypeScript/build pass; 974 selected Vitest tests pass/1 skip. App TypeScript 79 errors and lint 11 errors/142 warnings match main by identity. Two initial suites failed identically on main/candidate when synthetic Supabase environment values were omitted; all selected suites pass with the workflow's existing loopback-only values. Existing `scripts/tests/dialer-reliability/counts.mjs` passes all three groups under disposable PGlite: performance counts, Reports v2 assertions/admission inclusion, and exact versioned recovery. This embedded run does not establish native concurrency or an assembled v3 release rehearsal.
+
+Initial hosted checks: five workflows and both Vercel checks passed; DNC failed at the obsolete T9 assertion. PostgreSQL 17.6 image passed the assertion; PostgreSQL 16.15 image produced the current-rule 04:00Z result. Exact installed tzdata package versions were not logged. Supabase preview was cancelled for the concurrent-branch limit; no settings or branch deletion. New final-head automatic results will be recorded on PR #517. No manual dispatch.
+
+Review artifacts remain the frozen 3.3.0 evidence package (44 screenshots/37 exports), with this test-only correction reviewed in the PR diff. Native assembled v3 rehearsal, independent security review, owner acceptance and confirmed organization zones remain open. B6 output is unchanged; no new production query or mutation.
+
+---
+
 # Reports V2 preparation closeout — November 6, 2026 UTC
 
 Local branch: `docs/reports-v2-review-20261105`, based on current main `09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d`. Main was rechecked and remains unchanged. Frozen candidate `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c` is preserved. No branch publication or PR creation.

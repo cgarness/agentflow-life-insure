@@ -1,5 +1,17 @@
 # AgentFlow Work Log
 
+## November 6, 2026 — PR #517 Havana historical fixture correction; release gates OPEN
+
+Chris approved two additional test files and updates to the existing plan, work log and readiness record, including publication with automatic CI/preview attempts. The inherited T9 assertion predicted a November 2026 Havana fall-back removed by IANA tzdb 2026f. Use the historical November 2, 2025 transition instead: k30 precedes the day; k31 and new k39 exercise both midnight-hour occurrences. Preserve 25-hour bounds, first-midnight selection, bucket/total parity, Los Angeles, spring-forward and calendar-day property checks. The fixture completeness guard now expects 39 calls.
+
+**Files:** `supabase/tests/reports_fixtures.sql`, `supabase/tests/reports_rpc.sql`, `implementation_plan.md`, `WORK_LOG.md`, `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`. Total PR scope is now 46 files, including the original 44; all 36 frozen release files remain byte-identical to 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c.
+
+**Verification:** configured Reports/dialer Vitest selection passes 974 tests, 1 skipped, zero failed suites. Initial runs without the CI synthetic environment produced the same two missing-Supabase-URL suite failures on main and candidate; supplying the existing loopback-only CI values resolved them. Root TypeScript and build pass. App TypeScript has 79 baseline errors; lint has 11 errors/142 warnings; both match main by diagnostic identity. Embedded PostgreSQL counts/regression/recovery validation is recorded in the readiness addendum. Native final-head CI remains pending publication. No claim of fresh assembled v3 native release rehearsal.
+
+**Migrations/deploys:** no production action, workflow dispatch, merge, settings change or release stage. Existing PR #517 is draft at 7400de623f96737f84dd638220dc1e564e173392 before this follow-up; five initial workflows and both Vercel checks passed, while DNC failed on the corrected fixture and Supabase preview hit the concurrent-branch limit. Main remains 09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d. Draft #486 and #514 remain open; their work was not incorporated.
+
+**Gates:** independent reviewer unappointed/sign-off OPEN; owner visual/CSV/map acceptance OPEN; three organization zones require confirmation; native assembled-release rehearsal outstanding. B6 remains the completed approved read-only result: 2 distinct discrepancies with separate premium/Sold Date observations; no classification or correction. Observe automatic final-head checks after publication. No integration setting changes or production actions authorized.
+
 ## November 5, 2026 Pacific / November 6 UTC — Reports V2 review preparation COMPLETE; release gates OPEN
 
 **Scope:** local `docs/reports-v2-review-20261105` from main `09ec29a4`; frozen candidate `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c` preserved. Exactly 44 approved files: 34 pinned SQL, unchanged runner/workflow and eight docs, enumerated in the focused release-readiness record. Root AGENT_RULES stages only Package A clauses. Package B FullScreenContactView exception is limited to the existing single onPolicyRecordChanged prop; no extra mount/refactoring.

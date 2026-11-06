@@ -1,3 +1,20 @@
+## November 6, 2026 — Approved Havana fixture correction for PR #517
+
+Chris approved the two-file test scope expansion, existing documentation updates, local validation and publication with automatic CI/preview attempts. Base PR head: 7400de623f96737f84dd638220dc1e564e173392; main: 09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d. No merge, dispatch, production execution or integration setting change.
+
+Exact intended files for this follow-up:
+- `supabase/tests/reports_fixtures.sql`
+- `supabase/tests/reports_rpc.sql`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Move only the Havana fall-back case to November 2, 2025. Set k30 to November 1 12:00Z and k31 to November 2 04:30Z; add k39 at November 2 05:30Z to exercise both occurrences of 00:30. Expect prior-day count 1, fall-back-day/midnight-hour count 2, start November 2 04:00Z and exclusive end November 3 05:00Z. Preserve Los Angeles, spring-forward, bucket parity and calendar-day property checks. IANA tzdb 2026f removed the formerly predicted 2026 Havana fall-back; no production query change is needed for this stale assertion.
+
+Verify the existing synthetic counts/recovery harness, relevant tests, root/app TypeScript, lint and build; compare baseline diagnostics by identity. Recheck all 36 frozen release files against 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Publish only these five files and observe automatic checks. Independent reviewer, owner acceptance, exact organization zones and native assembled-release rehearsal remain open.
+
+The following entries are historical snapshots; approved publication occurred as draft PR #517.
+
 ## Reports V2 review preparation — November 5, 2026 Pacific
 
 Approved scope: local review branch only; no publication/PR/hosted execution until separately approved. Frozen source 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Independent reviewer/sign-off pending. Validate exact B6 hash 181e8b55e38f787fe3cf567d3b311ee3f56b92901ff9579e0668ed7beb597729 before unchanged read-only production execution. Build integrated 3.3.0 synthetic evidence using frozen harness. No settings, production writes or source changes.

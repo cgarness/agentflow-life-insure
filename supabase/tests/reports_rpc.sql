@@ -334,22 +334,22 @@ BEGIN
   PERFORM rt.eq('T9 DST hour 0 (00:30 PDT)', (j -> 'by_hour' -> 0 ->> 'calls_made')::int, 1);
   PERFORM rt.eq('T9 DST hour 23 (23:30 PST)', (j -> 'by_hour' -> 23 ->> 'calls_made')::int, 1);
 
-  -- Midnight fall-back (America/Havana, 2026-11-01 01:00 CDT -> 00:00 CST): local midnight occurs twice,
-  -- and the day must start at the FIRST one (04:00Z), or k31 (the first 00:30) lands in Oct 31's window
+  -- Midnight fall-back (America/Havana, 2025-11-02 01:00 CDT -> 00:00 CST): local midnight occurs twice,
+  -- and the day must start at the FIRST one (04:00Z), or k31 (the first 00:30) lands in Nov 1's window
   -- but outside its by_date. O1's zone is switched inside this block only.
   UPDATE public.company_settings SET timezone = 'America/Havana' WHERE organization_id = rt.id('O1');
-  j := rt.rpc('get_report_call_volume', 'ADMIN', '2026-10-31', '2026-10-31');
-  d := rt.rpc('get_report_call_summary', 'ADMIN', '2026-10-31', '2026-10-31');
-  PERFORM rt.eq('T9 Havana Oct 31 end = first Nov 1 midnight', j -> 'window' ->> 'end_at', '2026-11-01T04:00:00Z');
-  PERFORM rt.eq('T9 Havana Oct 31 holds only k30', (d -> 'totals' ->> 'calls_made')::int, 1);
-  PERFORM rt.eq('T9 Havana Oct 31 by_date = totals', (SELECT sum((e ->> 'calls_made')::int) FROM jsonb_array_elements(j -> 'by_date') e)::int, 1);
-  j := rt.rpc('get_report_call_volume', 'ADMIN', '2026-11-01', '2026-11-01');
-  d := rt.rpc('get_report_call_summary', 'ADMIN', '2026-11-01', '2026-11-01');
-  PERFORM rt.eq('T9 Havana Nov 1 start = first midnight', j -> 'window' ->> 'start_at', '2026-11-01T04:00:00Z');
-  PERFORM rt.eq('T9 Havana Nov 1 end (25h day)', j -> 'window' ->> 'end_at', '2026-11-02T05:00:00Z');
-  PERFORM rt.eq('T9 Havana Nov 1 holds k31 + k27', (d -> 'totals' ->> 'calls_made')::int, 2);
-  PERFORM rt.eq('T9 Havana Nov 1 by_date = totals', (SELECT sum((e ->> 'calls_made')::int) FROM jsonb_array_elements(j -> 'by_date') e)::int, 2);
-  PERFORM rt.eq('T9 Havana Nov 1 hour 0 holds k31', (j -> 'by_hour' -> 0 ->> 'calls_made')::int, 1);
+  j := rt.rpc('get_report_call_volume', 'ADMIN', '2025-11-01', '2025-11-01');
+  d := rt.rpc('get_report_call_summary', 'ADMIN', '2025-11-01', '2025-11-01');
+  PERFORM rt.eq('T9 Havana Nov 1 end = first Nov 2 midnight', j -> 'window' ->> 'end_at', '2025-11-02T04:00:00Z');
+  PERFORM rt.eq('T9 Havana Nov 1 holds only k30', (d -> 'totals' ->> 'calls_made')::int, 1);
+  PERFORM rt.eq('T9 Havana Nov 1 by_date = totals', (SELECT sum((e ->> 'calls_made')::int) FROM jsonb_array_elements(j -> 'by_date') e)::int, 1);
+  j := rt.rpc('get_report_call_volume', 'ADMIN', '2025-11-02', '2025-11-02');
+  d := rt.rpc('get_report_call_summary', 'ADMIN', '2025-11-02', '2025-11-02');
+  PERFORM rt.eq('T9 Havana Nov 2 start = first midnight', j -> 'window' ->> 'start_at', '2025-11-02T04:00:00Z');
+  PERFORM rt.eq('T9 Havana Nov 2 end (25h day)', j -> 'window' ->> 'end_at', '2025-11-03T05:00:00Z');
+  PERFORM rt.eq('T9 Havana Nov 2 holds k31 + k39', (d -> 'totals' ->> 'calls_made')::int, 2);
+  PERFORM rt.eq('T9 Havana Nov 2 by_date = totals', (SELECT sum((e ->> 'calls_made')::int) FROM jsonb_array_elements(j -> 'by_date') e)::int, 2);
+  PERFORM rt.eq('T9 Havana Nov 2 hour 0 holds both k31 and k39', (j -> 'by_hour' -> 0 ->> 'calls_made')::int, 2);
   -- Midnight spring-forward (Havana 2026-03-08 00:00 -> 01:00): the day starts at 01:00 CDT = 05:00Z.
   j := rt.rpc('get_report_call_volume', 'ADMIN', '2026-03-08', '2026-03-08');
   PERFORM rt.eq('T9 Havana Mar 8 start (no local midnight)', j -> 'window' ->> 'start_at', '2026-03-08T05:00:00Z');
