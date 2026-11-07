@@ -1,5 +1,15 @@
 # AgentFlow Work Log
 
+## November 7, 2026 Pacific — Reports Package A verified; Package B documentation prepared
+
+Chris approved the exact eight-file documentation scope and read-only Package B review. Base main 15d967320af7a0bd9774e09bc57e0dd31f97900c; isolated branch docs/reports-package-b-preparation-20261107. Root implementation_plan.md listed the files before edits. Changed only root implementation_plan.md, WORK_LOG.md, AGENT_RULES.md, and focused implementation_plan.md, release-proposal.md, production-release.md, verification.md, context-snapshot.md under docs/plans/2026-10-31-reports-v2/. AGENT_RULES contains only prepared/not-deployed A-40/A-34/A-851 and the associated snapshot sentence clarification.
+
+Package A was completed in separately approved earlier turns: eight migrations ...10–...17 applied once, enabled, read-back passed, history recorded by run 42400253012. Independent verification: history 364/head 20261105120017; exact eight records; prior history and all ordinary public/private function definitions/ACLs unchanged by history recording; 15 readers/30 executable pairs/zero mismatches. Production-release.md preserves run links, source/history digests and coverage limits. No production mutation in this preparation turn.
+
+Fresh Package B read-only checks: five expected preimage hashes match; ledger/two RPCs/three helpers absent; contract 3.0.0; nine v3 readers enabled. Advisors 276 security/463 performance/0 health. Source review covered home-org Active actor checks, Admin writer, scoped history, RLS/no table grants, append-only audit, revision/request locking, book conflicts, value identity and non-destructive recovery. Current #486 at 2de28c3 does not modify/pin the shared premium function; older direct-overlap warning corrected. Its independent commission-premium logic and shared docs still need coordination; #514 remains separate.
+
+Verification: root `npx tsc --noEmit`, whitespace, exact eight-file scope, all 34 SQL source pins and all 36 frozen-byte comparisons pass. Current GitHub push/pull_request workflow path filters do not match this documentation scope; external integrations must still be observed after separately approved publication. Existing native 17/17 and security/concurrency evidence is retained, not newly rerun. Human independent review remains waived, never signed off. Owner visual/CSV/map acceptance and B6 decisions remain open. Next approval: publish this documentation commit and open a draft Package B PR; merge, all SQL stages and frontend remain separately gated.
+
 ## November 7, 2026 Pacific — Approved Sheets test readiness fix
 
 Chris approved `src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx` and the existing plan/log updates after final-head CI failed twice in its unchanged mapping suite. The helper previously returned when the Phone control appeared, before the later automatic-mapping effect completed. It now waits for that control to contain its mapped Phone value. All loading, City/ZIP/value, retry, save and acknowledgement assertions and timeouts remain unchanged; legacy and v2 paths stay covered. No production application change.

@@ -1,3 +1,13 @@
+## November 7, 2026 Pacific — Package A complete; Package B preparation approved
+
+This status supersedes historical release-status statements below. Main is `15d967320af7a0bd9774e09bc57e0dd31f97900c`. Package A is installed, enabled at contract 3.0.0 and recorded: 364 migrations, latest 20261105120017. Chris approved local preparation of the eight documentation files listed in root implementation_plan.md and read-only Package B review. Publication, merge and each production stage remain separately gated.
+
+The live preimages and absence checks pass. Current PR #486 at `2de28c320547983f68bed5f77d8ec9684ea3643d` does not modify or pin performance_sale_monthly; the earlier direct-function-overlap warning is stale. Its separate commission-premium derivation and shared AGENT_RULES/WORK_LOG edits still require coordination. PR #514 remains separate. Frozen SQL/runner/workflow bytes are unchanged.
+
+See [production-release.md](production-release.md), [verification.md](verification.md), [release-proposal.md](release-proposal.md) and [context-snapshot.md](context-snapshot.md). The human independent-review requirement is waived, not signed off. Owner visual/CSV/map acceptance and B6 classifications or explicit bounded deferral remain open. No business records corrected.
+
+---
+
 ## November 7, 2026 Pacific — Approved Sheets test readiness fix
 
 Chris approved `src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx` and the existing plan/log updates after final-head CI failed twice in its unchanged mapping suite. The helper previously returned when the Phone control appeared, before the later automatic-mapping effect completed. It now waits for that control to contain its mapped Phone value. All loading, City/ZIP/value, retry, save and acknowledgement assertions and timeouts remain unchanged; legacy and v2 paths stay covered. No production application change.
