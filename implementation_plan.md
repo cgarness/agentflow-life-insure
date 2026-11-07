@@ -1,3 +1,117 @@
+## November 7, 2026 Pacific — Approved Sheets test readiness correction
+
+Chris approved the additional Sheets test file and existing plan/log updates. Starting head ae693f791f1a0f6901d56f8f96e34fe5dab3a819; main remains 09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d. Existing #486 premium overlap and #514 shared docs remain separate.
+
+Exact intended files before editing:
+- `src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Make pickTab wait for Phone to be mapped, not merely for the control to exist. Preserve all assertions, timeouts, legacy/v2 paths and the comparison gate. Run the Sheets suite on base/candidate, root TypeScript, scoped lint/build and frozen-byte checks; publish the approved follow-up and verify CI/previews. No runtime application change, backend action, merge or production release. All 36 frozen release files remain unchanged. Total PR scope becomes 49 paths.
+
+Local verification complete: 26/26 Sheets tests pass on base and candidate; root TypeScript, scoped lint, build and all frozen-byte checks pass. Publish this approved follow-up and record final CI on PR #517.
+
+## November 6, 2026 Pacific — Finish Reports V2 technical preparation
+
+Chris requested “Finish this build” after explicitly waiving the independent reviewer requirement and authorizing Pacific reporting zones for the three organizations. Continue the existing release preparation; no new features. The waiver is an owner decision, not independent sign-off. Exact starting PR #517 head: `62a5430251113b0bd6fb93c9811dda8773371fbf`; current main/production: `09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d`.
+
+Exact intended repository files, all already inside the approved documentation allowlist:
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/release-proposal.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/security-review-2026-11-06.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Verify current main, conflicts, six exact-head CI results, production migration baseline and saved zones. Rehearse all 36 release files from this assembled branch using the unchanged frozen `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c` harness in an isolated disposable PostgreSQL 17.6 TLS environment, with the four already-approved historical Havana test files overlaid. Keep test support outside this PR. Use Supabase CLI 2.121.0; no production credential or connection. Preserve all release bytes and the frozen candidate. Run root TypeScript/build and retain the passing exact-head baseline comparisons; documentation-only changes do not change runtime diagnostics.
+
+Record real results and exact next release actions. B6's two findings remain unclassified: propose preservation/deferral for owner decision without inventing causes or correcting records. Owner visual/CSV/map acceptance, exact merge, each production release stage, category writes and production-user read-back remain separately controlled. No new workflow dispatch, integration change, migration, production data change or deployment is included.
+
+Completed: native 17/17 release rehearsal and non-performance v3 security/contract/index/concurrency suites pass; 86/86 frozen contract tests pass. Engine XML support was corrected without source changes. Root TypeScript/build and 384 Reports tests pass (one skipped); existing app-type/lint findings match main. Production preflight and saved zones verified read-only. Logs retrieved and temporary VM stopped. Publish the six-document closeout and observe its automatic checks; production and owner-acceptance gates remain as listed.
+
+## November 6, 2026 — Approved remaining Havana test correction
+
+Chris approved the exact additional historical-date diff on PR #517, local validation, documentation and publication with automatic CI/preview attempts. Base: 9b673e06a7157e51066862e8b1079a1d17ccc929. Exact intended files:
+- `supabase/tests/reports_integrity.sql`
+- `supabase/tests/performance_sold_date.sql`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Move the T-1 Havana edge samples and window/bucket expectations to November 2, 2025, preserving all counts and boundary assertions. Move the two performance Sold Date repeated-midnight samples to the same historical day. Preserve existing historical T-2 sessions. Run counts/recovery and relevant tests, root/app TypeScript, lint/build with baseline identity comparison. Verify all 36 frozen release files unchanged. Publish these five files only; observe automatic checks. No dispatch, merge, production execution or settings change. Independent reviewer and owner acceptance remain pending.
+
+## November 6, 2026 — Approved Havana fixture correction for PR #517
+
+Chris approved the two-file test scope expansion, existing documentation updates, local validation and publication with automatic CI/preview attempts. Base PR head: 7400de623f96737f84dd638220dc1e564e173392; main: 09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d. No merge, dispatch, production execution or integration setting change.
+
+Exact intended files for this follow-up:
+- `supabase/tests/reports_fixtures.sql`
+- `supabase/tests/reports_rpc.sql`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Move only the Havana fall-back case to November 2, 2025. Set k30 to November 1 12:00Z and k31 to November 2 04:30Z; add k39 at November 2 05:30Z to exercise both occurrences of 00:30. Expect prior-day count 1, fall-back-day/midnight-hour count 2, start November 2 04:00Z and exclusive end November 3 05:00Z. Preserve Los Angeles, spring-forward, bucket parity and calendar-day property checks. IANA tzdb 2026f removed the formerly predicted 2026 Havana fall-back; no production query change is needed for this stale assertion.
+
+Verify the existing synthetic counts/recovery harness, relevant tests, root/app TypeScript, lint and build; compare baseline diagnostics by identity. Recheck all 36 frozen release files against 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Publish only these five files and observe automatic checks. Independent reviewer, owner acceptance, exact organization zones and native assembled-release rehearsal remain open.
+
+The following entries are historical snapshots; approved publication occurred as draft PR #517.
+
+## Reports V2 review preparation — November 5, 2026 Pacific
+
+Approved scope: local review branch only; no publication/PR/hosted execution until separately approved. Frozen source 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Independent reviewer/sign-off pending. Validate exact B6 hash 181e8b55e38f787fe3cf567d3b311ee3f56b92901ff9579e0668ed7beb597729 before unchanged read-only production execution. Build integrated 3.3.0 synthetic evidence using frozen harness. No settings, production writes or source changes.
+
+Exact intended file list:
+
+- `supabase/migrations/20261105120010_reports_v3_foundation.sql`
+- `supabase/migrations/20261105120011_reports_v3_sale_facts.sql`
+- `supabase/migrations/20261105120012_reports_v3_call_journey_helpers.sql`
+- `supabase/migrations/20261105120013_reports_v3_appointment_facts_stub.sql`
+- `supabase/migrations/20261105120014_reports_v3_state_helpers.sql`
+- `supabase/migrations/20261105120015_reports_v3_readers.sql`
+- `supabase/migrations/20261105120016_reports_v3_calls_campaign_lead_index.sql`
+- `supabase/migrations/20261105120017_reports_v3_release_enable.sql`
+- `supabase/migrations/20261105120020_policy_sale_premium_corrections.sql`
+- `supabase/migrations/20261105120021_reports_v3_sale_premium_basis.sql`
+- `supabase/migrations/20261105120022_reports_v3_release_enable_pkg_b.sql`
+- `supabase/migrations/20261105120030_policy_sale_call_links.sql`
+- `supabase/migrations/20261105120031_policy_sale_call_link_capture.sql`
+- `supabase/migrations/20261105120032_reports_v3_sale_call_links.sql`
+- `supabase/migrations/20261105120033_reports_v3_release_enable_pkg_c.sql`
+- `supabase/migrations/20261105120040_appointment_type_categories.sql`
+- `supabase/migrations/20261105120041_appointment_occurrence_evidence.sql`
+- `supabase/migrations/20261105120042_policy_appointment_attributions.sql`
+- `supabase/migrations/20261105120043_reports_v3_appointment_facts.sql`
+- `supabase/migrations/20261105120044_reports_v3_release_enable_pkg_d.sql`
+- `supabase/ops/appointment_type_category_baseline.sql`
+- `supabase/migrations/rollback/20261105120043_reports_v3_appointment_facts.rollback.sql`
+- `supabase/migrations/rollback/20261105120042_policy_appointment_attributions.rollback.sql`
+- `supabase/migrations/rollback/20261105120041_appointment_occurrence_evidence.rollback.sql`
+- `supabase/migrations/rollback/20261105120040_appointment_type_categories.rollback.sql`
+- `supabase/migrations/rollback/20261105120032_reports_v3_sale_call_links.rollback.sql`
+- `supabase/migrations/rollback/20261105120031_policy_sale_call_link_capture.rollback.sql`
+- `supabase/migrations/rollback/20261105120020_policy_sale_premium_corrections.rollback.sql`
+- `supabase/ops/reports_v3_disable.sql`
+- `supabase/ops/reports_all_disable.sql`
+- `supabase/ops/reports_v3_readback.sql`
+- `supabase/ops/reports_v3_preflight.sql`
+- `supabase/ops/appointment_type_category_baseline_revert.sql`
+- `supabase/ops/reports_v3_enable.sql`
+- `scripts/reports_release.py`
+- `.github/workflows/reports-release.yml`
+- `AGENT_RULES.md`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/release-proposal.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/map-provenance.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/security-review-2026-11-06.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Validation: root tsc, app typecheck, lint, build and existing relevant tests, comparing baseline failure identities. Record actual findings in focused release-readiness evidence.
+
 ## P0 Dialer frontend released — PR #515 / c971306
 
 Chris approved exact head 1e98c55; PR #515 is merged as c971306 with an identical application tree. Both production deployments are READY, www.fflagent.com serves the verified hotfix bundle, and public/login browser smoke passes. All six final-head workflows passed; all eight installed backend postimages were rechecked before merge. Database versions 20261105051018 and 20261105051037 were already applied and were not replayed. No Edge/RLS change or real call.
@@ -8531,3 +8645,7 @@ Chris instructed getting SMS working after A2P approval. The prepared backend re
 ## 2026-10-09 — Google OAuth verification preparation
 
 Chris authorized starting the submission work, with verification prioritized over broader integration usability. The scoped plan is [Google verification preparation](docs/plans/2026-10-09-google-verification/implementation_plan.md). It covers public legal review pages, homepage links, the existing logo and an evidence-based submission packet. Final legal publication and any production backend release remain separate concrete gates.
+
+## Preparation verification result — November 6, 2026 UTC
+
+44-file scope prepared; all 36 frozen files unchanged. B6 completed after 55/55 synthetic checks and returned 2 distinct discrepant sale events (premium and Sold Date flags separate). Three reporting zones remain unconfirmed. Final contract-3.3.0 synthetic package: 44 screenshots, 37 CSVs, 474/474 browser checks plus 30/30 supplemental checks. Root typecheck/build pass; app typecheck/lint findings match main by identity; Reports tests 384 passed/1 skipped. Independent reviewer remains unappointed; owner visual/CSV/map acceptance and publication approval are pending. See evidence/release-readiness-2026-11-06.md in the focused plan directory for the full closeout and disclosed embedded-database limits. No production mutation or hosted execution.

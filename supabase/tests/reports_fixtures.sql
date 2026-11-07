@@ -277,9 +277,11 @@ SELECT rt.call_row(26, 'B1',    'outbound', '2026-07-10T18:00:00Z',  500, 'D_B',
 SELECT rt.call_row(27, 'A2',    'outbound', '2026-11-01T07:30:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 1 00:30 PDT
 SELECT rt.call_row(28, 'A2',    'outbound', '2026-11-02T07:30:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 1 23:30 PST
 SELECT rt.call_row(29, 'A2',    'outbound', '2026-11-02T08:00:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 2 00:00 PST
--- k30/k31 exist for the America/Havana midnight fall-back case in T9 (outside every Los Angeles window tested).
-SELECT rt.call_row(30, 'A2',    'outbound', '2026-10-31T12:00:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Oct 31 08:00 CDT Havana
-SELECT rt.call_row(31, 'A2',    'outbound', '2026-11-01T04:30:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 1 00:30 CDT Havana (first 00:30)
+-- k30/k31/k39 use the historical 2025 Havana fall-back; tzdb 2026f removed the predicted 2026 transition.
+-- These samples are outside every Los Angeles window tested.
+SELECT rt.call_row(30, 'A2',    'outbound', '2025-11-01T12:00:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 1 08:00 CDT Havana
+SELECT rt.call_row(31, 'A2',    'outbound', '2025-11-02T04:30:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 2 00:30 CDT Havana (first 00:30)
+SELECT rt.call_row(39, 'A2',    'outbound', '2025-11-02T05:30:00Z',   10, 'D_NI',   NULL,          NULL, NULL,  NULL,        NULL);    -- Nov 2 00:30 CST Havana (second 00:30)
 -- k32/k33: the SAME contact (L6) converts through TWO different campaign_lead memberships in May (T14).
 SELECT rt.call_row(32, 'A2',    'outbound', '2026-05-12T18:00:00Z',  120, 'D_SOLD', NULL,          'C1', 'CL6A', rt.id('L6'), 'lead');  -- converting via CL6A
 SELECT rt.call_row(33, 'A2',    'outbound', '2026-05-14T18:00:00Z',   90, 'D_SOLD', NULL,          'C2', 'CL6B', rt.id('L6'), 'lead');  -- converting via CL6B
@@ -342,7 +344,7 @@ INSERT INTO public.dialer_sessions (id, agent_id, started_at, ended_at, last_hea
 DO $fixture_check$
 BEGIN
   IF (SELECT count(*) FROM public.organizations) <> 3
-     OR (SELECT count(*) FROM public.calls) <> 38
+     OR (SELECT count(*) FROM public.calls) <> 39
      OR (SELECT count(*) FROM public.campaigns) <> 3
      OR rt.id('A1') IS NULL OR rt.id('ADMIN') IS NULL
      OR NOT EXISTS (SELECT 1 FROM public.company_settings WHERE organization_id=rt.id('O1') AND timezone='America/Los_Angeles') THEN

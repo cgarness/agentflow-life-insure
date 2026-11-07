@@ -233,13 +233,13 @@ INSERT INTO calls(id,organization_id,agent_id,direction,created_at,duration) VAL
 (rt.tv(68),rt.tv(1),rt.tv(6),'outbound','2026-11-02 07:59:59Z',10),  -- 23:59:59 PST h23
 (rt.tv(70),rt.tv(1),rt.tv(6),'outbound','2026-11-02 08:00Z',10);     -- 11-02 00:00 PST: outside
 UPDATE calls SET duration_source='elapsed_estimate' WHERE id=rt.tv(67);
--- T-1 Havana: local midnight occurs twice on 2026-11-01 (00:00 CDT = 04:00Z, then 00:00 CST = 05:00Z).
+-- T-1 Havana: local midnight occurs twice on 2025-11-02 (00:00 CDT = 04:00Z, then 00:00 CST = 05:00Z).
 INSERT INTO calls(id,organization_id,agent_id,direction,created_at,duration) VALUES
-(rt.tv(110),rt.tv(101),rt.tv(103),'outbound','2026-11-01 03:59:59Z',10), -- 10-31 23:59:59 CDT
-(rt.tv(111),rt.tv(101),rt.tv(103),'outbound','2026-11-01 04:00Z',10),    -- 11-01 00:00 CDT (first midnight)
-(rt.tv(112),rt.tv(101),rt.tv(103),'outbound','2026-11-01 05:00Z',10),    -- 11-01 00:00 CST (second midnight)
-(rt.tv(113),rt.tv(101),rt.tv(103),'outbound','2026-11-02 04:59:59Z',10), -- 11-01 23:59:59 CST
-(rt.tv(114),rt.tv(101),rt.tv(103),'outbound','2026-11-02 05:00Z',10);    -- 11-02 00:00 CST: outside
+(rt.tv(110),rt.tv(101),rt.tv(103),'outbound','2025-11-02 03:59:59Z',10), -- 11-01 23:59:59 CDT
+(rt.tv(111),rt.tv(101),rt.tv(103),'outbound','2025-11-02 04:00Z',10),    -- 11-02 00:00 CDT (first midnight)
+(rt.tv(112),rt.tv(101),rt.tv(103),'outbound','2025-11-02 05:00Z',10),    -- 11-02 00:00 CST (second midnight)
+(rt.tv(113),rt.tv(101),rt.tv(103),'outbound','2025-11-03 04:59:59Z',10), -- 11-02 23:59:59 CST
+(rt.tv(114),rt.tv(101),rt.tv(103),'outbound','2025-11-03 05:00Z',10);    -- 11-03 00:00 CST: outside
 -- T-2 sessions (past dates): Z crosses 2026-09-15 00:00 PDT with an overlapping row; C has one later span.
 INSERT INTO dialer_sessions(id,agent_id,organization_id,campaign_id,started_at,last_heartbeat_at,ended_at,status) VALUES
 (rt.tv(80),rt.tv(10),rt.tv(1),NULL,'2026-09-15 06:00Z','2026-09-15 08:00Z','2026-09-15 08:00Z','ended'),   -- 09-14 23:00 -> 09-15 01:00 PDT
@@ -336,13 +336,13 @@ DO $$ DECLARE v jsonb;s jsonb;d jsonb;c jsonb;l jsonb; BEGIN
  PERFORM rt.eq('T-1 fall by_date with inbound',rt.tb(v,'by_date'),'2026-11-01=4/2/1/122');
  PERFORM rt.eq('T-1 fall Sunday heatmap',rt.tb(v,'by_day_of_week')||' '||rt.tb(v,'heatmap'),'Sun=4/2 0:1=2/1,0:7=1/1,0:23=1/0');
  PERFORM rt.eq('T-1 fall estimate disclosed',(v->'quality'->'duration'->>'estimated_calls')||'/'||(v->'quality'->'duration'->>'outbound_calls'),'1/4');
- -- Havana: the agency day starts at the FIRST local midnight, so both midnights belong to Nov 1 hour 0.
- v:=rt.tr('call_volume',102,'2026-11-01','2026-11-01','agency',NULL,101);
- PERFORM rt.eq('T-1 Havana Nov 1 window',rt.twin(v),'2026-11-01T04:00:00Z/2026-11-02T05:00:00Z');
- PERFORM rt.eq('T-1 Havana Nov 1 buckets',rt.tb(v,'by_date')||' '||rt.tb(v,'by_hour')||' '||rt.tb(v,'by_day_of_week'),'2026-11-01=3/0/0/30 0=2/0,23=1/0 Sun=3/0');
- v:=rt.tr('call_volume',102,'2026-10-31','2026-10-31','agency',NULL,101);
- PERFORM rt.eq('T-1 Havana Oct 31 window',rt.twin(v),'2026-10-31T04:00:00Z/2026-11-01T04:00:00Z');
- PERFORM rt.eq('T-1 Havana Oct 31 buckets',rt.tb(v,'by_date')||' '||rt.tb(v,'by_hour')||' '||rt.tb(v,'by_day_of_week'),'2026-10-31=1/0/0/10 23=1/0 Sat=1/0');
+ -- Havana: the agency day starts at the FIRST local midnight, so both midnights belong to Nov 2 hour 0.
+ v:=rt.tr('call_volume',102,'2025-11-02','2025-11-02','agency',NULL,101);
+ PERFORM rt.eq('T-1 Havana Nov 2 window',rt.twin(v),'2025-11-02T04:00:00Z/2025-11-03T05:00:00Z');
+ PERFORM rt.eq('T-1 Havana Nov 2 buckets',rt.tb(v,'by_date')||' '||rt.tb(v,'by_hour')||' '||rt.tb(v,'by_day_of_week'),'2025-11-02=3/0/0/30 0=2/0,23=1/0 Sun=3/0');
+ v:=rt.tr('call_volume',102,'2025-11-01','2025-11-01','agency',NULL,101);
+ PERFORM rt.eq('T-1 Havana Nov 1 window',rt.twin(v),'2025-11-01T04:00:00Z/2025-11-02T04:00:00Z');
+ PERFORM rt.eq('T-1 Havana Nov 1 buckets',rt.tb(v,'by_date')||' '||rt.tb(v,'by_hour')||' '||rt.tb(v,'by_day_of_week'),'2025-11-01=1/0/0/10 23=1/0 Sat=1/0');
 END $$;
 -- T-2 sessions clipped at BOTH window edges (agency midnight); per-day seconds add up to the multi-day union.
 DO $$ DECLARE s jsonb; BEGIN
