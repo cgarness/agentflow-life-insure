@@ -1,4 +1,33 @@
-# Proposed backend-only PR scope
+# Reports V2 backend release proposal
+
+## Current review decision — November 6, 2026 Pacific
+
+PR #517 is published as a draft, with 48 approved paths: the original 44 below and the four expressly approved Havana tests. Its implementation source is `62a5430251113b0bd6fb93c9811dda8773371fbf`; this closeout changes only six existing documentation files. Main and both READY production deployments remain `09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d`. All 36 frozen SQL/runner/workflow files match the candidate. The Reports V2 frontend is still excluded.
+
+The independent reviewer requirement was explicitly **waived by Chris**, not signed off. The three Pacific organization settings are saved and verified; preflight now reports **4 active-user organizations / 0 invalid zones**. The unchanged read-only preflight passes the function and permission guards, with **356 migrations / head 20261105051037**, matching B/C preimages and the **36 locked / 0 custom** appointment baseline. See the readiness record for the fresh assembled native rehearsal.
+
+### Next approval: exact backend-only merge, followed separately by production stages
+
+After reviewing the final documentation SHA in PR #517, approve that exact head's merge only. The merge adds the pinned backend release files, approved test corrections and documentation; it includes no `src/`, package manifest, build configuration, Edge Function or runtime frontend change. It will rebuild the existing frontend in both Vercel projects. Immediately before merge, recheck main, source hashes, conflicts, and that Supabase automatic production deployment is still OFF; stop on drift. Do not merge the integration branch wholesale.
+
+The merge approval does **not** authorize any SQL stage, read-back impersonation, category write, policy correction, frontend release or settings change. Subsequent Package A execution follows the sequence table below. Preserve the stop after the sealed objects/index for independent tool verification before enabling. Each dispatch retains its exact-stage confirmation and protected environment review. The owner waiver removes only the human independent-review requirement, not these technical checks or approvals.
+
+### B6 proposal for owner decision — no correction
+
+The approved redacted inventory found two events in organization `a0000000-0000-0000-0000-000000000001`:
+
+| Policy ID | Premium observation | Sold Date observation | Current decision |
+|---|---|---|---|
+| `65861ec9-bf10-41a8-a22b-cc0279293375` | Differs | Differs | Unclassified; unchanged |
+| `958e9679-2059-4ce0-9273-9f0f48101478` | Differs | Differs | Unclassified; unchanged |
+
+Recommended owner decision: explicitly accept launching with these historical differences unchanged and defer each premium/Sold Date classification until business evidence is available. Reports will retain their defined sale-event basis; current policy-book values may differ. This does not label either item an entry error or a genuine later change, write any audit correction, or claim the existing manifest check passed. Until Chris accepts this bounded exception or supplies the four classifications, the B6 completion gate remains open. No additional production records were retrieved.
+
+### Owner acceptance still needed
+
+Review the [contract-3.3.0 viewer](https://chatgpt.com/library?file_id=libfile_db1f1d15c8548191b7e59f68eab82775&account_id=personal) and [actual evidence ZIP](https://chatgpt.com/library?file_id=libfile_68bd714facf08191bd91b362877e86a9&account_id=personal): 44 screenshots, 37 CSV exports and map provenance. Automated capture is complete; owner visual, CSV and map acceptance is not inferred from “Finish this build.” The existing accepted 366-day performance exception is not converted into a passing performance result. Final production availability still requires A+B+C+D+F and their separately approved verification.
+
+## Historical approved backend-only preparation scope
 
 Local review-branch preparation is approved. Publishing/opening a PR and hosted execution require separate approval. No merge, dispatch, deployment or production writes are authorized.
 
@@ -60,7 +89,7 @@ B6 is a separately approved proposed file: `supabase/ops/reporting-accuracy/reco
 
 ## Deployment behavior
 
-Supabase GitHub **Deploy to production OFF**; automatic preview branching **ON**, limit 3, Supabase changes only. A PR with Supabase files may create a preview branch under current settings. No setting changed.
+Last inspected integration settings: Supabase GitHub **Deploy to production OFF**; automatic preview branching **ON**, limit 3, Supabase changes only. Reverify before merge; this is not a fresh settings inspection. A PR with Supabase files may create a preview branch under those settings. No setting changed.
 
 Both Vercel projects deploy main and are READY at `09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d`. A backend-only merge may rebuild/deploy the existing frontend. Prove no production entry-graph/build-config changes and include that rebuild in later explicit merge approval.
 
@@ -68,11 +97,11 @@ GitHub environment `google-sheets-production` requires cgarness, permits only ma
 
 ## Before requesting merge
 
-1. Refresh main, open PR conflicts and database history. This inspection found 16 open PRs, no Reports release PR. Draft #486 overlaps the premium function; do not mix it into this release.
+1. Refresh main, open PR conflicts and database history. Reports preparation is draft PR #517. Draft #486 overlaps the premium function and #514 overlaps shared documentation; do not mix their work into this release.
 2. Match every copied byte to Frozen_release_manifest.md. Changed SQL/runner/workflow bytes supersede prior verification.
 3. Check the assembled diff against this allowlist. Run existing branch CI, `npx tsc --noEmit`, app typecheck/build and baseline comparisons.
 4. Rehearse assembled release files with the frozen PostgreSQL 17.6 harness in a temporary test checkout. Keep full synthetic test dependencies outside the production diff. Do not copy the frontend-dependent integration CI workflow into this minimal PR. Missing test support does not authorize widening the PR.
-5. Obtain independent exact-SQL security sign-off; then request exact merge SHA, followed by each protected stage separately.
+5. Preserve Chris's explicit waiver of the independent reviewer requirement without claiming sign-off. Complete technical verification and request the exact merge SHA, followed by each protected stage separately. Owner visual/CSV/map acceptance and B6 disposition remain separate release gates.
 
 ## Proposed stages
 
@@ -93,9 +122,9 @@ disable-v3 seals v3 readers; disable-all seals report readers, leaving class-W a
 
 Tested reverse recovery undoes D, then C ...32/...31; retains ...30 and clients_lead_id_guard; can re-enable at B. It cannot fully roll B back after C starts. Never remove the guard or drop the premium ledger. A full A structural teardown is not a runner stage. Emergency disable is the reviewed immediate response. Never perform a destructive rollback merely to test production.
 
-## Hosted effects — publication remains unapproved
+## Historical publication approval packet — subsequently approved and published
 
-The local review branch is not pushed and no PR exists. With the inspected integrations unchanged, publication/opening a PR can start the following hosted execution:
+The following packet described the original publication request. Chris subsequently approved publication and the two test follow-ups; PR #517 now exists. The effects and production boundaries remain relevant to later updates:
 
 | Service | Automatic effect | Boundary |
 |---|---|---|
@@ -105,4 +134,4 @@ The local review branch is not pushed and no PR exists. With the inspected integ
 
 No matching GitHub push workflow is triggered by the 44-file scope. This does not suppress Vercel integration behavior on a push. Treat publishing the branch and opening the draft PR as one separately approved action, with hosted execution explicitly disclosed. Do not disable integrations to avoid the gate.
 
-Prepared next approval request: publish the exact committed preparation SHA and open a draft backend-review PR, accepting the automatic Supabase preview, six GitHub Actions workflows and possible Vercel previews. This approval must not include merge, production actions, workflow dispatches, read-back impersonation or release stages.
+The original publication request is complete. The current next request is the exact backend-only merge described at the top of this document. Production actions, workflow dispatches, read-back impersonation and release stages remain separately approved.

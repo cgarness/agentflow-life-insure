@@ -1,4 +1,16 @@
-# Independent security review packet
+# Reports V2 security evidence — owner waiver recorded
+
+## Current owner decision — November 6, 2026 Pacific
+
+Chris explicitly said “Waive it” after the independent-review requirement and residual access-control risk were explained. The independent reviewer requirement is **WAIVED BY OWNER**, not passed. No independent reviewer was appointed, no independent review occurred, and no signature or automated substitute is claimed. The recorded decision is also in [PR #517](https://github.com/cgarness/agentflow-life-insure/pull/517). It supersedes the independent-sign-off gate in the historical packet below and its references, for this release only.
+
+Organization isolation, permissions, S1–S15/S14a/S14b verification, E1–E6 limits and separately authorized production-user read-back remain required. The waiver does not authorize a migration, category/policy correction, merge, deployment or release-stage dispatch. The frozen SQL, runner and workflow remain byte-identical to `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c`.
+
+Chris separately authorized `America/Los_Angeles` for the three listed organizations; saved values and `private.report_agency_time_zone` were verified again. The current unchanged preflight passes all 27 function preimages and the report permission matrix; it reports four active-user organizations and **zero** invalid reporting zones. Production remains at 356 migrations, head `20261105051037`, with no Reports v3 migration. Later-package preimages match and the category baseline remains 36 locked defaults / zero custom rows.
+
+Security advisors were retrieved again: 267 findings across the same seven categories/counts as the recorded baseline below. Existing findings remain separate work, including [the two RLS-disabled tables](https://supabase.com/docs/guides/database/database-linter?lint=0013_rls_disabled_in_public). No unrelated hardening was performed. This is supporting verification, not a security certification. See the current readiness record for native rehearsal evidence and its limits.
+
+## Historical independent-review packet (unsigned)
 
 **NOT SIGNED OFF.** Prepared 2026-11-06 00:32 UTC. Candidate `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c`. Reviewer: **not appointed**. No production-user impersonation/read-back was executed.
 

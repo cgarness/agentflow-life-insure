@@ -1,3 +1,21 @@
+## November 6, 2026 Pacific — Finish Reports V2 technical preparation
+
+Chris requested “Finish this build” after explicitly waiving the independent reviewer requirement and authorizing Pacific reporting zones for the three organizations. Continue the existing release preparation; no new features. The waiver is an owner decision, not independent sign-off. Exact starting PR #517 head: `62a5430251113b0bd6fb93c9811dda8773371fbf`; current main/production: `09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d`.
+
+Exact intended repository files, all already inside the approved documentation allowlist:
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/release-proposal.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/security-review-2026-11-06.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Verify current main, conflicts, six exact-head CI results, production migration baseline and saved zones. Rehearse all 36 release files from this assembled branch using the unchanged frozen `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c` harness in an isolated disposable PostgreSQL 17.6 TLS environment, with the four already-approved historical Havana test files overlaid. Keep test support outside this PR. Use Supabase CLI 2.121.0; no production credential or connection. Preserve all release bytes and the frozen candidate. Run root TypeScript/build and retain the passing exact-head baseline comparisons; documentation-only changes do not change runtime diagnostics.
+
+Record real results and exact next release actions. B6's two findings remain unclassified: propose preservation/deferral for owner decision without inventing causes or correcting records. Owner visual/CSV/map acceptance, exact merge, each production release stage, category writes and production-user read-back remain separately controlled. No new workflow dispatch, integration change, migration, production data change or deployment is included.
+
+Completed: native 17/17 release rehearsal and non-performance v3 security/contract/index/concurrency suites pass; 86/86 frozen contract tests pass. Engine XML support was corrected without source changes. Root TypeScript/build and 384 Reports tests pass (one skipped); existing app-type/lint findings match main. Production preflight and saved zones verified read-only. Logs retrieved and temporary VM stopped. Publish the six-document closeout and observe its automatic checks; production and owner-acceptance gates remain as listed.
+
 ## November 6, 2026 — Approved remaining Havana test correction
 
 Chris approved the exact additional historical-date diff on PR #517, local validation, documentation and publication with automatic CI/preview attempts. Base: 9b673e06a7157e51066862e8b1079a1d17ccc929. Exact intended files:

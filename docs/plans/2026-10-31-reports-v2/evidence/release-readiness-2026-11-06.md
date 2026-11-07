@@ -1,3 +1,33 @@
+## November 7, 2026 UTC — Assembled native verification complete; production release pending
+
+This current status supersedes historical reviewer, time-zone and rehearsal statements below. Technical preparation is complete for implementation source `62a5430251113b0bd6fb93c9811dda8773371fbf`. This follow-up changes only the six documentation paths listed in root `implementation_plan.md`; total PR #517 scope remains 48 paths. Main and both READY production deployments remain `09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d`. All 36 frozen release files still byte-match `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c`. No application, test or release-file bytes changed in this follow-up.
+
+### Fresh assembled native rehearsal
+
+Passed using native PostgreSQL **17.6**, TLS and checksum-verified Supabase CLI **2.121.0**, in a disposable loopback-only database with synthetic fixtures. The frozen candidate supplies the unchanged harness; the assembled review branch supplies all 36 identical release files plus the four already-approved Havana test overlays. The harness refuses production/platform roles, pins history at 356 / `20261105051037`, and verifies every migration digest. No production credential or database was used.
+
+- `python3 -I scripts/tests/reports_release_test.py`: **17/17 passed**. Covers all A/B/C/D release stages, native concurrent index, 36-row synthetic category baseline, all 20 CLI history digests, role/confirmation/order/drift refusals, disable/re-enable and reverse recovery.
+- `REPORTS_V3_PERF=0 bash scripts/run_reports_v3_tests.sh`: **passed**, including security/scope/organization isolation, contracts, registry/seal/refusal proofs, native index negative controls, correction concurrency in both orders and concurrent appointment links. The appointment race proves one first-link result and one already-linked result under the policy lock.
+- `npx vitest run src/lib/__tests__/reportsV3Contracts.test.ts`: **86/86 passed** in the frozen checkout with approved test overlays.
+- The initial test-engine build lacked XML support used by the unchanged preflight. Rebuilt PostgreSQL with OpenSSL and libxml, performed a clean rebuild and XML smoke query, then reran both unchanged native harnesses successfully. No release SQL or test bypass was introduced.
+- Full scale/performance benchmarks were not rerun. Historical 144/147 performance results and the accepted three agency/366-day exceptions remain as recorded; this is not a new performance pass.
+
+Actual log SHA-256 values: `release-rehearsal.log` = `3955075c9f0097beae3e861a014bb951af29cb60c09596ada32961c2edd39294`; `v3-suites.log` = `c5c560008e702b6622aa2c250b4fc013d0767b53023714ba64fe67c3f4cb122d`. Logs, engine configuration, checksum results and source manifest were downloaded and archive-hash verified before the disposable test VM was explicitly stopped. Native evidence archive SHA-256: `cf407fb42fa2a7343ad4e9ed2883d16b6e2c119289591cb37c2dae82c64454fb`.
+
+### Application and production inspection
+
+Fresh local root TypeScript and build pass. Reports/stat-computation selection: **384 passed / 1 skipped**. App TypeScript **79 errors** and lint **11 errors / 142 warnings** match current main by diagnostic identity; no new finding. Existing exact implementation-head CI has all six workflows passed (run IDs 42306494059, 42306494071, 42306494331, 42306494271, 42306494081, 42306494111), including 606 dialer tests and baseline comparisons. This does not claim the entire repository is failure-free. Documentation-head hosted results will be observed after publication and recorded on PR #517.
+
+The unchanged frozen production preflight passed read-only: all 27 function preimages and ACL guards, **356 migrations / head 20261105051037**, zero Reports v3 migrations, matching B/C preimages and **36 locked / 0 custom** appointment types. Four active-user organizations have zero invalid reporting zones. The three separately authorized settings and resolver outputs again equal `America/Los_Angeles`, source `agency_settings`. Security advisors remain 267 findings with unchanged category counts; no unrelated remediation. No production-user impersonation.
+
+### Decisions and remaining release gates
+
+Chris explicitly **waived** the independent reviewer requirement; no independent reviewer/sign-off is claimed. Pacific settings are complete. The fresh native rehearsal gate is now complete. Owner visual/CSV/map acceptance remains pending for the actual contract-3.3.0 evidence (44 screenshots, 37 exports; 474 frozen browser checks plus 30 supplemental checks). The two B6 events retain separate unclassified premium/Sold Date differences; preserve them unchanged pending owner classification or explicit acceptance of the proposed bounded deferral. No correction or false manifest pass.
+
+Next: review the final exact PR head and approve its backend-only merge, including rebuilds of the existing frontend in both Vercel projects. Recheck main/conflicts and Supabase automatic production deployment OFF immediately before merging. Each production runner stage, read-back impersonation, category write and final Reports frontend release remains separately controlled. PR #486 premium-function overlap and #514 shared-documentation work are not incorporated. No merge, release dispatch, migration, data write, Edge deployment, integration-setting change or production deployment occurred in this follow-up.
+
+---
+
 ## Remaining Havana correction — November 6 approved follow-up
 
 This supersedes earlier 44/46-path scope snapshots: the PR now includes 48 changed paths. The five paths in this follow-up are `supabase/tests/reports_integrity.sql`, `supabase/tests/performance_sold_date.sql`, `implementation_plan.md`, `WORK_LOG.md` and this record. The two tests use the historical November 2, 2025 Havana transition with unchanged counts and boundary/weekday expectations. T-2 sessions and frozen release files are unchanged. No further test still assumes a 2026 Havana fall-back after the repository search.

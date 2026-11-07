@@ -1,3 +1,13 @@
+## November 6, 2026 Pacific — Current release preparation decisions
+
+This addendum supersedes historical reviewer/time-zone status below. Chris waived the independent reviewer requirement; no independent sign-off is claimed. All three separately authorized Pacific settings are saved and reverified. The unchanged production preflight reports four active-user organizations and zero invalid reporting zones, 356 migrations, head `20261105051037`, matching function/permission preimages and 36 locked appointment defaults / zero custom types. Main remains `09ec29a4`; PR #517 implementation source remains `62a5430251113b0bd6fb93c9811dda8773371fbf` before this documentation-only closeout.
+
+“Finish this build” authorizes completion of technical preparation within the existing allowlist. Exact six-file documentation scope is recorded first in root `implementation_plan.md`. No feature development, frozen-file changes or production release is included. All six implementation-head workflows passed; fresh local root TypeScript/build/Reports tests and identity comparisons are recorded in the readiness document. The assembled native rehearsal uses the frozen harness plus the four expressly approved Havana test files, outside this PR's production diff.
+
+B6 still has two distinct sale events with separate premium and Sold Date differences; neither is classified. The proposal is to preserve both records and explicitly defer their business classification/correction, subject to Chris's acceptance, without pretending that the manifest gate passed. Owner visual/CSV/map acceptance and all exact production approvals remain open. Read `release-proposal.md` and the newest readiness record for the concrete next action; earlier “not published,” reviewer-pending and time-zone-pending statements are historical snapshots.
+
+Fresh native verification is now complete: PostgreSQL 17.6/TLS/CLI 2.121.0 passes all 17 release-runner checks and the non-performance v3 security/contracts/index/concurrency suites. The frozen contract unit suite passes 86/86. Release bytes are unchanged; full scale/performance benchmarks were not rerun. Actual logs and hashes are recorded in the readiness addendum. The disposable test VM was stopped after retrieving evidence.
+
 ## Reports V2 review preparation — November 5, 2026 Pacific
 
 Approved scope: local review branch only; no publication/PR/hosted execution until separately approved. Frozen source 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Independent reviewer/sign-off pending. Validate exact B6 hash 181e8b55e38f787fe3cf567d3b311ee3f56b92901ff9579e0668ed7beb597729 before unchanged read-only production execution. Build integrated 3.3.0 synthetic evidence using frozen harness. No settings, production writes or source changes.
