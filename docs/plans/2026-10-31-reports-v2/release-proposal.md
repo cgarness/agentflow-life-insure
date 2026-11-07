@@ -1,3 +1,74 @@
+# Reports V2 — Package B backend preparation
+
+## Current decision — November 7, 2026 Pacific
+
+**Prepared locally; not published, merged or applied.** Chris approved the eight-file documentation scope and read-only review. Base main: `15d967320af7a0bd9774e09bc57e0dd31f97900c`; branch: `docs/reports-package-b-preparation-20261107`. Package A is enabled and recorded; Reports UI is not released. This document supersedes earlier proposal status below.
+
+Package B provides an append-only audit trail for correcting the premium attributed to an original sale. A correction restates the original seller's original Sold Date period. Installation creates an empty ledger and proves sale amounts unchanged before committing. The correction RPC can later update the current policy only through its explicit `match_sale` mode and conflict checks; publishing this documentation does not authorize any correction.
+
+## Prepared change and publication request
+
+Exactly eight documentation paths are changed:
+
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/release-proposal.md`
+- `docs/plans/2026-10-31-reports-v2/production-release.md`
+- `docs/plans/2026-10-31-reports-v2/verification.md`
+- `docs/plans/2026-10-31-reports-v2/context-snapshot.md`
+- `AGENT_RULES.md`
+
+AGENT_RULES adds only the planned A-40, A-34 and A-851 backend rules, clearly marked prepared/not deployed, and redirects the older snapshot sentence to the conditional rule. No SQL, runner, workflow, application, test, dependency, or frontend file changes.
+
+**Next approval requested: publish the prepared local documentation commit to its new branch and open a draft Package B backend PR against main.** This includes any existing automatic GitHub/Vercel integration checks or previews. Current GitHub push/pull_request path filters do not match these eight documents. Recheck integration behavior before publication and observe any external checks; do not disable integrations. Production merge and every database stage remain excluded. Before a later merge, recheck main, exact diff, conflicts, required checks and Supabase automatic production deployment OFF. The linked Vercel projects may rebuild the existing frontend on that later approved merge.
+
+## Read-only preflight and overlap
+
+Production `jncvvsvckxhqgqvkppmj`: history 364/head 20261105120017, all eight Package A versions recorded; contract 3.0.0; nine v3 readers enabled. Package B ledger, writer, history RPC and three new helper functions are absent. All five required preimage hashes match; see verification.md. Advisors: 276 security / 463 performance / 0 health findings. Existing findings are not remediated by this scope.
+
+PR #486 is still open at `2de28c320547983f68bed5f77d8ec9684ea3643d`. Inspection of its current 23-file diff corrects the older direct-overlap warning: it changes commission valid-slot/grid-facts helpers, not performance_sale_monthly. Its proposed historical preview/batch derives source premium independently (positive immutable snapshot, otherwise current client premium); it must not silently start using corrected reporting AP or be treated as validated by this release. Do not execute or merge its five-sale backfill. Preserve its separate exact-manifest approvals. Shared AGENT_RULES/WORK_LOG edits must be reconciled on fresh main. PR #514 at `3c54f4d13de7b6901db33c111d94fb70d4f42f6a` remains an unrelated documentation change.
+
+## Frozen backend package already on main
+
+These existing files are not edited or re-created by this PR. Versions exceed production head. Stop if production history or a source pin drifts; do not renumber or amend frozen bytes without a new reviewed scope.
+
+| File | Bytes | SHA-256 |
+|---|---:|---|
+| `20261105120020_policy_sale_premium_corrections.sql` | 28,112 | `66c8c5963cdf73a232c1c1081888bd4e1ee0de2f6605117bc7176f7c32cf6b56` |
+| `20261105120021_reports_v3_sale_premium_basis.sql` | 9,302 | `df9a1e49eb626e7e4ddf50350d2d245e0c963ecf910932869deb4e2b398bd273` |
+| `20261105120022_reports_v3_release_enable_pkg_b.sql` | 24,080 | `16ffbe8eca6e0e18bf25095eb1da888793b1035cc5a94a43ce46852d96b8f7ac` |
+
+## Later production sequence — not authorized by preparation or publication
+
+Each dispatch uses `reports-release.yml` on approved main, `confirm` equal to `stage`, and the existing protected environment review. One stage per separately approved action; stop on failure.
+
+| Stage | Effect and verification |
+|---|---|
+| `check` | Recheck pinned source and installed state. |
+| `disable-v3` | Revoke v3 reader access for the transition; v2 remains available; no table data changes. |
+| `apply-20261105120020` | Create private ledger with RLS and no client table grants; three audit guards; sealed helpers/RPCs; replace shared effective-premium calculation with exact preimage guard and per-sale equality check. |
+| `apply-20261105120021` | Replace v3 premium/basis helpers, contract 3.1.0; prove every sale's amount/source/state/revision unchanged; grant exactly two application RPCs to authenticated only. The correction API becomes callable at this stage even before its UI exists; server authorization is the security boundary. |
+| `apply-enable-20261105120022` | Full closure/pin/privilege verification; restore exactly 15 report readers to authenticated and service_role. |
+| `read-back` | Role-simulated read-only production verification. Independently verify ledger RLS, zero rows, three triggers, RPC ACLs, per-sale identity and advisors (expected +2 authenticated SECURITY DEFINER warnings). Any extra reconciliation query requiring actor simulation needs explicit scope. |
+| `record-history` | Repeat read-back; record only the three installed migrations with pinned CLI digests. Expected history 367/head 20261105120022 if no drift. |
+
+The existing v2 Reports screen is unaffected by disable-v3. The shared performance calculation serves Leaderboard/Dashboard, so the unchanged-value and permission checks are required even though the new Reports UI is absent. No policy correction, Sold Date change, commission update, SMS/email, call or Edge deployment belongs to this sequence.
+
+## Security review and recovery
+
+Source review and live preimage checks are recorded in verification.md. This is technical review, not independent human sign-off. Chris waived that human gate only. The ledger has RLS with no client policies/grants; postgres-owned SECURITY DEFINER RPCs enforce home-organization and actor checks. The writer permits active Admin/Super Admin only. Team Leaders/original sellers get scoped history reads, not write authority. Neither anon nor service_role receives the two application RPC grants.
+
+Recovery is separately approved. The frozen rollback always seals both application RPCs. Only an empty ledger and matching postimages permit exact preimage restoration; otherwise corrections remain effective and the writers stay sealed. The ledger/guards are never dropped. Re-forward requires a new reviewed migration, not replay of ...20. Never test rollback on production.
+
+## Remaining owner gates
+
+Owner visual/CSV/map acceptance remains open. The two B6 discrepancies retain separate unclassified premium and Sold Date differences; no correction, classification, or bounded-deferral acceptance is inferred from this preparation approval. Historical 144/147 performance results retain three accepted agency/366-day exceptions. The original candidate remains `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c`. Packages C/D and frontend F remain separately gated.
+
+---
+
+## Historical Package A proposal (superseded status)
+
 # Reports V2 backend release proposal
 
 ## Current review decision — November 6, 2026 Pacific
