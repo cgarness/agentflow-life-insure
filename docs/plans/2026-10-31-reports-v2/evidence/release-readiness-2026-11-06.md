@@ -1,3 +1,15 @@
+## November 7, 2026 Pacific — Approved Sheets test readiness fix
+
+Chris approved `src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx` and the existing plan/log updates after final-head CI failed twice in its unchanged mapping suite. The helper previously returned when the Phone control appeared, before the later automatic-mapping effect completed. It now waits for that control to contain its mapped Phone value. All loading, City/ZIP/value, retry, save and acknowledgement assertions and timeouts remain unchanged; legacy and v2 paths stay covered. No production application change.
+
+Exact follow-up files: the test above, root `implementation_plan.md`, `WORK_LOG.md`, focused `docs/plans/2026-10-31-reports-v2/implementation_plan.md` and `evidence/release-readiness-2026-11-06.md`. The root plan/file list was recorded first. Total PR scope is 49 paths. Starting head ae693f791f1a0f6901d56f8f96e34fe5dab3a819; main remains 09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d. #486 and #514 work remains separate.
+
+Verification: Sheets 26/26 pass on both base and candidate; root TypeScript, scoped ESLint, build and whitespace checks pass. All 36 frozen release files remain byte-identical to 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Native 17/17 and security/concurrency evidence remains valid and was not redundantly rerun for a test-helper change. Existing app-type/lint debt is unchanged. Final hosted CI and previews will be verified and recorded on PR #517 after publication; no premature green claim. Prior failed attempts and the diagnosis remain retained in the linked evidence.
+
+Migrations/deploys: no production mutation, merge, release dispatch, configuration change or deployment. Owner visual/CSV/map acceptance, B6 disposition and exact merge/backend/frontend approvals remain separate. The independent reviewer requirement is waived by Chris, not signed off; Pacific zones are already saved. Next: verify exact new-head CI, then request the separately controlled merge/release decision.
+
+---
+
 ## November 7, 2026 UTC — Assembled native verification complete; production release pending
 
 This current status supersedes historical reviewer, time-zone and rehearsal statements below. Technical preparation is complete for implementation source `62a5430251113b0bd6fb93c9811dda8773371fbf`. This follow-up changes only the six documentation paths listed in root `implementation_plan.md`; total PR #517 scope remains 48 paths. Main and both READY production deployments remain `09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d`. All 36 frozen release files still byte-match `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c`. No application, test or release-file bytes changed in this follow-up.

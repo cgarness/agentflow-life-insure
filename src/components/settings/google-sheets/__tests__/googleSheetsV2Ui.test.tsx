@@ -83,6 +83,7 @@ async function pickTab() {
   fireEvent.click(screen.getByRole("button", { name: /choose spreadsheet/i }));
   fireEvent.click(await screen.findByRole("button", { name: "Leads" }));
   await screen.findByLabelText("Field for Phone");
+  await waitFor(() => expect(screen.getByLabelText("Field for Phone")).toHaveTextContent("Phone"));
 }
 
 beforeEach(() => {

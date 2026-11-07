@@ -1,3 +1,18 @@
+## November 7, 2026 Pacific — Approved Sheets test readiness correction
+
+Chris approved the additional Sheets test file and existing plan/log updates. Starting head ae693f791f1a0f6901d56f8f96e34fe5dab3a819; main remains 09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d. Existing #486 premium overlap and #514 shared docs remain separate.
+
+Exact intended files before editing:
+- `src/components/settings/google-sheets/__tests__/googleSheetsV2Ui.test.tsx`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/evidence/release-readiness-2026-11-06.md`
+
+Make pickTab wait for Phone to be mapped, not merely for the control to exist. Preserve all assertions, timeouts, legacy/v2 paths and the comparison gate. Run the Sheets suite on base/candidate, root TypeScript, scoped lint/build and frozen-byte checks; publish the approved follow-up and verify CI/previews. No runtime application change, backend action, merge or production release. All 36 frozen release files remain unchanged. Total PR scope becomes 49 paths.
+
+Local verification complete: 26/26 Sheets tests pass on base and candidate; root TypeScript, scoped lint, build and all frozen-byte checks pass. Publish this approved follow-up and record final CI on PR #517.
+
 ## November 6, 2026 Pacific — Finish Reports V2 technical preparation
 
 Chris requested “Finish this build” after explicitly waiving the independent reviewer requirement and authorizing Pacific reporting zones for the three organizations. Continue the existing release preparation; no new features. The waiver is an owner decision, not independent sign-off. Exact starting PR #517 head: `62a5430251113b0bd6fb93c9811dda8773371fbf`; current main/production: `09ec29a4e6a22f9679d1cfa44b2f1cf57c874e2d`.
