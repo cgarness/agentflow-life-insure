@@ -1,3 +1,150 @@
+# November 7, 2026 Pacific — C-NULL-IDENTITY correction verification
+
+The scoped correction is complete in the candidate; it is not deployed. Chris instructed proceeding after the blocker was disclosed. The exact 14 paths were listed in root implementation_plan.md before editing. Main remains `e2739c26e21f8e159b783ccf59046fed55560b16`; PR #486/#514 heads remain `2de28c320547983f68bed5f77d8ec9684ea3643d` / `3c54f4d13de7b6901db33c111d94fb70d4f42f6a`. This current record supersedes the historical documentation-only status below.
+
+## Change and regression proof
+
+The entire production logic change is `IF NOT (identity predicate)` → `IF (identity predicate) IS NOT TRUE` in unapplied …31. Missing identity is rejected rather than falling through. Existing organization, actor, age, sale operation, exception, retry and receipt checks are unchanged. The authenticated regression covers seven rejection/retry cases and four positive paths: direct client contact, original lead as contact, lead pointer, and same-org campaign membership. It checks persisted sales, no false failure records and one-sale replay. Conversion is exercised through the real companion API. Membership fixtures use retained legacy lineage because the canonical converter deletes its source lead and retains the lead's name; converted clients are addressed by their returned client_id.
+
+The original frozen SQL was reconstructed in an isolated test copy and verified against its exact SHA-256 `35587f385eea207ec2eea9ae84421d1413ebccf1759ac1609bd490dceedc2016`. It fails the new authenticated regression with `FAIL: C-NULL-IDENTITY rejects manual_null`. The corrected SQL passes the entire commission harness, canonical L1–L16 coverage, the six multi-session failure-boundary checks, existing handoff/tracking regressions and rollback. The failure-boundary file remains byte-identical to the frozen candidate. The runner adds only its canonical Package C section; four CI path filters ensure the new migration/tests invoke that harness.
+
+## Native environment and results
+
+Synthetic loopback databases only, native PostgreSQL **17.6**, TLS enabled, Supabase CLI **2.121.0**, no production credentials. PostgreSQL source checksum and pinned CLI archive checksum passed; CLI archive SHA-256 is `4b481189efbdc57cf2d37bdee5f1a0d29574314398564b32a6dfb76c0fcf275f`. Native sandbox `sbx_FoEg6W78MEwylZKOgAAp9eZRci1w` is test infrastructure, not a production deployment.
+
+| Check | Result |
+| --- | --- |
+| Full commission database harness | PASS, exit 0, 35.564 s; command `cmd_9343373aec884dffb22124b755c0` |
+| New NULL/mismatch/positive wrapper regression | PASS; sales persist, rejected replay remains one sale |
+| Lock/recover/cancel/replay/double/assert boundaries | 6/6 PASS; synthetic lock case 122 ms |
+| Original-SQL negative control | Expected regression failure; verifier exit 0; command `cmd_9ce764e6d8c44854a312af3dc6f7` |
+| Full protected release-runner rehearsal | 17/17 PASS, exit 0, 32.645 s; command `cmd_32f2c4dfe2844c1599c4561959e8` |
+| Source pins / CLI history | 34/34 source pins pass; …31 recorded as 21 statements with new exact digest |
+| Frozen release-file comparison | Exactly 2/36 differ: …31 and scripts/reports_release.py |
+| TypeScript / syntax / whitespace | `npx tsc --noEmit`, bash/node syntax checks and `git diff --check` pass |
+
+…31 now has 18,167 bytes, SHA-256 `4bfb733eaefd6bffffd1c6c759e592611eabe78c0157146d9774633f5cfda6d9`. A fresh isolated CLI `migration repair` reproduced statement SHA-256 `6cc671fa5fda16dec6ecaaf69a99642f13231a8ae8e10f3eb4d972d154a4d6a0`. The full release rehearsal independently reproduced it through the runner. Other migration/history/closure pins remain unchanged; capture is outside the report-definition closure.
+
+Rehearsal inputs use the canonical frozen source plus the four previously approved Havana fixture corrections, with this corrected migration/runner/test overlay. They do not replace the backend-only main fixture set. Early setup attempts were stopped by missing archive/fixture dependencies and an uninstalled ltree extension; two new fixture mistakes (deleted lead and converted-client name) were corrected before the successful run. No production schema workaround or relaxed assertion was used. Native commission proof did not enable optional PostgREST integration or performance measurements; hosted CI runs those existing branches. Owner UI/CSV/map review, production smoke tests and independent human sign-off are not inferred from these checks. The human reviewer requirement remains waived, not signed off.
+
+## Retained native output
+
+Log SHA-256: commission-fixed `1d1b9ef3bfa49ea8bd21b98ce5302a54a458db978043b1fd138d672813474100`; commission-original `07de098509709f0f371a90cb663e7fea6ec090b0beb7ddd7adbcd2b37ef5de19`; release-fixed `3955075c9f0097beae3e861a014bb951af29cb60c09596ada32961c2edd39294`.
+
+### commission-fixed.log
+
+```text
+PostgreSQL: 17.6
+PASS migration guards and existing-object inventory (175 objects unchanged)
+ PASS policy commission security
+ PASS policy commission handoff
+ PASS policy commission tracking
+PASS expected windows guards and inventory (8 bodies replaced, 4 writer-only helpers, 175 other objects unchanged)
+ PASS policy commission expected windows
+PASS commissions center guards and inventory (5 reads, 2 indexes, 175 existing objects unchanged)
+ PASS commissions center scenario built
+ PASS overview cards, timeline, review and setup reconcile
+ PASS statuses, excess, voids, holds, superseded, month timing, unknown dates, non-monthly and zero rates
+ PASS card drill-downs reconcile across pagination; filters
+ PASS policies list, setup state and completeness
+ PASS drawer parity
+ PASS reassignment: seller keeps financial history, contact restricted, assignee sees nothing
+ PASS same-org admin and team leader, cross-org and Agency Group peer see only their own
+ PASS permissions, sign-in, time zone and validation
+ PASS commissions center reads
+PASS commissions insights guards and inventory (6 functions, goals table, 179 existing objects unchanged)
+ PASS commissions insights scenario built
+ PASS breakdown cohort, carriers and products
+ PASS drill-downs reconcile with every bar and slice; filters compose; released lists unchanged
+ PASS comparison windows (month to date, completed months, custom, future, leap years, zero baseline)
+ PASS Months 10–12
+ PASS monthly goals
+ PASS permissions, sign-in, time zone and validation
+ PASS commissions insights
+ PASS commissions center scenario built
+ PASS overview cards, timeline, review and setup reconcile
+ PASS statuses, excess, voids, holds, superseded, month timing, unknown dates, non-monthly and zero rates
+ PASS card drill-downs reconcile across pagination; filters
+ PASS policies list, setup state and completeness
+ PASS drawer parity
+ PASS reassignment: seller keeps financial history, contact restricted, assignee sees nothing
+ PASS same-org admin and team leader, cross-org and Agency Group peer see only their own
+ PASS permissions, sign-in, time zone and validation
+ PASS commissions center reads
+PASS independent-session races and lock contention
+PASS existing sale recording, identity, performance, Sold Date and repair suites with both migrations applied
+ PASS policy commission security
+PASS non-destructive rollback, refusal, replay refusal and reapply
+ PASS policy commission expected windows
+PASS expected windows rollback: refusal, record-keeping rollback, exact restore (514 commission catalog lines), replay refusal and reapply
+PASS commissions center rollback: exact restore, records kept, replay refusal and reapply
+PASS commissions insights rollback: goal refusal, exact restore, records kept, replay refusal and reapply
+PASS producing-call capture guards: order, replay, handoff preimage drift, dependency column
+ PASS L1-L3, L8, L10 record capture, retry, replay, unchanged handoff and PT409 passthrough
+ PASS L4, L14 validation rejections and tracked inbound
+ PASS L5 conversion capture
+ PASS L6, L9 immutability and privileges
+ PASS L7, L15, L16 failure record, status read and retry
+ PASS L12 lead lineage guard
+ PASS L13 reversal
+ PASS C-NULL-IDENTITY authenticated record/conversion rejection, valid lineage, sale persistence and retry
+ PASS policy sale call links
+PASS T-LOCK sale saved, link failure recorded as 55P03 in 122 ms
+PASS T-RECOVER open_failure read in a new session, then linked by the retry RPC
+PASS T-CANCEL a cancelled call leaves no sale, link or failure row
+PASS T-REPLAY the same request afterwards saves the sale and its link
+PASS T-DOUBLE one sale and one link for a request sent twice
+PASS T-ASSERT an assertion failure is never caught: no sale, link or failure row
+ PASS policy commission handoff
+ PASS policy commission tracking
+PASS the existing handoff and tracking suites with the producing-call capture installed
+PASS producing-call capture rollback (L11): disabled capture, sales unaffected, links kept
+PASS policy commission tracking database proofs
+```
+
+### commission-original.log
+
+```text
+PostgreSQL: 17.6
+PASS producing-call capture guards: order, replay, handoff preimage drift, dependency column
+psql:/vercel/negative/supabase/tests/policy_sale_call_links.sql:252: ERROR:  FAIL: C-NULL-IDENTITY rejects manual_null
+CONTEXT:  PL/pgSQL function test_assert(boolean,text) line 2 at RAISE
+ PASS L1-L3, L8, L10 record capture, retry, replay, unchanged handoff and PT409 passthrough
+ PASS L4, L14 validation rejections and tracked inbound
+ PASS L5 conversion capture
+ PASS L6, L9 immutability and privileges
+ PASS L7, L15, L16 failure record, status read and retry
+ PASS L12 lead lineage guard
+ PASS L13 reversal
+```
+
+### release-fixed.log
+
+```text
+PASS TEST: local PostgreSQL 17.6 with TLS and no production connection
+PASS TEST: only manual dispatches on main; protected environment; only two scoped secrets; one choice per stage
+PASS TEST: required reviewer is cgarness; admin bypass and other refs forbidden
+PASS TEST: 34 checksum-pinned files (every migration, release enable, ops script and rollback) and the pinned CLI
+PASS TEST: a different Supabase CLI version is refused (version drift)
+PASS TEST: file tampering, duplicate and pending copies fail before any connection
+PASS TEST: wrong confirmation, unknown stage and non-main branch refused
+PASS TEST: the verified production history baseline (356 rows, head 20261105051037) and all 20 CLI digests are pinned
+PASS TEST: the pinned production baseline (356 rows, head 20261105051037) classifies as pre-PKG-A; any other count refuses
+PASS TEST: check (preflight) is read-only; out-of-order, read-back and record-history refuse before PKG-A
+PASS TEST: PKG-A: six transactional files, the concurrent index, the enable, read-back and 8 history rows
+PASS TEST: PKG-B: disable-v3, …20, …21, the PKG-B enable, read-back, history
+PASS TEST: PKG-C: …30, …31, disable-v3, …32, the PKG-C enable, read-back, history
+PASS TEST: PKG-D: …40, the 36-row baseline, …41, …42, disable-v3, …43, the PKG-D enable, read-back, 20 history rows; calls, sales and clients unchanged
+PASS TEST: disable-all leaves class W on; re-enable restores the PKG-D pins and passes read-back
+PASS TEST: recovery: D, C (…32, …31) rolled back in reverse order with history reverted; …30 has no rollback, so PKG-B cannot roll back past it; re-enable at the PKG-B pins passes read-back
+PASS TEST: history drift stops every further stage
+ALL PASSED: 17 release rehearsal checks
+```
+
+---
+
+## Historical preflight and preparation (superseded where noted above)
+
 # November 7, 2026 Pacific — Package C read-only preflight and Package B closeout
 
 Base main `e2739c26e21f8e159b783ccf59046fed55560b16`; no drift. Production history 367/head …22, contract 3.1.0, sale_call_links/appointment_evidence not_installed. Link/failure tables and all seven new Package C functions are absent. Advisors 279 security/463 performance/0 health.

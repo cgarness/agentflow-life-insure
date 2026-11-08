@@ -1,3 +1,11 @@
+# November 7, 2026 Pacific — Corrected Package C candidate, not deployed
+
+The C-NULL-IDENTITY correction is confined to the unapplied …31 predicate and its release pins. `scripts/reports_release.py` now pins 18,167 bytes / SHA-256 `4bfb733eaefd6bffffd1c6c759e592611eabe78c0157146d9774633f5cfda6d9`, with 21 CLI-recorded statements / SHA-256 `6cc671fa5fda16dec6ecaaf69a99642f13231a8ae8e10f3eb4d972d154a4d6a0`. Native PostgreSQL 17.6 and pinned CLI 2.121.0 reproduce that history record. All other SQL/recovery/enable/read-back pins remain unchanged; the capture helper is outside the report-definition closure.
+
+No production workflow was dispatched, no migration was applied, and no live sale/correction was created during this build. Latest verified production remains the Package B state below. Final source review/CI, fresh C preflight and exact production approvals are still required. Preserve the original frozen commit as historical evidence; never run its unsafe …31 unchanged. The new candidate's verification is documented in verification.md, separate from prior production evidence.
+
+---
+
 # November 7, 2026 Pacific — Package B backend released
 
 Package B backend B1–B4 is complete: history 367/head 20261105120022; all 11 A/B migrations installed and recorded; contract 3.1.0; corrections audited_ledger; v3 enabled. The ledger remains empty. B5 correction/history frontend, B6 premium/Sold Date classification decisions, owner visual/CSV/map acceptance, Packages C/D and Reports UI remain open. Independent human review is waived by Chris, not signed off. Prior Pacific zones remain unchanged. No individual correction or bounded B6 deferral is inferred.

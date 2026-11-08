@@ -1,5 +1,18 @@
 # AgentFlow Work Log
 
+## November 7, 2026 Pacific — Package C nullable buyer identity fixed and rehearsed (not deployed)
+
+Chris instructed proceeding and finishing the build after blocker disclosure and publication of draft PR #519. Root implementation_plan.md recorded the exact 14 paths before implementation. Branch fix/reports-c-buyer-identity-20261108; unchanged main e2739c26e21f8e159b783ccf59046fed55560b16; existing PR #519 will carry this continuation. #486/#514 heads unchanged; no unrelated changes or merges.
+
+Changed unapplied …31 to reject its buyer predicate unless explicitly TRUE. Imported canonical policy_sale_call_links.sql and sale-call-link-failure-boundaries.mjs; added authenticated record/conversion NULL, mismatch, valid-lineage, sale-preservation and retry regressions. Appended only the canonical C section to the commission runner and added four CI path filters. Updated …31 source pin (18,167 bytes, SHA-256 4bfb733eaefd6bffffd1c6c759e592611eabe78c0157146d9774633f5cfda6d9) and CLI statement pin (21, SHA-256 6cc671fa5fda16dec6ecaaf69a99642f13231a8ae8e10f3eb4d972d154a4d6a0). Exactly two of 36 frozen release files differ; original candidate remains intact. Other SQL, report closure, enable/read-back and history pins unchanged.
+
+Files: root implementation_plan.md / WORK_LOG.md / AGENT_RULES.md; focused implementation_plan.md / release-proposal.md / production-release.md / verification.md / context-snapshot.md; supabase/migrations/20261105120031_policy_sale_call_link_capture.sql; scripts/reports_release.py; supabase/tests/policy_sale_call_links.sql; scripts/tests/sale-call-link-failure-boundaries.mjs; scripts/run_policy_commission_tests.sh; .github/workflows/policy-commission-tracking.yml.
+
+Verification: native PostgreSQL 17.6 / Supabase CLI 2.121.0 full commission harness, C guards/L1–L16/rollback, six multi-session boundaries and existing handoff/tracking regressions pass. Original exact SQL fails the new missing-identity assertion; corrected SQL passes. Full release-runner rehearsal 17/17, 34 source pins, exact two-file deviation, root TypeScript, bash/node syntax and whitespace pass. Logs and setup/fixture corrections retained in verification.md. Optional native PostgREST/performance branches not run; final-head hosted CI remains to be observed, not presumed green.
+
+Production migrations/deploys: none. No production sales, corrections, role simulation, real calls/messages, frontend/telephony changes or settings changes. Original frozen …31 must not deploy. Next: publish/verify PR #519 continuation, then exact merge/backend release decision. B5/B6, owner acceptance, C/D/F and frontend gates remain open; independent human review waived, not signed off.
+
+
 ## November 7, 2026 Pacific — Package B backend closed; Package C preparation found release blocker
 
 Chris approved the eight-file local documentation scope. Base main e2739c26e21f8e159b783ccf59046fed55560b16; new branch docs/reports-package-c-preparation-20261107; base tree matches main. Root plan/file list recorded first. Files: implementation_plan.md, WORK_LOG.md, AGENT_RULES.md, and focused implementation_plan.md, release-proposal.md, production-release.md, verification.md, context-snapshot.md. No SQL/app/test/runner/workflow edits.

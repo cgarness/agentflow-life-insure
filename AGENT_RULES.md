@@ -1527,7 +1527,7 @@ Coverage and unresolved counts use only in-scope credited items. Differencing fi
 
 ## Reports Package C backend — PROPOSED, NOT DEPLOYED (November 7, 2026)
 
-Preparation only. C-NULL-IDENTITY blocks release of frozen …31; see the Reports verification record. These amendments describe intended behavior after a separately approved correction and release, not current production. No frontend or component-size exception is granted.
+Prepared correction, not deployed. Frozen …31 has C-NULL-IDENTITY and must not be released unchanged. The corrected candidate rejects a buyer predicate unless it is explicitly TRUE (`IS NOT TRUE`); NULL pointers alone never establish identity. See the Reports verification record for authenticated wrapper and native rehearsal evidence. These amendments describe behavior after a separately approved production release, not current production. No frontend or component-size exception is granted.
 
 **A-618 (sale recording, :618).** "Dialer-originated and tracked-inbound sales may call `*_handoff_v2`, which delegate unchanged to the Phase 2A companions and then record the producing-call link in a savepoint. A link error other than QUERY_CANCELED or ASSERT_FAILURE never fails or alters the sale, its request hash or its receipt; it is recorded in `private.policy_sale_call_link_failures` for retry. A statement cancellation or timeout aborts the whole call atomically, and the existing idempotent retry applies. A missing link is always Unclassified, never No."
 

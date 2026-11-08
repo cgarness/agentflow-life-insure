@@ -1,3 +1,23 @@
+# Reports V2 — Package C buyer identity correction prepared
+
+This section supersedes the historical documentation-only proposal below. Chris's instruction to proceed and finish authorizes the scoped implementation and verification; exact production releases remain separate. Draft PR #519 records the original blocker. The corrected candidate replaces the nullable rejection predicate, adds API regression coverage, restores canonical C tests to backend CI, and repins only the changed migration.
+
+Package B remains enabled at contract 3.1.0 with 367 recorded migrations. No Package C object or new frontend was deployed by this work. The corrected candidate must pass final-head hosted checks and receive the separately controlled merge/backend decision. Do not execute the original frozen …31. The reviewed C sequence below still applies; no smoke sale, role simulation, policy correction, migration or deployment is implied by code publication.
+
+| Corrected release input | Value |
+| --- | --- |
+| …31 bytes | 18,167 |
+| …31 SHA-256 | `4bfb733eaefd6bffffd1c6c759e592611eabe78c0157146d9774633f5cfda6d9` |
+| CLI 2.121.0 recorded statement count | 21 |
+| Recorded statement SHA-256 | `6cc671fa5fda16dec6ecaaf69a99642f13231a8ae8e10f3eb4d972d154a4d6a0` |
+| Other release SQL / enable / read-back files | Unchanged |
+
+The original frozen commit remains intact. The new …31 and runner are the only two deviations among its 36 release files. Testing uses synthetic local databases on PostgreSQL 17.6, with no production credentials. See verification.md for completed checks and their limits. PR #486/#514 remain separate, with unchanged heads during this correction; shared documentation still needs merge coordination. B5/B6, owner visual/CSV/map acceptance, C/D/F and frontend release gates remain open.
+
+---
+
+## Historical preparation proposal (superseded)
+
 # Reports V2 — Package B backend closeout; Package C blocked preparation
 
 ## Current decision — November 7, 2026 Pacific

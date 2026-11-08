@@ -129,7 +129,7 @@ PINS = {
     'supabase/migrations/20261105120021_reports_v3_sale_premium_basis.sql': (9302, 'df9a1e49eb626e7e4ddf50350d2d245e0c963ecf910932869deb4e2b398bd273'),
     'supabase/migrations/20261105120022_reports_v3_release_enable_pkg_b.sql': (24080, '16ffbe8eca6e0e18bf25095eb1da888793b1035cc5a94a43ce46852d96b8f7ac'),
     'supabase/migrations/20261105120030_policy_sale_call_links.sql': (5592, '6cd1e59deac34c38cb9dfe44e012187d2f09277eaf631915742f1fc9b22889bf'),
-    'supabase/migrations/20261105120031_policy_sale_call_link_capture.sql': (18159, '35587f385eea207ec2eea9ae84421d1413ebccf1759ac1609bd490dceedc2016'),
+    'supabase/migrations/20261105120031_policy_sale_call_link_capture.sql': (18167, '4bfb733eaefd6bffffd1c6c759e592611eabe78c0157146d9774633f5cfda6d9'),
     'supabase/migrations/20261105120032_reports_v3_sale_call_links.sql': (4449, 'f17a09b9b1b732289ce3b865d7963644f118ff1dd3c7ef6f53974067e7fecff0'),
     'supabase/migrations/20261105120033_reports_v3_release_enable_pkg_c.sql': (24080, '8abb91505eba84b9affc277ca3111e2ec2a157e373f218a1295f99a4f346806a'),
     'supabase/migrations/20261105120040_appointment_type_categories.sql': (9882, '7c0d97baac891a0d57f63857e5857b69812a87ace3d89c444f19228d6c7e8b40'),
@@ -157,6 +157,7 @@ NAMES = {i.version: Path(i.path).name[15:-4] for i in ITEMS if i.version}
 # 20261105051037_dialer_admitted_call_counts, no Reports V3 migration applied), and the CLI's recorded row per version
 # (statement count and SHA-256 of the concatenated statements), captured by supabase migration repair with exactly
 # Supabase CLI 2.121.0 on PostgreSQL 17.6 (CI run 42051570639) from the pinned bytes below. Any other value refuses.
+# …31 alone was repinned after C-NULL-IDENTITY using the same CLI/engine (2026-11-08 UTC).
 PRODUCTION_ROWS_BEFORE = 356
 PRODUCTION_HEAD_BEFORE = '20261105051037'
 RECORDED = {
@@ -172,7 +173,7 @@ RECORDED = {
     '20261105120021': (13, '099dd2093f855fe94a3b549d2eaec9cf744929c1e152b65bf683ba786d459ed2'),
     '20261105120022': (3, '23163481bb90cb95d99f51cf924e9147edb88b94cd88ce3e8cab06a2ae1649cd'),
     '20261105120030': (14, 'e7299b966c56ed3a16551c87c6019396e9c030df1dab6e08adf2e4347dc8476a'),
-    '20261105120031': (21, '948f05c3d016090b371640835a647ef926f65c942a16ffee3940ee9c8a7f3b47'),
+    '20261105120031': (21, '6cc671fa5fda16dec6ecaaf69a99642f13231a8ae8e10f3eb4d972d154a4d6a0'),
     '20261105120032': (9, '112d08b575efc9965b057b67b0bcf32239c06495bd7b14d0017b516013fa56e8'),
     '20261105120033': (3, '3126a14d0074fbd19081414ec1c91b59d9284e3df5b9579a5d43c6c30a56d5f5'),
     '20261105120040': (22, 'af5f721548e7e92d84a4ce877ddbbfc0e598edeb275300d3db611e2d589e8618'),
