@@ -2,6 +2,10 @@ name: Policy commission tracking verification
 on:
   pull_request:
     paths:
+      - 'supabase/migrations/*_policy_sale_call_link*.sql'
+      - 'supabase/migrations/rollback/*_policy_sale_call_link*.rollback.sql'
+      - 'supabase/tests/policy_sale_call_links.sql'
+      - 'scripts/tests/sale-call-link-failure-boundaries.mjs'
       - 'supabase/migrations/*_policy_commission_tracking.sql'
       - 'supabase/migrations/rollback/*_policy_commission_tracking.rollback.sql'
       - 'supabase/migrations/*_policy_commission_expected_windows.sql'

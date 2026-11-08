@@ -1,3 +1,40 @@
+# November 7, 2026 Pacific — Corrected Package C candidate, not deployed
+
+The C-NULL-IDENTITY correction is confined to the unapplied …31 predicate and its release pins. `scripts/reports_release.py` now pins 18,167 bytes / SHA-256 `4bfb733eaefd6bffffd1c6c759e592611eabe78c0157146d9774633f5cfda6d9`, with 21 CLI-recorded statements / SHA-256 `6cc671fa5fda16dec6ecaaf69a99642f13231a8ae8e10f3eb4d972d154a4d6a0`. Native PostgreSQL 17.6 and pinned CLI 2.121.0 reproduce that history record. All other SQL/recovery/enable/read-back pins remain unchanged; the capture helper is outside the report-definition closure.
+
+No production workflow was dispatched, no migration was applied, and no live sale/correction was created during this build. Latest verified production remains the Package B state below. Final source review/CI, fresh C preflight and exact production approvals are still required. Preserve the original frozen commit as historical evidence; never run its unsafe …31 unchanged. The new candidate's verification is documented in verification.md, separate from prior production evidence.
+
+---
+
+# November 7, 2026 Pacific — Package B backend released
+
+Package B backend B1–B4 is complete: history 367/head 20261105120022; all 11 A/B migrations installed and recorded; contract 3.1.0; corrections audited_ledger; v3 enabled. The ledger remains empty. B5 correction/history frontend, B6 premium/Sold Date classification decisions, owner visual/CSV/map acceptance, Packages C/D and Reports UI remain open. Independent human review is waived by Chris, not signed off. Prior Pacific zones remain unchanged. No individual correction or bounded B6 deferral is inferred.
+
+All stages below succeeded on main `e2739c26e21f8e159b783ccf59046fed55560b16` against `jncvvsvckxhqgqvkppmj`, using existing protected environment guard/review without safeguard changes.
+
+| Stage | Successful run |
+| --- | --- |
+| `check` | [42405094059](https://github.com/cgarness/agentflow-life-insure/actions/runs/42405094059) |
+| `disable-v3` | [42407076515](https://github.com/cgarness/agentflow-life-insure/actions/runs/42407076515) |
+| `apply-20261105120020` | [42407592061](https://github.com/cgarness/agentflow-life-insure/actions/runs/42407592061) |
+| `apply-20261105120021` | [42408764997](https://github.com/cgarness/agentflow-life-insure/actions/runs/42408764997) |
+| `apply-enable-20261105120022` | [42410453576](https://github.com/cgarness/agentflow-life-insure/actions/runs/42410453576) |
+| `read-back` | [42417781192](https://github.com/cgarness/agentflow-life-insure/actions/runs/42417781192) |
+| `record-history` | [42418318571](https://github.com/cgarness/agentflow-life-insure/actions/runs/42418318571) |
+
+The …20/…21 migrations proved per-sale before/after identity. Independent …21 check: 44 sales, zero report/effective/original premium mismatches. …22 verified 15 readers, 30 executable authenticated/service_role pairs, zero mismatches/PUBLIC ACL entries. Read-back passed twice (approximately 16.86 and 15.55 seconds); history repair used CLI 2.121.0 without replaying SQL. These are verification durations, not individual endpoint latency or new scale claims. Conditional team/agent-filter skip NOTICE output is suppressed; do not claim all four scopes or 36 calls ran. Historical 144/147 scale results retain three accepted agency/366-day exceptions.
+
+History records …20/…21/…22 have counts 25/13/3 and SHA-256 statement digests:
+- …20: ad3cee6d4ed167fa79b83ce162e1c24cc4da16f4c2a38cc4f67f4d38865d9aac
+- …21: 099dd2093f855fe94a3b549d2eaec9cf744929c1e152b65bf683ba786d459ed2
+- …22: 23163481bb90cb95d99f51cf924e9147edb88b94cd88ce3e8cab06a2ae1649cd
+
+Names and null created_by/idempotency_key/rollback metadata match the runner. Earlier 364 rows unchanged (MD5 c8cc79b9a1b3e485dc09e892da34e502). Public/private ordinary function definitions MD5 e210371eca2582ed193f61d6c21e0df4 and ACL MD5 16cef908ecbe39ed55108a29ed09ad33 unchanged by history recording. Advisors: 279 security/463 performance/0 health. Known unrelated findings remain open, including public.app_config and public.webhook_debug_log RLS disabled. No production action occurred during this documentation preparation. Package C remains uninstalled and blocked by C-NULL-IDENTITY; see verification.md.
+
+---
+
+## Historical Package A record
+
 # Reports V2 — Package A production release record
 
 Recorded November 7, 2026 Pacific. This consolidates observed workflow and independent read-only verification evidence from PR #517 and the approved release turns. It is not permission to replay any stage.

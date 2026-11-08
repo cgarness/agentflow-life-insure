@@ -1,3 +1,23 @@
+# November 7, 2026 Pacific — Package C buyer identity correction
+
+Chris instructed “Proceed and finish build” after the blocker was disclosed and documentation PR #519 was published. The root plan lists the exact 14-file correction/test/CI/documentation scope before implementation. Work is on `fix/reports-c-buyer-identity-20261108`, based on the PR #519 tree and unchanged main `e2739c26e21f8e159b783ccf59046fed55560b16`.
+
+Implementation changes the unapplied capture predicate from `IF NOT (...)` to `IF (...) IS NOT TRUE`, imports the canonical candidate call-link SQL and failure-boundary tests, appends only the canonical C section to the existing commission harness, and extends its CI paths. New authenticated wrapper tests cover nullable/mismatched identity, all four positive identity routes, cross-organization membership, conversion, sale preservation and request replay. Only …31's byte/statement pins change; report closure and enable/read-back pins stay unchanged.
+
+Original frozen candidate `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c` remains the historical comparison baseline. Exactly two of its 36 release files differ: …31 and the release runner. This is an explicit corrected candidate, not a claim that all frozen bytes are unchanged. See verification.md for current evidence. No production action or frontend/telephony integration is included. B5/B6, owner acceptance and exact backend/frontend release gates remain open; the human-review waiver is not a sign-off.
+
+---
+
+## Historical preparation (superseded by the correction above)
+
+# November 7, 2026 Pacific — Package C preparation approved; execution blocked
+
+The eight-file local documentation scope is approved and listed in root implementation_plan.md before edits. Base main `e2739c26e21f8e159b783ccf59046fed55560b16`. Package B backend is complete; see production-release.md. Package C preimages/absence checks pass, but C-NULL-IDENTITY blocks production: its nullable buyer identity condition can skip rejection. Preserve frozen files; prepare a separately scoped correction with regression/rehearsal evidence before any Package C release. Proposed A-618/A-591 text is not deployed. No protected-component exceptions are granted by this preparation.
+
+Next: review/publish documentation only after approval; identify exact candidate correction/test/pin paths for a separate approval. B5/B6, frontend and owner gates remain open. Historical plan below is retained; its source line references and older version prefixes must not be blindly applied to current main.
+
+---
+
 ## November 7, 2026 Pacific — Package A complete; Package B preparation approved
 
 This status supersedes historical release-status statements below. Main is `15d967320af7a0bd9774e09bc57e0dd31f97900c`. Package A is installed, enabled at contract 3.0.0 and recorded: 364 migrations, latest 20261105120017. Chris approved local preparation of the eight documentation files listed in root implementation_plan.md and read-only Package B review. Publication, merge and each production stage remain separately gated.

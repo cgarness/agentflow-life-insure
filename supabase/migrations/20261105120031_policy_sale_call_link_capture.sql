@@ -98,9 +98,9 @@ BEGIN
   END IF;
   -- The call identity is the buyer: the client itself, or the lead the client was converted from (as the call's
   -- contact, its lead pointer, or the lead of its campaign membership).
-  IF NOT (ca.contact_id = cl.id OR (cl.lead_id IS NOT NULL AND (ca.contact_id = cl.lead_id OR ca.lead_id = cl.lead_id
+  IF (ca.contact_id = cl.id OR (cl.lead_id IS NOT NULL AND (ca.contact_id = cl.lead_id OR ca.lead_id = cl.lead_id
           OR EXISTS (SELECT 1 FROM public.campaign_leads m WHERE m.id = ca.campaign_lead_id
-                      AND m.organization_id = cl.organization_id AND m.lead_id = cl.lead_id)))) THEN
+                      AND m.organization_id = cl.organization_id AND m.lead_id = cl.lead_id)))) IS NOT TRUE THEN
     RETURN jsonb_build_object('status', 'rejected', 'recorded', false, 'reason', 'identity_mismatch');
   END IF;
   IF EXISTS (SELECT 1 FROM unnest(p_win_ids) x(id)

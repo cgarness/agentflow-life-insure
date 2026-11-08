@@ -1,3 +1,49 @@
+# November 7, 2026 Pacific — Proceed and finish: Package C identity correction
+
+Chris instructed proceeding with and finishing the build after the C-NULL-IDENTITY blocker was disclosed. Implement and verify the correction on an isolated branch; production stages remain separately gated. Preserve the original frozen commit, with explicit reviewed deviations rather than silently representing revised bytes as frozen.
+
+Exact intended paths before implementation:
+- implementation_plan.md
+- WORK_LOG.md
+- AGENT_RULES.md
+- docs/plans/2026-10-31-reports-v2/implementation_plan.md
+- docs/plans/2026-10-31-reports-v2/release-proposal.md
+- docs/plans/2026-10-31-reports-v2/production-release.md
+- docs/plans/2026-10-31-reports-v2/verification.md
+- docs/plans/2026-10-31-reports-v2/context-snapshot.md
+- supabase/migrations/20261105120031_policy_sale_call_link_capture.sql
+- scripts/reports_release.py
+- supabase/tests/policy_sale_call_links.sql
+- scripts/tests/sale-call-link-failure-boundaries.mjs
+- scripts/run_policy_commission_tests.sh
+- .github/workflows/policy-commission-tracking.yml
+
+Reject nullable identity with IS NOT TRUE. Import the canonical frozen C tests/failure-boundary runner and append only its C section to the existing commission harness; extend CI paths. Add actual wrapper regression coverage and demonstrate failure on old SQL. Recalculate only affected source/history pins using the pinned CLI; report-closure pins should not change because capture is outside the report closure. Run native synthetic commission and full release rehearsal, root TypeScript and scope checks. No live policy writes, calls, role simulation, backend release or frontend integration.
+
+Completed: corrected predicate and API regressions, original-SQL negative control, canonical failure boundaries, full native commission harness, 17/17 release rehearsal, CLI repin, TypeScript/syntax/whitespace and source-scope checks. Retained evidence is in verification.md. Continue publication on existing draft PR #519; observe exact-head CI. Production remains unchanged and separately gated.
+
+---
+
+# November 7, 2026 Pacific — Approved Package B closeout and Package C preparation
+
+Chris approved local documentation edits and read-only Package C preparation. Base main is e2739c26e21f8e159b783ccf59046fed55560b16; the local starting tree is identical. No publication, merge, deployment, production write, role simulation or synthetic sale is authorized.
+
+Exact intended files, listed before edits to other files:
+- implementation_plan.md
+- WORK_LOG.md
+- AGENT_RULES.md
+- docs/plans/2026-10-31-reports-v2/implementation_plan.md
+- docs/plans/2026-10-31-reports-v2/release-proposal.md
+- docs/plans/2026-10-31-reports-v2/production-release.md
+- docs/plans/2026-10-31-reports-v2/verification.md
+- docs/plans/2026-10-31-reports-v2/context-snapshot.md
+
+Consolidate Package B's separately approved production evidence, mark its backend invariants deployed, inspect live Package C preimages/absence/lineage writers and current frontend/telephony boundaries, and prepare proposed A-618/A-591 wording. Preserve all 36 frozen release files from 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c. Verify exact scope, whitespace, frozen bytes and root TypeScript. Retain B5/B6, owner acceptance, future telephony integration and all production gates. Next decision is publication of the finished documentation-only branch, not production execution.
+
+Completed: eight-file preparation and read-only preflight. C-NULL-IDENTITY blocks Package C release; see verification.md. Root TypeScript, whitespace, scope, 34 SQL pins and 36 frozen-byte checks pass. No production changes or publication.
+
+---
+
 ## November 7, 2026 Pacific — Package B preparation approved
 
 Chris approved read-only Package B preflight/security review and local preparation of exactly the eight documentation files below. Base: main `15d967320af7a0bd9774e09bc57e0dd31f97900c`; isolated branch `docs/reports-package-b-preparation-20261107`. Package A is installed, enabled and recorded. No publication, merge, production mutation, role simulation, workflow dispatch or frontend release is authorized by this preparation approval.
