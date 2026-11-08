@@ -1,3 +1,11 @@
+# November 8, 2026 Pacific — Package D correction prepared
+
+Chris approved the exact 11-file scope listed in root implementation_plan.md. Branch `fix/reports-d-null-guards-20261108` is based on main `401f758d884677eae0e85ac1acb22adabb393ccd`. Two …42 predicates now require an explicitly TRUE identity/authority match. Canonical tests, authenticated API regressions, independent original-guard negative controls, full non-performance v3 suite, 17/17 release rehearsal and E12 concurrency pass. Source and CLI history pins are updated; app/lint failures match main by identity. See verification.md for exact files, hashes and evidence.
+
+Package C is already recorded; D …40/category-baseline/…41 succeeded under prior approvals. …42 remains absent in production. No publication or production change occurred here. Next: approve exact commit publication and draft PR with automatic hosted effects described in release-proposal.md. Merge, remaining D stages/history and frontend release remain separate. Human review is waived, not signed off; B6 disposition and owner visual/CSV/map acceptance stay open.
+
+---
+
 # November 7, 2026 Pacific — Package C buyer identity correction
 
 Chris instructed “Proceed and finish build” after the blocker was disclosed and documentation PR #519 was published. The root plan lists the exact 14-file correction/test/CI/documentation scope before implementation. Work is on `fix/reports-c-buyer-identity-20261108`, based on the PR #519 tree and unchanged main `e2739c26e21f8e159b783ccf59046fed55560b16`.

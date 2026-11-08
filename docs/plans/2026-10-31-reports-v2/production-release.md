@@ -1,3 +1,15 @@
+# November 8, 2026 Pacific — D …42 corrected, not executed
+
+This update supersedes historical C preparation below. C history run 42478370891 completed. D …40 run 42494385667, category-baseline run 42494725586 and …41 run 42495034013 succeeded under separate prior approvals. The baseline classified/audited 36 defaults (sales 6, follow_up 6, recruiting 6, review 12, other 6). No stage is replayed here. Read-only verification confirms 371 history rows/head …33, category/occurrence objects present and …42 attribution table/RPC absent. D history awaits package completion.
+
+Corrected …42: 19,047 bytes; SHA-256 `dea3c83cf242304fb1559050bbbb2c0b997a8cea2f65a94532cab406957bc296`. CLI 2.121.0: 34 statements; digest `4b71a769746331ee19f2e0c3b6f98a27c2c00077a39091e8e4688f32e282a2e8`. Writer guards are outside the reporting definition closure; enable/read-back/rollback bytes stay unchanged. Never execute the original frozen …42. Native proof is retained in verification.md.
+
+The correction branch is unpublished. Next approval is exact commit publication/draft PR with the hosted effects in release-proposal.md. After hosted checks and separate merge/rebuild approval, proposed separately gated stages are: corrected …42 → disable-v3 → …43 → enable …44 → read-back → record-history. No production mutation, role simulation, dispatch, merge or deployment occurred in this correction turn.
+
+Three previously confirmed organizations each still have one Active user and saved/resolved `America/Los_Angeles`; exact identifiers and read-only evidence are in verification.md. B6 remains 2 discrepant events, with separate premium/Sold Date flags, and no approved classification/correction. Owner visual/CSV/map acceptance and frontend release are pending. Human independent review is waived by Chris, not signed off. Full Reports UI remains unreleased.
+
+---
+
 # November 7, 2026 Pacific — Corrected Package C candidate, not deployed
 
 The C-NULL-IDENTITY correction is confined to the unapplied …31 predicate and its release pins. `scripts/reports_release.py` now pins 18,167 bytes / SHA-256 `4bfb733eaefd6bffffd1c6c759e592611eabe78c0157146d9774633f5cfda6d9`, with 21 CLI-recorded statements / SHA-256 `6cc671fa5fda16dec6ecaaf69a99642f13231a8ae8e10f3eb4d972d154a4d6a0`. Native PostgreSQL 17.6 and pinned CLI 2.121.0 reproduce that history record. All other SQL/recovery/enable/read-back pins remain unchanged; the capture helper is outside the report-definition closure.

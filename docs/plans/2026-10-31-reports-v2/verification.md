@@ -1,3 +1,120 @@
+# November 8, 2026 Pacific — Package D NULL guards corrected; publication pending
+
+Chris approved the targeted correction, regression tests, checksums and plan/work-log updates. This record supersedes the historical Package C preparation status below. Main is `401f758d884677eae0e85ac1acb22adabb393ccd`; local preparation branch is `fix/reports-d-null-guards-20261108`. Open #486/#514 retain heads `2de28c320547983f68bed5f77d8ec9684ea3643d` / `3c54f4d13de7b6901db33c111d94fb70d4f42f6a`; shared documentation still needs coordination.
+
+Unapplied …42 now rejects buyer membership and root-none supersession unless their predicates are explicitly TRUE. Missing buyer/assignee/seller identities cannot supply authority. Organization, appointment visibility, ordinary policy authority, admin correction, append-only history and idempotency remain unchanged. No frontend, schema shape, RLS policy, other migration, workflow, deployment setting or integration setting changed.
+
+| Revised input | Value |
+| --- | --- |
+| …42 source bytes | 19,047 |
+| …42 SHA-256 | `dea3c83cf242304fb1559050bbbb2c0b997a8cea2f65a94532cab406957bc296` |
+| CLI 2.121.0 statement count | 34 |
+| Recorded statement SHA-256 | `4b71a769746331ee19f2e0c3b6f98a27c2c00077a39091e8e4688f32e282a2e8` |
+
+Original candidate `38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c` is preserved. Exactly three of its 36 release files now differ: previously approved …31, this …42 and scripts/reports_release.py. Relative to current main, only …42 and its two runner pins change among release files. All 34 source pins pass. Report closure, enable/read-back and rollback bytes are unchanged; the two writer helpers are outside the report-definition closure.
+
+## Prior separately approved production state
+
+Package C is installed/enabled and recorded through …33 (history run 42478370891). Package D …40 succeeded in run 42494385667; category-baseline run 42494725586 classified/audited exactly 36 locked defaults (sales 6, follow_up 6, recruiting 6, review 12, other 6); …41 succeeded in run 42495034013. These actions are historical, not replayed by this correction.
+
+Fresh read-only metadata check on November 8 confirms 371 history rows/head …33, category-event and occurrence tables present, and the …42 attribution table/link RPC absent. D history waits for the rest of the package. No production mutation, role simulation, workflow dispatch, PR, merge, push or deployment occurred during this work. Full Reports frontend remains unreleased.
+
+## Verification and limits
+
+Native PostgreSQL 17.6 with TLS and Supabase CLI 2.121.0; synthetic loopback only, no production credentials. Corrected authenticated API tests and canonical attribution suite pass. Each original predicate, restored independently in a temporary test copy, fails the corresponding regression. Full protected-runner rehearsal passes 17/17; the complete non-performance v3 fixture passes including security, contract, refusal, recovery and appointment facts. Canonical E12 concurrency passes: simultaneous first links serialize and only one persists.
+
+Root `npx tsc --noEmit`, build, bash syntax and whitespace checks pass. Existing Reports library tests: 187 pass, one skipped, zero failures. Fresh main/candidate app TypeScript results match exactly at 79 errors; lint matches by diagnostic identity at 11 errors/142 warnings. No all-green app-wide claim. Performance was not rerun; the three accepted historical 366-day exceptions remain. New regression runner requires the frozen harness checkout supplied by HARNESS_ROOT; backend-only main does not contain that entire fixture. No workflow file was changed and this new runner is not automatically wired into hosted CI.
+
+## Remaining gates and next approval
+
+Approve publication of this exact 11-file correction branch and opening a draft PR, including automatic hosted effects. Current path filters match four Actions workflows: UV profile sync verification, Reporting integrity, SMS consent integration and Dialer DNC integrity. Both linked Vercel projects may build previews. Supabase's GitHub integration may attempt an isolated preview and execute its migrations; a prior branch-limit failure is not a guarantee it will skip. Existing branches were inspected read-only; no integration settings were changed. Production release workflow is dispatch-only and will not run from the PR.
+
+Publication approval does not authorize merge, production deployment, …42 execution or later stages. After hosted checks, the exact merge/rebuild decision and each production stage remain separate. Proposed future order: corrected …42 → disable-v3 → …43 → enable …44 → read-back → record-history. Never run the original frozen …42. B6 disposition, owner visual/CSV/map acceptance and frontend release remain pending. Independent human review is waived by Chris, not signed off; automated tests are not independent approval.
+
+## Time-zone worklist (read-only recheck)
+
+| Organization | Active users | Saved and resolved zone | Confirmation evidence |
+| --- | ---: | --- | --- |
+| 525671d1-f6cd-4289-b415-1ec2f06b2472 | 1 | America/Los_Angeles | Chris's “Use pacific for those 3”; saved value and resolver verified |
+| b90dccbf-f320-4b62-ade3-38b793f666cb | 1 | America/Los_Angeles | Same owner confirmation and read-only verification |
+| cda13104-307c-4d2c-b804-d623d0e34886 | 1 | America/Los_Angeles | Same owner confirmation and read-only verification |
+
+No time-zone mutation in this work. This prerequisite is resolved for these three organizations; it does not imply the unreleased frontend is available.
+
+B6 is not rerun: approved original SHA-256 `181e8b55e38f787fe3cf567d3b311ee3f56b92901ff9579e0668ed7beb597729` passed 55 isolated checks then unchanged home-organization-only read-only execution. Prior redacted result: 44 sales, **2 distinct discrepant events**, each with separate premium and Sold Date observations. No classification, correction, premium amounts or policy records are disclosed or authorized.
+
+Existing contract-3.3.0 review ZIP contains 44 screenshots and 37 actual CSV exports, including opened controls and agency/team/personal variants. These are synthetic pre-release evidence; owner visual/CSV/map-provenance acceptance remains pending. This correction changes no application code or valid-fixture presentation. Attach that actual archive with the new source diff/native logs; temporary VM paths are not the delivery.
+
+## Exact changed files
+
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/release-proposal.md`
+- `docs/plans/2026-10-31-reports-v2/production-release.md`
+- `docs/plans/2026-10-31-reports-v2/verification.md`
+- `docs/plans/2026-10-31-reports-v2/context-snapshot.md`
+- `supabase/migrations/20261105120042_policy_appointment_attributions.sql`
+- `scripts/reports_release.py`
+- `supabase/tests/policy_appointment_attributions.sql`
+- `scripts/test_policy_appointment_null_guards.sh`
+
+## Native execution evidence
+
+Sandbox `sbx_S55Ol1eWBAabQHqCJtUedZdXr5Gs` was stopped after retrieval. Commands: guards `cmd_f3dc6910272d457ab45af170b85e` (exit 0, 79.658 s); release `cmd_b731ac084e824510bd53f0c822be` (exit 0, 36.509 s); full v3 `cmd_b10ddc4681304b7d80d5e4ffa2ea` (exit 0, 26.910 s); E12 `cmd_485a7f73e60449fb9316b9233f4f` (exit 0). PostgreSQL source checksum and pinned CLI archive checksum passed.
+
+Setup corrections: restored the frozen dialer preimage SQL omitted from the initial transfer; corrected the negative-control runner’s expected assertion-label ordering; used the canonical `reporting_` database prefix required by the E12 guard. No SQL assertion was weakened.
+
+### guards.log
+
+SHA-256 `c222e04ff28b208c5a100d0ce06db2f2c729d1db303510f3532ef68c7fa65ec8`
+
+```text
+ PASS D-NULL-IDENTITY and D-NULL-AUTHORITY authenticated API regressions
+PASS corrected migration: canonical attribution suite and authenticated NULL regressions
+psql:/tmp/tmp.14j4uvBtiG/fixture.sql:45342: ERROR:  D-NULL-IDENTITY missing buyer is rejected FAIL: got [<NULL>] want [different_contact]
+PASS negative control: original-contact independently reproduces its regression
+psql:/tmp/tmp.14j4uvBtiG/fixture.sql:45388: ERROR:  D-NULL-AUTHORITY missing start assignee rejects non-seller FAIL: got [<NULL>] want [already_linked]
+PASS negative control: original-authority independently reproduces its regression
+```
+
+### release.log
+
+SHA-256 `3955075c9f0097beae3e861a014bb951af29cb60c09596ada32961c2edd39294`
+
+```text
+PASS TEST: local PostgreSQL 17.6 with TLS and no production connection
+PASS TEST: only manual dispatches on main; protected environment; only two scoped secrets; one choice per stage
+PASS TEST: required reviewer is cgarness; admin bypass and other refs forbidden
+PASS TEST: 34 checksum-pinned files (every migration, release enable, ops script and rollback) and the pinned CLI
+PASS TEST: a different Supabase CLI version is refused (version drift)
+PASS TEST: file tampering, duplicate and pending copies fail before any connection
+PASS TEST: wrong confirmation, unknown stage and non-main branch refused
+PASS TEST: the verified production history baseline (356 rows, head 20261105051037) and all 20 CLI digests are pinned
+PASS TEST: the pinned production baseline (356 rows, head 20261105051037) classifies as pre-PKG-A; any other count refuses
+PASS TEST: check (preflight) is read-only; out-of-order, read-back and record-history refuse before PKG-A
+PASS TEST: PKG-A: six transactional files, the concurrent index, the enable, read-back and 8 history rows
+PASS TEST: PKG-B: disable-v3, …20, …21, the PKG-B enable, read-back, history
+PASS TEST: PKG-C: …30, …31, disable-v3, …32, the PKG-C enable, read-back, history
+PASS TEST: PKG-D: …40, the 36-row baseline, …41, …42, disable-v3, …43, the PKG-D enable, read-back, 20 history rows; calls, sales and clients unchanged
+PASS TEST: disable-all leaves class W on; re-enable restores the PKG-D pins and passes read-back
+PASS TEST: recovery: D, C (…32, …31) rolled back in reverse order with history reverted; …30 has no rollback, so PKG-B cannot roll back past it; re-enable at the PKG-B pins passes read-back
+PASS TEST: history drift stops every further stage
+ALL PASSED: 17 release rehearsal checks
+```
+
+### race.log
+
+SHA-256 `3b589d9330d8bc254a564d2025476ecee91b30adf4e196a89e6550bd4e5c767e`
+
+```text
+PASS E12: concurrent first links serialize on the policy lock; one linked, the other already_linked
+```
+
+Full non-performance log SHA-256 `fc124ea8a15372592d0d8a1289f2a21a6dff2228f7ae7f82859cc76888148d90`; full log is attached in the review archive.
+
+---
+
 # November 7, 2026 Pacific — C-NULL-IDENTITY correction verification
 
 The scoped correction is complete in the candidate; it is not deployed. Chris instructed proceeding after the blocker was disclosed. The exact 14 paths were listed in root implementation_plan.md before editing. Main remains `e2739c26e21f8e159b783ccf59046fed55560b16`; PR #486/#514 heads remain `2de28c320547983f68bed5f77d8ec9684ea3643d` / `3c54f4d13de7b6901db33c111d94fb70d4f42f6a`. This current record supersedes the historical documentation-only status below.
