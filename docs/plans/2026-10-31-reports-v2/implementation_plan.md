@@ -1,3 +1,11 @@
+# November 7, 2026 Pacific — Package C preparation approved; execution blocked
+
+The eight-file local documentation scope is approved and listed in root implementation_plan.md before edits. Base main `e2739c26e21f8e159b783ccf59046fed55560b16`. Package B backend is complete; see production-release.md. Package C preimages/absence checks pass, but C-NULL-IDENTITY blocks production: its nullable buyer identity condition can skip rejection. Preserve frozen files; prepare a separately scoped correction with regression/rehearsal evidence before any Package C release. Proposed A-618/A-591 text is not deployed. No protected-component exceptions are granted by this preparation.
+
+Next: review/publish documentation only after approval; identify exact candidate correction/test/pin paths for a separate approval. B5/B6, frontend and owner gates remain open. Historical plan below is retained; its source line references and older version prefixes must not be blindly applied to current main.
+
+---
+
 ## November 7, 2026 Pacific — Package A complete; Package B preparation approved
 
 This status supersedes historical release-status statements below. Main is `15d967320af7a0bd9774e09bc57e0dd31f97900c`. Package A is installed, enabled at contract 3.0.0 and recorded: 364 migrations, latest 20261105120017. Chris approved local preparation of the eight documentation files listed in root implementation_plan.md and read-only Package B review. Publication, merge and each production stage remain separately gated.

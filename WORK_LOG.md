@@ -1,5 +1,16 @@
 # AgentFlow Work Log
 
+## November 7, 2026 Pacific — Package B backend closed; Package C preparation found release blocker
+
+Chris approved the eight-file local documentation scope. Base main e2739c26e21f8e159b783ccf59046fed55560b16; new branch docs/reports-package-c-preparation-20261107; base tree matches main. Root plan/file list recorded first. Files: implementation_plan.md, WORK_LOG.md, AGENT_RULES.md, and focused implementation_plan.md, release-proposal.md, production-release.md, verification.md, context-snapshot.md. No SQL/app/test/runner/workflow edits.
+
+Consolidated separately approved B runs through record-history 42418318571: 367 history rows, all 11 A/B records, contract 3.1.0 enabled, ledger zero, exact history digests and unchanged prior rows/functions/ACLs. New UI not released. Fresh C preimages match; link/failure tables and seven functions absent. Advisors 279/463/0. Current #486/#514 heads unchanged; shared docs/commission basis require coordination.
+
+Found C-NULL-IDENTITY in frozen …31: IF NOT(nullable buyer-match predicate) can skip rejection. Synthetic read-only VALUES reproduced two NULL cases; trigger only verifies same-org sale/call, not buyer identity. No production sale or role simulation. C release blocked, frozen bytes preserved. Proposed A-618/A-591 clearly not deployed; B rules now accurately deployed. Inspected lineage writers/mapping and current telephony/sale integration read-only; source line numbers in old plan are stale.
+
+Verification: root `npx tsc --noEmit`, whitespace, exact eight-file scope, 34 SQL pins and all 36 frozen-byte comparisons pass. No production change/publication this turn. Next: separately approve documentation publication, then exact correction/test/pin scope and rehearsal. B5/B6, owner visual/CSV/map and later frontend/backend gates remain open; human review waived, not signed off.
+
+
 ## November 7, 2026 Pacific — Reports Package A verified; Package B documentation prepared
 
 Chris approved the exact eight-file documentation scope and read-only Package B review. Base main 15d967320af7a0bd9774e09bc57e0dd31f97900c; isolated branch docs/reports-package-b-preparation-20261107. Root implementation_plan.md listed the files before edits. Changed only root implementation_plan.md, WORK_LOG.md, AGENT_RULES.md, and focused implementation_plan.md, release-proposal.md, production-release.md, verification.md, context-snapshot.md under docs/plans/2026-10-31-reports-v2/. AGENT_RULES contains only prepared/not-deployed A-40/A-34/A-851 and the associated snapshot sentence clarification.

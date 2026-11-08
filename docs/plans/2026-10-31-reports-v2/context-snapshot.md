@@ -1,10 +1,10 @@
 # Reports V2 context snapshot — November 7, 2026 Pacific
 
-- **Changes:** local eight-file documentation preparation for Package B; Package A production evidence consolidated; planned A-40/A-34/A-851 rules marked prepared/not deployed. No release SQL or application edits.
-- **Base/branch:** main 15d967320af7a0bd9774e09bc57e0dd31f97900c; docs/reports-package-b-preparation-20261107. Frozen candidate 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c unchanged.
-- **Production:** Package A installed/enabled/recorded, contract 3.0.0, history 364/head 20261105120017. Package B objects absent. Reports UI unreleased.
-- **Decisions:** independent human review waived, not signed off. Prior Pacific zones retained. No B6 correction/classification/deferral acceptance inferred. PR #486 has no current direct performance_sale_monthly modification; separate commission basis/shared-doc coordination still applies.
-- **Migrations/deploys this preparation:** none. No role simulation, dispatch, grants, RLS change, customer contact, push or PR creation.
-- **Verification:** fresh preimage/absence/history/advisor checks pass; source authorization/audit/concurrency/rollback reviewed; final local checks recorded in verification.md. Prior native 17/17 and security/concurrency evidence retained without rerun.
-- **Blockers:** separate publication and exact merge approval; per-stage production approvals; owner visual/CSV/map acceptance; B6 premium/Sold Date decisions or explicit bounded exception; remaining C/D/frontend packages.
-- **Next:** approve publication of the prepared local documentation commit and draft PR. Check automatic integration behavior without changing it. After review/merge approval and fresh preflight, request each Package B stage independently. Never jump straight to disable-v3 or execute pending SQL because it already exists on main.
+- **Changes:** eight approved documentation files locally updated; Package B backend evidence consolidated; B invariants deployed, C amendments proposed only.
+- **Base/branch:** main `e2739c26e21f8e159b783ccf59046fed55560b16`; docs/reports-package-c-preparation-20261107. Frozen 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c preserved.
+- **Production:** Package B complete through …22, 367 history rows, 11/11 A/B migrations, contract 3.1.0, v3 enabled, correction ledger empty. No new UI or Package C objects.
+- **Finding:** C-NULL-IDENTITY: nullable buyer-match predicate may skip rejection. Synthetic SELECT confirmed NULL/false rejection outcomes; no sale executed. Do not deploy frozen C. Exact correction/test/pin scope requires new review.
+- **Decisions:** human review waived, not signed off; Pacific zones retained; B5/B6 and owner acceptance open; no policy corrections or deferral acceptance inferred.
+- **Migrations/deploys this turn:** none. Local docs and catalog/source reads only; no role simulation, smoke sale, push, merge or settings change.
+- **Verification:** see verification.md for matching live preimages, absence, lineage/static telephony review, advisors, caveats and final local checks.
+- **Next:** approve publishing the documentation-only branch as a draft PR recording the blocker. Separately scope a fail-closed identity fix with canonical candidate tests/rehearsal and new pins before release. C/D/F and frontend remain gated.

@@ -1,3 +1,48 @@
+# Reports V2 — Package B backend closeout; Package C blocked preparation
+
+## Current decision — November 7, 2026 Pacific
+
+Local documentation only; not published. Base main `e2739c26e21f8e159b783ccf59046fed55560b16`; branch `docs/reports-package-c-preparation-20261107`. This section supersedes historical proposal status below.
+
+Package B backend B1–B4 is complete: history 367/head 20261105120022; all 11 A/B migrations installed and recorded; contract 3.1.0; corrections audited_ledger; v3 enabled. The ledger remains empty. B5 correction/history frontend, B6 premium/Sold Date classification decisions, owner visual/CSV/map acceptance, Packages C/D and Reports UI remain open. Independent human review is waived by Chris, not signed off. Prior Pacific zones remain unchanged. No individual correction or bounded B6 deferral is inferred.
+
+## Release blocker C-NULL-IDENTITY — confirmed by read-only predicate check
+
+Frozen `20261105120031_policy_sale_call_link_capture.sql`, private.capture_policy_sale_call_link, uses `IF NOT (ca.contact_id = cl.id OR (cl.lead_id IS NOT NULL AND (...)))`. SQL NULL is not TRUE: a manual client with a call having NULL contact_id, or a converted client with unrelated contact_id and NULL calls.lead_id, can produce NULL and skip the rejection branch. A SELECT over synthetic VALUES confirmed both cases: identity_predicate=NULL, rejection_branch_taken=false; the positive matching control returned TRUE. No production rows were inserted or role-simulated.
+
+The link-table trigger checks same-org sale/client and call/direction, but does not independently establish the call's buyer identity. Other checks (same organization, actor, call age, sale operation) still apply; this is a within-organization attribution integrity gap, not demonstrated cross-tenant access. Source control-flow review identifies a reachable missing-identity case; no complete wrapper exploit or synthetic sale was executed. The capture function is absent in production.
+
+**Do not execute Package C as frozen.** A separately approved correction should make rejection fail closed when the identity predicate is not TRUE, add NULL/mismatch/matching regression cases in the canonical candidate test harness, and rerun the release/security/concurrency rehearsal. Review and update the frozen source/statement digests only under a new exact-file approval; never silently change the old candidate or pins. The current eight-file approval authorizes documentation only. Identify the canonical candidate test/harness paths and exact expanded file list before requesting correction approval. No patch or test file is included here.
+
+## Proposed next action
+
+Publish this exact eight-file documentation-only change to a new review branch and open a draft PR **only after Chris approves publication**. This records the blocker; it is not a Package C release approval. Existing automatic checks/previews may run; inspect their behavior before publication. No merge, backend command, deployment trigger, settings change, test sale or frontend integration is authorized.
+
+## Future Package C sequence — blocked, not authorized
+
+After a separately reviewed fix, new pinned candidate/rehearsal, fresh preflight and backend documentation merge: check → apply …30 (lineage UPDATE guard first, sealed RLS link table) → apply …31 (capture/failure table, exactly four authenticated RPC grants) → separately approved synthetic wrapper smoke tests. The four RPCs become callable before any frontend integration; server authorization must be reviewed explicitly. Neither anon nor service_role receives their execution grants.
+
+Before forward capture begins, separately review the frontend diff and telephony gate: current TwilioContext unchanged; Save Only/Save & Next, floatingDialerDisposition, saveAppointmentPayload, dialer-dnc-backend and tracked-inbound suites; call-row creation/status/dispositions/logs in a permitted environment; exact protected component exceptions. No real calls/messages. B5 frontend dependency and shared ClientPolicies changes must be sequenced explicitly, not assumed shipped.
+
+Then the separately approved reporting window: disable-v3 → …32 (contract 3.2.0, captured-link reader) → apply-enable …33 → read-back → record-history. Each dispatch needs its own exact approval. Preserve missing-link Unclassified semantics, API receipt/idempotency integrity, and the cancellation/assertion exception boundary. Packages D/F remain separate. Recovery is never a production test and requires separate approval; the lineage guard survives the planned recovery.
+
+## Source and conflict findings
+
+Main remains unchanged; local base tree equals main tree 9c4fef05aaa5960a421aadc5e10ec0802cdf725c. PR #486 head 2de28c320547983f68bed5f77d8ec9684ea3643d changes commission helpers, tests/workflow and shared docs; its current 23-file diff does not replace the two pinned handoffs. Its independent historical commission basis/backfill is not approved by this work. PR #514 head 3c54f4d13de7b6901db33c111d94fb70d4f42f6a and other open documentation PRs overlap shared logs; rebase from fresh main before publication/merge. No unrelated PR was merged.
+
+## Frozen Package C source inventory — unchanged and blocked
+
+| File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `20261105120030_policy_sale_call_links.sql` | 5,592 | `6cd1e59deac34c38cb9dfe44e012187d2f09277eaf631915742f1fc9b22889bf` |
+| `20261105120031_policy_sale_call_link_capture.sql` | 18,159 | `35587f385eea207ec2eea9ae84421d1413ebccf1759ac1609bd490dceedc2016` |
+| `20261105120032_reports_v3_sale_call_links.sql` | 4,449 | `f17a09b9b1b732289ce3b865d7963644f118ff1dd3c7ef6f53974067e7fecff0` |
+| `20261105120033_reports_v3_release_enable_pkg_c.sql` | 24,080 | `8abb91505eba84b9affc277ca3111e2ec2a157e373f218a1295f99a4f346806a` |
+
+---
+
+## Historical proposal (superseded)
+
 # Reports V2 — Package B backend preparation
 
 ## Current decision — November 7, 2026 Pacific
