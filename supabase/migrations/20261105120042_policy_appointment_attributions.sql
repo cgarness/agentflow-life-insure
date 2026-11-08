@@ -115,7 +115,7 @@ BEGIN
   SELECT * INTO s FROM private.appointment_occurrence_state(o.id, clock_timestamp());
   IF s.outcome IS DISTINCT FROM 'held' THEN RETURN QUERY SELECT NULL::uuid, 'not_held'::text; RETURN; END IF;
   IF s.category IS DISTINCT FROM 'sales' THEN RETURN QUERY SELECT NULL::uuid, 'not_a_sales_appointment'::text; RETURN; END IF;
-  IF o.contact_id IS NULL OR o.contact_id NOT IN (p_win.contact_id, coalesce(p_lead_id, p_win.contact_id)) THEN
+  IF (o.contact_id IN (p_win.contact_id, coalesce(p_lead_id, p_win.contact_id))) IS NOT TRUE THEN
     RETURN QUERY SELECT NULL::uuid, 'different_contact'::text; RETURN;
   END IF;
   v_tz := (SELECT z.time_zone FROM private.report_agency_time_zone(p_org) z);
@@ -189,9 +189,9 @@ BEGIN
   END IF;
   IF NOT p_correction AND v_head.id IS NOT NULL THEN
     -- A root 'none' may be superseded once, by the assignee at start or the original seller (outcome/policy entry).
-    IF NOT (v_head.declaration = 'none' AND v_head.supersedes_attribution_id IS NULL AND p_declaration = 'appointment'
+    IF (v_head.declaration = 'none' AND v_head.supersedes_attribution_id IS NULL AND p_declaration = 'appointment'
             AND p_source IN ('outcome_entry', 'policy_entry')
-            AND a.uid IN (w.agent_id, private.appointment_assignee_at_start(t.occurrence_id))) THEN
+            AND a.uid IN (w.agent_id, private.appointment_assignee_at_start(t.occurrence_id))) IS NOT TRUE THEN
       RETURN jsonb_build_object('status', 'rejected', 'reason', 'already_linked', 'attribution_id', v_head.id);
     END IF;
   END IF;

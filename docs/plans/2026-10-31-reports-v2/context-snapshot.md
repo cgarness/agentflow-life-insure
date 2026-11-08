@@ -1,3 +1,15 @@
+# November 8, 2026 Pacific — Package D NULL correction snapshot
+
+Main `401f758d884677eae0e85ac1acb22adabb393ccd`; local branch `fix/reports-d-null-guards-20261108`; exact 11 paths in root plan and verification.md. #486/#514 heads remain unchanged; no conflicting work included. Correction scope is two …42 predicates, canonical/API regression tests, disposable test runner, two checksum pins and seven documents. Frozen original candidate preserved; application, RLS, workflow and other SQL unchanged.
+
+Completed: both guard regressions; each original guard fails independently; full native non-performance v3 suite, 17/17 release rehearsal and E12 concurrency pass. Root tsc/build pass; Reports library tests 187 pass/one skip. Fresh baseline identities: 79 app type errors, 11 lint errors/142 warnings. Logs retained; disposable VM stopped. New regression runner requires frozen HARNESS_ROOT and has no new automatic CI wiring.
+
+Production remains C recorded/enabled plus D …40/category-baseline/…41 installed. Fresh metadata: history 371/head …33, …42 absent. No mutation in this turn. Three previously missing zones resolve to confirmed America/Los_Angeles (one Active user each). B6 prior redacted result: 44 sales/2 distinct discrepant events with separate premium/Sold Date flags; disposition open. Existing 44 screenshots/37 exports remain attached review evidence; owner visual/CSV/map acceptance open. Human reviewer waived, not signed off; frontend unreleased.
+
+Next: Chris approval to publish exact commit/open draft PR, accepting the four matching Actions workflows and potential Supabase/Vercel preview execution. See release-proposal.md. Merge/rebuild and each remaining backend release stage require separate approval; no deployment or release stage is included in publication.
+
+---
+
 # Reports V2 context snapshot — November 7, 2026 Pacific
 
 - **Changes:** scoped C-NULL-IDENTITY fix complete; buyer predicate must be explicitly TRUE. Canonical C SQL/boundary tests imported, nullable and valid wrapper regressions added, commission runner and CI paths extended, …31 source/history pins updated. Exact 14-file scope listed before edits.

@@ -134,7 +134,7 @@ PINS = {
     'supabase/migrations/20261105120033_reports_v3_release_enable_pkg_c.sql': (24080, '8abb91505eba84b9affc277ca3111e2ec2a157e373f218a1295f99a4f346806a'),
     'supabase/migrations/20261105120040_appointment_type_categories.sql': (9882, '7c0d97baac891a0d57f63857e5857b69812a87ace3d89c444f19228d6c7e8b40'),
     'supabase/migrations/20261105120041_appointment_occurrence_evidence.sql': (26704, 'bf39780f1a333c215d95492a15e387b770b67f7935f8c83c9373eafc970afb17'),
-    'supabase/migrations/20261105120042_policy_appointment_attributions.sql': (19053, 'e315125b531db2fe4f8e13d92a5d1e7d5a945d06ad9588af286427cc6ea73793'),
+    'supabase/migrations/20261105120042_policy_appointment_attributions.sql': (19047, 'dea3c83cf242304fb1559050bbbb2c0b997a8cea2f65a94532cab406957bc296'),
     'supabase/migrations/20261105120043_reports_v3_appointment_facts.sql': (29993, '69f0beff5323da9df070f1c255e5506cf606f3d0fbe13a317edf83ff0b76eeb4'),
     'supabase/migrations/20261105120044_reports_v3_release_enable_pkg_d.sql': (25534, 'c23f949f2f98f1e147d44dfa603a2bc70019909df3eba637d6fca0ee441a03b3'),
     'supabase/ops/appointment_type_category_baseline.sql': (2097, 'a9ef73c8f8de1fb1d9061405479055985dd36bc468b2474e692f5340c2fee14a'),
@@ -178,7 +178,7 @@ RECORDED = {
     '20261105120033': (3, '3126a14d0074fbd19081414ec1c91b59d9284e3df5b9579a5d43c6c30a56d5f5'),
     '20261105120040': (22, 'af5f721548e7e92d84a4ce877ddbbfc0e598edeb275300d3db611e2d589e8618'),
     '20261105120041': (41, '23e3626f973e52d7369315a649dc43b02f280fa284fbe57ce1d7a608156ef64c'),
-    '20261105120042': (34, 'b7a3ae20414f2fa2ef3a43f0436f3c6223a0b1f37bfd2902ba3fccac867ebbc9'),
+    '20261105120042': (34, '4b71a769746331ee19f2e0c3b6f98a27c2c00077a39091e8e4688f32e282a2e8'),
     '20261105120043': (13, 'c1ca9c4f3d1153ddac565b1ecde9d23fa20a8c8ca899a90b837658677e5785e3'),
     '20261105120044': (3, '96db6d3b94e5f0292ad8dec0607895b32f99ed77d51425baf3bbb7afe3a9da37'),
 }

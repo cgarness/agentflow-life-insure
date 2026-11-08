@@ -1,3 +1,13 @@
+# Reports V2 — November 8 Package D correction ready for publication decision
+
+The approved 11-file local correction is complete on `fix/reports-d-null-guards-20261108`, based on main `401f758d884677eae0e85ac1acb22adabb393ccd`. Two nullable …42 predicates now fail closed; tests and exact source/history pins are updated. See verification.md for the exact diff, native API/negative-control proof, 17/17 release rehearsal, full non-performance v3 suite, E12 concurrency and baseline comparisons. Original frozen commit remains intact; only prior …31, new …42 and the runner differ among its 36 release files.
+
+**Next approval:** publish this exact 11-file commit and open a draft PR. Current path filters match four automatic Actions workflows: UV profile sync verification, Reporting integrity, SMS consent integration and Dialer DNC integrity. Both linked Vercel projects may build previews. Supabase GitHub integration may attempt a preview and run its migrations; previous branch-limit failures do not guarantee a skip. Existing branches were read-only inspected. No integration/deployment settings are changed. The production Reports workflow is dispatch-only and will not start from a PR.
+
+Publication does not include merge, production deployment, …42 execution or later stages. Production is already through C and D …41 under prior separate approvals; corrected …42 is still unapplied. Hosted checks precede the separate exact merge/rebuild decision. Remaining production sequence and acceptance gates are in production-release.md. New NULL regression runner is manual with the frozen harness checkout; no CI workflow expansion is included.
+
+---
+
 # Reports V2 — Package C buyer identity correction prepared
 
 This section supersedes the historical documentation-only proposal below. Chris's instruction to proceed and finish authorizes the scoped implementation and verification; exact production releases remain separate. Draft PR #519 records the original blocker. The corrected candidate replaces the nullable rejection predicate, adds API regression coverage, restores canonical C tests to backend CI, and repins only the changed migration.

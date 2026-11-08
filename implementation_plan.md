@@ -1,3 +1,28 @@
+# November 8, 2026 Pacific — Approved Package D nullable guard correction
+
+Chris approved targeted corrections, regression tests, release checksums and plan/work-log updates after two read-only reproductions in unapplied …42. Work on isolated branch fix/reports-d-null-guards-20261108. Main remains 401f758d884677eae0e85ac1acb22adabb393ccd; local starting tree is identical. PR #486/#514 heads remain unchanged. No publication, merge, production mutation or frontend change is included.
+
+Exact intended files before editing implementation:
+- implementation_plan.md
+- WORK_LOG.md
+- docs/plans/2026-10-31-reports-v2/implementation_plan.md
+- docs/plans/2026-10-31-reports-v2/release-proposal.md
+- docs/plans/2026-10-31-reports-v2/production-release.md
+- docs/plans/2026-10-31-reports-v2/verification.md
+- docs/plans/2026-10-31-reports-v2/context-snapshot.md
+- supabase/migrations/20261105120042_policy_appointment_attributions.sql
+- scripts/reports_release.py
+- supabase/tests/policy_appointment_attributions.sql (restore canonical tests and add API regressions)
+- scripts/test_policy_appointment_null_guards.sh (disposable native test runner)
+
+Reject the contact-membership and root-none supersession predicates unless explicitly TRUE. Preserve existing organization/visibility/authority checks, admin corrections, idempotency and append-only history. Exercise real authenticated APIs with NULL identities/assignees, mismatches, valid seller/assignee/lineage and admin paths; demonstrate each original guard fails its regression independently. Use synthetic native PostgreSQL only; no production credentials. Repin only …42 source and CLI statement checksums with Supabase CLI 2.121.0 / PostgreSQL 17.6. Verify full release rehearsal, canonical appointment suite, root TypeScript and scope/whitespace checks. Preserve frozen 38bd32d intact and report exact deviations.
+
+Record prior separately authorized C history and D …40/baseline/…41 outcomes. Remaining …42–…44/history and frontend gates stay open. Human independent review remains waived, not signed off.
+
+Completed: both authenticated regressions and independent original-guard negative controls pass; full native v3 suite, 17/17 release rehearsal and E12 link concurrency pass. Exact …42 source/CLI pins updated; 187 Reports tests pass/one skip; root TypeScript/build pass; app/lint baseline identities match current main. Production only inspected read-only. Publication of the exact 11-file commit/draft PR with four matching Actions workflows and Supabase/Vercel preview effects is the next separate approval.
+
+---
+
 # November 7, 2026 Pacific — Proceed and finish: Package C identity correction
 
 Chris instructed proceeding with and finishing the build after the C-NULL-IDENTITY blocker was disclosed. Implement and verify the correction on an isolated branch; production stages remain separately gated. Preserve the original frozen commit, with explicit reviewed deviations rather than silently representing revised bytes as frozen.

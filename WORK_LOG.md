@@ -1,5 +1,17 @@
 # AgentFlow Work Log
 
+## November 8, 2026 Pacific — Package D nullable checks fixed and verified; unpublished
+
+Chris approved the targeted …42 correction, tests, checksums and plan/work-log updates. Root plan listed exactly 11 paths first. Branch fix/reports-d-null-guards-20261108 starts from the same tree as main 401f758d884677eae0e85ac1acb22adabb393ccd; #486/#514 heads unchanged. Reject nullable contact membership and root-none supersession unless explicitly TRUE. Canonical attribution tests plus authenticated NULL/mismatch/valid lineage/seller/assignee/admin/retry controls pass; independently restored original predicates each fail. No application or RLS changes.
+
+Files: root implementation_plan.md, WORK_LOG.md; Reports focused implementation_plan.md, release-proposal.md, production-release.md, verification.md, context-snapshot.md; …42_policy_appointment_attributions.sql; scripts/reports_release.py; supabase/tests/policy_appointment_attributions.sql; scripts/test_policy_appointment_null_guards.sh. Migration …42 is 19,047 bytes, SHA-256 dea3c83cf242304fb1559050bbbb2c0b997a8cea2f65a94532cab406957bc296; CLI 34 statements, digest 4b71a769746331ee19f2e0c3b6f98a27c2c00077a39091e8e4688f32e282a2e8. Exactly three of the original 36 release files differ (prior …31, …42, runner); original frozen candidate preserved. Closure/enable/read-back/rollback/workflow bytes unchanged.
+
+Verification: PostgreSQL 17.6 TLS / CLI 2.121.0 synthetic API suite, two original-guard negative controls, complete non-performance v3 fixture, 17/17 release rehearsal and E12 concurrency pass. Root TypeScript/build, syntax/whitespace and 34 source pins pass. Reports library tests 187 pass/one skip. Fresh baseline comparison: same 79 app TypeScript errors and 11 lint errors/142 warnings by identity. Native logs retained in verification.md and actual review package; isolated VM stopped. New test runner is manual with frozen HARNESS_ROOT, not newly wired into CI. No new performance claim.
+
+Prior separately authorized C history run 42478370891 and D …40/category-baseline/…41 runs 42494385667/42494725586/42495034013 are recorded, not replayed. Fresh read-only metadata confirms history 371/head …33, D category/occurrence objects present and …42 absent. Three orgs each have one Active user and saved/resolved America/Los_Angeles per Chris's prior Pacific confirmation. No production mutation, impersonation, dispatch, PR, push, merge or deployment during this work.
+
+Next: exact commit publication and draft PR approval including four matching Actions workflows, Supabase preview/migration attempt and two possible Vercel previews. Merge and production …42–…44/history remain separate; full frontend unreleased. Human reviewer waived, not signed off. B6 remains two discrepant events (separate premium/Sold Date flags), unclassified/uncorrected; owner visual/CSV/map acceptance pending.
+
 ## November 7, 2026 Pacific — Package C nullable buyer identity fixed and rehearsed (not deployed)
 
 Chris instructed proceeding and finishing the build after blocker disclosure and publication of draft PR #519. Root implementation_plan.md recorded the exact 14 paths before implementation. Branch fix/reports-c-buyer-identity-20261108; unchanged main e2739c26e21f8e159b783ccf59046fed55560b16; existing PR #519 will carry this continuation. #486/#514 heads unchanged; no unrelated changes or merges.
