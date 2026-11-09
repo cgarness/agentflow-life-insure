@@ -378,8 +378,11 @@ export async function saveAppointment(data: {
   request_id: string;
   master_lead_id: string; campaign_lead_id: string; agent_id: string; campaign_id: string;
   title: string; date: string; time: string; end_time: string; notes: string;
+  /** Appointment type (A-22): sent only when given; otherwise the booking writer keeps its default. */
+  type?: string;
 }, organizationId: string | null = null) {
   if (!organizationId) throw new Error("Missing booking organization");
   return persistAppointment(data.request_id, { title: data.title, contact_id: data.master_lead_id,
-    user_id: data.agent_id, notes: data.notes, ...bookingTimes(data.date, data.time, data.end_time), status: "Scheduled" });
+    user_id: data.agent_id, notes: data.notes, ...bookingTimes(data.date, data.time, data.end_time), status: "Scheduled",
+    ...(data.type?.trim() ? { type: data.type.trim() } : {}) });
 }

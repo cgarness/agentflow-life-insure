@@ -1,10 +1,10 @@
 import { formatAsOf, longDateLabel, type CalendarRange } from "@/lib/reports-format";
-import type { ReportScope } from "@/lib/reports-schemas";
+import type { ReportScopeView } from "@/lib/reports-v3-schemas";
 import { DataBasisButton } from "./ReportDataBasis";
 import type { DataBasisContent } from "./DataBasisSections";
 
 interface Props {
-  scope: ReportScope | null;
+  scope: ReportScopeView | null;
   /** Shown instead of the context while the scope is loading or failed. */
   scopeStatusText: string;
   range: CalendarRange | null;

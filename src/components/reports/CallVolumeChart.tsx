@@ -1,7 +1,8 @@
 import React, { useMemo } from "react";
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import type { ReportVolume } from "@/lib/reports-schemas";
-import { formatCount, formatRate, groupDailySeries, type Grouping } from "@/lib/reports-format";
+import type { ReportCallVolumeV3 } from "@/lib/reports-v3-schemas";
+import { roundHalfUp } from "@/lib/reports-kpi-format";
+import { formatCount, groupDailySeries, type Grouping } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import { CHART_KEYS_DESC, CHART_THEME, PERIOD_UNIT, SERIES_COLOR, TOOLTIP_FRAME, TREND_SYNC_ID, partialDot, rateAxisMax } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
@@ -9,7 +10,7 @@ import { NoTooltip, TrendPanel } from "./ReportTrends";
 import { useChartReadout } from "./useChartReadout";
 
 interface Props {
-  volume: ReportVolume;
+  volume: ReportCallVolumeV3;
   grouping: Grouping;
   onExport?: ReportExportFn;
 }
@@ -32,7 +33,7 @@ function CallingTooltip({ active, payload }: { active?: boolean; payload?: Array
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
         <dt>Outbound calls</dt><dd className="text-right font-semibold tabular-nums">{formatCount(period.calls_made)}</dd>
         <dt>Contacted outbound calls</dt><dd className="text-right tabular-nums">{formatCount(period.contacted)}</dd>
-        <dt>Call contact rate</dt><dd className="text-right font-semibold tabular-nums">{formatRate(period.contact_rate_pct)}</dd>
+        <dt>Call contact rate</dt><dd className="text-right font-semibold tabular-nums">{rateText(period)}</dd>
         <dt>Inbound calls</dt><dd className="text-right tabular-nums">{formatCount(period.inbound_calls)}</dd>
       </dl>
       {period.calls_made === 0 && <p className="mt-2 text-muted-foreground">No outbound calls; rate unavailable.</p>}
@@ -41,13 +42,18 @@ function CallingTooltip({ active, payload }: { active?: boolean; payload?: Array
 }
 
 /** Unambiguous period cell for CSV (includes the year, unlike the short on-screen label). */
+/** Rounded once from the bucket's exact counts (D6 §1). */
+function rateText(p: { calls_made: number; contacted: number }): string {
+  return p.calls_made > 0 ? `${roundHalfUp(p.contacted * 100, p.calls_made, 1)}%` : "—";
+}
+
 function periodCell(first: string, last: string): string {
   return first === last ? first : `${first} to ${last}`;
 }
 
 /** The spoken form of CallingTooltip, for the focusable panel's live readout. */
 function callingReadout(p: CallingPeriod): string {
-  const rate = p.calls_made === 0 ? "unavailable" : formatRate(p.contact_rate_pct);
+  const rate = p.calls_made === 0 ? "unavailable" : rateText(p);
   return `${periodCell(p.first, p.last)}: ${formatCount(p.calls_made)} outbound ${p.calls_made === 1 ? "call" : "calls"}, ${formatCount(p.contacted)} contacted, call contact rate ${rate}; ${formatCount(p.inbound_calls)} inbound.`;
 }
 
@@ -94,7 +100,7 @@ const CallVolumeChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
         onExport(
           "Call Volume",
           ["Period", "Calls made", "Contacted", "Inbound", "Call contact rate (%)"],
-          series.map((b) => [periodCell(b.first, b.last), b.calls_made, b.contacted, b.inbound_calls, b.contact_rate_pct]),
+          series.map((b) => [periodCell(b.first, b.last), b.calls_made, b.contacted, b.inbound_calls, b.calls_made > 0 ? roundHalfUp(100 * b.contacted, b.calls_made, 1) : null]),
         )
     : undefined;
 

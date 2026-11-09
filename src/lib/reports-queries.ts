@@ -56,6 +56,12 @@ export function isReportsQueryError(e: unknown): e is ReportsQueryError {
   return e instanceof ReportsQueryError;
 }
 
+/** A panel's load state for `ReportPanelState`: loading, ready with data, or a typed Reports error (never a zero). */
+export type LoadState<T> =
+  | { status: "loading" }
+  | { status: "ready"; data: T }
+  | { status: "error"; error: ReportsQueryError };
+
 /** Bound on a single report request; afterwards it is reported as `timeout`, never left spinning. */
 export const REPORT_REQUEST_TIMEOUT_MS = 25_000;
 
@@ -68,7 +74,10 @@ export const REPORT_RPC = {
   leadSources: "get_report_lead_source_performance_v2",
 } as const;
 
-type ReportRpcName = (typeof REPORT_RPC)[keyof typeof REPORT_RPC];
+export type ReportRpcName = (typeof REPORT_RPC)[keyof typeof REPORT_RPC]
+  | "get_report_scope_v3" | "get_report_summary_v3" | "get_report_journey_v3" | "get_report_sales_appointments_v3"
+  | "get_report_state_breakdown_v3" | "get_report_call_volume_v3" | "get_report_disposition_breakdown_v3"
+  | "get_report_campaign_calls_v3" | "get_report_lead_source_calls_v3";
 
 interface PostgrestLikeError {
   code?: string | null;
@@ -89,6 +98,8 @@ function kindForProviderError(error: PostgrestLikeError): ReportsErrorKind {
   // 55000: the organization has no valid agency time zone. Reports never guess one (plan §R3.2).
   if (code === "55000") return "configuration";
   if (code === "22023") return "invalid";
+  // 57014: the statement timeout fired server-side.
+  if (code === "57014") return "timeout";
   return "unavailable";
 }
 
@@ -104,7 +115,7 @@ export interface ReportRequest {
   requestedScope?: ReportRequestedScope | null;
 }
 
-async function callReportRpc<T>(
+export async function callReportRpc<T>(
   fn: ReportRpcName,
   args: Record<string, unknown>,
   schema: z.ZodType<T>,
@@ -158,7 +169,7 @@ async function callReportRpc<T>(
   }
 }
 
-function windowArgs(req: ReportRequest): Record<string, unknown> {
+export function windowArgs(req: ReportRequest): Record<string, unknown> {
   if (!REPORT_DATE.test(req.startDate) || !REPORT_DATE.test(req.endDate)) {
     throw new ReportsQueryError("invalid");
   }

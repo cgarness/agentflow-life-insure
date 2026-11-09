@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { AppointmentTypeCategoryControl } from "@/components/settings/AppointmentTypeCategoryControl";
 import {
   CalendarDays, CalendarRange, List, LayoutGrid, Sun,
   Plus, Pencil, Trash2, Lock, Mail, MessageSquare,
@@ -660,6 +661,7 @@ const CalendarSettings: React.FC = () => {
                       <span className="text-sm font-medium text-foreground">{t.name}</span>
                       <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{t.durationMinutes} min</span>
                       {t.isLocked && <Lock className="w-3.5 h-3.5 text-muted-foreground" aria-label="Locked default" />}
+                      <AppointmentTypeCategoryControl type={t} onChanged={() => void reloadAppointmentTypes()} />
                     </div>
                     {canMutate && (
                       <div className="flex items-center gap-1">

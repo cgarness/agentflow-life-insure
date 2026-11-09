@@ -31,14 +31,14 @@ beforeEach(() => { h.auth.mockReset(); h.auth.mockResolvedValue(auth()); h.respo
 
 describe("Reports personal persistence", () => {
   it("loads and normalizes legacy personal preferences without writing", async () => {
-    h.responses.push(ok({ layout: { version: 1, tabs: { overview: [{ id: "stat_inbound", visible: true }] } } }));
-    expect((await fetchUserLayout(owner)).sections[0]).toEqual({ id: "stat_inbound", visible: true });
+    h.responses.push(ok({ layout: { version: 1, tabs: { overview: [{ id: "stat_total_talk_time", visible: true }] } } }));
+    expect((await fetchUserLayout(owner)).sections[0]).toEqual({ id: "kpi_24", visible: true });
     expect(h.queries.map((q) => q.method)).toEqual(["select"]);
     expect(h.queries[0].filters).toContainEqual(["eq", "user_id", owner.userId]);
   });
   it("inherits an organization default only when the personal row is absent", async () => {
-    h.responses.push(ok(null), ok({ layout: { version: 3, sections: [{ id: "stat_inbound", visible: true }] } }));
-    expect((await fetchUserLayout(owner)).sections[0].id).toBe("stat_inbound");
+    h.responses.push(ok(null), ok({ layout: { version: 3, sections: [{ id: "stat_total_talk_time", visible: true }] } }));
+    expect((await fetchUserLayout(owner)).sections[0].id).toBe("kpi_24");
     expect(h.queries[1].filters).toContainEqual(["is", "user_id", null]);
   });
   it("does not treat a read error as absence or write a fallback", async () => {
@@ -68,6 +68,16 @@ describe("Reports personal persistence", () => {
     expect(h.queries[1].filters).toEqual([["eq", "id", "layout-1"], ["eq", "organization_id", owner.orgId], ["eq", "user_id", owner.userId]]);
     expect(h.queries[1].returning).toBe("id");
   });
+  it("normalizes before every write, so a stored layout is always version 5", async () => {
+    h.responses.push(ok({ id: "layout-1" }), ok({ id: "layout-1" }));
+    const legacy = { version: 4, sections: [{ id: "stat_total_talk_time", visible: true }] } as unknown as Parameters<typeof saveUserLayout>[1];
+    const saved = await saveUserLayout(owner, legacy);
+    const written = (h.queries[1].value as { layout: { version: number; sections: { id: string; visible: boolean }[] } }).layout;
+    expect(written.version).toBe(5);
+    expect(written).toEqual(saved);
+    expect(written.sections[0]).toEqual({ id: "kpi_24", visible: true });
+    expect(written.sections.some(s => s.id.startsWith("stat_"))).toBe(false);
+  });
   it("inserts a non-null personal owner and surfaces unique first-save conflicts", async () => {
     h.responses.push(ok(null), { data: null, error: { code: "23505" } });
     await expect(saveUserLayout(owner, getDefaultLayout())).rejects.toThrow("another tab");
@@ -84,8 +94,8 @@ describe("Reports personal persistence", () => {
     expect(h.queries).toHaveLength(1);
   });
   it("reset deletes only the personal row then returns the inherited layout", async () => {
-    h.responses.push(ok(null), ok(null), ok({ layout: { version: 4, sections: [{ id: "stat_inbound", visible: true }] } }));
-    expect((await resetUserLayout(owner)).sections[0].id).toBe("stat_inbound");
+    h.responses.push(ok(null), ok(null), ok({ layout: { version: 4, sections: [{ id: "stat_total_talk_time", visible: true }] } }));
+    expect((await resetUserLayout(owner)).sections[0].id).toBe("kpi_24");
     expect(h.queries[0]).toMatchObject({ method: "delete", filters: [["eq", "organization_id", owner.orgId], ["eq", "user_id", owner.userId]] });
     expect(h.queries.every((q) => q.method !== "insert" && q.method !== "update")).toBe(true);
   });

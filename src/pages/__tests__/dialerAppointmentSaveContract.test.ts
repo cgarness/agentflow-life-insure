@@ -87,10 +87,11 @@ describe("dialer-api.saveAppointment contract", () => {
     expect(writer).not.toMatch(/data\.date\s*\+\s*["'`]T/);
   });
 
-  it("stamps created_by and user_id with the dialing agent and sets no type", () => {
+  it("stamps created_by and user_id with the dialing agent and sends a type only when one is given (PKG-D, A-22)", () => {
     expect(writer).toMatch(/user_id:\s*data\.agent_id/);
     expect(writer).not.toMatch(/created_by:/);
     expect(writer).toContain("persistAppointment(data.request_id");
-    expect(writer).not.toMatch(/\btype:/);
+    expect(writer.match(/\btype:/g)).toHaveLength(1);
+    expect(writer).toContain("...(data.type?.trim() ? { type: data.type.trim() } : {})");
   });
 });

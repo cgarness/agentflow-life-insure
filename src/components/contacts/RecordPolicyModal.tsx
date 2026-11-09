@@ -14,6 +14,8 @@ import { carrierSelectionError } from "@/lib/carrierSelection";
 import { CarrierCombobox } from "@/components/shared/CarrierCombobox";
 import { PolicyCommissionEstimate } from "@/components/commission/preview/PolicyCommissionEstimate";
 import { SaleSubmissionNotice } from "./SaleSubmissionNotice";
+import { ClosingAppointmentField } from "./ClosingAppointmentField";
+import { SaleSourceCallChip } from "./SaleSourceCallChip";
 
 const policySchema = z.object({
   policy_type: z.string().trim().min(1, "Choose a policy type"),
@@ -23,9 +25,13 @@ const policySchema = z.object({
   sold_date: z.string().refine(v => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) &&
     new Date(v).toISOString().slice(0, 10) === v, "Enter a valid Sold Date"),
 });
-type Props = { open: boolean; clientId: string; primary?: boolean; onClose: () => void; onSaved: () => void };
+type Props = {
+  open: boolean; clientId: string; primary?: boolean; onClose: () => void; onSaved: () => void;
+  /** The producing call when the caller knows it (forwarded unchanged); without it the source-call chip offers one. */
+  sourceCallId?: string | null;
+};
 
-export default function RecordPolicyModal({ open, clientId, primary = false, onClose, onSaved }: Props) {
+export default function RecordPolicyModal({ open, clientId, primary = false, onClose, onSaved, sourceCallId }: Props) {
   const { user } = useAuth();
   const { organizationId } = useOrganization();
   const [form, setForm] = useState({ policy_type: "Term", carrier: "", policy_number: "", premium: "", sold_date: "" });
@@ -61,7 +67,7 @@ export default function RecordPolicyModal({ open, clientId, primary = false, onC
     const outcome = await submission.submit((attempt) => recordClientPolicyHandoff(attempt, requestId.current, clientId, {
       carrier: parsed.data.carrier!, policy_type: parsed.data.policy_type!, sold_date: parsed.data.sold_date!,
       policy_number: parsed.data.policy_number, premium: saleMonthlyPremium(parsed.data.premium), sale_mode: historical ? "historical" : "new",
-    }, primary, commission));
+    }, primary, commission, sourceCallId));
     if (!outcome.saved) return;
     const notice = outcome.result?.commission ? commissionNotice(outcome.result.commission, commission.slots.length) : null;
     if (notice) toast.warning(notice);
@@ -90,6 +96,8 @@ export default function RecordPolicyModal({ open, clientId, primary = false, onC
           </label>)}
           <PolicyCommissionEstimate owner={{ kind: "client", id: clientId }} policyType={form.policy_type}
             carrier={form.carrier} monthlyPremium={form.premium} onCaptureChange={inputs => { capture.current = inputs; }} />
+          <ClosingAppointmentField saleRequestId={requestId.current} contactIds={[clientId]} soldDate={form.sold_date} disabled={submission.locked} />
+          {open && sourceCallId === undefined && <SaleSourceCallChip requestId={requestId.current} disabled={submission.locked} />}
           <label className="flex gap-2 text-sm"><input type="checkbox" checked={historical} onChange={e => setHistorical(e.target.checked)} />
             Historical policy: credit the start of the Sold Date in the agency timezone, without celebration.
           </label>

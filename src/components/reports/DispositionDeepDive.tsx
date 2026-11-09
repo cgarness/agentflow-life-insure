@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatCount, formatRate } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
-import type { ReportDispositions } from "@/lib/reports-schemas";
+import type { ReportDispositionsV3 as ReportDispositions } from "@/lib/reports-v3-schemas";
 import { cn } from "@/lib/utils";
 import { BAR_GRID, CHART_TICK, DIAGNOSTIC_TOOLTIP } from "./reportChartTheme";
 import ReportSection from "./ReportSection";
@@ -37,6 +37,8 @@ interface Props {
 
 const truncate = (s: string) => (s.length > 18 ? `${s.slice(0, 18)}…` : s);
 const sameColor = (a: string) => a.trim().toLowerCase();
+/** "No outcome recorded" (and any disposition without a configured colour) is drawn in the neutral theme colour. */
+const NO_OUTCOME_COLOR = "hsl(var(--muted-foreground))";
 
 /** Every series is named in text; a repeated colour's swatch is lighter and ringed, as its bars are lighter. */
 function SeriesLegend({ series }: { series: Series[] }) {
@@ -63,14 +65,14 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
     // Server order is calls DESC, so the first N rows are the top N by calls.
     const all = dispositions.by_disposition;
     const top: Series[] = all.slice(0, TOP_N).map((d, i, shown) => ({
-      id: `s${i}`, name: d.name, color: d.color, key: d.key,
-      repeat: shown.slice(0, i).some((earlier) => sameColor(earlier.color) === sameColor(d.color)),
+      id: `s${i}`, name: d.name, color: d.color ?? NO_OUTCOME_COLOR, key: d.key,
+      repeat: shown.slice(0, i).some((earlier) => sameColor(earlier.color ?? NO_OUTCOME_COLOR) === sameColor(d.color ?? NO_OUTCOME_COLOR)),
     }));
     if (all.length > TOP_N) top.push({ id: "other", name: "Other", color: OTHER_COLOR, key: null, repeat: false });
     return top;
   }, [dispositions]);
 
-  const source = tab === "agent" ? dispositions.by_agent : dispositions.by_campaign;
+  const source = tab === "agent" ? dispositions.deep_dive.by_agent : dispositions.deep_dive.by_campaign;
 
   /** Per-row counts for each series; "Other" is the row total minus the top-N series. */
   const counted = useMemo(
@@ -101,6 +103,10 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
     [counted, series, mode],
   );
 
+  // Calls the campaign breakdown cannot show: restricted campaigns, plus (agency scope only) calls with no credited
+  // agent. Outside agency scope that breakdown is not part of the scope, so it adds nothing rather than a stand-in.
+  const unavailableAttribution = dispositions.deep_dive.other_campaigns.total + (dispositions.deep_dive.unattributed?.total ?? 0);
+
   const handleExport = onExport
     ? () =>
         onExport(
@@ -117,18 +123,18 @@ const DispositionDeepDive: React.FC<Props> = ({ dispositions, onExport }) => {
         <ReportSegmented ariaLabel="Show values as" value={mode} onChange={(next) => setMode(next)} options={MODES} />
       </div>
 
-      {tab === "campaign" && dispositions.campaign_attribution_unavailable_calls > 0 && (
+      {tab === "campaign" && unavailableAttribution > 0 && (
         <p className="text-xs text-muted-foreground mb-3">
-          {formatCount(dispositions.campaign_attribution_unavailable_calls)} calls have unavailable campaign attribution (missing or restricted).
+          {formatCount(unavailableAttribution)} calls have unavailable campaign attribution (missing or restricted).
         </p>
       )}
       {chartData.length === 0 ? (
         <p className="py-12 text-center text-sm text-muted-foreground">
-          {dispositions.total_calls === 0
+          {dispositions.call_population.attempts === 0
             ? "No outbound calls in this period."
             : tab === "campaign"
-              ? `No campaign breakdown is available for the ${formatCount(dispositions.total_calls)} outbound calls in this period.`
-              : `None of the ${formatCount(dispositions.total_calls)} outbound calls in this period has an assigned agent.`}
+              ? `No campaign breakdown is available for the ${formatCount(dispositions.call_population.attempts)} outbound calls in this period.`
+              : `None of the ${formatCount(dispositions.call_population.attempts)} outbound calls in this period has an assigned agent.`}
         </p>
       ) : (
         <>

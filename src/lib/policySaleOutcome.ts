@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { CommissionPayload } from "@/lib/commission/capture";
 import { hasClientPolicyEvidence } from "@/lib/policyIdentity";
 import type { Client } from "@/lib/types";
@@ -26,6 +27,11 @@ export interface PreparedSale {
   readonly commission: Readonly<CommissionPayload>;
   /** Celebrate the recorded sales after success (never for historical entries). */
   readonly notify: boolean;
+  /**
+   * The producing call (Reports V2 PKG-C): a calls row id, frozen with the submission so every retry reuses it
+   * unchanged. Kept out of saleArgs, so the sale's request hash is unchanged. Record and convert only.
+   */
+  readonly sourceCallId?: string | null;
 }
 
 /** One send of one submission. `sent` flips to true immediately before the HTTP request starts. */
@@ -71,6 +77,25 @@ export interface SaleHandoffResult {
   /** The saved client row when the writer returns one (create, record, edit). */
   client: Record<string, unknown> | null;
   commission: CommissionOutcome;
+  /** The producing-call link outcome; never alters the sale's success. Absent for kinds without capture. */
+  sourceCallLink?: SourceCallLink;
+}
+
+/**
+ * The server's `source_call_link` (D3 §2.12). An absent value is `not_requested` (an older companion, or no call);
+ * a malformed one is `unknown`. A missing link is always Unclassified in Reports, never "No".
+ */
+export type SourceCallLinkStatus =
+  | "linked" | "already_linked" | "rejected" | "capture_failed" | "not_requested" | "disabled" | "unknown";
+export interface SourceCallLink { status: SourceCallLinkStatus; recorded: boolean }
+const sourceCallLinkSchema = z.object({
+  status: z.enum(["linked", "already_linked", "rejected", "capture_failed", "not_requested", "disabled"]),
+  recorded: z.boolean().optional(),
+});
+export function parseSourceCallLink(raw: unknown): SourceCallLink {
+  if (raw === undefined || raw === null) return { status: "not_requested", recorded: false };
+  const parsed = sourceCallLinkSchema.safeParse(raw);
+  return parsed.success ? { status: parsed.data.status, recorded: parsed.data.recorded === true } : { status: "unknown", recorded: false };
 }
 
 export type SaleErrorClass = "not_sent" | "rejected" | "conflict" | "unknown";

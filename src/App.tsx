@@ -26,7 +26,6 @@ import Campaigns from "./pages/Campaigns";
 
 import CampaignDetail from "./pages/CampaignDetail";
 import Leaderboard from "./pages/Leaderboard";
-import Reports from "./pages/Reports";
 import AIAgentsPage from "./pages/AIAgentsPage";
 import AIAgentCreate from "./pages/AIAgentCreate";
 import Training from "./pages/Training";
@@ -46,6 +45,7 @@ import TermsOfServicePage from "./pages/TermsOfServicePage";
 import EmailUnsubscribePage from "./pages/EmailUnsubscribePage";
 import LandingPageTest1 from "./pages/LandingPageTest1";
 const LandingPageV2 = lazy(() => import("./pages/LandingPageV2"));
+const Reports = lazy(() => import("./pages/Reports"));
 import PricingPage from "./pages/PricingPage";
 import ContactPage from "./pages/ContactPage";
 import AcceptInvitePage from "@/pages/AcceptInvitePage";
@@ -154,7 +154,7 @@ const App = () => (
                           <Route path="/campaigns" element={<PageGuard pageName="Campaigns"><Campaigns /></PageGuard>} />
                           <Route path="/campaigns/:id" element={<PageGuard pageName="Campaigns"><CampaignDetail /></PageGuard>} />
                           <Route path="/leaderboard" element={<PageGuard pageName="Leaderboard"><Leaderboard /></PageGuard>} />
-                          <Route path="/reports" element={<PageGuard pageName="Reports"><Reports /></PageGuard>} />
+                          <Route path="/reports" element={<PageGuard pageName="Reports"><Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading Reports…</div>}><Reports /></Suspense></PageGuard>} />
                           <Route path="/ai-agents" element={<PageGuard pageName="AI Agents"><AIAgentsPage /></PageGuard>} />
                           <Route path="/ai-agents/new" element={<PageGuard pageName="AI Agents"><AIAgentCreate /></PageGuard>} />
                           <Route path="/training" element={<PageGuard pageName="Training"><Training /></PageGuard>} />

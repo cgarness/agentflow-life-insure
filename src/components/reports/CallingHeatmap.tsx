@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { ratio } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
-import type { ReportVolume } from "@/lib/reports-schemas";
+import type { ReportCallVolumeV3 } from "@/lib/reports-v3-schemas";
 import { cn } from "@/lib/utils";
 import HeatmapGrid, { type HeatmapCell, type HeatmapMetric, type HeatmapRow } from "./HeatmapGrid";
 import ReportSection from "./ReportSection";
@@ -14,7 +14,7 @@ const LEGEND_STEPS = ["bg-primary/20", "bg-primary/40", "bg-primary/60", "bg-pri
 const TABS: ReadonlyArray<readonly [HeatmapMetric, string]> = [["calls", "Calls made"], ["rate", "Call contact rate"]];
 
 interface Props {
-  volume: ReportVolume;
+  volume: ReportCallVolumeV3;
   onExport?: ReportExportFn;
 }
 

@@ -4,8 +4,8 @@ import type { Grouping } from "@/lib/reports-format";
 import ReportSegmented from "./ReportSegmented";
 
 const GROUPINGS: ReadonlyArray<readonly [Grouping, string]> = [["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"]];
-/** Fixed order; these two sections are not part of the saved layout. */
-const TREND_SECTIONS = ["policies_sold", "call_volume"] as const;
+/** Fixed order (D6 §4.1 section 3); not part of the saved layout. Call outcomes spans the full width. */
+const TREND_SECTIONS = ["policies_sold", "call_volume", "call_outcomes"] as const;
 
 interface Props {
   sections: Record<string, ReactNode>;
@@ -22,12 +22,12 @@ export default function ReportTrends({ sections, grouping, onGroupingChange }: P
   return (
     <section aria-labelledby="report-trends-title" data-report-group="trends" className="min-w-0 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="report-trends-title" className="text-base font-semibold tracking-tight">Trends</h2>
+        <h2 id="report-trends-title" className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Trends and call outcomes</h2>
         <ReportSegmented ariaLabel="Group trends by" value={grouping} onChange={onGroupingChange} options={GROUPINGS} />
       </div>
       <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2 xl:gap-6">
         {TREND_SECTIONS.filter((id) => sections[id] != null).map((id) => (
-          <div key={id} className="min-w-0" data-report-section={id}>{sections[id]}</div>
+          <div key={id} className={id === "call_outcomes" ? "min-w-0 xl:col-span-2" : "min-w-0"} data-report-section={id}>{sections[id]}</div>
         ))}
       </div>
     </section>
