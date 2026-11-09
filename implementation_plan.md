@@ -1,3 +1,16 @@
+## Premium fixture scope amendment — before edits
+
+Update existing successful-submission fixtures to supply the newly required premium; preserve all carrier, retry, date, pending-save and appointment-link assertions. Add explicit blank/zero refusal cases.
+
+- `src/components/contacts/__tests__/recordPolicyModal.test.tsx`
+- `src/components/contacts/__tests__/addClientSale.test.tsx`
+- `src/components/contacts/__tests__/convertLeadModalPolicyFields.test.tsx`
+- `src/components/contacts/__tests__/convertLeadModalClosingAppointment.test.tsx`
+
+## Release/recovery scope amendment — before edits
+
+Add `supabase/ops/reports_cleanup_enable.sql`, `supabase/ops/reports_cleanup_readback.sql`, `supabase/ops/reports_cleanup_rollback.sql`, and `docs/plans/2026-11-09-reports-cleanup/release.md`. Revise the already listed pending migration, isolated workflow and SQL test. Contract 3.4.0 identifies the initiated-attempt definition. Preserve all applied migration and original A–D ops/runner bytes. The new enable/readback files pin the same 97-function closure with only the two classifiers and contract version changed. Readback compares v3 summary and v3 volume rather than the deliberately older v2 definition. Rollback requires exact postimages, restores old bodies and removes only the new premium insert guard; no row changes. All production execution remains separately gated.
+
 ## Pure validation dependency amendment
 
 Add `src/lib/requiredPolicyPremium.ts` before editing: keep the shared positive-premium validator independent of Supabase imports so form-schema consumers and tests do not initialize the API client. Update the already listed callers and test import.
@@ -9145,3 +9158,6 @@ Chris authorized starting the submission work, with verification prioritized ove
 ## Preparation verification result — November 6, 2026 UTC
 
 44-file scope prepared; all 36 frozen files unchanged. B6 completed after 55/55 synthetic checks and returned 2 distinct discrepant sale events (premium and Sold Date flags separate). Three reporting zones remain unconfirmed. Final contract-3.3.0 synthetic package: 44 screenshots, 37 CSVs, 474/474 browser checks plus 30/30 supplemental checks. Root typecheck/build pass; app typecheck/lint findings match main by identity; Reports tests 384 passed/1 skipped. Independent reviewer remains unappointed; owner visual/CSV/map acceptance and publication approval are pending. See evidence/release-readiness-2026-11-06.md in the focused plan directory for the full closeout and disclosed embedded-database limits. No production mutation or hosted execution.
+
+### Cleanup acceptance amendment — canonical writers
+Before editing: add `supabase/tests/reports_cleanup_policy_writers.sql`; extend the already-listed cleanup workflow and focused native test. Exercise the exact new premium guard on the existing disposable policy fixture, all four canonical entry paths, rejection atomicity and idempotent retries. Production remains untouched.

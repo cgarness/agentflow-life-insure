@@ -1,4 +1,4 @@
--- DRAFT: not approved for production. Requires isolated acceptance and release/recovery pin reconciliation.
+-- NOT APPROVED FOR PRODUCTION. Contract 3.4.0; see the dedicated cleanup release and recovery package.
 -- Owner decision: Calls measures initiated attempts, not successful provider admission.
 -- No call data, admission verdict, duration, disposition, authorization or historical premium is rewritten.
 BEGIN;
@@ -32,6 +32,15 @@ BEGIN
     EXECUTE patched;
   END LOOP;
 END $patch$;
+
+DO $version$
+DECLARE definition text;
+BEGIN
+ IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='private.report_v3_basis_flags()'::regprocedure)
+    IS DISTINCT FROM 'f8ec6855680ce2d0d53c9437f3506ab6' THEN RAISE EXCEPTION 'Reports contract preimage drift'; END IF;
+ definition:=pg_get_functiondef('private.report_v3_basis_flags()'::regprocedure);
+ EXECUTE replace(definition,'3.3.0','3.4.0');
+END $version$;
 
 -- Shared atomic sale writers all insert a canonical win. Reject new missing/zero premiums there,
 -- before commit, preserving existing immutable historical events and idempotent receipt replays.

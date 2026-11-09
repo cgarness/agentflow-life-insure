@@ -19,6 +19,7 @@ async function setup() {
   const close=vi.fn(), saved=vi.fn();
   const page=render(<RecordPolicyModal open clientId="client" onClose={close} onSaved={saved} />);
   await pickCarrier("Carrier");
+  fireEvent.change(screen.getByLabelText("Monthly premium"), {target:{value:"100.00"}});
   fireEvent.change(screen.getByLabelText("Sold Date"), {target:{value:"2026-09-28"}});
   return {page,close,saved,submit:()=>fireEvent.click(screen.getByRole("button",{name:"Record Policy"}))};
 }
@@ -30,7 +31,14 @@ describe("record policy transaction", () => {
     expect(s.close).not.toHaveBeenCalled(); s.submit();
     await waitFor(()=>expect(s.saved).toHaveBeenCalledTimes(1));
     expect(h.save.mock.calls[0][1]).toBe(h.save.mock.calls[1][1]);
-    expect(h.save.mock.calls[0][3]).toMatchObject({premium:null,sale_mode:"new"});
+    expect(h.save.mock.calls[0][3]).toMatchObject({premium:100,sale_mode:"new"});
+  });
+  it.each(["", "0", "-1"])("rejects missing/nonpositive premium %j before persistence", async premium => {
+    const s=await setup();
+    fireEvent.change(screen.getByLabelText("Monthly premium"),{target:{value:premium}});
+    fireEvent.submit(s.page.baseElement.querySelector("form")!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("premium greater than zero");
+    expect(h.save).not.toHaveBeenCalled();
   });
   it("preserves cents and explicit historical intent", async () => {
     h.save.mockResolvedValue({}); const s=await setup();
@@ -58,6 +66,7 @@ describe("record policy carrier selection", () => {
     const saved = vi.fn();
     render(<RecordPolicyModal open clientId="client" onClose={vi.fn()} onSaved={saved} />);
     expect(screen.getByLabelText("Carrier")).toHaveTextContent("Select carrier…");
+    fireEvent.change(screen.getByLabelText("Monthly premium"), {target:{value:"100.00"}});
     fireEvent.change(screen.getByLabelText("Sold Date"), { target: { value: "2026-09-28" } });
     fireEvent.click(screen.getByRole("button", { name: "Record Policy" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Carrier is required");

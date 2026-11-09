@@ -77,8 +77,8 @@ function newPolicyRow(): PolicyRow {
 
 // Zod validation (per policy row + shared schedule fields).
 const policyRowSchema = z.object({
-  premiumAmount: z.string().refine(hasRequiredSalePremium, "Enter a monthly premium greater than zero"),
   carrier: z.string().trim().min(1, "Carrier is required"),
+  premiumAmount: z.string().refine(hasRequiredSalePremium, "Enter a monthly premium greater than zero"),
   soldDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Sold Date is required"),
   effectiveDate: optionalIsoDateSchema,
 });

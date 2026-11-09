@@ -6,16 +6,27 @@ DECLARE source_call public.calls; candidate public.calls; cid uuid; spec record;
 BEGIN
  SELECT * INTO STRICT source_call FROM public.calls WHERE lower(direction) IN ('outbound','outgoing') LIMIT 1;
  FOR spec IN SELECT * FROM (VALUES
-   (NULL::text, true, 'attempt'), ('unconfirmed',true,'attempt'),
-   ('not_sent',true,'non_attempt'), (NULL::text,false,'unverified')) AS x(dispatch,has_id,expected)
+   (NULL::text, true, NULL::boolean, 'attempt'), ('unconfirmed',true,NULL,'attempt'),
+   (NULL,true,NULL,'attempt'), -- An intentional repeat attempt counts independently.
+   ('not_sent',true,NULL,'non_attempt'), (NULL::text,false,NULL,'unverified'),
+   (NULL,true,false,'non_attempt'), ('not_sent',true,true,'attempt')) AS x(dispatch,has_id,admitted,expected)
  LOOP
    cid:=gen_random_uuid();
    candidate:=jsonb_populate_record(NULL::public.calls,to_jsonb(source_call)||jsonb_build_object(
      'id',cid,'attempt_id',CASE WHEN spec.has_id THEN cid ELSE NULL END,
      'dialer_admission_required',true,'dialer_dispatch_error',spec.dispatch));
    INSERT INTO public.calls SELECT (candidate).*;
+   IF spec.admitted IS NOT NULL THEN
+     INSERT INTO private.dialer_outbound_admissions(organization_id,call_id,parent_sid,destination,admitted,reason)
+       VALUES(source_call.organization_id,cid,'cleanup-'||cid,'+13105550000',spec.admitted,CASE WHEN NOT spec.admitted THEN 'dnc' END);
+   END IF;
    INSERT INTO cleanup_cases VALUES(cid,spec.expected);
  END LOOP;
+ IF (SELECT count(*) FROM private.report_v3_call_facts(source_call.organization_id,
+     source_call.created_at-interval '1 second',source_call.created_at+interval '1 second') f
+     JOIN cleanup_cases c ON c.id=f.call_id WHERE f.attempt_class='attempt')<>4 THEN
+   RAISE EXCEPTION 'Intentional attempts were lost or excluded records were counted';
+ END IF;
  FOR spec IN SELECT * FROM cleanup_cases LOOP
    SELECT attempt_class INTO STRICT actual FROM private.report_v3_call_facts(source_call.organization_id,
      source_call.created_at-interval '1 second',source_call.created_at+interval '1 second') WHERE call_id=spec.id;

@@ -10,7 +10,10 @@ on:
       - 'src/components/contacts/ConvertLeadModal.tsx'
       - 'supabase/migrations/pending/*reports_initiated_attempts_and_required_premium.sql'
       - 'supabase/tests/reports_initiated_attempts_and_required_premium.sql'
+      - 'supabase/tests/reports_cleanup_policy_writers.sql'
+      - 'src/lib/requiredPolicyPremium.ts'
       - '.github/workflows/reports-cleanup.yml'
+      - 'supabase/ops/reports_cleanup_*.sql'
 permissions:
   contents: read
 jobs:
@@ -43,3 +46,25 @@ jobs:
           psql "$PGURL" -X -v ON_ERROR_STOP=1 -c 'ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS attempt_id uuid; ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS dialer_dispatch_error text;'
           psql "$PGURL" -X -v ON_ERROR_STOP=1 -f supabase/migrations/pending/20261109062059_reports_initiated_attempts_and_required_premium.sql
           psql "$PGURL" -X -v ON_ERROR_STOP=1 -f supabase/tests/reports_initiated_attempts_and_required_premium.sql
+          psql "$PGURL" -X -v ON_ERROR_STOP=1 -f supabase/ops/reports_cleanup_enable.sql
+          psql "$PGURL" -X -v ON_ERROR_STOP=1 -f supabase/ops/reports_cleanup_readback.sql
+          psql "$PGURL" -X -v ON_ERROR_STOP=1 -f supabase/ops/reports_cleanup_rollback.sql
+          psql "$PGURL" -X -v ON_ERROR_STOP=1 -f supabase/ops/reports_v3_enable.sql
+          psql "$PGURL" -X -v ON_ERROR_STOP=1 -f supabase/ops/reports_v3_readback.sql
+      - name: Canonical policy writers and retries
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433/postgres
+        run: |
+          set -euo pipefail
+          psql "$PGURL" -X -v ON_ERROR_STOP=1 -c 'CREATE DATABASE cleanup_policy;'
+          POLICY_URL="${PGURL%/postgres}/cleanup_policy"
+          python3 scripts/reporting_fixture.py policy > "$RUNNER_TEMP/cleanup-policy.sql"
+          psql "$POLICY_URL" -X -q -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/cleanup-policy.sql" > "$RUNNER_TEMP/cleanup-policy.log" 2>&1 || { tail -n 80 "$RUNNER_TEMP/cleanup-policy.log"; exit 1; }
+          # Verbatim new guard from the reviewed migration, on the canonical-writer fixture.
+          python3 - <<'PY' > "$RUNNER_TEMP/cleanup-premium-guard.sql"
+          from pathlib import Path
+          sql = Path('supabase/migrations/pending/20261109062059_reports_initiated_attempts_and_required_premium.sql').read_text()
+          print('BEGIN;\n' + sql[sql.index('CREATE FUNCTION private.require_new_policy_sale_premium()'):])
+          PY
+          psql "$POLICY_URL" -X -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/cleanup-premium-guard.sql"
+          psql "$POLICY_URL" -X -v ON_ERROR_STOP=1 -f supabase/tests/reports_cleanup_policy_writers.sql

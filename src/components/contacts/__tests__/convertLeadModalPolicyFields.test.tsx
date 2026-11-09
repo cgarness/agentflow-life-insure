@@ -70,6 +70,7 @@ function renderModal(overrides: Partial<React.ComponentProps<typeof ConvertLeadM
   render(
     <ConvertLeadModal open={true} onClose={onClose} lead={LEAD} onSuccess={onSuccess} {...overrides} />
   );
+  fireEvent.change(screen.getByPlaceholderText("125.00"), {target:{value:"100.00"}});
   return { onSuccess, onClose };
 }
 
@@ -176,6 +177,13 @@ describe("ConvertLeadModal — policy date & payment schedule fields", () => {
     expect(h.convertCalls[0].payload.paymentFrequency).toBe("quarterly");
   });
 
+  it.each(["", "0", "-1"])("rejects premium %j without converting", async premium => {
+    renderModal(); await pickCarrier();
+    fireEvent.change(screen.getByPlaceholderText("125.00"), {target:{value:premium}});
+    fireEvent.click(convertButton());
+    await waitFor(() => expect(h.errorToasts.some(m => /premium greater than zero/i.test(m))).toBe(true));
+    expect(h.convertCalls).toHaveLength(0);
+  });
   it("carrier is still required (Zod) — no conversion call, error toast", async () => {
     renderModal();
     await waitFor(() => expect(screen.getByText("Acme")).toBeTruthy());

@@ -1,3 +1,11 @@
+## November 8, 2026 Pacific — Reports cleanup release preparation (draft PR #522)
+
+Initial hosted native PostgreSQL apply/classifier/premium test passed (run 42573399350, head b07c183). Hosted form checks exposed old fixtures that omitted newly required premiums; fixed fixtures preserve carrier-selection, retry and appointment assertions and add invalid-premium refusal cases. All 35 affected form tests pass; root TypeScript and whitespace checks pass.
+
+Prepared contract 3.4.0 marker, exact 97-function enable/readback pins, guarded rollback restoring 3.3.0, and dedicated release notes. New isolated checks exercise admitted/refused/not-sent/unconfirmed/repeated call classifications and all four canonical policy writers with retries. Full release/rollback and writer checks are pending hosted verification. Existing original A–D packages stay immutable. Files listed before editing in implementation_plan.md; no production mutation, merge or deployment.
+
+---
+
 ## November 8, 2026 Pacific — Reports cleanup implementation (local, NOT RELEASED)
 
 Chris approved Calls as the simplified label and proceeding with eligible-record reporting and premium validation. Base 40e2a962; separate branch fix/reports-eligible-records-20261109. Exact scope recorded in implementation_plan.md before edits. Report tiles/charts no longer repeat Partial; excluded-record details remain in How it's calculated and raw backend evidence remains intact. Usable appointment denominators and older-record exclusions are preserved. Record Policy, conversion rows and explicit client-sale forms require a positive valid premium; ordinary contacts and calculator drafts remain supported.

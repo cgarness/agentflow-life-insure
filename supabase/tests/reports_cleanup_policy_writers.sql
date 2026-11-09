@@ -1,0 +1,27 @@
+-- Disposable canonical-writer fixture only; existing historical unknown premiums are retained.
+BEGIN;
+SELECT test_actor(11);
+CREATE TEMP TABLE cleanup_before AS SELECT count(*) n FROM wins;
+SET ROLE authenticated;
+SELECT test_reject($q$SELECT create_client_with_sale(test_id(99001),test_id(1),test_client_payload()||'{"premium":null}',true)$q$,'23514');
+INSERT INTO test_results VALUES('cleanup-new',create_client_with_sale(test_id(99001),test_id(1),test_client_payload(),true));
+INSERT INTO test_results VALUES('cleanup-retry',create_client_with_sale(test_id(99001),test_id(1),test_client_payload(),true));
+INSERT INTO test_results VALUES('cleanup-contact',create_client_with_sale(test_id(99002),test_id(1),test_client_payload()-ARRAY['carrier','premium','sold_date'],false));
+SELECT test_reject($q$SELECT update_client_with_policy_sale((SELECT (data->>'client_id')::uuid FROM test_results WHERE key='cleanup-contact'),'{"policy_type":"Term","carrier":"Test","premium":null,"sold_date":"2026-09-28"}')$q$,'23514');
+INSERT INTO test_results VALUES('cleanup-first',update_client_with_policy_sale((SELECT (data->>'client_id')::uuid FROM test_results WHERE key='cleanup-contact'),'{"policy_type":"Term","carrier":"Test","premium":50,"sold_date":"2026-09-28"}'));
+SELECT test_reject($q$SELECT record_client_policy(test_id(99003),(SELECT (data->>'client_id')::uuid FROM test_results WHERE key='cleanup-new'),'{"policy_type":"Term","carrier":"Test","premium":0,"sold_date":"2026-09-28"}')$q$,'23514');
+INSERT INTO test_results VALUES('cleanup-extra',record_client_policy(test_id(99003),(SELECT (data->>'client_id')::uuid FROM test_results WHERE key='cleanup-new'),'{"policy_type":"Term","carrier":"Test","premium":25,"sold_date":"2026-09-28"}'));
+INSERT INTO test_results VALUES('cleanup-extra-retry',record_client_policy(test_id(99003),(SELECT (data->>'client_id')::uuid FROM test_results WHERE key='cleanup-new'),'{"policy_type":"Term","carrier":"Test","premium":25,"sold_date":"2026-09-28"}'));
+RESET ROLE;
+INSERT INTO leads(id,organization_id,user_id,assigned_agent_id,first_name,last_name) VALUES(test_id(99004),test_id(1),test_id(11),test_id(11),'Cleanup','Conversion');
+SET ROLE authenticated;
+SELECT test_reject($q$SELECT convert_lead_to_client_with_sales(test_id(99004),test_id(1),test_client_payload()||'{"premium":null}',null)$q$,'23514');
+INSERT INTO test_results VALUES('cleanup-convert',convert_lead_to_client_with_sales(test_id(99004),test_id(1),test_client_payload(),null));
+INSERT INTO test_results VALUES('cleanup-convert-retry',convert_lead_to_client_with_sales(test_id(99004),test_id(1),test_client_payload(),null));
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT test_assert((SELECT count(*) FROM wins)=(SELECT n+4 FROM cleanup_before),'four successful policy events, failed writes and retries add none');
+SELECT test_assert((SELECT data->'win_ids' FROM test_results WHERE key='cleanup-new')=(SELECT data->'win_ids' FROM test_results WHERE key='cleanup-retry'),'create retry returns original events');
+SELECT test_assert((SELECT data->'win_ids' FROM test_results WHERE key='cleanup-extra')=(SELECT data->'win_ids' FROM test_results WHERE key='cleanup-extra-retry'),'additional policy retry returns original event');
+SELECT test_assert((SELECT data->'win_ids' FROM test_results WHERE key='cleanup-convert')=(SELECT data->'win_ids' FROM test_results WHERE key='cleanup-convert-retry'),'conversion retry returns original events');
+ROLLBACK;
