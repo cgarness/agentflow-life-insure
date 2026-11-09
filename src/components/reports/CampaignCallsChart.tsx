@@ -34,7 +34,7 @@ const CampaignCallsChart: React.FC<{ data: CampaignRow[] }> = ({ data }) => (
           isAnimationActive={false} formatter={(v: number, name: string) => [formatCount(v), name]} />
         <Legend verticalAlign="top" align="right" iconType="circle" iconSize={8}
           formatter={(value: string) => <span className="text-xs text-muted-foreground">{value}</span>} />
-        <Bar dataKey="calls_made" name="Calls made" fill="hsl(var(--primary) / 0.3)" radius={[0, 4, 4, 0]} barSize={10} />
+        <Bar dataKey="calls_made" name="Calls" fill="hsl(var(--primary) / 0.3)" radius={[0, 4, 4, 0]} barSize={10} />
         <Bar dataKey="contacted_calls" name="Contacted calls" fill={SERIES_COLOR} radius={[0, 4, 4, 0]} barSize={10} />
       </BarChart>
     </ResponsiveContainer>

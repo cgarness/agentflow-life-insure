@@ -67,7 +67,7 @@ export const SHORT_CUES: Record<keyof typeof REASON_NOTICES, string> = {
 
 export const CHIP_PARTIAL = "Partial";
 export const CHIP_IN_PROGRESS = "In progress";
-export const CUE_NOT_ENOUGH_DATA = "Not enough data";
+export const CUE_NOT_ENOUGH_DATA = "No eligible data";
 export const NOT_LOADED = "not loaded";
 
 export const HOW_CALCULATED_TITLE = "How it's calculated";
@@ -77,9 +77,9 @@ export const PERIOD_AVERAGES_NOTE = "Calls, contacted calls and prospects reache
 export const NOT_A_FUNNEL_NOTE =
   "Activity figures are independent period totals with their own dates; they are not steps of a funnel.";
 export const BREAKDOWN_CALLS_NOTE =
-  "Campaign and lead-source breakdowns show call activity only. Calls without a campaign, calls on campaigns you can't see and calls not linked to a current lead have their own rows, so each breakdown adds up to Calls made.";
+  "Campaign and lead-source breakdowns show call activity only. Calls without a campaign, calls on campaigns you can't see and calls not linked to a current lead have their own rows, so each breakdown adds up to Calls.";
 export const CALLS_MADE_BASIS_NOTE =
-  "Calls made counts confirmed dial attempts only. Leaderboard, Dashboard and Trusted Dialer count every outbound call record, so their totals can be higher.";
+  "Calls counts valid initiated outbound attempts, including unsuccessful attempts. Explicit refusals, attempts marked not sent and records without sufficient attempt evidence are excluded.";
 export const SALE_SOURCE_NOTE = "Policies sold counts recorded policy sales by Sold Date.";
 export const ORIGINAL_SELLER_NOTE = "Each sale is credited to the agent who originally sold it.";
 export const EFFECTIVE_PREMIUM_BASIS = "AP uses the original sale’s effective monthly premium × 12, including audited corrections.";

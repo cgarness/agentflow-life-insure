@@ -11,7 +11,7 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DEFAULT_HOURS = Array.from({ length: 16 }, (_, i) => i + 6);
 const ALL_HOURS = Array.from({ length: 24 }, (_, i) => i);
 const LEGEND_STEPS = ["bg-primary/20", "bg-primary/40", "bg-primary/60", "bg-primary/80", "bg-primary"];
-const TABS: ReadonlyArray<readonly [HeatmapMetric, string]> = [["calls", "Calls made"], ["rate", "Call contact rate"]];
+const TABS: ReadonlyArray<readonly [HeatmapMetric, string]> = [["calls", "Calls"], ["rate", "Call contact rate"]];
 
 interface Props {
   volume: ReportCallVolumeV3;
@@ -59,7 +59,7 @@ const CallingHeatmap: React.FC<Props> = ({ volume, onExport }) => {
     ? () =>
         onExport(
           "Calling Heatmap",
-          ["Day", "Hour", "Calls made", "Contacted"],
+          ["Day", "Hour", "Calls", "Contacted"],
           DAYS.flatMap((day, di) => hours.map((h) => [day, fmtHour(h), grid[di][h].calls, grid[di][h].contacted])),
         )
     : undefined;

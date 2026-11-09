@@ -43,7 +43,7 @@ function FlowTooltip({ active, payload }: { active?: boolean; payload?: Array<{ 
     <div className={TOOLTIP_FRAME}>
       <p className="mb-2 font-semibold">{row.label}</p>
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
-        <dt>Calls made</dt><dd className="text-right font-semibold tabular-nums">{formatCount(row.calls)}</dd>
+        <dt>Calls</dt><dd className="text-right font-semibold tabular-nums">{formatCount(row.calls)}</dd>
         <dt>Contacted calls</dt><dd className="text-right tabular-nums">{formatCount(row.contacted)}</dd>
         <dt>Call contact rate</dt><dd className="text-right font-semibold tabular-nums">{formatRate(row.rate)}</dd>
       </dl>
@@ -86,7 +86,7 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
     ? () =>
         onExport(
           tab === "hour" ? "Call Flow by Hour" : "Call Flow by Day",
-          [tab === "hour" ? "Hour" : "Day", "Calls made", "Contacted", "Call contact rate %"],
+          [tab === "hour" ? "Hour" : "Day", "Calls", "Contacted", "Call contact rate %"],
           rows.map((r) => [r.label, r.calls, r.contacted, r.rate]),
         )
     : undefined;
@@ -98,14 +98,14 @@ const CallFlowAnalysis: React.FC<Props> = ({ volume, onExport }) => {
       ) : (
         <>
           <ReportSegmented ariaLabel="Call flow view" value={tab} onChange={(next) => setTab(next)} options={TABS} className="mb-4" />
-          <TrendPanel caption="Calls made" size="main" readout={readout}>
+          <TrendPanel caption="Calls" size="main" readout={readout}>
             <BarChart data={rows} syncId={SYNC_ID} margin={CHART_THEME.mainMargin} barCategoryGap="20%"
-              accessibilityLayer aria-label={`Calls made by ${unit}`} desc={CHART_KEYS_DESC} {...handlers}>
+              accessibilityLayer aria-label={`Calls by ${unit}`} desc={CHART_KEYS_DESC} {...handlers}>
               <CartesianGrid {...CHART_THEME.grid} />
               <XAxis dataKey="label" hide />
               <YAxis {...CHART_THEME.yAxis} allowDecimals={false} />
               <Tooltip content={<FlowTooltip />} cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.6 }} {...CHART_THEME.tooltip} />
-              <Bar dataKey="calls" name="Calls made" fill={SERIES_COLOR} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
+              <Bar dataKey="calls" name="Calls" fill={SERIES_COLOR} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
             </BarChart>
           </TrendPanel>
           <TrendPanel caption="Call contact rate" size="companion">

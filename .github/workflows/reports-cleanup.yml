@@ -1,0 +1,45 @@
+name: Reports cleanup verification
+on:
+  pull_request:
+    paths:
+      - 'src/components/reports/**'
+      - 'src/lib/reports-*.ts'
+      - 'src/lib/policySaleRecording.ts'
+      - 'src/lib/clientSaleForm.ts'
+      - 'src/components/contacts/RecordPolicyModal.tsx'
+      - 'src/components/contacts/ConvertLeadModal.tsx'
+      - 'supabase/migrations/pending/*reports_initiated_attempts_and_required_premium.sql'
+      - 'supabase/tests/reports_initiated_attempts_and_required_premium.sql'
+      - '.github/workflows/reports-cleanup.yml'
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55433:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Synthetic PostgreSQL acceptance
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433/postgres
+        run: |
+          set -euo pipefail
+          REPORTS_V3_KEEP_PACKAGES=1 REPORTS_V3_PERF=0 python3 scripts/reports_v3_fixture.py > "$RUNNER_TEMP/cleanup-fixture.sql"
+          psql "$PGURL" -X -q -v ON_ERROR_STOP=1 -f "$RUNNER_TEMP/cleanup-fixture.sql" > "$RUNNER_TEMP/cleanup-native.log" 2>&1 || { tail -n 80 "$RUNNER_TEMP/cleanup-native.log"; exit 1; }
+          # Columns omitted by the historic report-only fixture; production already has both.
+          psql "$PGURL" -X -v ON_ERROR_STOP=1 -c 'ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS attempt_id uuid; ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS dialer_dispatch_error text;'
+          psql "$PGURL" -X -v ON_ERROR_STOP=1 -f supabase/migrations/pending/20261109062059_reports_initiated_attempts_and_required_premium.sql
+          psql "$PGURL" -X -v ON_ERROR_STOP=1 -f supabase/tests/reports_initiated_attempts_and_required_premium.sql

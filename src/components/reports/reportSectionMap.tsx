@@ -5,7 +5,6 @@ import { RefreshCw } from "lucide-react";
 import type { Grouping } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import type { PanelKey, PanelState, Panels } from "@/lib/reports-panels";
-import { CHIP_PARTIAL, REASON_NOTICES, fillNotice } from "@/lib/reports-v3-text";
 import AgentPerformanceCards from "./AgentPerformanceCards";
 import CallDurationAnalysis from "./CallDurationAnalysis";
 import CallFlowAnalysis from "./CallFlowAnalysis";
@@ -14,7 +13,6 @@ import CallVolumeChart from "./CallVolumeChart";
 import CampaignPerformance from "./CampaignPerformance";
 import DispositionDeepDive from "./DispositionDeepDive";
 import DispositionsPieChart from "./DispositionsPieChart";
-import KpiStatusNote from "./KpiStatusNote";
 import LeadSourceTable from "./LeadSourceTable";
 import PoliciesSoldChart from "./PoliciesSoldChart";
 import RegionalPerformance from "./regional/RegionalPerformance";
@@ -52,18 +50,9 @@ export function PanelSlot<T>({ title, state, onRetry, children }: { title: strin
   );
 }
 
-/** The compact Partial cue on every call panel while its reader reports unverified attempts (D6 §4.1). */
-export function CallPanelCue({ unverified }: { unverified: number }) {
-  if (unverified <= 0) return null;
-  return <KpiStatusNote label={CHIP_PARTIAL} tone="partial" lines={[fillNotice(REASON_NOTICES.attempt_unverified, { n: unverified })]} />;
-}
-
-const withCue = (unverified: number, node: React.ReactNode) => (
-  <div className="relative">
-    {unverified > 0 && <div className="absolute right-14 top-4 z-10"><CallPanelCue unverified={unverified} /></div>}
-    {node}
-  </div>
-);
+/** Exclusions are explained once in How it's calculated, not repeated on every chart. */
+export function CallPanelCue(_props: { unverified: number }) { return null; }
+const withCue = (_unverified: number, node: React.ReactNode) => node;
 
 export function buildV3Sections(ctx: V3SectionContext): Record<string, React.ReactNode> {
   const { panels: p, retry, exportFor } = ctx;

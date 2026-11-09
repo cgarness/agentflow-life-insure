@@ -30,7 +30,7 @@ export function kpiNotes(ids: number[], envelopeOf: (id: number) => KpiEnvelope 
   return [...new Set(notes)];
 }
 
-/** Call-panel files: the Calls made basis, the unverified-attempt notice when present, and the breakdown note. */
+/** Call-panel files: the Calls basis, the unverified-attempt notice when present, and the breakdown note. */
 export function callNotes(unverified: number, breakdown = false): string[] {
   return [CALLS_MADE_BASIS_NOTE, ...(unverified > 0 ? [fillNotice(REASON_NOTICES.attempt_unverified, { n: unverified })] : []),
     ...(breakdown ? [BREAKDOWN_CALLS_NOTE] : [])];
@@ -41,7 +41,7 @@ const money = (cents: bigint | null): string | null => (cents === null ? null : 
 const centsOf = (dollars: number | null): bigint | null => (dollars === null ? null : toCents(dollars));
 
 export const STATE_CSV_HEADERS = [
-  "State", "State name", "Calls made", "Contacted calls", "Policies sold", "AP", "Policies with premium", "Policies missing premium",
+  "State", "State name", "Calls", "Contacted calls", "Policies sold", "AP", "Policies with premium", "Policies missing premium",
   "Invalid premium", "Calls by current record", "Policies by current record", "Calls by campaign copy", "Policies by campaign copy",
   "Calls with state changed after the event", "Policies with state changed after the event",
 ];

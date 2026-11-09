@@ -13,9 +13,9 @@ const states = () => reportStateBreakdownV3Schema.parse(
   buildV3Bundle({ requestedScope: "agency", startDate: "2026-06-16", endDate: "2026-07-15", agentId: null }).statesV3);
 
 describe("Regional performance", () => {
-  it("defaults to Calls made and loads the map lazily as 51 named toggle buttons with one tab stop", async () => {
+  it("defaults to Calls and loads the map lazily as 51 named toggle buttons with one tab stop", async () => {
     render(<RegionalPerformance data={states()} />);
-    expect(within(screen.getByRole("group", { name: "Map metric" })).getByRole("button", { name: "Calls made" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(screen.getByRole("group", { name: "Map metric" })).getByRole("button", { name: "Calls" })).toHaveAttribute("aria-pressed", "true");
     const map = await screen.findByRole("group", { name: "Map of states" });
     const paths = within(map).getAllByRole("button");
     expect(paths).toHaveLength(51);
@@ -44,7 +44,7 @@ describe("Regional performance", () => {
     expect(within(foot).getAllByRole("row").map(r => within(r).getByRole("rowheader").textContent)).toEqual(
       ["Mapped total", expect.stringContaining("Unmapped"), "Total"]);
     expect(within(body).getAllByRole("row")[0]).toHaveTextContent("California");
-    const header = within(table).getByRole("columnheader", { name: "Calls made" });
+    const header = within(table).getByRole("columnheader", { name: "Calls" });
     expect(header).toHaveAttribute("aria-sort", "descending");
     fireEvent.click(within(header).getByRole("button"));
     expect(header).toHaveAttribute("aria-sort", "ascending");

@@ -16,7 +16,7 @@ describe("Customizer (layout v5)", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Show Total talk time" }));
     expect((screen.getByRole("checkbox", { name: "Show Time in dialer" }) as HTMLInputElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Show Calls made" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show Calls" }));
     expect((screen.getByRole("checkbox", { name: "Show Time in dialer" }) as HTMLInputElement).disabled).toBe(false);
   });
   it("reorders within a group without mutating input or moving other groups", () => {

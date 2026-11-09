@@ -1,3 +1,4 @@
+import { hasRequiredSalePremium } from "@/lib/requiredPolicyPremium";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: h }));
@@ -64,5 +65,17 @@ describe("policy premium snapshots", () => {
   it("preserves legacy fallback and annualizes exactly once", () => {
     expect(annualPremiumForWin({agent_id:"agent",contact_id:"client",premium_amount:0},fallback)).toBe(1200);
     expect(annualPremiumForWin({agent_id:"agent",contact_id:"client",premium_amount:25,premium_snapshot:true},fallback)).toBe(300);
+  });
+});
+
+
+describe("required policy premium", () => {
+  it.each(["", " ", "0", "0.00", "-1", "NaN", "Infinity", "12.345", "1e3"])("rejects %j for a recorded sale", premiumAmount => {
+    expect(hasRequiredSalePremium(premiumAmount)).toBe(false);
+    expect(clientSaleFormSchema.safeParse({...client, premiumAmount, recordSale: true}).success).toBe(false);
+  });
+  it.each(["0.01", "100", "$1,234.56"])("accepts %j", premiumAmount => {
+    expect(hasRequiredSalePremium(premiumAmount)).toBe(true);
+    expect(clientSaleFormSchema.safeParse({...client, premiumAmount, recordSale: true}).success).toBe(true);
   });
 });

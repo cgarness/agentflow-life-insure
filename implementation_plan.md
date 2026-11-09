@@ -1,3 +1,67 @@
+## Pure validation dependency amendment
+
+Add `src/lib/requiredPolicyPremium.ts` before editing: keep the shared positive-premium validator independent of Supabase imports so form-schema consumers and tests do not initialize the API client. Update the already listed callers and test import.
+
+## Additional backend/test scope — recorded before authoring
+
+- `supabase/migrations/pending/20261109062059_reports_initiated_attempts_and_required_premium.sql` (CLI generated, moved to pending; not applied)
+- `supabase/tests/reports_initiated_attempts_and_required_premium.sql`
+- `.github/workflows/reports-cleanup.yml` (isolated PostgreSQL 17.6 on pull requests; no production credentials)
+- `src/lib/__tests__/reportsKpiRegistry.test.ts` (approved display-label override only; frozen backend registry preserved)
+
+Native tests will create only synthetic data in an isolated Actions PostgreSQL service. No production SQL execution. Existing release runner/enable/recovery pins must be reconciled and independently verified before this pending migration becomes releasable. Historical migrations remain immutable.
+
+## November 8, 2026 Pacific — Reports cleanup, approved implementation; not released
+
+Chris approved proceeding with the fixes and retaining the label Calls. Base: 40e2a962191780a1dbb25fa49c808f7b8b63d09d. Implement on fix/reports-eligible-records-20261109. No production mutation or release is authorized here.
+
+Rules: count valid initiated attempts once, including downstream failures; exclude known refusals and proven not-sent attempts. Preserve actual contacted/talk-time semantics, org scopes, duplicate guards and Voice.js architecture. Use entered appointment outcomes (existing assessable denominators); remove Partial from metric presentation, retaining exclusion details under How it’s calculated. Retain reliable older records, exclude unusable records per metric, and preserve no-data versus zero. Require positive finite premium for recorded policies, while ordinary contact entry and incomplete calculator previews remain allowed. Historical corrections are excluded.
+
+Read-only finding (home agency, rolling 30 days): 2,713 admitted records; 14 records with attempt IDs but missing admission and dispatch-failure evidence; 3 explicit refusals. No claim the 14 reached Twilio. Existing call insertion occurs after local DNC/caller-ID guards and before Voice.js invocation. Need explicit eligibility mapping for missing server evidence; no fabricated backfill.
+
+Exact initial frontend/test/document scope (before editing):
+- `AGENT_RULES.md`
+- `WORK_LOG.md`
+- `src/components/contacts/ConvertLeadModal.tsx`
+- `src/components/contacts/RecordPolicyModal.tsx`
+- `src/components/reports/AgentPerformanceCards.tsx`
+- `src/components/reports/CallFlowAnalysis.tsx`
+- `src/components/reports/CallVolumeChart.tsx`
+- `src/components/reports/CallingHeatmap.tsx`
+- `src/components/reports/CampaignCallsChart.tsx`
+- `src/components/reports/CampaignPerformance.tsx`
+- `src/components/reports/DataBasisSections.tsx`
+- `src/components/reports/HeatmapGrid.tsx`
+- `src/components/reports/KpiTile.tsx`
+- `src/components/reports/LeadSourceTable.tsx`
+- `src/components/reports/ReportBreakdowns.tsx`
+- `src/components/reports/__tests__/agentPerformanceTable.test.tsx`
+- `src/components/reports/__tests__/reportCustomizer.test.tsx`
+- `src/components/reports/__tests__/reportsKpiTile.test.tsx`
+- `src/components/reports/__tests__/reportsRegionalPerformance.test.tsx`
+- `src/components/reports/__tests__/reportsTables.test.tsx`
+- `src/components/reports/regional/RegionalPerformance.tsx`
+- `src/components/reports/regional/StateTable.tsx`
+- `src/components/reports/reportSectionMap.tsx`
+- `src/lib/__tests__/policySaleRecording.test.ts`
+- `src/lib/__tests__/reportsBasisText.test.ts`
+- `src/lib/__tests__/reportsExportFormat.test.ts`
+- `src/lib/__tests__/reportsKpiFormat.test.ts`
+- `src/lib/__tests__/reportsV3Fixtures.ts`
+- `src/lib/clientSaleForm.ts`
+- `src/lib/policySaleRecording.ts`
+- `src/lib/report-layout-constants.ts`
+- `src/lib/reports-basis-text.ts`
+- `src/lib/reports-kpi-format.ts`
+- `src/lib/reports-kpi-registry.ts`
+- `src/lib/reports-regional.ts`
+- `src/lib/reports-v3-export.ts`
+- `src/lib/reports-v3-text.ts`
+
+Backend migration and isolated SQL test paths will be listed before authoring after reviewing live function definitions. Production SQL and frontend release require their separately reviewed approvals. Do not edit applied migrations or weaken closure pins. Verification: focused UI/premium cases, root npx tsc --noEmit, regression comparison, isolated SQL acceptance before proposed database release. No dashboard/leaderboard definition change or telephony write-path change in this initial scope.
+
+---
+
 # November 8, 2026 Pacific — Hosted whitespace gate correction
 
 PR #521 publication head f27c0b9 passed the tested local comparison, but the onboarding workflow's mandatory diff check rejects the frozen reportsDialerIntelligence test's final empty line. Complete the requested verification by removing only that trailing blank line. Exact continuation paths, recorded before editing: `src/components/reports/__tests__/reportsDialerIntelligence.test.tsx`, root `implementation_plan.md`, `WORK_LOG.md`, and focused Reports `implementation_plan.md`, `release-proposal.md`, `verification.md`, `context-snapshot.md`. No assertion, application behavior, timeout, workflow or SQL change. Preserve the frozen original and identify this test-only whitespace deviation explicitly.

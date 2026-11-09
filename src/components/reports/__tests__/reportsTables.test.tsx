@@ -13,7 +13,7 @@ import CampaignPerformance from "../CampaignPerformance";
 import LeadSourceTable from "../LeadSourceTable";
 
 describe("Campaign performance (call-only, D6-22)", () => {
-  it("adds the two reconciliation rows so Calls made sums to KPI 5; Other campaigns shows no name or type (RL-49)", () => {
+  it("adds the two reconciliation rows so Calls sums to KPI 5; Other campaigns shows no name or type (RL-49)", () => {
     const b = bundle(); const onExport = vi.fn();
     render(<CampaignPerformance campaigns={b.campaignsV3} onExport={onExport} />);
     const foot = document.querySelector("tfoot")!;
@@ -34,7 +34,7 @@ describe("Campaign performance (call-only, D6-22)", () => {
 });
 
 describe("Lead sources (call-only)", () => {
-  it("puts calls with no current lead in a footer row with a blank New leads cell; Calls made sums to KPI 5", () => {
+  it("puts calls with no current lead in a footer row with a blank New leads cell; Calls sums to KPI 5", () => {
     const b = bundle(); const onExport = vi.fn();
     render(<LeadSourceTable leadSources={b.leadSourcesV3} onExport={onExport} />);
     const row = screen.getByText("Not linked to a current lead").closest("tr")!;

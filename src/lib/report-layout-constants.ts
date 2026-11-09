@@ -12,7 +12,7 @@ export const REPORT_LAYOUT_GROUPS: { id: ReportLayoutGroup; label: string }[] = 
 ];
 
 const ACTIVITY: [string, string][] = [
-  ["kpi_5", "Calls made"], ["kpi_6", "Contacted calls"], ["kpi_7", "Unique prospects reached"], ["kpi_8", "Call contact rate"],
+  ["kpi_5", "Calls"], ["kpi_6", "Contacted calls"], ["kpi_7", "Unique prospects reached"], ["kpi_8", "Call contact rate"],
   ["kpi_11", "Prospects reached per policy"], ["kpi_14", "Days to first sale"], ["kpi_15", "Sales appointments booked"],
   ["kpi_16", "Sales appointments completed"], ["kpi_17", "Appointment show rate"], ["kpi_18", "Appointment close rate"],
   ["kpi_19", "Contact-to-sale rate"], ["kpi_21", "Calls to first contact"], ["kpi_24", "Total talk time"], ["kpi_25", "Time in dialer"],

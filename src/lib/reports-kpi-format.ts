@@ -99,7 +99,7 @@ export function tileView(def: KpiDefinition, env: KpiEnvelope): TileView {
   }
   const text = displayValue(def, env);
   const chips: TileView["chips"] = [];
-  if (env.status === "partial") chips.push("partial");
+  // Excluded records remain disclosed in How it's calculated; values use assessable records.
   if (inProgress) chips.push("in_progress");
   const words = chips.map(c => (c === "partial" ? CHIP_PARTIAL : CHIP_IN_PROGRESS)).join(", ");
   return { text, cue: null, chips, srText: `${def.label}: ${text}${words ? ` (${words})` : ""}` };

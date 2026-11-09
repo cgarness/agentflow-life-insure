@@ -1,3 +1,4 @@
+import { hasRequiredSalePremium } from "./requiredPolicyPremium";
 import { z } from "zod";
 import { paymentFrequencySchema } from "./policyPaymentFields";
 
@@ -22,7 +23,6 @@ export const clientSaleFormSchema = z.object({
   if (!value.recordSale) return;
   if (!value.soldDate || !value.carrier?.trim())
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A new sale requires a Sold Date and carrier" });
-  const premium = (value.premiumAmount ?? "").replace(/[,$\s]/g, "");
-  if (premium && !/^\d+(\.\d{1,2})?$/.test(premium))
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enter a nonnegative monthly premium with at most two decimal places" });
+  if (!hasRequiredSalePremium(value.premiumAmount))
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["premiumAmount"], message: "Enter a monthly premium greater than zero" });
 });

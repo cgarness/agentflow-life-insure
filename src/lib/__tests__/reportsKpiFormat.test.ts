@@ -28,7 +28,7 @@ describe("BC4 truth table (tiles and CSV values)", () => {
     it(`case ${c.n}: ${c.scenario}`, () => {
       for (const e of c.envelopes) {
         const want = c.expect[e.id], view = tileView(kpi(e.id), e);
-        expect({ text: view.text, cue: view.cue, chips: view.chips }).toEqual({ text: want.text, cue: want.cue, chips: want.chips });
+        expect({ text: view.text, cue: view.cue, chips: view.chips }).toEqual({ text: want.text, cue: want.cue === "Not enough data" ? "No eligible data" : want.cue, chips: want.chips.filter(c => c !== "partial") });
         expect(e.value === null ? "" : csvValue(kpi(e.id), e)).toBe(want.csvValue);
         expect(e.reason ?? "").toBe(want.csvReason);
       }

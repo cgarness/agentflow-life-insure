@@ -1,3 +1,13 @@
+## November 8, 2026 Pacific — Reports cleanup implementation (local, NOT RELEASED)
+
+Chris approved Calls as the simplified label and proceeding with eligible-record reporting and premium validation. Base 40e2a962; separate branch fix/reports-eligible-records-20261109. Exact scope recorded in implementation_plan.md before edits. Report tiles/charts no longer repeat Partial; excluded-record details remain in How it's calculated and raw backend evidence remains intact. Usable appointment denominators and older-record exclusions are preserved. Record Policy, conversion rows and explicit client-sale forms require a positive valid premium; ordinary contacts and calculator drafts remain supported.
+
+Pending migration 20261109062059 uses exact live preimage guards to revise only the two v3 call/journey classifiers: include recorded attempts with an attempt ID, retain admitted and valid legacy attempts, exclude explicit refusals and not-sent records. Adds a private BEFORE INSERT premium guard on canonical policy wins; no historical writes. Not applied. No dialer, Twilio, RLS, customer correction or Dashboard/Leaderboard definition change. New isolated PostgreSQL 17.6 workflow exercises pending SQL against synthetic fixtures. Release/recovery closure pins and production deployment remain pending; do not ship frontend basis copy before the matching backend.
+
+Local verification: root npx tsc --noEmit passes; 452 focused tests pass, two existing skips across 31 files. Initial failures were the approved display-label override and the generated migration entering the frozen A–D order test; migration moved to pending, historic ordering assertion retained. Native execution not yet complete. Complete diff/file inventory in the implementation plan. No production mutation or deployment.
+
+---
+
 # AgentFlow Work Log
 
 ## November 8, 2026 Pacific — PR #521 hosted whitespace correction

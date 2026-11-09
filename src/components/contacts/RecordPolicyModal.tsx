@@ -1,3 +1,4 @@
+import { hasRequiredSalePremium } from "@/lib/requiredPolicyPremium";
 import { useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -21,7 +22,7 @@ const policySchema = z.object({
   policy_type: z.string().trim().min(1, "Choose a policy type"),
   carrier: z.string().trim().min(1, "Carrier is required"),
   policy_number: z.string(),
-  premium: z.string(),
+  premium: z.string().refine(hasRequiredSalePremium, "Enter a monthly premium greater than zero"),
   sold_date: z.string().refine(v => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) &&
     new Date(v).toISOString().slice(0, 10) === v, "Enter a valid Sold Date"),
 });
@@ -92,7 +93,7 @@ export default function RecordPolicyModal({ open, clientId, primary = false, onC
           {(["policy_number", "premium", "sold_date"] as const).map(key => <label key={key} className="block text-sm">
             {{ policy_number: "Policy number", premium: "Monthly premium", sold_date: "Sold Date" }[key]}
             <input className="mt-1 w-full rounded border bg-background p-2" type={key === "sold_date" ? "date" : "text"}
-              required={key === "sold_date"} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} />
+              required={key === "sold_date" || key === "premium"} value={form[key]} onChange={e => setForm({ ...form, [key]: e.target.value })} />
           </label>)}
           <PolicyCommissionEstimate owner={{ kind: "client", id: clientId }} policyType={form.policy_type}
             carrier={form.carrier} monthlyPremium={form.premium} onCaptureChange={inputs => { capture.current = inputs; }} />

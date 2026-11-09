@@ -6,7 +6,7 @@ import ReportTableFrame from "../ReportTableFrame";
 import { TD, TD_FIRST, TF, TF_FIRST, TH, TH_FIRST, TR } from "../reportTableStyles";
 
 type SortKey = "state" | "calls_made" | "contacted_calls" | "policies_sold" | "ap";
-const COLS: [SortKey, string][] = [["calls_made", "Calls made"], ["contacted_calls", "Contacted calls"], ["policies_sold", "Policies sold"], ["ap", "AP"]];
+const COLS: [SortKey, string][] = [["calls_made", "Calls"], ["contacted_calls", "Contacted calls"], ["policies_sold", "Policies sold"], ["ap", "AP"]];
 
 /** The accessible state table: sortable (aria-sort), with Mapped total, Unmapped and Total footer rows that never move. */
 const StateTable: React.FC<{ data: ReportStateBreakdownV3 }> = ({ data }) => {
