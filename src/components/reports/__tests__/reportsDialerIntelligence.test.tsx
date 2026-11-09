@@ -103,4 +103,3 @@ describe("Disposition deep dive at team and personal scope (unattributed breakdo
     expect(document.body.textContent).not.toMatch(/NaN|undefined|null|\b0 calls have/);
   });
 });
-

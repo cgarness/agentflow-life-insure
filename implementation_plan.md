@@ -1,3 +1,11 @@
+# November 8, 2026 Pacific — Hosted whitespace gate correction
+
+PR #521 publication head f27c0b9 passed the tested local comparison, but the onboarding workflow's mandatory diff check rejects the frozen reportsDialerIntelligence test's final empty line. Complete the requested verification by removing only that trailing blank line. Exact continuation paths, recorded before editing: `src/components/reports/__tests__/reportsDialerIntelligence.test.tsx`, root `implementation_plan.md`, `WORK_LOG.md`, and focused Reports `implementation_plan.md`, `release-proposal.md`, `verification.md`, `context-snapshot.md`. No assertion, application behavior, timeout, workflow or SQL change. Preserve the frozen original and identify this test-only whitespace deviation explicitly.
+
+Verification completed: affected test 12/12, root TypeScript and full main-to-candidate whitespace check all pass.
+
+---
+
 # November 8, 2026 Pacific — Resume approved frontend dependency completion
 
 Chris instructed “Proceed” after the remaining dependency, verification and publication steps were explained. Continue the existing prepared commit 052b1d90, preserving the approved application bytes. This authorizes completing the previously enumerated 36-file test/harness/CI amendment and verification; final production merge/release remains separately approved. No production backend commands or settings changes.

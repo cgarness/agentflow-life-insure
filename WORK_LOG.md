@@ -1,5 +1,15 @@
 # AgentFlow Work Log
 
+## November 8, 2026 Pacific — PR #521 hosted whitespace correction
+
+Published frontend head f27c0b9ecb8db8eff006f2e8464c22826c308138 (tree 909cb2e9b1cc2d94b3351611009e82d765ec514d) exactly matched verified local commit 5097a270. Both Vercel previews are READY at that head. Preview /reports and the actual lazy Reports bundle return HTTP 200; the bundle contains the v3 summary/state readers and approved calculation/appointment labels. This is asset verification, not signed-in live-user acceptance. Supabase Preview is cancelled because its concurrent branch limit is reached; no preview DB pass or settings change.
+
+The onboarding workflow 42563655073 passed its database, 43 tests, lint and TypeScript, then failed only on the preserved frozen test's extra EOF blank line. Remove exactly one final newline from `src/components/reports/__tests__/reportsDialerIntelligence.test.tsx`; assertions and runtime application bytes are unchanged. All 170 prepared source/support paths still match the frozen candidate except this test-only whitespace normalization. Existing 6,958-pass comparison, 86 contract checks and 504 visual checks retain validity; rerun the affected test and required whitespace/root-type checks, then observe all exact-final-head hosted results. This supersedes earlier claims of complete source/support byte equality by the explicitly named one-byte test exception.
+
+Total PR scope remains 214 paths. No production deployment, merge, SQL execution or settings change. Final frontend merge/release still requires Chris's approval after hosted verification. Initial failed workflow evidence is retained; no gate is skipped or weakened.
+
+Verification completed: affected test 12/12, root TypeScript and full main-to-candidate whitespace check all pass.
+
 ## November 8, 2026 Pacific — Frontend dependency completion
 
 Resumed local preparation commit `052b1d90af044dfc0146b8a6debc0bab314251ae` after Chris's “Proceed.” Base main remains `3865fa9783c3743354d750fbfe36ed8f87c2c193`; open #486 and #514 retain their previously recorded heads. The approved frontend source and visual presentation remain frozen. No new feature, production SQL execution, deployment or merge.
