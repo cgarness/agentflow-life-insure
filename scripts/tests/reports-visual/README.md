@@ -1,5 +1,14 @@
 # Isolated Reports browser gate
 
+> **Reports v3 (PKG-F, in progress).** The page now requests only the nine v3 readers; `stubs.ts` maps exactly those, so any v2 request fails. Write the payload file from a disposable loopback PostgreSQL first:
+>
+> ```bash
+> PGURL=postgresql://postgres@127.0.0.1:<port> REPORTS_V3_PERF=0 REPORTS_V3_PAYLOADS=/abs/reports-v3-payloads.json bash scripts/run_reports_v3_tests.sh
+> REPORTS_SQL_PAYLOADS=/abs/reports-v3-payloads.json npx vite --config scripts/tests/reports-visual/vite.config.ts
+> ```
+>
+> Then open `http://127.0.0.1:4180/?scenario=<name>`. The real responses are those of the synthetic scale organization's Admin (agency, team, personal; the 30 days ending on the agency's today). Labelled synthetic variants come from `src/lib/__tests__/reportsV3Fixtures.ts`: `complete`, `missing-premiums`, `in-progress`, `empty` (data), and `loading`, `error`, `unavailable` (transport states). A synthetic screen proves presentation only. The v2-era checks below are rewritten for v3 in a later PKG-F batch (`verify.mjs`, D6 §4.10).
+
 This fixture loads the real Reports page, components, hooks, query adapters, Zod contracts, formatting and CSV exporter. Only auth, layout persistence and the Supabase transport are replaced. No auth token, hosted endpoint or customer records are used. Every fixture file is outside the production entry graph.
 
 Run `scripts/run_reports_integrity_tests.sh` against a disposable loopback PostgreSQL service first. Its `reports-integrity-payloads.json` contains all six real v2 SQL responses for the synthetic administrator and October 1, 2026. The original top-level agency bundle is preserved; `scopes.personal` and `scopes.team` hold independently queried responses for the same actor. This administrator has no downline, so its team and personal numbers legitimately match while their scope metadata differ. The fixture copies responses without changing dates, scope, amounts or as-of metadata. Unsupported windows/agent filters return unavailable. The browser drives the real custom date picker to the exact SQL window.

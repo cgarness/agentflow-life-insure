@@ -9,7 +9,7 @@ import React from "react";
 import { AlertTriangle, Lock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { LoadState } from "@/hooks/useReportsData";
+import type { LoadState } from "@/lib/reports-queries";
 
 export const PANEL_SHELL =
   "bg-card rounded-xl border border-border/60 overflow-hidden shadow-sm";

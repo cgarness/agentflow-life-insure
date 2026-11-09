@@ -23,6 +23,8 @@ import { commissionPayload, PRIMARY_SLOT, type CommissionSlotInputs } from "@/li
 import { commissionNotice } from "@/lib/policySaleOutcome";
 import { usePolicySaleSubmission } from "@/hooks/usePolicySaleSubmission";
 import { SaleSubmissionNotice } from "./SaleSubmissionNotice";
+import { ClosingAppointmentField } from "./ClosingAppointmentField";
+import { SaleSourceCallChip } from "./SaleSourceCallChip";
 import {
   PAYMENT_FREQUENCIES,
   PAYMENT_FREQUENCY_LABELS,
@@ -39,6 +41,8 @@ interface ConvertLeadModalProps {
   onSuccess: (clientId: string) => void;
   /** Selected Dialer campaign — links the resulting `wins` row for campaign-scoped stats. */
   campaignId?: string | null;
+  /** The producing call when the caller knows it (Reports V2 PKG-C), forwarded unchanged; otherwise the chip offers one. */
+  sourceCallId?: string | null;
 }
 
 const POLICY_TYPES = ["Term", "Whole Life", "IUL", "Final Expense"];
@@ -81,7 +85,7 @@ const scheduleSchema = z.object({
   paymentFrequency: paymentFrequencySchema,
 });
 
-const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead, onSuccess, campaignId = null }) => {
+const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead, onSuccess, campaignId = null, sourceCallId }) => {
   const { organizationId } = useOrganization();
   const { profile, user } = useAuth();
   const submission = usePolicySaleSubmission();
@@ -202,7 +206,7 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
     })));
     // Every conversion goes through the sale companion; an unknown outcome locks the form and Retry replays it exactly.
     const outcome = await submission.submit((attempt) =>
-      conversionSupabaseApi.convertLeadToClientHandoff(attempt, lead, payload, organizationId, campaignId, perOpen.current.requestId, commission));
+      conversionSupabaseApi.convertLeadToClientHandoff(attempt, lead, payload, organizationId, campaignId, perOpen.current.requestId, commission, sourceCallId));
     if (!outcome.saved || !outcome.result) {
       if (outcome.phase === "editing" && outcome.message) toast.error(outcome.message);
       return;
@@ -407,6 +411,8 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
             </div>
           ))}
 
+          <ClosingAppointmentField saleRequestId={perOpen.current.requestId} contactIds={[lead.id]} soldDate={policies[0]?.soldDate} disabled={loading} />
+
           <div className="h-px bg-border/50" />
 
           <div className="space-y-3">
@@ -483,6 +489,10 @@ const ConvertLeadModal: React.FC<ConvertLeadModalProps> = ({ open, onClose, lead
             />
           </div>
         </fieldset>
+
+        {open && sourceCallId === undefined && (
+          <div className="px-5 pb-1"><SaleSourceCallChip requestId={perOpen.current.requestId} disabled={submission.locked} /></div>
+        )}
 
         {submission.message && (
           <div className="px-5 pb-1">

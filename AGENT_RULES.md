@@ -1474,9 +1474,9 @@ The approved room build is gated by `VITE_INBOUNDS_ROOM`. `/inbounds` must open 
 - Release only separately approved full packages from `scripts/prepare-phone-number-release.mjs`. Re-fetch and compare all six live baselines; preserve unrelated source bytes, especially buy's deployed callback helper, workflow/worker dispatch/signature code and ClearPath's already-live handler. Keep `verify_jwt=false`. Migration `20261104041151` is applied once (SHA-256 faa9910d421f86cd107f954b41586ceb9149ccaab09eaf8031172331db94e1e8); do not replay it. Backend search v59/buy v65/SMS v61/workflow v50/worker v26/ClearPath v25 are deployed and every source byte verified. Frontend is pending final PR #513 checks/merge. No real purchase or designation was performed. See `docs/plans/2026-11-03-toll-free-number-purchasing/production-release.json`.
 
 
-## Reports V2 Package A — approved, not deployed (November 5, 2026 Pacific)
+## Reports V2 Package A — deployed; status reconciled November 8, 2026 Pacific
 
-The following clauses supersede only the named Reports provisions when Package A is installed. This review branch stages backend files; it does not assert deployment. Later-package amendments remain in the focused plan until their release stage.
+Packages A–D are installed, enabled, read-back verified and recorded through 20261105120044 (contract 3.3.0). Frontend preparation below is not a production frontend release. The owner waived independent human review and accepted the visual/CSV/map package and bounded B6 deferral; this is not independent security sign-off. Historical pending-review text below is superseded only for that waived requirement.
 
 
 **A-30 (#30, :334).** "…until then production schema/function changes go through the deliberate MCP path or a protected dispatch-only, main-only runner with a cgarness environment reviewer (Reports V2: `.github/workflows/reports-release.yml`), never a git merge."
@@ -1525,10 +1525,49 @@ Coverage and unresolved counts use only in-scope credited items. Differencing fi
 - `:286`, `:508`, `:532` and the `:618` parenthetical: the "Proposed #42, NOT applied" notes are superseded, because #42 shipped on 2026-10-16.
 - Replace claims of a complete 74-file CSV golden with the verified historical evidence at `docs/plans/2026-10-11-ui-copy-cleanup-v2/evidence/csv-capture`: the old cleanup comparison recorded 61 captures and explicitly could not reconstruct 13 historical files. That evidence is not Reports V2 CSV acceptance; use the itemized V2 review and its stated gaps.
 
-## Reports Package C backend — PROPOSED, NOT DEPLOYED (November 7, 2026)
+## Reports Package C backend — deployed (status reconciled November 8, 2026)
 
-Prepared correction, not deployed. Frozen …31 has C-NULL-IDENTITY and must not be released unchanged. The corrected candidate rejects a buyer predicate unless it is explicitly TRUE (`IS NOT TRUE`); NULL pointers alone never establish identity. See the Reports verification record for authenticated wrapper and native rehearsal evidence. These amendments describe behavior after a separately approved production release, not current production. No frontend or component-size exception is granted.
+Corrected …31 is deployed and recorded; it rejects a buyer predicate unless explicitly TRUE (`IS NOT TRUE`). Original frozen …31 must not be replayed. Corrected …42 is likewise installed and rejects nullable appointment identity/authority. See the production release record for exact source hashes and separately approved runs.
 
 **A-618 (sale recording, :618).** "Dialer-originated and tracked-inbound sales may call `*_handoff_v2`, which delegate unchanged to the Phase 2A companions and then record the producing-call link in a savepoint. A link error other than QUERY_CANCELED or ASSERT_FAILURE never fails or alters the sale, its request hash or its receipt; it is recorded in `private.policy_sale_call_link_failures` for retry. A statement cancellation or timeout aborts the whole call atomically, and the existing idempotent retry applies. A missing link is always Unclassified, never No."
 
 **A-591 (conversion lineage).** "`clients.lead_id` updates are rejected by `clients_lead_id_guard` when the value changes and `current_user` is not `postgres`. Normal application edit paths must not write lineage; approved postgres-owned conversion companions establish it. The guard is an UPDATE restriction, not a claim that privileged postgres can never change lineage. It remains installed during the approved Package C recovery path."
+
+
+## Reports B/C/D frontend and F — approved local preparation; NOT RELEASED
+
+The following already approved exceptions apply only to this candidate and become production descriptions after the separate frontend release. Package D backend clauses describe installed behavior. No additional mounts, refactors, dialing architecture changes or settings changes are authorized.
+
+## Package B — frontend
+
+**Narrow size exception.** "The Package B FullScreenContactView.tsx exception permits only the existing single `onPolicyRecordChanged` prop. It does not authorize another component mount or unrelated refactoring."
+
+## Package C — frontend
+
+**A-§7(a).** "DialerPage.tsx may pass `sourceCallId={currentCallId}` to ConvertLeadModal for Reports V2 producing-call attribution. FloatingDialer.tsx and ConvertLeadModal.tsx receive only required props, forward them unchanged to an existing call, and mount at most one new component per package. New logic stays in components/hooks under 200 lines. TwilioContext.tsx remains unchanged; outbound dialing originates from browser Voice.js `device.connect()`."
+
+## Package D — backend
+
+**A-10 (#10, :94, append).** "The Reports V2 appointment evidence trigger does not abort an appointment write for errors other than QUERY_CANCELED and ASSERT_FAILURE: those errors are caught and recorded as a capture gap where possible, and readers reconcile evidence against current appointment rows and booking receipts, so a lost capture shows as a gap wherever a durable source survives; the documented unobservable case (created and removed while capture failed, with no receipt) is disclosed and never claimed as detected. A statement cancellation or timeout aborts the whole write as it does today. Only record_appointment_outcome, which writes nothing but an outcome transition, is evidence-first and fails closed."
+
+**A-41b (#41, :543, append).** "That all-types count is the v2 contract only. v3 Sales appointments booked counts bookings classified `sales` at booking time with the same setter credit, creation date and status rule; receipt- or capture-backed deletions are counted and disclosed. All-kind counts remain integrity diagnostics."
+
+**New invariant: Sales Appointment evidence (Reports V2 PKG-D).** "`appointment_types.business_category` is the only classification. Evidence snapshots the category at booking and at each human retype; deactivating, renaming or reclassifying a type never rewrites history, and a missing classification makes only the affected items unassessable. Locked system rows are immutable through the API, and their categories change only through the approved baseline/revert scripts; custom types are classified in Settings with an audit. Observation, occurrence, assignment, outcome and gap evidence is append-only and captured by `appointments_v3_evidence_capture` under the #10 failure classes; readers reconcile evidence with current rows. Appointment KPIs credit the agent assigned at the occurrence's scheduled start — a documented proxy, not proof of who attended; with no trustworthy assignee the item stays in agency totals with no individual credit (never the booking's creator); late outcome entry never moves credit. At most one effective closing-appointment attribution per policy, set explicitly after sale commit with a recoverable retry, requiring a caller-visible appointment, never inferred; a link failure never fails a sale. Nothing is backfilled."
+
+## Package D — frontend
+
+**A-22 (#22, :244, replace).** "It stamps `user_id = created_by =` the dialing agent. `saveAppointment` writes `type` only when its caller passes one: the Dialer AppointmentModal passes the agent's selected type (Reports V2 PKG-D); the standalone callback (`handleSaveCallback`) and disposition bookings pass none, so the callback shadow keeps the DB default and suppression is unchanged. Never add a type to the standalone callback writer."
+
+**A-§7(b) and narrow size exceptions.** "DialerPage.tsx may add `type: data.type` to the AppointmentModal onSave saveAppointment payload. AppointmentModal.tsx and CalendarSettings.tsx receive only required props and at most one new component mount per package; new logic stays in components/hooks under 200 lines. ConvertLeadModal.tsx receives the same narrow prop/mount exception for appointment attribution. Do not change the standalone callback writer or use these exceptions for unrelated refactoring."
+
+## Package F
+
+**A-L1 (layout invariant, :699–711).** "Reports V2 (`reports_v3`) page, in brief §18 order: Production (1–4); Activity and sales effort (highlights 9, 10, 12, 38 with the Period averages line, the activity strip, More metrics); Trends and call outcomes; Agent performance; Regional performance; Calling heatmap; Breakdowns. Fixed: Production, the effort highlights, Trends and call outcomes, and How it's calculated. Registered (layout v5): the activity strip (≤6), the three sections (visibility only) and Breakdowns. Exactly 23 KPIs, each rendered once. The v5 normalizer reads v1–v5, maps an untouched v4 default to the v5 default, writes v5 and never writes on read. `reportsRegistrySnapshot.test.ts` freezes the registry, `DEFAULT_LAYOUT`, the cap and `V4_TO_V5`."
+
+**A-L2 (:713–715).** "'How it's calculated' replaces 'Data basis'. Tiles carry only a value and at most two short chips (Partial, In progress) or a short unavailable cue; notices, coverage, pending counts and maturity dates are on demand and in 'Coverage in this report'. v3 text and Note rows come from `reports-v3-text.ts`. The single Period averages line and the conditional one-line Regional 'not mapped' notice are the only permitted helper lines."
+
+**A-L3 (:717).** "No leader row. The gate enforces the Reports V2 budgets, including 320 px, 200% emulation and reduced motion."
+
+**A-§7(c).** "The Tailwind exception is limited to the user-configured disposition colour swatch `style={{backgroundColor}}` in DispositionsPieChart and DispositionDeepDive."
+
+**New invariant: Reports Regional performance.** "Regional performance reads only `get_report_state_breakdown_v3`. State = the current recorded prospect/client state of the D3 identity (a campaign-membership copy only when every same-org record is blank; event snapshots only if a separately approved capture exists), classified by `private.report_v3_state_classify` over the unchanged `normalize_us_state`; historical grouping is never described as event-time residence. One state per call or policy; calls and policies grouped separately; six unmapped reasons; mapped + unmapped = the KPI 5/6/2/1 totals. Selection is local. No geographic rates, rankings, or inference from phone, agent, address or device. Geometry is the generated us-atlas 3.0.1 module with its recorded provenance and notices; its checksum refusal stays."

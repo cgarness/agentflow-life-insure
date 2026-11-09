@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { formatCount, formatRate, ratio } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
-import type { ReportDispositions } from "@/lib/reports-schemas";
+import type { ReportDispositionsV3 as ReportDispositions } from "@/lib/reports-v3-schemas";
 import ReportSection from "./ReportSection";
 
 const TOP_N = 8;
@@ -51,7 +51,7 @@ const callsLabel = (n: number) => `${formatCount(n)} outbound ${n === 1 ? "call"
  * rule is in Data basis), so the rows plus Other add up to the header total.
  */
 const DispositionsPieChart: React.FC<Props> = ({ dispositions, onExport }) => {
-  const total = dispositions.total_calls;
+  const total = dispositions.call_population.attempts;
 
   const rows = useMemo<Share[]>(() => {
     // Server order is calls DESC, so the first N rows are the top N by calls.
@@ -59,7 +59,7 @@ const DispositionsPieChart: React.FC<Props> = ({ dispositions, onExport }) => {
     const top: Share[] = used.slice(0, TOP_N).map((d) => ({
       key: d.key,
       name: d.name,
-      color: d.color,
+      color: d.color ?? "hsl(var(--muted-foreground))",
       calls: d.calls,
       share: pct(d.calls, total),
       note: flagsOf(d),
@@ -77,7 +77,7 @@ const DispositionsPieChart: React.FC<Props> = ({ dispositions, onExport }) => {
   const handleExport = onExport
     ? () =>
         onExport(
-          "Disposition Breakdown",
+          "Call outcomes",
           ["Disposition", "Calls", "Share %", "Counts as contacted", "Converts", "DNC", "Callback", "Appointment"],
           dispositions.by_disposition.map((d) => {
             const share = pct(d.calls, total);
@@ -98,7 +98,7 @@ const DispositionsPieChart: React.FC<Props> = ({ dispositions, onExport }) => {
   const grouped = rows.some((r) => r.grouped);
 
   return (
-    <ReportSection title="Disposition breakdown" onExport={handleExport} meta={total > 0 ? callsLabel(total) : undefined}>
+    <ReportSection title="Call outcomes" onExport={handleExport} meta={total > 0 ? callsLabel(total) : undefined}>
       {total === 0 ? (
         <p className="py-12 text-center text-sm text-muted-foreground">No outbound calls in this period.</p>
       ) : (

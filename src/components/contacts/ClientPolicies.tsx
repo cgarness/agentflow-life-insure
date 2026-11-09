@@ -31,6 +31,49 @@ function PolicyCommission(props: { clientId: string; policyId: string; compact?:
   );
 }
 
+// The closing-appointment status (Reports V2 PKG-D) loads the same way, once per client.
+const PolicyAppointmentLinkStatus = lazy(() =>
+  import("@/components/contacts/PolicyAppointmentLinkStatus").then((module) => ({ default: module.PolicyAppointmentLinkStatus })));
+
+function ClosingAppointmentStatus(props: { clientId: string }) {
+  return (
+    <CommissionLoadBoundary>
+      <Suspense fallback={null}>
+        <PolicyAppointmentLinkStatus {...props} />
+      </Suspense>
+    </CommissionLoadBoundary>
+  );
+}
+
+// The sale premium section (Reports V2 PKG-B) loads the same way; it renders nothing unless the server returns the policy.
+const PolicySalePremiumSection = lazy(() =>
+  import("@/components/contacts/policy-correction/PolicySalePremiumSection").then((module) => ({ default: module.PolicySalePremiumSection })));
+
+function PolicySalePremium(props: { clientId: string; policyId: string; currentMonthly: number | null;
+  formatDate: (value: string) => string; onPolicyRecordChanged?: () => void }) {
+  return (
+    <CommissionLoadBoundary>
+      <Suspense fallback={null}>
+        <PolicySalePremiumSection {...props} />
+      </Suspense>
+    </CommissionLoadBoundary>
+  );
+}
+
+// Producing-call link recovery (Reports V2 PKG-C): one status read per contact, loaded the same way.
+const PolicySaleCallLinkStatusSection = lazy(() =>
+  import("@/components/contacts/PolicySaleCallLinkStatus").then((module) => ({ default: module.PolicySaleCallLinkStatus })));
+
+function PolicySaleCallLinkStatus({ clientId }: { clientId: string }) {
+  return (
+    <CommissionLoadBoundary>
+      <Suspense fallback={null}>
+        <PolicySaleCallLinkStatusSection clientId={clientId} />
+      </Suspense>
+    </CommissionLoadBoundary>
+  );
+}
+
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const amount = (value: number | null) => value === null ? "—" : money.format(value);
 
@@ -47,15 +90,25 @@ export function ClientPolicyCount({ client }: { client: Partial<Client> }) {
  * Never edits or writes the reserved additional-policy array. Each stored policy can carry its saved commission
  * (Phase 2A); the commission section renders nothing unless the server lets the signed-in user see it.
  */
-export function ClientPolicies({ client, formatDate }: {
+export function ClientPolicies({ client, formatDate, onPolicyRecordChanged }: {
   client: Partial<Client>;
   formatDate: (value: string) => string;
+  /** Called after a sale premium correction also updated the current policy record, so the contact reloads. */
+  onPolicyRecordChanged?: () => void;
 }) {
   const { policies, malformedAdditionalPolicies } = getClientPolicyDisplay(client);
   const hasAdditional = policies.some(policy => policy.source === "additional");
   if (!hasAdditional && malformedAdditionalPolicies === 0) {
     const primary = policies.find(policy => policy.source === "primary");
-    return client.id && primary?.policyId ? <PolicyCommission clientId={client.id} policyId={primary.policyId} /> : null;
+    return client.id && primary?.policyId ? (
+      <>
+        <PolicySalePremium clientId={client.id} policyId={primary.policyId} currentMonthly={primary.premiumMonthly}
+          formatDate={formatDate} onPolicyRecordChanged={onPolicyRecordChanged} />
+        <PolicyCommission clientId={client.id} policyId={primary.policyId} />
+        <ClosingAppointmentStatus clientId={client.id} />
+        <PolicySaleCallLinkStatus clientId={client.id} />
+      </>
+    ) : null;
   }
 
   return (
@@ -93,12 +146,18 @@ export function ClientPolicies({ client, formatDate }: {
                     </div>
                   ))}
                 </dl>
+                {client.id && policy.policyId && (
+                  <PolicySalePremium clientId={client.id} policyId={policy.policyId} currentMonthly={policy.premiumMonthly}
+                    formatDate={formatDate} onPolicyRecordChanged={onPolicyRecordChanged} />
+                )}
                 {client.id && policy.policyId && <PolicyCommission clientId={client.id} policyId={policy.policyId} compact />}
               </AccordionContent>
             </AccordionItem>
           );
         })}
       </Accordion>
+      {client.id && <ClosingAppointmentStatus clientId={client.id} />}
+      {client.id && <PolicySaleCallLinkStatus clientId={client.id} />}
     </section>
   );
 }

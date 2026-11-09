@@ -2,7 +2,7 @@ import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { DATA_BASIS_DESCRIPTION, DATA_BASIS_TITLE } from "@/lib/reports-basis-text";
+import { HOW_CALCULATED_DESCRIPTION as DATA_BASIS_DESCRIPTION, HOW_CALCULATED_TITLE as DATA_BASIS_TITLE } from "@/lib/reports-v3-text";
 import { cn } from "@/lib/utils";
 import DataBasisSections, { type DataBasisContent } from "./DataBasisSections";
 

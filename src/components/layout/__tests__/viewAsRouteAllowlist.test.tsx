@@ -67,6 +67,8 @@ function layoutChild(name: string) {
 }
 vi.mock("../FloatingDialer", () => ({ default: layoutChild("floating-dialer") }));
 vi.mock("../ReminderPopup", () => ({ default: layoutChild("reminder-popup") }));
+// Reports V2 PKG-C: the session-wide inbound call capture is a layout child like FloatingDialer.
+vi.mock("../TrackedCallObserver", () => ({ default: layoutChild("tracked-call-observer") }));
 
 import AppLayout from "../AppLayout";
 import { VIEW_AS_LANDING_PATH } from "@/lib/viewAsSurfaces";
@@ -213,6 +215,7 @@ describe("layout children are page components too", () => {
     expect(screen.queryByTestId("reminder-popup"), "ReminderPopup mounted under View As").toBeNull();
     expect(probe.mounts).not.toContain("floating-dialer");
     expect(probe.mounts).not.toContain("reminder-popup");
+    expect(probe.mounts, "TrackedCallObserver mounted under View As").not.toContain("tracked-call-observer");
     expect(probe.queries).not.toContain("floating-dialer:query");
     expect(probe.queries).not.toContain("reminder-popup:query");
   });
@@ -243,6 +246,7 @@ describe("nothing changes when not impersonating", () => {
 
     await waitFor(() => expect(screen.getByTestId("floating-dialer")).toBeTruthy());
     expect(screen.getByTestId("reminder-popup")).toBeTruthy();
+    expect(screen.getByTestId("tracked-call-observer")).toBeTruthy();
     expect(probe.queries).toContain("floating-dialer:query");
     expect(probe.queries).toContain("reminder-popup:query");
   });

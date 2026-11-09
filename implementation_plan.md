@@ -1,3 +1,338 @@
+# November 8, 2026 Pacific — Resume approved frontend dependency completion
+
+Chris instructed “Proceed” after the remaining dependency, verification and publication steps were explained. Continue the existing prepared commit 052b1d90, preserving the approved application bytes. This authorizes completing the previously enumerated 36-file test/harness/CI amendment and verification; final production merge/release remains separately approved. No production backend commands or settings changes.
+
+Exact files to touch in this continuation, recorded before implementation:
+
+- `.github/workflows/reports-backend.yml`
+- `scripts/reporting_fixture.py`
+- `scripts/reports_v3_fixture.py`
+- `scripts/reports_v3_perf_verdict.py`
+- `scripts/reports_v3_reference.py`
+- `scripts/run_reporting_integrity_tests.sh`
+- `scripts/run_reports_v3_differential.sh`
+- `scripts/run_reports_v3_perf_acceptance.sh`
+- `scripts/run_reports_v3_tests.sh`
+- `scripts/tests/appointment-evidence-failure-boundaries.mjs`
+- `scripts/tests/reports_release_test.py`
+- `scripts/tests/sale-premium-correction-concurrency.mjs`
+- `supabase/tests/appointment_occurrence_evidence.sql`
+- `supabase/tests/appointment_type_categories.sql`
+- `supabase/tests/performance_sold_date.sql`
+- `supabase/tests/policy_sale_premium_correction.sql`
+- `supabase/tests/reference/reports_v3_reference_manifest.json`
+- `supabase/tests/reports_fixtures.sql`
+- `supabase/tests/reports_integrity.sql`
+- `supabase/tests/reports_rpc.sql`
+- `supabase/tests/reports_v3_appointment_facts.sql`
+- `supabase/tests/reports_v3_call_readers.sql`
+- `supabase/tests/reports_v3_calls_identity.sql`
+- `supabase/tests/reports_v3_contract.sql`
+- `supabase/tests/reports_v3_controls.sql`
+- `supabase/tests/reports_v3_dependencies.sql`
+- `supabase/tests/reports_v3_differential.sql`
+- `supabase/tests/reports_v3_fixtures.sql`
+- `supabase/tests/reports_v3_journey.sql`
+- `supabase/tests/reports_v3_journey_fixtures.sql`
+- `supabase/tests/reports_v3_negative.sql`
+- `supabase/tests/reports_v3_performance.sql`
+- `supabase/tests/reports_v3_sale_facts.sql`
+- `supabase/tests/reports_v3_security.sql`
+- `supabase/tests/reports_v3_state_breakdown.sql`
+- `supabase/tests/reports_v3_state_harness.sql`
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/release-proposal.md`
+- `docs/plans/2026-10-31-reports-v2/verification.md`
+- `docs/plans/2026-10-31-reports-v2/context-snapshot.md`
+
+## Dependency closure amendment before restoration
+
+The resumed contract suite identifies three additional absent canonical SQL references, and fixture generation identifies a fourth. Completing the requested missing-dependency repair therefore also requires these four frozen source files. They are restored for static checks and isolated synthetic fixture execution only; restoring them does not execute operations against production or authorize deployment. No application implementation changes.
+
+- `supabase/ops/appointment_evidence_disable.sql`
+- `supabase/ops/appointment_evidence_enable.sql`
+- `supabase/ops/reporting-accuracy/appointment_evidence_preflight.sql`
+- `supabase/ops/reporting-accuracy/check_sale_correction_manifest.sql`
+
+Restore the canonical frozen dependency set from 38bd32d while retaining the previously approved Havana corrections, corrected main C/D guard suites, all deployed SQL and release-runner pins. Verify the contract suite, fixture dependency closure, syntax, root TypeScript and baseline comparison. Reuse unchanged UI visual evidence. Prepare the exact reviewed publication result and automatic workflow/preview effects before publication; do not merge or release production.
+
+Full frontend comparison completed: exact-main baseline 6,831 passing tests; candidate 6,958 passing tests, same one failed assertion and same nine failed suite files (eight missing-supabaseUrl collections plus recordingRetentionVoicemail). No new test/suite failures and zero unhandled runtime errors, verified with the existing comparator and explicit runtime reporter. Baseline was reused from the saved exact-main run with identical dependency lockfile; candidate was freshly rerun. Root TypeScript passes; app TypeScript remains exactly 79 diagnostic identities. Focused Reports 447 pass/two skips; contract 86/86. Previous build and 504 visual checks remain valid for unchanged application/dependency bytes. Full-suite initial attempt was stopped because the runtime-report output variable was omitted, then rerun with it configured; no test was skipped or weakened. Fixture-construction probe corrected an invalid requested stage name to the runner's existing payloads/correction-payloads stages. Historical reference blobs were retrieved from the exact pinned commit and verified; no source replacement or reference-pin relaxation.
+
+Exact continuation scope is the 36 actual dependency changes plus six existing documentation updates; total frontend PR 214 paths. All functional application bytes remain unchanged from the approved prepared commit. Publication/hosted verification may proceed under Chris's current instruction; final merge, production rebuilds and live frontend release are not authorized by this preparation. No production SQL, customer data changes, role simulation, setting changes or manual dispatch occurred.
+
+Evidence: local `checks/summary.json`, contract/Reports/full-suite logs and explicit runtime evidence; the saved original frontend preparation evidence remains the visual/CSV source. Native functional/scale CI will be reported only after actual hosted completion; no fresh native/performance claim here.
+
+---
+
+# November 8, 2026 Pacific — Owner acceptance recorded; frontend preparation scope APPROVED
+
+Chris approved the actual 44 screenshots, 37 CSV exports and map provenance in Reports_V2_D_Correction_Review_2026-11-08.zip, and the bounded launch exception for the two B6 historical events: premium and Sold Date differences remain unchanged and unclassified pending business evidence. This is not a clean manifest result. Independent human reviewer remains waived, not signed off. Acceptance is recorded in PR #520. No frontend publication or deployment approval is inferred.
+
+Backend A–D complete: read-back run 42545080496, history run 42547496397; 376 history rows/head 20261105120044, all 20 Reports records, contract 3.3.0. Five D digests match. Prior history and all ordinary public/private function definitions/ACLs unchanged. No backend commands beyond already authorized stages; no customer correction/classification. Three confirmed Pacific zones retain valid configuration.
+
+Current main 3865fa9783c3743354d750fbfe36ed8f87c2c193, tree 6cb475d9c83ad6cec03dbd732989ca2d7d9f8a3f. Frozen candidate 38bd32dbddc21ec6c3d4adbcc8489f06cb64bb7c remains intact. Fresh open-PR inspection: #486 2de28c320547983f68bed5f77d8ec9684ea3643d and #514 3c54f4d13de7b6901db33c111d94fb70d4f42f6a unchanged. Shared docs and commission components require coordination; neither PR is merged here. Local current branch fix/reports-d-null-guards-20261108 has the main tree before this plan-only edit. Intended new preparation branch after approval: prep/reports-frontend-20261108, from exact current main (recheck first).
+
+## Authorization boundary
+
+Chris explicitly approved local preparation of the exact 178-path candidate below. The allowlist was recorded before edits. Preparation is local only: no push, PR, hosted preview, manual dispatch, merge, settings change or deployment. Publication effects must be reported for a later exact-head approval. Existing integrations may start Actions, Supabase preview migrations and both Vercel previews on publication; do not change their settings.
+
+## Preparation procedure after approval
+
+1. Create isolated branch from current main after rechecking conflicts. Port only the 163 listed src paths and seven support paths from frozen candidate. Preserve main's newer Sheets test readiness fix, corrected SQL …31/…42, release runner and workflow bytes. No wholesale integration-branch merge. Do not modify frozen application bytes for visual polish. Any additional path or app correction needs a reviewed amendment and approval.
+2. Reconcile eight listed documentation paths. Record newest-first WORK_LOG entry with completed backend stages and both owner decisions. Apply only already approved B/C/D frontend and F clauses, and reconcile installed backend status. FullScreenContactView exception EXACTLY: “The Package B FullScreenContactView.tsx exception permits only the existing single onPolicyRecordChanged prop. It does not authorize another component mount or unrelated refactoring.” Its diff is the single prop only. DialerPage forwards type and sourceCallId; TwilioContext stays byte-identical. Preserve browser Voice.js connect, admission/telemetry and re-entrancy guards.
+3. Keep organization_id/RLS, optional maybeSingle lookups, Zod contracts/forms and Tailwind rules. No production mocks/secrets, schema changes, category writes, corrections or customer role simulations. Synthetic harness remains isolated; use its completed A+B+C+D state and retained evidence, never production writes to exercise new controls.
+4. Run root npx tsc --noEmit, existing relevant Reports/calendar/policy/link/dialer tests, app typecheck, lint and build. Compare baseline failures by diagnostic identity against exact main. Verify narrow contact/dialer diffs, no backend-byte drift, third-party geometry checksum/provenance and existing telephony gate. Use existing synthetic visual/CSV harness and document any evidence differences; owner acceptance of the archived candidate is not blanket acceptance of later visual changes. Do not run new hosted dispatches.
+5. Report exact commit/tree, file list, checks and any baseline failures. Prepare a reviewable publication proposal with automatic Actions/Supabase/Vercel effects; exact frontend merge/release remains separate. No all-users availability claim before served-app verification.
+
+## Exact proposed 178-path allowlist
+
+163 source paths (M modify, A add, D remove), all from frozen candidate:
+
+- `M` `src/App.tsx`
+- `M` `src/components/calendar/AppointmentModal.tsx`
+- `A` `src/components/calendar/AppointmentOutcomePanel.tsx`
+- `A` `src/components/calendar/PolicyLinkPrompt.tsx`
+- `A` `src/components/calendar/__tests__/appointmentModalOutcome.test.tsx`
+- `A` `src/components/calendar/__tests__/appointmentOutcomePanel.test.tsx`
+- `M` `src/components/contacts/ClientPolicies.tsx`
+- `A` `src/components/contacts/ClosingAppointmentField.tsx`
+- `M` `src/components/contacts/ConvertLeadModal.tsx`
+- `M` `src/components/contacts/FullScreenContactView.tsx`
+- `A` `src/components/contacts/PolicyAppointmentLinkStatus.tsx`
+- `A` `src/components/contacts/PolicySaleCallLinkStatus.tsx`
+- `M` `src/components/contacts/RecordPolicyModal.tsx`
+- `A` `src/components/contacts/SaleSourceCallChip.tsx`
+- `M` `src/components/contacts/__tests__/clientPolicies.test.tsx`
+- `A` `src/components/contacts/__tests__/closingAppointmentField.test.tsx`
+- `A` `src/components/contacts/__tests__/convertLeadModalClosingAppointment.test.tsx`
+- `A` `src/components/contacts/__tests__/correctSalePremiumDialog.test.tsx`
+- `M` `src/components/contacts/__tests__/policyCommissionHandoffModals.test.tsx`
+- `A` `src/components/contacts/__tests__/saleSourceCall.test.tsx`
+- `A` `src/components/contacts/policy-correction/CorrectSalePremiumDialog.tsx`
+- `A` `src/components/contacts/policy-correction/PolicySalePremiumSection.tsx`
+- `A` `src/components/contacts/policy-correction/SalePremiumHistory.tsx`
+- `M` `src/components/layout/AppLayout.tsx`
+- `M` `src/components/layout/FloatingDialer.tsx`
+- `A` `src/components/layout/TrackedCallObserver.tsx`
+- `M` `src/components/layout/__tests__/floatingDialerDisposition.test.tsx`
+- `M` `src/components/layout/__tests__/viewAsRouteAllowlist.test.tsx`
+- `A` `src/components/leaderboard/__tests__/correctedPremiumSurfaces.test.tsx`
+- `A` `src/components/leaderboard/__tests__/recentWinsPremium.test.tsx`
+- `A` `src/components/reports/ActivityStrip.tsx`
+- `D` `src/components/reports/AgentEfficiency.tsx`
+- `D` `src/components/reports/AgentEfficiencyScatter.tsx`
+- `M` `src/components/reports/AgentPerformanceCards.tsx`
+- `M` `src/components/reports/CallDurationAnalysis.tsx`
+- `M` `src/components/reports/CallFlowAnalysis.tsx`
+- `M` `src/components/reports/CallVolumeChart.tsx`
+- `M` `src/components/reports/CallingHeatmap.tsx`
+- `M` `src/components/reports/CampaignPerformance.tsx`
+- `D` `src/components/reports/CampaignTotalsFoot.tsx`
+- `D` `src/components/reports/CommunicationsStats.tsx`
+- `M` `src/components/reports/DataBasisSections.tsx`
+- `M` `src/components/reports/DispositionDeepDive.tsx`
+- `M` `src/components/reports/DispositionsPieChart.tsx`
+- `M` `src/components/reports/HeatmapGrid.tsx`
+- `A` `src/components/reports/KpiStatusNote.tsx`
+- `A` `src/components/reports/KpiTile.tsx`
+- `M` `src/components/reports/LeadSourceTable.tsx`
+- `A` `src/components/reports/MoreMetrics.tsx`
+- `M` `src/components/reports/PoliciesSoldChart.tsx`
+- `D` `src/components/reports/PremiumCoverage.tsx`
+- `A` `src/components/reports/ReportBreakdowns.tsx`
+- `M` `src/components/reports/ReportContextLine.tsx`
+- `M` `src/components/reports/ReportCustomizer.tsx`
+- `M` `src/components/reports/ReportDataBasis.tsx`
+- `A` `src/components/reports/ReportExportMenu.tsx`
+- `M` `src/components/reports/ReportPanelState.tsx`
+- `M` `src/components/reports/ReportScopeTabs.tsx`
+- `M` `src/components/reports/ReportTableFrame.tsx`
+- `M` `src/components/reports/ReportTrends.tsx`
+- `D` `src/components/reports/ReportsActivityFlow.tsx`
+- `A` `src/components/reports/ReportsEffortSection.tsx`
+- `D` `src/components/reports/ReportsOverview.tsx`
+- `A` `src/components/reports/ReportsProduction.tsx`
+- `M` `src/components/reports/ReportsToolbar.tsx`
+- `A` `src/components/reports/ScaleLegend.tsx`
+- `M` `src/components/reports/SectionRenderer.tsx`
+- `D` `src/components/reports/StatCard.tsx`
+- `D` `src/components/reports/StatsGrid.tsx`
+- `D` `src/components/reports/__tests__/ReportsOverview.test.tsx`
+- `M` `src/components/reports/__tests__/agentPerformanceTable.test.tsx`
+- `M` `src/components/reports/__tests__/reportCustomizer.test.tsx`
+- `M` `src/components/reports/__tests__/reportPresentation.test.tsx`
+- `M` `src/components/reports/__tests__/reportTrendCharts.test.tsx`
+- `M` `src/components/reports/__tests__/reportsCallDuration.test.tsx`
+- `M` `src/components/reports/__tests__/reportsControls.test.tsx`
+- `M` `src/components/reports/__tests__/reportsDataBasis.test.tsx`
+- `M` `src/components/reports/__tests__/reportsDialerIntelligence.test.tsx`
+- `A` `src/components/reports/__tests__/reportsHeatmapKeyboard.test.tsx`
+- `A` `src/components/reports/__tests__/reportsKpiTile.test.tsx`
+- `A` `src/components/reports/__tests__/reportsRegionalPerformance.test.tsx`
+- `M` `src/components/reports/__tests__/reportsTables.test.tsx`
+- `M` `src/components/reports/__tests__/reportsTrends.test.tsx`
+- `A` `src/components/reports/agentPerformanceColumns.ts`
+- `A` `src/components/reports/regional/RegionalPerformance.tsx`
+- `A` `src/components/reports/regional/StateDetails.tsx`
+- `A` `src/components/reports/regional/StateMap.tsx`
+- `A` `src/components/reports/regional/StateMapSmallStates.tsx`
+- `A` `src/components/reports/regional/StateTable.tsx`
+- `A` `src/components/reports/regional/UnmappedNotice.tsx`
+- `A` `src/components/reports/regional/usStatePaths.ts`
+- `M` `src/components/reports/reportSectionMap.tsx`
+- `A` `src/components/reports/useGridNavigation.ts`
+- `A` `src/components/settings/AppointmentTypeCategoryControl.tsx`
+- `M` `src/components/settings/CalendarSettings.tsx`
+- `A` `src/components/settings/__tests__/calendarSettingsCategory.test.tsx`
+- `A` `src/hooks/__tests__/usePremiumCorrectionSubmission.test.tsx`
+- `M` `src/hooks/__tests__/useReportLayout.test.tsx`
+- `D` `src/hooks/__tests__/useReportsData.test.tsx`
+- `A` `src/hooks/__tests__/useReportsPage.test.tsx`
+- `A` `src/hooks/useActiveInboundCallRow.ts`
+- `M` `src/hooks/useAppointmentTypes.ts`
+- `A` `src/hooks/useClosingAppointmentCandidates.ts`
+- `A` `src/hooks/useClosingAppointmentLink.ts`
+- `A` `src/hooks/usePolicySalePremiums.ts`
+- `A` `src/hooks/usePremiumCorrectionSubmission.ts`
+- `A` `src/hooks/useReportExports.ts`
+- `M` `src/hooks/useReportLayout.ts`
+- `D` `src/hooks/useReportsData.ts`
+- `A` `src/hooks/useReportsPage.ts`
+- `M` `src/index.css`
+- `A` `src/lib/__tests__/appointmentLinkRetry.test.ts`
+- `A` `src/lib/__tests__/appointmentOutcome.test.ts`
+- `A` `src/lib/__tests__/appointmentTypeCategories.test.ts`
+- `A` `src/lib/__tests__/policySaleCorrection.test.ts`
+- `A` `src/lib/__tests__/policySaleRecordingLinkHook.test.ts`
+- `A` `src/lib/__tests__/rawPremiumConsumers.test.ts`
+- `M` `src/lib/__tests__/reportLayoutNormalization.test.ts`
+- `M` `src/lib/__tests__/reportLayoutPersistence.test.ts`
+- `D` `src/lib/__tests__/reportStatComputations.test.ts`
+- `M` `src/lib/__tests__/reportsContracts.test.ts`
+- `M` `src/lib/__tests__/reportsIntegrity.test.ts`
+- `A` `src/lib/__tests__/reportsKpiFormat.test.ts`
+- `A` `src/lib/__tests__/reportsKpiRegistry.test.ts`
+- `M` `src/lib/__tests__/reportsPolicySource.test.ts`
+- `A` `src/lib/__tests__/reportsRegionalGeometry.test.ts`
+- `M` `src/lib/__tests__/reportsRegistrySnapshot.test.ts`
+- `A` `src/lib/__tests__/reportsV3Contracts.test.ts`
+- `A` `src/lib/__tests__/reportsV3Export.test.ts`
+- `A` `src/lib/__tests__/reportsV3Fixtures.ts`
+- `A` `src/lib/__tests__/reportsV3Schemas.test.ts`
+- `A` `src/lib/__tests__/saleSourceCall.test.ts`
+- `A` `src/lib/appointmentLinkRetry.ts`
+- `A` `src/lib/appointmentOutcome.ts`
+- `A` `src/lib/appointmentOutcomeGate.ts`
+- `M` `src/lib/calendar/appointmentTypes.ts`
+- `M` `src/lib/dialer-api.ts`
+- `A` `src/lib/policyAppointmentLinks.ts`
+- `A` `src/lib/policySaleCorrection.ts`
+- `M` `src/lib/policySaleOutcome.ts`
+- `M` `src/lib/policySaleRecording.ts`
+- `A` `src/lib/recentTrackedCall.ts`
+- `M` `src/lib/report-layout-constants.ts`
+- `M` `src/lib/reports-export.ts`
+- `A` `src/lib/reports-kpi-format.ts`
+- `A` `src/lib/reports-kpi-registry.ts`
+- `A` `src/lib/reports-panels.ts`
+- `M` `src/lib/reports-queries.ts`
+- `A` `src/lib/reports-regional.ts`
+- `A` `src/lib/reports-scale.ts`
+- `A` `src/lib/reports-v3-export.ts`
+- `A` `src/lib/reports-v3-queries.ts`
+- `A` `src/lib/reports-v3-schemas.ts`
+- `A` `src/lib/reports-v3-text.ts`
+- `A` `src/lib/saleCallLinkRetry.ts`
+- `D` `src/lib/stat-computations.ts`
+- `M` `src/lib/supabase-conversion.ts`
+- `M` `src/pages/DialerPage.tsx`
+- `M` `src/pages/Reports.tsx`
+- `M` `src/pages/__tests__/dialerAppointmentSaveContract.test.ts`
+- `A` `src/pages/__tests__/dialerPageReportsV2Exceptions.test.ts`
+- `M` `src/pages/__tests__/reportsPage.test.tsx`
+- `M` `src/pages/__tests__/reportsScopeIntegration.test.tsx`
+
+Seven frozen support paths:
+
+- `THIRD_PARTY_NOTICES.md`
+- `tailwind.config.ts`
+- `scripts/geo/build-us-state-paths.mjs`
+- `scripts/tests/reports-visual/README.md`
+- `scripts/tests/reports-visual/stubs.ts`
+- `scripts/tests/reports-visual/verify.mjs`
+- `scripts/tests/reports-visual/vite.config.ts`
+
+Eight documentation paths (surgical reconciliation, not frozen replacement):
+
+- `implementation_plan.md`
+- `WORK_LOG.md`
+- `AGENT_RULES.md`
+- `docs/plans/2026-10-31-reports-v2/implementation_plan.md`
+- `docs/plans/2026-10-31-reports-v2/release-proposal.md`
+- `docs/plans/2026-10-31-reports-v2/production-release.md`
+- `docs/plans/2026-10-31-reports-v2/verification.md`
+- `docs/plans/2026-10-31-reports-v2/context-snapshot.md`
+
+## Local verification closeout
+
+Local verification complete, with a release blocker retained. Root npx tsc --noEmit and npm run build pass. App typecheck has the same 79 diagnostics by file/code/message/multiplicity as exact main. Whole-repository lint retains the same 11 error identities; 142 baseline warnings become 145, adding only three frozen react-refresh/only-export-components warnings in ReportBreakdowns.tsx, SectionRenderer.tsx and reportSectionMap.tsx. No application bytes were changed to remove these warnings.
+
+Full Vitest comparison: main 6,831 passed / 1 failed / 5 skipped (6,837 tests); candidate 6,872 passed / 1 failed / 8 skipped (6,881 tests). The failing recordingRetentionVoicemail test and eight missing-supabaseUrl collection failures are identical baseline failures. Both runs report zero unhandled runtime errors. One additional candidate collection failure, reportsV3Contracts.test.ts, is caused by the absent supabase/tests/reports_v3_performance.sql and its existing frozen fixture/runner/CI dependencies. The existing verification script correctly stops at this new suite failure. Targeted imported tests: 419 passed, 4 skipped, zero failed assertions, with that same collection blocker. No test was weakened or skipped to obtain a pass.
+
+Fresh isolated browser evidence: 474/474 primary and 30/30 supplementary checks pass, with 44 actual screenshots and 37 actual CSV exports. All 37 CSVs match the retained 3.3.0 review archive excluding generation timestamp rows. The frozen UI ran against retained native A+B+C+D synthetic payloads; no fresh production read or database execution occurred. Mobile export controls were visually inspected. Map module SHA-256 remains 8743d131d5dc8833a9459fd2ab89a112eeeee346e957d628dd22719b5d858ea2. The sole diff-check warning is the frozen reportsDialerIntelligence.test.tsx trailing blank line at EOF, retained to preserve exact bytes.
+
+Scope audit: all 170 source/support paths match the frozen candidate exactly (including intended removals); all 178 changed paths are approved. Backend SQL, release runner, workflows, TwilioContext and main's newer Sheets test remain unchanged. Current remote main rechecked at 3865fa9783c3743354d750fbfe36ed8f87c2c193.
+
+Next approval: the exact 36-file local test/harness/CI scope amendment listed in root implementation_plan.md. None of those paths is modified here. This is required by the explicit file allowlist, not a new architecture project. Publication effects, exact-head PR/hosted execution approval and final frontend release remain later gates. No push, PR, hosted preview, dispatch, backend mutation, settings change, merge or deployment occurred. Frontend availability is not claimed. Actual fresh review evidence is packaged as Reports_V2_Frontend_Preparation_2026-11-09.zip.
+
+## Unapplied scope amendment — approval required before any of these 36 files change
+
+The frozen src/lib/__tests__/reportsV3Contracts.test.ts cannot collect: it reads supabase/tests/reports_v3_performance.sql, which is absent on backend-only main. It also requires the differential SQL, reference manifest, differential runner and the canonical v3 CI job definitions. Importing only that first file would leave further failures. The complete existing fixture/runner/CI dependency set is listed below; no new architecture or production SQL is proposed.
+
+Proposed action after separate approval: port these existing frozen test/harness/CI files, retaining the corrected main policy_sale_call_links.sql and policy_appointment_attributions.sql suites, deployed migrations and release runner. Preserve the already documented four Havana fixture overlays where applicable; do not relax timeouts, assertions or accepted performance limits. Verify all dependencies locally, rerun the contract suite and baseline comparison, then report exact publication effects. This proposal does not authorize a workflow dispatch, hosted CI, production read/write, publication or deployment. None of these 36 paths has changed in this preparation commit.
+
+- `.github/workflows/reports-backend.yml`
+- `scripts/reporting_fixture.py`
+- `scripts/reports_v3_fixture.py`
+- `scripts/reports_v3_perf_verdict.py`
+- `scripts/reports_v3_reference.py`
+- `scripts/run_reporting_integrity_tests.sh`
+- `scripts/run_reports_v3_differential.sh`
+- `scripts/run_reports_v3_perf_acceptance.sh`
+- `scripts/run_reports_v3_tests.sh`
+- `scripts/tests/appointment-evidence-failure-boundaries.mjs`
+- `scripts/tests/reports_release_test.py`
+- `scripts/tests/sale-premium-correction-concurrency.mjs`
+- `supabase/tests/appointment_occurrence_evidence.sql`
+- `supabase/tests/appointment_type_categories.sql`
+- `supabase/tests/performance_sold_date.sql`
+- `supabase/tests/policy_sale_premium_correction.sql`
+- `supabase/tests/reference/reports_v3_reference_manifest.json`
+- `supabase/tests/reports_fixtures.sql`
+- `supabase/tests/reports_integrity.sql`
+- `supabase/tests/reports_rpc.sql`
+- `supabase/tests/reports_v3_appointment_facts.sql`
+- `supabase/tests/reports_v3_call_readers.sql`
+- `supabase/tests/reports_v3_calls_identity.sql`
+- `supabase/tests/reports_v3_contract.sql`
+- `supabase/tests/reports_v3_controls.sql`
+- `supabase/tests/reports_v3_dependencies.sql`
+- `supabase/tests/reports_v3_differential.sql`
+- `supabase/tests/reports_v3_fixtures.sql`
+- `supabase/tests/reports_v3_journey.sql`
+- `supabase/tests/reports_v3_journey_fixtures.sql`
+- `supabase/tests/reports_v3_negative.sql`
+- `supabase/tests/reports_v3_performance.sql`
+- `supabase/tests/reports_v3_sale_facts.sql`
+- `supabase/tests/reports_v3_security.sql`
+- `supabase/tests/reports_v3_state_breakdown.sql`
+- `supabase/tests/reports_v3_state_harness.sql`
+
+
+---
+
 # November 8, 2026 Pacific — Approved Package D nullable guard correction
 
 Chris approved targeted corrections, regression tests, release checksums and plan/work-log updates after two read-only reproductions in unapplied …42. Work on isolated branch fix/reports-d-null-guards-20261108. Main remains 401f758d884677eae0e85ac1acb22adabb393ccd; local starting tree is identical. PR #486/#514 heads remain unchanged. No publication, merge, production mutation or frontend change is included.

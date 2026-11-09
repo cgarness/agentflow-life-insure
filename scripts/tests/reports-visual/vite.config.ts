@@ -4,19 +4,22 @@ import path from "node:path";
 import { readFileSync } from "node:fs";
 
 const root = path.resolve(__dirname, "../../..");
-const payloadPath = path.resolve(process.env.REPORTS_SQL_PAYLOADS || path.join(root, "reports-integrity-payloads.json"));
-const raw = readFileSync(payloadPath, "utf8");
+const payloadPath = process.env.REPORTS_SQL_PAYLOADS;
+if (!payloadPath) throw new Error("Set REPORTS_SQL_PAYLOADS to the v3 payload file written by scripts/run_reports_v3_tests.sh.");
+const raw = readFileSync(path.resolve(payloadPath), "utf8");
 const payloads = JSON.parse(raw);
-if (payloads.scope?.self_id !== "f5000000-0000-0000-0000-000000000002") {
-  throw new Error("Reports visual fixture requires the synthetic integrity-test actor.");
+// The v3 payload file (D1 X9): one synthetic actor, the nine v3 readers for agency, team and personal.
+if (payloads.fixture?.source !== "reports_v3_performance.sql scale organization (synthetic)" || payloads.scopeV3?.self_id !== payloads.fixture.actor) {
+  throw new Error("Reports visual fixture requires the synthetic v3 payload file and its actor.");
 }
+const V3_KEYS = ["scopeV3", "summaryV3", "journeyV3", "salesAppointmentsV3", "statesV3", "volumeV3", "dispositionsV3", "campaignsV3", "leadSourcesV3"];
 for (const scope of ["agency", "personal", "team"]) {
   const bundle = scope === "agency" ? payloads : payloads.scopes?.[scope];
-  for (const name of ["scope", "summary", "volume", "dispositions", "campaigns", "leadSources"]) {
-    if (!bundle?.[name]) throw new Error(`Missing native SQL payload: ${scope}/${name}`);
+  for (const name of V3_KEYS) {
+    if (bundle?.[name]?.basis_version !== "reports_v3") throw new Error(`Missing native v3 SQL payload: ${scope}/${name}`);
     if (bundle[name].requested_scope !== scope) throw new Error(`SQL scope mismatch: ${scope}/${name}`);
   }
-  if (bundle.scope.self_id !== payloads.scope.self_id) throw new Error("SQL scope actor mismatch");
+  if (bundle.scopeV3.self_id !== payloads.fixture.actor) throw new Error("SQL scope actor mismatch");
 }
 
 export default defineConfig({

@@ -1,9 +1,12 @@
 import React from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 import ReportScopeTabs from "../ReportScopeTabs";
 import ReportsToolbar from "../ReportsToolbar";
 import { reportScope, reportSummary } from "@/lib/__tests__/reportsFixtures";
+import { buildV3Bundle } from "@/lib/__tests__/reportsV3Fixtures";
+import { ALL_LOADING, type Panels } from "@/lib/reports-panels";
 import { installJsdomPolyfills } from "@/pages/__tests__/onboardingTestUtils";
 
 installJsdomPolyfills(); // Radix Select probes pointer capture and scrollIntoView on open
@@ -74,7 +77,7 @@ const toolbarProps = (): React.ComponentProps<typeof ReportsToolbar> => ({
   preset: "30d", onPreset: vi.fn(), customStart: null, customEnd: null,
   onCustomStart: vi.fn(), onCustomEnd: vi.fn(), range: { startDate: "2026-06-21", endDate: "2026-07-20" }, rangeProblem: null,
   agentId: null, onAgent: vi.fn(), editMode: false, onToggleEdit: vi.fn(), onRefresh: vi.fn(),
-  canExport: true, exportReady: true, onExport: vi.fn(),
+  canExport: true, exportItems: [{ label: "Report summary", ready: true, onSelect: vi.fn() }],
 });
 
 describe("Reports toolbar readiness", () => {
@@ -99,7 +102,27 @@ describe("Reports toolbar readiness", () => {
     expect(periodSelect()).toBeDisabled();
     expect(screen.queryByRole("combobox", { name: "Agent filter" })).not.toBeInTheDocument();
     expect(screen.getByText("Reports unavailable")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Data basis" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "How it's calculated" })).not.toBeInTheDocument();
+  });
+
+  it("the Export menu lists the KPI files and enables only those whose panel is current (D6 §4.9)", async () => {
+    const summary = vi.fn(), journey = vi.fn();
+    render(<ReportsToolbar {...toolbarProps()} customizationReady exportItems={[
+      { label: "Report summary", ready: true, onSelect: summary }, { label: "Journey", ready: false, onSelect: journey },
+      { label: "Sales appointments", ready: true, onSelect: vi.fn() }]} />);
+    const trigger = screen.getByRole("button", { name: "Export" });
+    trigger.focus(); fireEvent.keyDown(trigger, { key: "Enter" });
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map(i => i.textContent)).toEqual(["Report summary CSV", "Journey CSV", "Sales appointments CSV"]);
+    expect(items[1]).toHaveAttribute("data-disabled");
+    fireEvent.click(items[0]);
+    expect(summary).toHaveBeenCalledOnce();
+    expect(journey).not.toHaveBeenCalled();
+  });
+
+  it("the Export trigger is disabled until some KPI file is current", () => {
+    render(<ReportsToolbar {...toolbarProps()} customizationReady exportItems={[{ label: "Report summary", ready: false, onSelect: vi.fn() }]} />);
+    expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
   });
 
   it("keeps the action order and accessible names; phone labels stay in sr-only text", () => {
@@ -177,7 +200,7 @@ describe("Report period select", () => {
 describe("Report context line", () => {
   it("shows period and zone, not the scope words; the as-of only when the page passes a current summary's", () => {
     const summary = reportSummary();
-    const props = { ...toolbarProps(), dataBasis: { summary: { status: "ready" as const, data: summary }, timeZone: "America/Los_Angeles", today: "2026-07-20" } };
+    const props = { ...toolbarProps(), dataBasis: { panels: { ...ALL_LOADING, summary: { status: "ready", data: buildV3Bundle({ requestedScope: "agency", startDate: "2026-07-01", endDate: "2026-07-14" }).summaryV3 } } as unknown as Panels, timeZone: "America/Los_Angeles", today: "2026-07-20" } };
     const { rerender } = render(<ReportsToolbar {...props} />);
     expect(screen.queryByText(/Your team/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("report-as-of")).not.toBeInTheDocument();
@@ -185,6 +208,6 @@ describe("Report context line", () => {
     const asOf = screen.getByTestId("report-as-of");
     expect(asOf).toHaveTextContent("Summary as of 11:00 AM PDT");
     expect(asOf.querySelector("time")).toHaveAttribute("datetime", "2026-07-20T18:00:00Z");
-    expect(within(screen.getByRole("banner")).getByRole("button", { name: "Data basis" })).toBeInTheDocument();
+    expect(within(screen.getByRole("banner")).getByRole("button", { name: "How it's calculated" })).toBeInTheDocument();
   });
 });

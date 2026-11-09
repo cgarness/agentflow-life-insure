@@ -13,7 +13,7 @@ import { useReportLayout } from "@/hooks/useReportLayout";
 function pending(action: string) {
   return new Promise<ReportLayoutConfig>((resolve, reject) => h.pending.push({ action, resolve, reject }));
 }
-const saved = (id = "stat_inbound") => normalizeReportLayout({ version: 4, sections: [{ id, visible: true }] });
+const saved = (id = "kpi_11") => normalizeReportLayout({ version: 5, sections: [{ id, visible: true }] });
 function settle(action: string, layout = saved(), index = 0) {
   const p = h.pending.filter((p) => p.action === action)[index];
   if (!p) throw new Error(`No pending ${action}`);
@@ -56,9 +56,9 @@ describe("owner-bound Reports layout", () => {
   it("uses a separate draft and cancels without persisting", async () => {
     const { result } = setup(); await act(async () => settle("fetch"));
     act(() => result.current.beginEdit());
-    act(() => result.current.setSections([{ id: "stat_total_dials", visible: true }]));
-    expect(result.current.layout.sections[0].id).toBe("stat_inbound");
-    expect(result.current.draft.sections[0].id).toBe("stat_total_dials");
+    act(() => result.current.setSections([{ id: "kpi_34", visible: true }]));
+    expect(result.current.layout.sections[0].id).toBe("kpi_11");
+    expect(result.current.draft.sections[0].id).toBe("kpi_34");
     act(() => result.current.cancel());
     expect(result.current.editMode).toBe(false); expect(result.current.draft).toEqual(result.current.layout);
     expect(h.save).not.toHaveBeenCalled();
@@ -67,7 +67,7 @@ describe("owner-bound Reports layout", () => {
   it("keeps an unsaved draft/error after failure, then commits only acknowledged success", async () => {
     const { result } = setup(); await act(async () => settle("fetch"));
     act(() => result.current.beginEdit());
-    act(() => result.current.setSections([{ id: "stat_total_dials", visible: true }]));
+    act(() => result.current.setSections([{ id: "kpi_34", visible: true }]));
     const draft = result.current.draft;
     let completion!: Promise<boolean>;
     act(() => { completion = result.current.save(); });
@@ -75,7 +75,7 @@ describe("owner-bound Reports layout", () => {
     await act(async () => reject("save", "Save unavailable"));
     expect(await completion).toBe(false);
     expect(result.current.editMode).toBe(true); expect(result.current.draft).toEqual(draft);
-    expect(result.current.error).toBe("Save unavailable"); expect(result.current.layout.sections[0].id).toBe("stat_inbound");
+    expect(result.current.error).toBe("Save unavailable"); expect(result.current.layout.sections[0].id).toBe("kpi_11");
     act(() => { completion = result.current.save(); });
     await act(async () => settle("save", draft));
     expect(await completion).toBe(true); expect(result.current.layout).toEqual(draft);
@@ -117,12 +117,12 @@ describe("owner-bound Reports layout", () => {
     act(() => { oldCompletion = result.current.save(); });
     rerender({ ...props, viewer: "user-2" });
     expect(result.current.status).toBe("loading"); expect(result.current.editMode).toBe(false);
-    expect(result.current.layout.sections[0].id).not.toBe("stat_inbound");
+    expect(result.current.layout.sections[0].id).not.toBe("kpi_11");
     expect(await staleSave()).toBe(false);
-    await act(async () => settle("fetch", saved("stat_dnc_count")));
-    await act(async () => settle("save", saved("stat_inbound")));
+    await act(async () => settle("fetch", saved("kpi_14")));
+    await act(async () => settle("save", saved("kpi_11")));
     expect(await oldCompletion).toBe(false);
-    expect(result.current.layout.sections[0].id).toBe("stat_dnc_count");
+    expect(result.current.layout.sections[0].id).toBe("kpi_14");
     expect(result.current.busy).toBe(false); expect(h.save).toHaveBeenCalledTimes(1);
   });
 
@@ -130,11 +130,11 @@ describe("owner-bound Reports layout", () => {
     const { result, rerender } = setup();
     rerender({ ...props, viewer: "user-2" }); rerender(props);
     expect(h.fetch).toHaveBeenCalledTimes(3);
-    await act(async () => settle("fetch", saved("stat_dnc_count"), 2));
-    await act(async () => settle("fetch", saved("stat_inbound"), 0));
-    expect(result.current.layout.sections[0].id).toBe("stat_dnc_count");
-    await act(async () => settle("fetch", saved("stat_total_dials"), 0));
-    expect(result.current.layout.sections[0].id).toBe("stat_dnc_count");
+    await act(async () => settle("fetch", saved("kpi_14"), 2));
+    await act(async () => settle("fetch", saved("kpi_11"), 0));
+    expect(result.current.layout.sections[0].id).toBe("kpi_14");
+    await act(async () => settle("fetch", saved("kpi_34"), 0));
+    expect(result.current.layout.sections[0].id).toBe("kpi_14");
   });
 
   it("keeps reset failure editable and uses the acknowledged inherited default on retry", async () => {
@@ -146,9 +146,9 @@ describe("owner-bound Reports layout", () => {
     expect(await completion).toBe(false); expect(result.current.editMode).toBe(true);
     expect(result.current.error).toBe("Reset failed");
     act(() => { completion = result.current.reset(); });
-    await act(async () => settle("reset", saved("stat_dnc_count")));
+    await act(async () => settle("reset", saved("kpi_14")));
     expect(await completion).toBe(true); expect(result.current.editMode).toBe(false);
-    expect(result.current.layout.sections[0].id).toBe("stat_dnc_count");
+    expect(result.current.layout.sections[0].id).toBe("kpi_14");
   });
 
   it("requires a successful explicit retry after load failure", async () => {

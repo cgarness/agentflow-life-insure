@@ -1,7 +1,7 @@
 import React from "react";
 import { AlertCircle, ArrowDown, ArrowUp, Check, RotateCcw, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { MAX_VISIBLE_STATS, REPORT_LAYOUT_GROUPS, REPORT_LAYOUT_SECTIONS, type SectionConfig } from "@/lib/report-layout-constants";
+import { MAX_VISIBLE_ACTIVITY as MAX_VISIBLE_STATS, REPORT_LAYOUT_GROUPS, REPORT_LAYOUT_SECTIONS, type SectionConfig } from "@/lib/report-layout-constants";
 
 interface Props {
   editMode: boolean;
@@ -42,12 +42,12 @@ const ReportCustomizer: React.FC<Props> = ({
     (same && !same.disabled ? same : opposite && !opposite.disabled ? opposite : null)?.focus();
   }, [sections]);
   if (!editMode) return null;
-  const visibleStats = sections.filter((section) => section.visible && SECTION_META.get(section.id)?.group === "stats").length;
+  const visibleStats = sections.filter((section) => section.visible && SECTION_META.get(section.id)?.group === "activity").length;
 
   const toggle = (id: string) => {
     const section = sections.find((item) => item.id === id);
     if (busy || !section) return;
-    if (!section.visible && SECTION_META.get(id)?.group === "stats" && visibleStats >= MAX_VISIBLE_STATS) return;
+    if (!section.visible && SECTION_META.get(id)?.group === "activity" && visibleStats >= MAX_VISIBLE_STATS) return;
     onSectionsChange(sections.map((item) => item.id === id ? { ...item, visible: !item.visible } : item));
   };
 
@@ -72,7 +72,7 @@ const ReportCustomizer: React.FC<Props> = ({
         <Settings2 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
         <div className="min-w-0">
           <h2 id={titleId} className="text-base font-semibold">Customize your report</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Only your view changes. Production totals and trends always stay.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Only your view changes. Production, highlights and trends always stay; hidden activity metrics move to More metrics.</p>
         </div>
       </div>
 
@@ -83,27 +83,27 @@ const ReportCustomizer: React.FC<Props> = ({
           return (
             <fieldset key={group.id} disabled={busy} className="min-w-0" data-customizer-group={group.id}>
               <legend className="text-sm font-semibold">{group.label}</legend>
-              {group.id === "stats" && (
+              {group.id === "activity" && (
                 <p id={limitId} className="mt-1 text-xs text-muted-foreground" aria-live="polite">
-                  {visibleStats} of {MAX_VISIBLE_STATS} metrics selected. {visibleStats >= MAX_VISIBLE_STATS ? "Hide one to add another." : "Choose up to six metrics."}
+                  {visibleStats} of {MAX_VISIBLE_STATS} metrics selected. {visibleStats >= MAX_VISIBLE_STATS ? "Hide one to add another." : "Choose up to six for the activity strip."}
                 </p>
               )}
               <ul className="mt-2 grid gap-2 md:grid-cols-2">
                 {items.map((section, index) => {
                   const meta = SECTION_META.get(section.id)!;
-                  const atLimit = group.id === "stats" && !section.visible && visibleStats >= MAX_VISIBLE_STATS;
+                  const atLimit = group.id === "activity" && !section.visible && visibleStats >= MAX_VISIBLE_STATS;
                   return (
                     <li key={section.id} className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border/60 px-3 py-2" data-customizer-section={section.id}>
                       <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm">
                         <input type="checkbox" checked={section.visible} onChange={() => toggle(section.id)} disabled={busy || atLimit}
-                          aria-label={`Show ${meta.label}`} aria-describedby={group.id === "stats" ? limitId : undefined}
+                          aria-label={`Show ${meta.label}`} aria-describedby={group.id === "activity" ? limitId : undefined}
                           className="h-4 w-4 shrink-0 accent-primary" />
                         <span className="min-w-0 break-words">
                           {meta.label}
                           {meta.teamOnly && !showTeamSections && <span className="mt-0.5 block text-xs text-muted-foreground">Team and Agency scopes only</span>}
                         </span>
                       </label>
-                      <div className="flex shrink-0 gap-1">
+                      {group.id !== "sections" && <div className="flex shrink-0 gap-1">
                         <Button ref={moveRef(`${section.id}:up`)} type="button" size="icon" variant="ghost" className={MOVE_BUTTON}
                           aria-label={`Move ${meta.label} up`} disabled={busy || index === 0}
                           onClick={() => move(section.id, items[index - 1]?.id, "up")}>
@@ -114,7 +114,7 @@ const ReportCustomizer: React.FC<Props> = ({
                           onClick={() => move(section.id, items[index + 1]?.id, "down")}>
                           <ArrowDown aria-hidden="true" className="h-4 w-4" />
                         </Button>
-                      </div>
+                      </div>}
                     </li>
                   );
                 })}

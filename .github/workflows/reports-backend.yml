@@ -10,6 +10,22 @@ on:
       - 'scripts/run_reports_rpc_tests.sh'
       - 'scripts/run_reports_integrity_tests.sh'
       - 'scripts/reports_integrity_fixture.py'
+      - 'scripts/run_reports_v3_tests.sh'
+      - 'supabase/migrations/*policy_sale_premium_corrections*.sql'
+      - 'supabase/migrations/rollback/*policy_sale_premium_corrections*.sql'
+      - 'supabase/tests/policy_sale_premium_correction.sql'
+      - 'supabase/ops/reporting-accuracy/check_sale_correction_manifest.sql'
+      - 'scripts/tests/sale-premium-correction-concurrency.mjs'
+      - 'supabase/migrations/*_policy_sale_call_links.sql'
+      - 'supabase/tests/policy_sale_call_links.sql'
+      - 'scripts/reporting_fixture.py'
+      - 'src/components/leaderboard/__tests__/correctedPremiumSurfaces.test.tsx'
+      - 'scripts/reports_v3_fixture.py'
+      - 'scripts/reports_v3_reference.py'
+      - 'scripts/run_reports_v3_differential.sh'
+      - 'scripts/run_reports_v3_perf_acceptance.sh'
+      - 'scripts/reports_v3_perf_verdict.py'
+      - 'supabase/tests/reference/**'
       - 'scripts/tests/reports-visual/**'
       - 'src/pages/Reports.tsx'
       - 'src/components/reports/**'
@@ -22,13 +38,28 @@ on:
       - 'supabase/migrations/20260919183544_profile_book_and_team_stats_rpcs.sql'
       - '.github/workflows/reports-backend.yml'
   workflow_dispatch:
+    inputs:
+      performance_acceptance:
+        description: 'Also run the two-run PostgreSQL 17.6 performance acceptance (147 combinations x 20 samples; long, manual only)'
+        type: boolean
+        default: false
+      journey_comparisons:
+        description: 'Only run the two isolated agency journey reader comparisons with the baseline (30 and 366 days; up to 350 minutes each; correctness, not performance acceptance)'
+        type: boolean
+        default: false
+      release_rehearsal:
+        description: 'Also rehearse the Reports release runner (scripts/reports_release.py) on disposable PostgreSQL 17.6 with the pinned Supabase CLI 2.121.0; no secrets, no production path'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: reports-backend-${{ github.ref }}
-  cancel-in-progress: true
+  # The journey comparison mode has its own group, so an ordinary verification dispatch never cancels it.
+  group: reports-backend-${{ github.ref }}${{ inputs.journey_comparisons && '-journey' || '' }}
+  cancel-in-progress: ${{ !inputs.journey_comparisons }}
 jobs:
   postgres:
+    if: ${{ !inputs.journey_comparisons }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -49,19 +80,28 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Reports, policy, privacy, mutation, drift and recovery proofs
-        env:
-          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
-        run: |
-          set -o pipefail
-          bash scripts/run_reports_rpc_tests.sh 2>&1 | tee reports-backend-results.txt
-          bash scripts/run_reports_integrity_tests.sh 2>&1 | tee reports-integrity-results.txt
-          bash scripts/run_profile_rpc_tests.sh 2>&1 | tee reports-profile-regression-results.txt
+      # Node before the proofs: run_reports_v3_tests.sh drives the PKG-B two-backend correction races.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.16.0'
           cache: npm
       - run: npm ci
+      - name: Reports, policy, privacy, mutation, drift and recovery proofs
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+          REPORTS_V3_CORRECTION_PAYLOADS: ${{ runner.temp }}/reports-v3-correction-payloads.json
+        run: |
+          set -o pipefail
+          bash scripts/run_reports_rpc_tests.sh 2>&1 | tee reports-backend-results.txt
+          bash scripts/run_reports_integrity_tests.sh 2>&1 | tee reports-integrity-results.txt
+          REPORTS_V3_PAYLOADS="$RUNNER_TEMP/reports-v3-payloads.json" REPORTS_V3_PERF=0 bash scripts/run_reports_v3_tests.sh 2>&1 | tee reports-v3-results.txt
+          bash scripts/run_profile_rpc_tests.sh 2>&1 | tee reports-profile-regression-results.txt
+      - name: Corrected premium surfaces against the native correction bundles (RL-17)
+        env:
+          REPORTS_SQL_PAYLOADS: ${{ runner.temp }}/reports-v3-correction-payloads.json
+        run: |
+          set -o pipefail
+          npx vitest run src/components/leaderboard/__tests__/correctedPremiumSurfaces.test.tsx 2>&1 | tee reports-corrected-surfaces-results.txt
       - name: Install pinned isolated browser tooling
         run: |
           npm install --prefix "$RUNNER_TEMP/reports-browser" --no-save playwright@1.56.1 agent-browser@0.38.2 axe-core@4.10.2
@@ -69,7 +109,8 @@ jobs:
       - name: Real Reports page against native synthetic SQL payloads
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/reports-browser/node_modules/playwright
-          REPORTS_SQL_PAYLOADS: ${{ github.workspace }}/reports-integrity-payloads.json
+          REPORTS_SQL_PAYLOADS: ${{ runner.temp }}/reports-v3-payloads.json
+          AXE_CORE_PATH: ${{ runner.temp }}/reports-browser/node_modules/axe-core/axe.min.js
           REPORTS_VISUAL_OUTPUT: ${{ runner.temp }}/reports-visual-evidence
         run: |
           set -euo pipefail
@@ -92,6 +133,33 @@ jobs:
           "$REPORTS_BROWSER" --session reports-check errors > "$REPORTS_VISUAL_OUTPUT/initial-errors.txt"
           "$REPORTS_BROWSER" --session reports-check close
           node scripts/tests/reports-visual/verify.mjs 2>&1 | tee reports-browser-results.txt
+      - name: Synthetic review package (screenshots, CSV downloads, verification summary; no payloads, no credentials)
+        if: always()
+        run: |
+          set -euo pipefail
+          PKG="$RUNNER_TEMP/reports-v3-review-package"
+          mkdir -p "$PKG"
+          cp -r "$RUNNER_TEMP/reports-visual-evidence/screens" "$RUNNER_TEMP/reports-visual-evidence/csv" "$PKG/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/reports-visual-evidence/summary.json" reports-browser-results.txt "$PKG/" 2>/dev/null || true
+          {
+            echo "# Reports v3 synthetic review package"
+            echo
+            echo "SYNTHETIC DATA ONLY. Presentation evidence from the isolated harness; not a hosted preview and not backend completion."
+            echo
+            echo "- Tested SHA: ${GITHUB_SHA}"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Data: SQL-generated v3 responses of the synthetic scale organization (scripts/run_reports_v3_tests.sh) and the labelled scenarios in src/lib/__tests__/reportsV3Fixtures.ts"
+            echo "- Scenarios: complete, missing-premiums, in-progress, empty, loading, error, unavailable; agency, team and personal"
+            echo "- Verification: summary.json and reports-browser-results.txt"
+            echo "- Reproduce locally: scripts/tests/reports-visual/README.md"
+          } > "$PKG/README.md"
+          (cd "$PKG" && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-v3-review-package-${{ github.sha }}
+          path: ${{ runner.temp }}/reports-v3-review-package
+          retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -100,8 +168,266 @@ jobs:
             reports-backend-results.txt
             reports-profile-regression-results.txt
             reports-integrity-results.txt
+            reports-v3-results.txt
             reports-integrity-payloads.json
             reports-browser-results.txt
+            reports-corrected-surfaces-results.txt
+            ${{ runner.temp }}/reports-v3-correction-payloads.json
             ${{ runner.temp }}/reports-visual-evidence
             ${{ runner.temp }}/reports-vite.log
           retention-days: 14
+
+  differential:
+    # Correctness evidence: the code under test against the reviewed baseline (4236b8a), fixtures and the 500k scale
+    # organization. Runs on pull requests and manual dispatch.
+    if: ${{ !inputs.journey_comparisons }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55433:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Differential evidence against the reviewed baseline
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+          REPORTS_V3_EVIDENCE_DIR: ${{ runner.temp }}/reports-v3-evidence
+        run: |
+          set -o pipefail
+          bash scripts/run_reports_v3_differential.sh > "$RUNNER_TEMP/reports-v3-differential.log" 2>&1 || { grep -v '^NOTICE' "$RUNNER_TEMP/reports-v3-differential.log" | tail -n 80; exit 1; }
+          grep -v '^NOTICE' "$RUNNER_TEMP/reports-v3-differential.log" | grep -E '^==|differential|mismatch|passed|Evidence' | tail -n 40
+          cat "$RUNNER_TEMP/reports-v3-evidence/differential/fixtures-summary.json" "$RUNNER_TEMP/reports-v3-evidence/differential/scale-summary.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-v3-differential-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/reports-v3-evidence
+            ${{ runner.temp }}/reports-v3-differential.log
+          retention-days: 14
+
+  journey-comparison:
+    # Correctness verification of the two pinned agency journey reader cases the 60-minute differential job cannot hold
+    # (the baseline's reader takes more than two hours per call). One isolated job per case, PostgreSQL 17.6, the same
+    # pinned reference, fixture and single REPEATABLE READ snapshot; a missing, timed-out or differing case fails.
+    if: github.event_name == 'workflow_dispatch' && inputs.journey_comparisons
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        case: ['0:agency:30:-', '0:agency:366:-']
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55433:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Journey reader case ${{ matrix.case }} against the reviewed baseline (deadline 320 minutes)
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+          REPORTS_V3_EVIDENCE_DIR: ${{ runner.temp }}/reports-v3-evidence
+          REPORTS_V3_DX_JOURNEY_CASE: ${{ matrix.case }}
+          REPORTS_V3_DX_CASE_DEADLINE_MINUTES: '320'
+        run: |
+          set -o pipefail
+          bash scripts/run_reports_v3_differential.sh > "$RUNNER_TEMP/reports-v3-journey-case.log" 2>&1 || { grep -v '^NOTICE' "$RUNNER_TEMP/reports-v3-journey-case.log" | tail -n 80; exit 1; }
+          grep -v '^NOTICE' "$RUNNER_TEMP/reports-v3-journey-case.log" | grep -E '^==|Journey case|journey reader case|mismatch|passed' | tail -n 20
+          cat "$RUNNER_TEMP/reports-v3-evidence/differential/scale-summary.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-v3-journey-case-${{ strategy.job-index }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/reports-v3-evidence
+            ${{ runner.temp }}/reports-v3-journey-case.log
+          retention-days: 14
+  perf-acceptance:
+    # Two independent acceptance runs of the same commit on separate runners; both must pass. Only when a manual
+    # dispatch selects it: this is long and is never run for every small edit.
+    if: github.event_name == 'workflow_dispatch' && inputs.performance_acceptance && !inputs.journey_comparisons
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55433:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Record the database image and runner
+        run: |
+          set -euo pipefail
+          echo "REPORTS_V3_IMAGE=$(docker inspect --format '{{.Config.Image}} {{.Image}}' "${{ job.services.postgres.id }}") $(docker image inspect --format '{{join .RepoDigests ","}}' postgres:17.6)" >> "$GITHUB_ENV"
+          echo "runner: $RUNNER_NAME ($ImageOS $ImageVersion); $(nproc) CPUs: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-); $(grep MemTotal /proc/meminfo)"
+      - name: Performance acceptance run ${{ matrix.run }} (PostgreSQL 17.6, 147 combinations x 20 samples, enforced)
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+          REPORTS_V3_PERF_MODE: acceptance
+          REPORTS_V3_PERF_SAMPLES: '20'
+          REPORTS_V3_PERF_ENFORCE: '1'
+          REPORTS_V3_RESTART_CMD: docker restart ${{ job.services.postgres.id }}
+          REPORTS_V3_RUN_LABEL: acceptance-${{ matrix.run }}
+          REPORTS_V3_EVIDENCE_DIR: ${{ runner.temp }}/reports-v3-evidence
+        run: bash scripts/run_reports_v3_perf_acceptance.sh
+      - name: Database service log
+        if: always()
+        run: docker logs "${{ job.services.postgres.id }}" > "$RUNNER_TEMP/reports-v3-evidence/performance/server.log" 2>&1 || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-v3-perf-acceptance-${{ matrix.run }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/reports-v3-evidence
+          retention-days: 14
+
+  perf-negative-control:
+    # Proves the acceptance path detects a miss: the scope reader is slowed by 2.2 s in the disposable database, so the
+    # same runner and gate must fail. The job passes only when that run fails for exactly that reason.
+    if: github.event_name == 'workflow_dispatch' && inputs.performance_acceptance && !inputs.journey_comparisons
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: postgres
+        ports: ['55433:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Negative control (the slowed reader must fail the enforced gate)
+        env:
+          PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:55433
+          REPORTS_V3_PERF_MODE: negative-control
+          REPORTS_V3_PERF_SAMPLES: '20'
+          REPORTS_V3_PERF_ENFORCE: '1'
+          REPORTS_V3_RESTART_CMD: docker restart ${{ job.services.postgres.id }}
+          REPORTS_V3_EVIDENCE_DIR: ${{ runner.temp }}/reports-v3-evidence
+        run: |
+          set -uo pipefail
+          if bash scripts/run_reports_v3_perf_acceptance.sh; then echo '::error::the negative control did not fail'; exit 1; fi
+          python3 scripts/reports_v3_perf_verdict.py negative-control "$REPORTS_V3_EVIDENCE_DIR/performance"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-v3-perf-negative-control-${{ github.run_id }}
+          path: ${{ runner.temp }}/reports-v3-evidence
+          retention-days: 14
+
+  perf-verdict:
+    # The acceptance verdict over both runs (no best-of selection) and the negative control, from their artifacts.
+    needs: [perf-acceptance, perf-negative-control]
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.performance_acceptance && !inputs.journey_comparisons
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Two-run acceptance verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/verdicts"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/verdicts" --pattern 'reports-v3-perf-*'
+          python3 scripts/reports_v3_perf_verdict.py negative-control "$RUNNER_TEMP/verdicts/reports-v3-perf-negative-control-$GITHUB_RUN_ID/performance"
+          cd "$RUNNER_TEMP"
+          python3 "$GITHUB_WORKSPACE/scripts/reports_v3_perf_verdict.py" aggregate --sha "$GITHUB_SHA" \
+            "verdicts/reports-v3-perf-acceptance-1-$GITHUB_RUN_ID/performance" "verdicts/reports-v3-perf-acceptance-2-$GITHUB_RUN_ID/performance"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reports-v3-perf-verdict-${{ github.run_id }}
+          path: ${{ runner.temp }}/aggregate.json
+          retention-days: 14
+
+  release-rehearsal:
+    if: ${{ inputs.release_rehearsal && !inputs.journey_comparisons }}
+    name: Reports release runner rehearsal (Supabase CLI 2.121.0, PostgreSQL 17.6, isolated TLS, no secrets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: PostgreSQL client and PyYAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client python3-yaml
+      - name: Start disposable PostgreSQL 17.6 on loopback with TLS
+        run: |
+          docker run --detach --name reports-release-postgres --network host \
+            -e POSTGRES_PASSWORD=isolated-test-only \
+            postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929 \
+            -c listen_addresses=127.0.0.1 -c port=5432 -c ssl=on \
+            -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+          for attempt in $(seq 1 30); do
+            if pg_isready -h 127.0.0.1 -p 5432 -U postgres; then exit 0; fi
+            sleep 1
+          done
+          docker logs reports-release-postgres || true
+          exit 1
+      - uses: supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf # v2.1.1
+        with:
+          version: 2.121.0
+      - name: A -> B -> C -> D, enable and read-back, history, disable and recovery, refusals (pinned SQL only)
+        env:
+          REPORTS_RELEASE_PGURL: postgresql://postgres:isolated-test-only@127.0.0.1:5432
+        run: python3 -I scripts/tests/reports_release_test.py
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm --force reports-release-postgres

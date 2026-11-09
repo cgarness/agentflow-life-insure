@@ -60,7 +60,76 @@ def sold_date_steps():
   ('sold-date rollback replay refuses',"SELECT test_reject($rollback$"+rollback+"$rollback$,'P0001');"),
   ('sold-date forward after rollback',forward+index+reread)]
 
+def premium_correction_steps():
+ """PKG-B (D2 §3.3-§3.6, §10): the audited sale premium ledger on the verbatim sale writers, after every other step."""
+ forward=migration('policy_sale_premium_corrections')
+ rollback=migration('policy_sale_premium_corrections.rollback','supabase/migrations/rollback')
+ writer="'public.correct_policy_sale_premium(uuid,uuid,integer,numeric,jsonb,numeric,text,text,text)'"
+ choke="'private.performance_sale_monthly(public.wins,numeric)'::regprocedure"
+ probe=("CREATE FUNCTION public.test_probe(q text,checks text) RETURNS void LANGUAGE plpgsql AS $p$ BEGIN "
+  "BEGIN EXECUTE q; EXECUTE checks; RAISE EXCEPTION 'probe-ok'; EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'probe-ok' THEN RAISE; END IF; END; END $p$;")
+ restored=(f"SELECT test_assert(md5(pg_get_functiondef({choke}))='51e06b46a13c3a8eec4d672bec158376' AND to_regprocedure({writer}) IS NULL "
+  "AND to_regprocedure('private.policy_sale_effective_premium(public.wins,numeric)') IS NULL AND to_regclass('private.policy_sale_premium_corrections') IS NOT NULL,"
+  "'empty-ledger rollback restores the exact preimage, drops the readers and RPCs, keeps the ledger');")
+ sealed=(f"SELECT test_assert(md5(pg_get_functiondef({choke}))='ee64ddb694ad2e1b250ba069342c75fa' AND NOT has_function_privilege('authenticated',{writer},'EXECUTE') "
+  "AND (SELECT count(*)>0 FROM private.policy_sale_premium_corrections) AND t_eff('a')=120,'a non-empty ledger: the writer is sealed and corrections stay applied');")
+ return [('sale premium corrections refuse while Reports v3 is enabled',"CREATE FUNCTION public.get_report_probe_v3() RETURNS integer LANGUAGE sql AS 'SELECT 1'; "
+   "GRANT EXECUTE ON FUNCTION public.get_report_probe_v3() TO authenticated; SELECT test_reject($f$"+forward+"$f$,'55000'); DROP FUNCTION public.get_report_probe_v3();"),
+  ('sale premium corrections refuse on choke-point drift',"SELECT test_reject($f$ALTER FUNCTION private.performance_sale_monthly(public.wins,numeric) COST 101;"+forward+"$f$,'P0001');"),
+  ('sale premium corrections migration',forward),
+  ('sale premium corrections replay refuses',"SELECT test_reject($f$"+forward+"$f$,'P0001');"),
+  ('sale premium corrections: an empty-ledger rollback restores the exact preimage (probe, rolled back)',probe+"SELECT test_probe($r$"+rollback+"$r$,$c$"+restored+"$c$);"),
+  ('sale premium correction regressions',read('supabase/tests/policy_sale_premium_correction.sql').split('\n-- @@v3@@\n')[0]),
+  ('sale premium corrections rollback with a non-empty ledger seals the writer only',rollback+sealed),
+  ('sale premium corrections rollback replay seals again',rollback+sealed)]
+
+def appointment_steps():
+ """PKG-D batch D1 (D4 §3.2-§3.4): categories and occurrence evidence on the verbatim booking writers."""
+ def statements(prefix):
+  out=[];i=0
+  while True:
+   a=base.find(prefix,i)
+   if a<0:return out
+   b=base.index(';\n',a);out.append(base[a:b+1]);i=b
+ lines=lambda prefix:[l for l in base.splitlines() if l.startswith(prefix)]
+ deps='\n'.join(['ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS team_id uuid;',table('appointment_types'),
+  'ALTER TABLE public.appointment_types ADD PRIMARY KEY(id);',
+  block(base,'CREATE OR REPLACE FUNCTION "public"."update_updated_at"()'),
+  block(base,'CREATE OR REPLACE FUNCTION "public"."seed_default_appointment_types"('),
+  *lines('CREATE OR REPLACE TRIGGER "appointment_types_updated_at"'),*lines('CREATE OR REPLACE TRIGGER "appointments_updated_at"'),
+  *lines('ALTER TABLE "public"."appointment_types" ENABLE ROW LEVEL SECURITY'),*lines('ALTER TABLE "public"."appointments" ENABLE ROW LEVEL SECURITY'),
+  *statements('CREATE POLICY "appointment_types_'),*statements('CREATE POLICY "appointments_'),
+  *lines('GRANT ALL ON TABLE "public"."appointment_types" TO "authenticated"'),*lines('GRANT ALL ON TABLE "public"."appointments" TO "authenticated"'),
+  *lines('GRANT ALL ON TABLE "public"."appointment_types" TO "service_role"'),*lines('GRANT ALL ON TABLE "public"."appointments" TO "service_role"'),
+  # Six synthetic organizations with their seeded locked defaults (the approved baseline counts 6 x 6 = 36).
+  "INSERT INTO public.organizations(id,name) SELECT test_uuid(n),'Synthetic '||n FROM generate_series(3,6) n;",
+  "SELECT public.seed_default_appointment_types(id) FROM public.organizations ORDER BY id;",
+  "CREATE TABLE public.test_policy_snapshot AS SELECT policyname,qual,with_check FROM pg_policies WHERE tablename IN ('appointments','appointment_types');"])
+ categories=migration('appointment_type_categories');evidence=migration('appointment_occurrence_evidence')
+ rb40=migration('appointment_type_categories.rollback','supabase/migrations/rollback');rb41=migration('appointment_occurrence_evidence.rollback','supabase/migrations/rollback')
+ strip=lambda t:t.replace('\nBEGIN;\n','\n').replace('\nCOMMIT;\n','\n')
+ baseline=strip(read('supabase/ops/appointment_type_category_baseline.sql'));revert=strip(read('supabase/ops/appointment_type_category_baseline_revert.sql'))
+ disable=strip(read('supabase/ops/appointment_evidence_disable.sql'));enable=strip(read('supabase/ops/appointment_evidence_enable.sql'))
+ q=lambda t:'$f$'+t+'$f$'
+ return [('appointment schema dependencies (verbatim baseline)',deps),
+  ('appointment evidence refuses before the categories',f"SELECT test_reject({q(evidence)},'P0001');"),
+  ('appointment type categories migration',categories),('appointment type categories replay refuses',f"SELECT test_reject({q(categories)},'P0001');"),
+  ('appointment type category regressions',read('supabase/tests/appointment_type_categories.sql')),
+  ('category baseline refuses a changed count',f"SAVEPOINT count7; INSERT INTO organizations(id,name) VALUES(test_uuid(7),'Synthetic 7'); SELECT seed_default_appointment_types(test_uuid(7)); UPDATE appointment_types SET business_category='unclassified' WHERE organization_id=test_uuid(7); SELECT test_reject({q(baseline)},'P0001'); ROLLBACK TO SAVEPOINT count7;"),
+  ('category baseline (approved count)',baseline),('category baseline replay refuses',f"SELECT test_reject({q(baseline)},'P0001');"),
+  ('appointment evidence migration',evidence),('appointment evidence replay refuses',f"SELECT test_reject({q(evidence)},'P0001');"),
+  ('appointment occurrence evidence regressions',read('supabase/tests/appointment_occurrence_evidence.sql')),
+  ('evidence disable',disable),('evidence enable (pinned bodies)',enable),('evidence enable replay refuses',f"SELECT test_reject({q(enable)},'P0001');"),
+  ('category baseline revert',revert),('category baseline revert replay refuses',f"SELECT test_reject({q(revert)},'P0001');"),
+  ('after the revert: snapshots keep their categories; pre-capture rows of reverted types are unclassified',
+   "SELECT test_assert((SELECT bool_and(category='sales') FROM private.appointment_occurrences WHERE type_name='Sales Call' AND opened_source='booking'),'snapshots kept');"
+   "SELECT test_assert(private.appointment_evidence_classify(test_uuid(1),'Sales Call','appointment',now(),now())='unclassified','reverted baseline skipped');"),
+  ('categories rollback refuses before the evidence rollback',f"SELECT test_reject({q(rb40)},'P0001');"),
+  ('appointment evidence rollback (probe, rolled back: the failure-boundary script needs the capture installed)','SAVEPOINT rb41;\n'+rb41+"\nSELECT test_assert(to_regprocedure('public.record_appointment_outcome(uuid,uuid,timestamptz,text)') IS NULL AND NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='appointments_v3_evidence_capture') AND (SELECT count(*)>0 FROM private.appointment_occurrences),'evidence rollback keeps the evidence');"
+   "SELECT test_actor(11); SET ROLE authenticated; UPDATE appointments SET notes='after rollback' WHERE booking_request_id=test_uuid(41001); RESET ROLE;\n"+rb40+"\nSELECT test_assert(NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname IN ('appointment_types_classification_guard','appointment_types_category_audit')) AND to_regclass('private.appointment_type_category_events') IS NOT NULL,'categories rollback keeps column and history');\nROLLBACK TO SAVEPOINT rb41;")]
+
 def steps(mode):
+ if mode=='appointments':return steps('booking')+appointment_steps()
  if mode=='booking':
   harness=read('supabase/tests/dialer_dnc_harness.sql').replace('CREATE TABLE public.appointments(id uuid DEFAULT gen_random_uuid(),contact_id uuid,organization_id uuid);',table('appointments')+'\nALTER TABLE appointments ADD PRIMARY KEY(id);\n'+table('recruits'))
   return [('original DNC harness',harness),('original DNC integrity',migration('dialer_disposition_dnc_integrity')),('DNC fixtures',read('supabase/tests/dialer_dnc_fixtures.sql')),('pre-upgrade committed disposition',read('supabase/tests/booking_upgrade_fixture.sql')),
@@ -75,7 +144,7 @@ def steps(mode):
   ('previous group repair',migration('group_leaderboard_repair_membership_setter_credit')),('performance contract',migration('performance_reporting_contract')),('scoped summaries',migration('performance_scoped_summaries')),
   ('duration provenance',migration('call_attempt_duration_provenance')),('reader indexes',migration('performance_reader_indexes')),
   ('original dialer reader',table('dispositions')+table('dialer_sessions')+block(base,'CREATE OR REPLACE FUNCTION "public"."get_trusted_today_dialer_stats"(')+"\nREVOKE ALL ON FUNCTION public.get_trusted_today_dialer_stats(uuid,timestamptz,timestamptz) FROM PUBLIC; GRANT EXECUTE ON FUNCTION public.get_trusted_today_dialer_stats(uuid,timestamptz,timestamptz) TO anon,authenticated,service_role;"),
-  ('canonical dialer reader',migration('trusted_dialer_canonical_counts')),('performance regressions',read('supabase/tests/performance_reporting_contract.sql'))]+sold_date_steps()+repair_steps()+reconciliation_steps()
+  ('canonical dialer reader',migration('trusted_dialer_canonical_counts')),('performance regressions',read('supabase/tests/performance_reporting_contract.sql'))]+sold_date_steps()+repair_steps()+reconciliation_steps()+premium_correction_steps()
 if __name__=='__main__':
  mode=sys.argv[1]
  if '--json' in sys.argv:print(json.dumps(steps(mode)))

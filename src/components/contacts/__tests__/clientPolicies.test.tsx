@@ -1,5 +1,14 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+// The lazily loaded sale premium section (PKG-B) is replaced by a recorder: it renders nothing, so the display
+// assertions below are unchanged, and the mount props it received are checked separately.
+const salePremiumMounts = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock("@/components/contacts/policy-correction/PolicySalePremiumSection", () => ({
+  PolicySalePremiumSection: (props: Record<string, unknown>) => { salePremiumMounts.push(props); return null; },
+}));
 import { ClientPolicies, ClientPolicyCount } from "../ClientPolicies";
 import { getClientPolicyDisplay } from "@/lib/client-policy-display";
 import type { Client } from "@/lib/types";
@@ -89,5 +98,39 @@ describe("read-only client policy display", () => {
     expect(screen.queryByText("Frozen Carrier")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Next Carrier/ })).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("NEXT-1")).not.toBeInTheDocument();
+  });
+});
+
+describe("sale premium section mount (Reports V2 PKG-B, D2 §5)", () => {
+  const withIds: Partial<Client> = { ...client, id: "00000000-0000-4000-8000-0000000000c1", primaryPolicyId: "00000000-0000-4000-8000-0000000000d1",
+    customFields: { additional_policies: [{ ...((client.customFields as { additional_policies: Record<string, unknown>[] }).additional_policies[0]),
+      policyId: "00000000-0000-4000-8000-0000000000d2" }] } };
+
+  it("mounts next to each policy with its displayed current monthly premium and the record-changed callback", async () => {
+    salePremiumMounts.length = 0;
+    const changed = vi.fn();
+    render(<ClientPolicies client={withIds} formatDate={date} onPolicyRecordChanged={changed} />);
+    fireEvent.click(screen.getByRole("button", { name: /Example Life/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Sample Assurance/ }));
+    await waitFor(() => expect(new Set(salePremiumMounts.map((p) => p.policyId)).size).toBe(2));
+    const byPolicy = Object.fromEntries(salePremiumMounts.map((p) => [p.policyId as string, p]));
+    expect(byPolicy["00000000-0000-4000-8000-0000000000d1"]).toMatchObject({ clientId: withIds.id, currentMonthly: 64.25, onPolicyRecordChanged: changed });
+    expect(byPolicy["00000000-0000-4000-8000-0000000000d2"]).toMatchObject({ clientId: withIds.id, currentMonthly: 31.6, onPolicyRecordChanged: changed });
+  });
+
+  it("mounts once for a single primary policy, which shows no policy list", async () => {
+    salePremiumMounts.length = 0;
+    const single = { ...withIds, customFields: undefined };
+    render(<ClientPolicies client={single} formatDate={date} />);
+    await waitFor(() => expect(salePremiumMounts.length).toBeGreaterThan(0));
+    expect(new Set(salePremiumMounts.map((p) => p.policyId))).toEqual(new Set(["00000000-0000-4000-8000-0000000000d1"]));
+    expect(screen.queryByText(/Policies \(/)).toBeNull();
+  });
+
+  it("FullScreenContactView adds exactly one prop: onPolicyRecordChanged reloads the contact", () => {
+    const source = readFileSync(join(__dirname, "..", "FullScreenContactView.tsx"), "utf8");
+    expect(source.match(/onPolicyRecordChanged/g)).toHaveLength(1);
+    expect(source).toContain('onPolicyRecordChanged={() => void onUpdate(contact.id, {}).catch(() => toast.error("Sale corrected. Reopen this contact to refresh its details."))}');
+    expect(source).not.toMatch(/policy-correction|policySaleCorrection|correct_policy_sale_premium/);
   });
 });

@@ -1,59 +1,56 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LAYOUT, DEFAULT_VISIBLE_STATS, MAX_VISIBLE_STATS, REPORT_LAYOUT_SECTIONS, normalizeReportLayout } from "@/lib/report-layout-constants";
+import { DEFAULT_LAYOUT, V4_DEFAULT_VISIBLE_STATS, normalizeReportLayout } from "@/lib/report-layout-constants";
 
-describe("personal Reports layout normalization", () => {
-  it("has six approved default metrics and excludes fixed or unavailable sections", () => {
-    const normalized = normalizeReportLayout(null);
-    expect(normalized.version).toBe(4);
-    expect(normalized.sections.filter((s) => s.id.startsWith("stat_") && s.visible).map((s) => s.id)).toEqual(DEFAULT_VISIBLE_STATS);
-    expect(DEFAULT_VISIBLE_STATS).toHaveLength(MAX_VISIBLE_STATS);
-    for (const id of ["call_volume", "policies_sold", "stat_policies_sold", "stat_annual_premium", "goal_tracking", "stat_unique_leads"]) {
-      expect(normalized.sections.some((s) => s.id === id)).toBe(false);
-    }
-    normalized.sections[0].visible = false;
-    expect(DEFAULT_LAYOUT.sections[0].visible).toBe(true);
-    expect(normalizeReportLayout(null).sections[0].visible).toBe(true);
+const strip = (l: ReturnType<typeof normalizeReportLayout>) => l.sections.filter(s => s.visible && s.id.startsWith("kpi_")).map(s => s.id);
+const v4Default = () => ({ version: 4, sections: [...V4_DEFAULT_VISIBLE_STATS.map(id => ({ id, visible: true })),
+  ...["stat_inbound", "stat_dnc_count"].map(id => ({ id, visible: false })),
+  ...["agent_performance_cards", "campaign_performance", "lead_source_roi", "calling_heatmap", "call_flow_analysis", "call_duration_analysis", "disposition_deep_dive"].map(id => ({ id, visible: true }))] });
+
+describe("layout v5 normalization (read-only)", () => {
+  it("returns the v5 default for nothing, junk or an unknown version", () => {
+    for (const saved of [null, undefined, 3, "x", [], { version: 9, sections: [] }, { version: 4 }]) expect(normalizeReportLayout(saved)).toEqual(DEFAULT_LAYOUT);
   });
-
-  it.each([2, 3, 4])("preserves valid v%i choices and within-group order without mutating input", (version) => {
-    const sections = [
-      { id: "campaign_performance", visible: false }, { id: "stat_inbound", visible: true },
-      { id: "lead_source_roi", visible: true }, { id: "stat_total_dials", visible: false },
-      { id: "disposition_deep_dive", visible: false }, { id: "calling_heatmap", visible: true },
-    ];
-    sections.forEach(Object.freeze);
-    const saved = Object.freeze({ version, sections: Object.freeze(sections) });
-    const result = normalizeReportLayout(saved);
-    expect(result.sections.slice(0, 2)).toEqual([{ id: "stat_inbound", visible: true }, { id: "stat_total_dials", visible: false }]);
-    expect(result.sections.filter((s) => ["campaign_performance", "lead_source_roi"].includes(s.id))).toEqual(sections.filter((s) => ["campaign_performance", "lead_source_roi"].includes(s.id)));
-    expect(result.sections.find((s) => s.id === "stat_total_contacted")?.visible).toBe(false);
-    expect(result.sections.find((s) => s.id === "disposition_deep_dive")?.visible).toBe(false);
-    expect(result.sections.find((s) => s.id === "stat_inbound")).not.toBe(sections[1]);
-    expect(normalizeReportLayout(result)).toEqual(result);
+  it("R23: an untouched v4 default deep-equals the v5 default", () => {
+    expect(normalizeReportLayout(v4Default())).toEqual(DEFAULT_LAYOUT);
   });
-
-  it("migrates v1 tabs in their saved order, validates fields and deduplicates first valid entry", () => {
-    const result = normalizeReportLayout({ version: 1, tabs: {
-      overview: [null, { id: "stat_inbound", visible: "yes" }, { id: "stat_inbound", visible: false }],
-      calls: [{ id: "stat_inbound", visible: true }, { id: "stat_total_dials", visible: true }, { id: "call_volume", visible: false }],
-      pipeline: [42, { id: "unknown", visible: true }], team: "invalid",
-    } });
-    expect(result.sections.slice(0, 2)).toEqual([{ id: "stat_inbound", visible: false }, { id: "stat_total_dials", visible: true }]);
-    expect(new Set(result.sections.map((s) => s.id)).size).toBe(result.sections.length);
-    expect(result.sections.every((s) => typeof s.visible === "boolean")).toBe(true);
+  it("R23 applies only to the untouched v4 default: a reordered default or one more visible stat is mapped through V4_TO_V5", () => {
+    const reordered = v4Default();
+    reordered.sections.unshift(...reordered.sections.splice(2, 1));
+    expect(strip(normalizeReportLayout(reordered))).toEqual(["kpi_8", "kpi_5", "kpi_6", "kpi_24", "kpi_25"]);
+    const extra = v4Default();
+    extra.sections.find(s => s.id === "stat_inbound")!.visible = true;
+    expect(normalizeReportLayout(extra)).not.toEqual(DEFAULT_LAYOUT);
+    expect(strip(normalizeReportLayout(extra))).toEqual(["kpi_5", "kpi_6", "kpi_8", "kpi_24", "kpi_25"]);
   });
-
-  it("caps legacy visible metrics at six and does not mutate frozen objects", () => {
-    const sections = REPORT_LAYOUT_SECTIONS.filter((s) => s.group === "stats").map((s) => Object.freeze({ id: s.id, visible: true }));
-    const result = normalizeReportLayout({ version: 3, sections: Object.freeze(sections) });
-    expect(result.sections.filter((s) => s.id.startsWith("stat_") && s.visible)).toHaveLength(6);
-    expect(sections.every((s) => s.visible)).toBe(true);
+  it("maps customized v4 stats in saved order; stat_total_dials before stat_outbound (first wins); fixed and retired ids drop", () => {
+    const l = normalizeReportLayout({ version: 4, sections: [
+      { id: "stat_total_talk_time", visible: true }, { id: "stat_total_dials", visible: true }, { id: "stat_outbound", visible: false },
+      { id: "stat_avg_premium", visible: true }, { id: "stat_top_performer", visible: true }, { id: "agent_efficiency", visible: true }] });
+    expect(strip(l)).toEqual(["kpi_24", "kpi_5"]);
+    expect(l.sections.some(s => ["stat_avg_premium", "stat_top_performer", "agent_efficiency"].includes(s.id))).toBe(false);
   });
-
-  it.each([null, undefined, [], 2, { version: 99, sections: [] }, { version: 3, sections: null }])("returns a fresh default for unsupported input %j", (saved) => {
-    const result = normalizeReportLayout(saved);
-    expect(result).toEqual(DEFAULT_LAYOUT);
-    expect(result).not.toBe(DEFAULT_LAYOUT);
-    expect(result.sections[0]).not.toBe(DEFAULT_LAYOUT.sections[0]);
+  it("migrates v1 tabs in saved order, validates fields and keeps the first valid entry", () => {
+    const l = normalizeReportLayout({ version: 1, tabs: { overview: [{ id: "stat_contact_rate", visible: true }, { id: 3, visible: true }, { id: "stat_contact_rate", visible: false }],
+      calls: [{ id: "stat_total_contacted", visible: true }] } });
+    expect(strip(l)).toEqual(["kpi_8", "kpi_6"]);
+  });
+  it("keeps valid v5 choices and order, caps the activity strip at six, forces the section order and appends missing ids", () => {
+    const ids = ["kpi_34", "kpi_25", "kpi_24", "kpi_21", "kpi_19", "kpi_18", "kpi_17"];
+    const saved = Object.freeze({ version: 5, sections: Object.freeze([...ids.map(id => Object.freeze({ id, visible: true })),
+      Object.freeze({ id: "calling_heatmap", visible: false }), Object.freeze({ id: "agent_performance_cards", visible: true }),
+      Object.freeze({ id: "disposition_deep_dive", visible: true }), Object.freeze({ id: "campaign_performance", visible: false })]) });
+    const l = normalizeReportLayout(saved);
+    expect(strip(l)).toEqual(ids.slice(0, 6));
+    expect(l.sections.filter(s => ["agent_performance_cards", "regional_performance", "calling_heatmap"].includes(s.id)).map(s => `${s.id}:${s.visible}`))
+      .toEqual(["agent_performance_cards:true", "regional_performance:true", "calling_heatmap:false"]);
+    const breakdowns = l.sections.slice(-5).map(s => s.id);
+    expect(breakdowns.slice(0, 2)).toEqual(["disposition_deep_dive", "campaign_performance"]);
+    expect(l.sections).toHaveLength(DEFAULT_LAYOUT.sections.length);
+  });
+  it("never mutates its input", () => {
+    const input = { version: 5, sections: [{ id: "kpi_5", visible: true }, { id: "kpi_5", visible: false }] };
+    const copy = JSON.parse(JSON.stringify(input));
+    normalizeReportLayout(input);
+    expect(input).toEqual(copy);
   });
 });

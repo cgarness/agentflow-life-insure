@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import type { ReportVolume } from "@/lib/reports-schemas";
+import type { ReportSummaryV3 } from "@/lib/reports-v3-schemas";
+import { roundHalfUp, toCents } from "@/lib/reports-kpi-format";
 import { formatCount, formatPremium, formatRate, groupDailySeries, type Grouping } from "@/lib/reports-format";
 import type { ReportExportFn } from "@/lib/reports-export";
 import { CHART_KEYS_DESC, CHART_THEME, PERIOD_UNIT, SERIES_COLOR, TOOLTIP_FRAME, TREND_SYNC_ID, partialDot } from "./reportChartTheme";
@@ -9,20 +10,19 @@ import { NoTooltip, TrendPanel } from "./ReportTrends";
 import { useChartReadout } from "./useChartReadout";
 
 interface Props {
-  volume: ReportVolume;
+  summary: ReportSummaryV3;
   grouping: Grouping;
   onExport?: ReportExportFn;
 }
 
 const PREMIUM_AXIS = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
 
-/** Sum cents, not floating dollars; retain all-unknown buckets as gaps, including in CSV. */
-function productionSeries(volume: ReportVolume, grouping: Grouping) {
-  return groupDailySeries(volume.by_date.map((d) => ({
-    date: d.date, policies_sold: d.policies_sold, premium_policy_count: d.premium.policy_count,
-    known_count: d.premium.known_count, unknown_count: d.premium.unknown_count,
-    premium_cents: d.premium.annual_premium === null ? 0 : Math.round(d.premium.annual_premium * 100),
-    unavailable_known_amount: d.premium.known_count > 0 && d.premium.annual_premium === null ? 1 : 0,
+/** Sum exact cents, not floating dollars; retain all-unknown buckets as gaps, including in CSV (D6 §1). */
+function productionSeries(summary: ReportSummaryV3, grouping: Grouping) {
+  return groupDailySeries(summary.production_by_date.map((d) => ({
+    date: d.date, policies_sold: d.policies_sold, premium_policy_count: d.policies_sold,
+    known_count: d.premium_known, unknown_count: d.premium_missing + d.premium_invalid,
+    premium_cents: Number(toCents(d.annual_premium)), unavailable_known_amount: 0,
   })), grouping, ["policies_sold", "premium_policy_count", "known_count", "unknown_count", "premium_cents", "unavailable_known_amount"])
     .map((b) => {
       const annual_premium = b.premium_policy_count > 0 && (b.known_count === 0 || b.unavailable_known_amount > 0) ? null : b.premium_cents / 100;
@@ -45,7 +45,7 @@ function ProductionTooltip({ active, payload }: { active?: boolean; payload?: Ar
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
         <dt>Policies sold</dt><dd className="text-right font-semibold tabular-nums">{formatCount(period.policies_sold)}</dd>
         <dt>Annual premium</dt><dd className="text-right font-semibold tabular-nums">{formatPremium(period.annual_premium)}</dd>
-        <dt>Premium coverage</dt><dd className="text-right tabular-nums">{formatRate(period.coverage_pct)}</dd>
+        <dt>Premium details</dt><dd className="text-right tabular-nums">{formatRate(period.coverage_pct)}</dd>
       </dl>
       <p className="mt-2 text-muted-foreground">{formatCount(period.known_count)} of {formatCount(period.premium_policy_count)} policies known · {formatCount(period.unknown_count)} unknown</p>
       {period.annual_premium === null && <p className="mt-1 text-muted-foreground">Known premium unavailable for this period.</p>}
@@ -69,8 +69,8 @@ function productionReadout(p: ProductionPeriod): string {
  * share one series and one hover. A count of policies, not clients, never divided into a rate; a premium
  * bucket with no known amount is a gap, never $0.
  */
-const PoliciesSoldChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
-  const series = useMemo(() => productionSeries(volume, grouping), [volume, grouping]);
+const PoliciesSoldChart: React.FC<Props> = ({ summary, grouping, onExport }) => {
+  const series = useMemo(() => productionSeries(summary, grouping), [summary, grouping]);
   const { handlers, readout } = useChartReadout(series, productionReadout);
   const unit = PERIOD_UNIT[grouping];
   const totals = useMemo(() => series.reduce((sum, b) => ({
@@ -86,9 +86,11 @@ const PoliciesSoldChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
   const handleExport = onExport
     ? () =>
         onExport(
-          "Policies Sold",
-          ["Period", "Policies sold", "Known annual premium", "Policies with known premium", "Policies with unknown premium", "Premium coverage (%)"],
-          series.map((b) => [periodCell(b.first, b.last), b.policies_sold, b.annual_premium, b.known_count, b.unknown_count, b.coverage_pct]),
+          "Production trend",
+          ["Period", "Policies sold", "Known annual premium", "Policies with known premium", "Policies with unknown premium", "Premium details (% known)"],
+          // Each value rounded once from exact integers: AP at 2 dp from cents, % known at 1 dp.
+          series.map((b) => [periodCell(b.first, b.last), b.policies_sold, b.annual_premium === null ? null : roundHalfUp(b.premium_cents, 100, 2),
+            b.known_count, b.unknown_count, b.premium_policy_count > 0 ? roundHalfUp(100 * b.known_count, b.premium_policy_count, 1) : null]),
         )
     : undefined;
 
