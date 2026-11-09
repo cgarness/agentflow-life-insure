@@ -19,4 +19,4 @@ Any rollback requires separate approval: restore the prior frontend, run reports
 
 ## Limits
 
-Dashboard/Leaderboard definitions are unchanged. Existing baseline type/test failures and accepted Reports performance/history exceptions remain documented. No live-user test or production call is authorized. Historical premium discrepancies remain unchanged. Native writer/retry coverage and final hosted checks are release blockers until completed.
+Dashboard/Leaderboard definitions are unchanged. Existing baseline type/test failures and accepted Reports performance/history exceptions remain documented. No live-user test or production call is authorized. Historical premium discrepancies remain unchanged. Native writer/retry and full release/rollback coverage passed in run 42574839515 at 05964e2. Final hosted frontend/browser checks remain a release blocker.

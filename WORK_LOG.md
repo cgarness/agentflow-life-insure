@@ -1,3 +1,11 @@
+## November 8, 2026 Pacific — Cleanup database acceptance passed
+
+At hosted head 05964e2, isolated PostgreSQL 17.6 workflow 42574839515 passed the complete 3.4.0 migration, classifier cases, required-premium trigger, pinned enable/readback, exact rollback and original 3.3.0 enable/readback. Separate canonical-writer database passed create, update-first-policy, additional policy and conversion refusals/successes/retries with exactly four new events. No production access used.
+
+The original browser gate waited for the intentionally removed Partial chip and timed out. Updated its declared scenario to verify no Partial badges, keyboard-accessible How it's calculated with excluded-record details, unchanged maturity-chip keyboard behavior, and simplified Calls heatmap text. Final hosted frontend/browser checks pending. No merge, production SQL or deployment.
+
+---
+
 ## November 8, 2026 Pacific — Reports cleanup release preparation (draft PR #522)
 
 Initial hosted native PostgreSQL apply/classifier/premium test passed (run 42573399350, head b07c183). Hosted form checks exposed old fixtures that omitted newly required premiums; fixed fixtures preserve carrier-selection, retry and appointment assertions and add invalid-premium refusal cases. All 35 affected form tests pass; root TypeScript and whitespace checks pass.

@@ -9161,3 +9161,6 @@ Chris authorized starting the submission work, with verification prioritized ove
 
 ### Cleanup acceptance amendment — canonical writers
 Before editing: add `supabase/tests/reports_cleanup_policy_writers.sql`; extend the already-listed cleanup workflow and focused native test. Exercise the exact new premium guard on the existing disposable policy fixture, all four canonical entry paths, rejection atomicity and idempotent retries. Production remains untouched.
+
+### Cleanup browser acceptance amendment
+Before editing: `scripts/tests/reports-visual/verify.mjs`, `scripts/tests/reports-visual/README.md`. The old browser scenario waits for the deliberately removed Partial chip. Replace that interaction with keyboard verification of How it's calculated, assert Partial badges absent in every loaded scenario, retain maturity-chip keyboard coverage, and update heatmap label expectation to Calls. No application scope expansion.
