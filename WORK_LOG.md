@@ -1,3 +1,9 @@
+## November 8, 2026 Pacific — Cleanup disclosure browser timing
+
+Local desktop/mobile inspection confirms Calls, no Partial badges and no overflow. The new calculation-sheet keyboard test initially checked visibility during Radix's exit animation; it now waits for the dialog to become hidden after Escape before asserting closure. The product behavior is unchanged. At 9be51d7, cleanup native, reporting integrity, dialer DNC, policy/commission, SMS and UV workflows pass; both Vercel previews built successfully. Full Reports verification must finish on the final browser-test commit. No production mutation.
+
+---
+
 ## November 8, 2026 Pacific — Cleanup database acceptance passed
 
 At hosted head 05964e2, isolated PostgreSQL 17.6 workflow 42574839515 passed the complete 3.4.0 migration, classifier cases, required-premium trigger, pinned enable/readback, exact rollback and original 3.3.0 enable/readback. Separate canonical-writer database passed create, update-first-policy, additional policy and conversion refusals/successes/retries with exactly four new events. No production access used.

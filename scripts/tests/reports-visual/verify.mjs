@@ -112,6 +112,7 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
   check("calculation disclosure opens by keyboard", await page.getByRole("dialog").isVisible());
   check("excluded records remain explained", (await page.getByRole("dialog").innerText()).includes("Excluded records"));
   await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
   check("calculation disclosure closes with Escape", !(await page.getByRole("dialog").isVisible()));
   const state = page.locator("svg[aria-label='Map of states'] path[tabindex='0']");
   await state.focus(); const first = await state.getAttribute("aria-label"); await page.keyboard.press("ArrowRight");
