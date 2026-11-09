@@ -87,7 +87,7 @@ describe("scope states", () => {
 describe("panel states", () => {
   it("loading panels render skeletons, never values", async () => {
     h.hold = true; renderPage();
-    await waitFor(() => expect(screen.getByLabelText("Calls made: loading")).toBeTruthy());
+    await waitFor(() => expect(screen.getByLabelText("Calls: loading")).toBeTruthy());
     expect(document.querySelector("[data-kpi-id='5'] span[aria-hidden='true']")).toBeNull();
   });
   it("a failed panel is an error with Retry and no digits; the others still render", async () => {

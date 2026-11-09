@@ -1,3 +1,9 @@
+## November 8, 2026 Pacific — Cleanup loading-label regression corrected
+
+Hosted full frontend comparison 42575783277 found one new failing suite: reportsPage.test.tsx still expected the old accessible loading label Calls made. Updated that expectation to Calls; the failure/loading-not-zero assertion remains intact. Native hosted browser/database job 129023163782 passed all 517 browser checks at 913ec3f, matching the independent local run. No application, migration or production change in this correction. Full comparison rerun required.
+
+---
+
 ## November 8, 2026 Pacific — Cleanup disclosure browser timing
 
 Local desktop/mobile inspection confirms Calls, no Partial badges and no overflow. The new calculation-sheet keyboard test initially checked visibility during Radix's exit animation; it now waits for the dialog to become hidden after Escape before asserting closure. The product behavior is unchanged. At 9be51d7, cleanup native, reporting integrity, dialer DNC, policy/commission, SMS and UV workflows pass; both Vercel previews built successfully. Full Reports verification must finish on the final browser-test commit. No production mutation.

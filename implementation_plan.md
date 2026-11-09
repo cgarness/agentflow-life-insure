@@ -9164,3 +9164,6 @@ Before editing: add `supabase/tests/reports_cleanup_policy_writers.sql`; extend 
 
 ### Cleanup browser acceptance amendment
 Before editing: `scripts/tests/reports-visual/verify.mjs`, `scripts/tests/reports-visual/README.md`. The old browser scenario waits for the deliberately removed Partial chip. Replace that interaction with keyboard verification of How it's calculated, assert Partial badges absent in every loaded scenario, retain maturity-chip keyboard coverage, and update heatmap label expectation to Calls. No application scope expansion.
+
+### Cleanup Reports page test label amendment
+Before editing: `src/pages/__tests__/reportsPage.test.tsx`. The full baseline comparison found one stale loading-state accessible-name expectation, Calls made: loading. Update it to Calls: loading, preserving the assertion that failed/loading data is never shown as zero. No application behavior change.
