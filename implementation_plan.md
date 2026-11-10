@@ -1,3 +1,15 @@
+## November 10, 2026 Pacific — Production release complete; existing-policy estimate pending
+
+Chris approved the reviewed backend, frontend release and Settings rename. Migration policy_commission_fidelity_alias was applied as hosted version 20261110205228 with the exact reviewed SHA-256 fd42cbf91f9f59585752bd09a663babeddf4b3bf1ee0f05e939394b8439627c5. The pending source is now immutable applied evidence and must not be replayed. Full evaluator/security metadata, unrelated function inventory, RLS and migration-history readback passed; advisors have no new findings.
+
+PR #524 merged at 7757984bc04455d2564b7b1b6e397b3c39c187de with the exact tested tree. Both production deployments are READY; production /commissions documents and the commission asset return HTTP 200, and served JavaScript contains the exact alias. The guarded one-row rename is complete: Fidelity retains the same carrier identity and all preserved business fields. All seven candidate workflows passed; 6,958 frontend tests pass with no new baseline failures, while the existing 79 app type diagnostics remain unchanged. See the newest WORK_LOG entry for deployment IDs, checksums, validation limits and complete evidence.
+
+Only WORK_LOG.md and implementation_plan.md are amended for release closeout; no application, SQL or workflow bytes change. The historical preparation/status entries below remain a chronological record and do not override this release state.
+
+Remaining scope: the specific Fidelity whole-life product and exact authorized record-later inputs/request must be confirmed before any estimate is recorded for the existing policy. Its one sale remains intact, with zero captures/estimates. No historical batch, duplicate sale or fabricated sale-time capture is authorized.
+
+---
+
 ## November 10, 2026 Pacific — Fidelity implementation status
 
 Local verification: 336 frontend tests pass (two existing skips); final modal correction 23/23; build/root TypeScript/scoped lint pass; 79 application type diagnostics exactly match main. Native alias/record-later/companion/security/recovery and guarded Settings rename suites pass on isolated PostgreSQL 17.11. Hosted final-head checks are pending. Migration SHA-256 fd42cbf91f9f59585752bd09a663babeddf4b3bf1ee0f05e939394b8439627c5; rename script SHA-256 9547554502c084b60529f9341f9a0392daff574625570babc505bd232fc715f0.
