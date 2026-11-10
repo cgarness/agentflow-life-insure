@@ -1,3 +1,19 @@
+## November 10, 2026 Pacific — Fidelity carrier alias fix released
+
+Chris explicitly approved the reviewed production migration, PR #524 release and one-row Settings rename. Applied policy_commission_fidelity_alias as hosted version 20261110205228; source SHA-256 fd42cbf91f9f59585752bd09a663babeddf4b3bf1ee0f05e939394b8439627c5. Stored history SQL MD5 5258e4444daf5e0bead0d6b981a288d2 exactly matches the reviewed source. The file supabase/migrations/pending/policy_commission_fidelity_alias.sql is now immutable applied evidence, not an unapplied action; never replay it.
+
+Readback verified evaluator MD5 74e05e9bcab074d959c9ed6896bf0f20, unchanged full function metadata/owner/ACL/security/search_path, unchanged other public/private function inventory and unchanged RLS policies. Security/performance advisors have no new findings compared with the immediate preflight (observation timestamps excluded); health remains empty. Existing advisor findings remain outside this fix.
+
+PR #524 merged as 7757984bc04455d2564b7b1b6e397b3c39c187de, with the exact tested tree 29391ffe2817b2476739259c728438e09a2a4410. Both production deployments READY: agentflow dpl_GUCiXMcDC8Az7AgLBvoVt54M79dN and agentflow-life-insure dpl_D5CdPqs7dC29Gs26Tsb1QCHjH9Dp. Both production /commissions documents returned HTTP 200 (the apex redirects to www). The production JavaScript contains the exact trimmed/case-insensitive three-name normalization, and the commission component asset returned HTTP 200. No authenticated live-user sale submission was exercised; flow acceptance comes from the isolated synthetic tests.
+
+Executed the separately approved forward Settings operation, rendered SHA-256 4a880f08fdb69b23349b60387c61fe532ffc3d74a4042cae295ea82d721e4984. Exactly the existing home-agency carrier now displays Fidelity. Readback preserved its ID, organization, portal, contact and appointment fields with the same business-field fingerprint. No duplicate carrier, historical policy rewrite, sale, estimate, financial-table insertion or fabricated sale-time capture was created.
+
+All seven final-head workflows passed: hosted PostgreSQL 17.6/PostgREST 12.2.3 native alias/authorization/retry/recovery proofs; 800 commission/contact tests; full frontend comparison with 6,958 passing tests versus 6,946 on base, no new failing tests/files, zero unhandled runtime errors and unchanged 79 app TypeScript diagnostics. Root TypeScript, scoped lint and Vite build passed. The full suite retains one pre-existing failed test and nine failing files; do not describe it as globally clean. Automatic Supabase preview creation was cancelled by the concurrent-branch limit; its setting was not changed, and isolated native verification passed independently.
+
+Closeout files: WORK_LOG.md and implementation_plan.md only. PR #486 remains independent and unmerged; its age-optional and five-sale correction scope is excluded. The affected existing policy still has one sale, zero captures and zero estimates. Whole-life category is confirmed, but the specific product and exact authenticated record_policy_commission_estimate_later action remain pending. No rollback is authorized or executed. Next: confirm the actual product privately, prepare the exact one-policy inputs/request ID and obtain that action's approval; active agents can refresh their carrier lists.
+
+---
+
 ## November 10, 2026 Pacific — Fidelity carrier aliases prepared; NOT released
 
 Chris approved the exact 13-file plan. Branch fix/fidelity-carrier-alias-20261110 starts at main f9c8a24402cc5a9f70adc8135270daecacf8422b. Draft #486 remains independent at 2de28c320547983f68bed5f77d8ec9684ea3643d; no age-optional or historical-batch code imported.
