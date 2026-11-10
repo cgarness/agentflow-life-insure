@@ -1,3 +1,196 @@
+## November 10, 2026 Pacific — Fidelity implementation status
+
+Local verification: 336 frontend tests pass (two existing skips); final modal correction 23/23; build/root TypeScript/scoped lint pass; 79 application type diagnostics exactly match main. Native alias/record-later/companion/security/recovery and guarded Settings rename suites pass on isolated PostgreSQL 17.11. Hosted final-head checks are pending. Migration SHA-256 fd42cbf91f9f59585752bd09a663babeddf4b3bf1ee0f05e939394b8439627c5; rename script SHA-256 9547554502c084b60529f9341f9a0392daff574625570babc505bd232fc715f0.
+
+Chris approved the 13-file implementation scope and asked to continue. Branch fix/fidelity-carrier-alias-20261110 is based on f9c8a24402cc5a9f70adc8135270daecacf8422b; PR #486 remains at 2de28c320547983f68bed5f77d8ec9684ea3643d. Production is unchanged. The preparation observations below remain historical evidence, not a claim that implementation has not started.
+
+Supabase CLI 2.84.5 generated 20261110201839_policy_commission_fidelity_alias.sql, moved before authoring into the approved fixed pending path. No hosted history entry was created. The evaluator's exact definition changes from MD5 f1e6cbc2e17d2ca2c2b8652ce8a5e6d1 to 74e05e9bcab074d959c9ed6896bf0f20. Both migration and recovery assert all pg_proc metadata remains unchanged except prosrc. The rename script requires an explicit rename/restore action and checks the complete business-field fingerprint under a short table lock.
+
+The native test runtime available locally is PostgreSQL 17.11; the existing hosted workflow retains its pinned 17.6 image. Local PostgREST is 12.2.3 with the existing verified SHA-256 9f71269e61ac3a940281e93ff415760f5957e430e475ba4c3889f3ede7d5527c. This is isolated synthetic verification, not production execution.
+
+The product category is confirmed as Fidelity whole life; the specific product remains unconfirmed and is not stored in the policy's inspected product fields. No selection or record-later request has been fabricated.
+
+---
+
+# AGENTFLOW — Fidelity carrier identity and commission matching
+Implementation plan • November 10, 2026 Pacific • Implementation approved; production actions pending
+
+## Status and authority
+
+Chris approved implementation on November 10, 2026 Pacific. Separate fix branch starts at f9c8a24402cc5a9f70adc8135270daecacf8422b. Production actions remain pending. Read-only GitHub, Supabase and Vercel investigation completed. This document is the only authored project deliverable in this preparation. No implementation edits, GitHub write, migration, production data change, RPC write, merge or deployment has occurred.
+
+Chris's task explicitly requires approval of this concrete plan before implementation. Approval of implementation will authorize preparing and testing the listed changes on a separate branch; exact production backend actions and frontend release remain separately approved. Product confirmation is required for the existing-policy estimate, not for building the alias fix.
+
+## Verified baseline
+
+- Repository: cgarness/agentflow-life-insure.
+- Main: f9c8a24402cc5a9f70adc8135270daecacf8422b, rechecked after investigation.
+- Read AGENT_RULES.md, VISION.md and the latest WORK_LOG.md entries; reviewed the carrier/commission, production protection, migration/release and verification rules.
+- Latest log records Reports cleanup released. Preserve its positive-premium validation and sale writers.
+- Vercel agentflow production: READY, deployment dpl_8yBbRCUL8P5W3orJcjWNu52oJWKM at the same main SHA. No deployment was requested.
+- Supabase project: jncvvsvckxhqgqvkppmj. Hosted migration head observed: 20261110191037. Recheck before assigning a release version.
+- Live private.policy_commission_evaluate(jsonb,jsonb,jsonb,jsonb,text) definition MD5: f1e6cbc2e17d2ca2c2b8652ce8a5e6d1.
+- Evaluator owner postgres; SECURITY INVOKER; IMMUTABLE; search_path=pg_catalog, pg_temp; ACL {postgres=X/postgres,agentflow_policy_commission_writer=X/postgres}.
+- Existing public.record_policy_commission_estimate_later(uuid,uuid,jsonb,uuid,bigint,text) definition MD5: 49124736e2849106ff933ae5edfc8c10. Preserve it unchanged. It already validates the seller, takes the per-policy lock, prevents a second active estimate and replays stable requests.
+- Security, performance and health advisors were read as a baseline. Existing security/performance findings are outside this fix; health returned no findings. No hardening work is bundled.
+- A bounded log count was inspected around the conversion; log counts are not evidence of successful commission matching. The function and row reads establish the diagnosis.
+
+## Diagnosis and target behavior
+
+candidateProducts() currently trims and lowercases carrier strings and compares them exactly. The live evaluator independently requires the same carrier identity. Settings has Instabrain while the selected grid uses Fidelity Life. Renaming the display setting to Fidelity alone leaves both matchers unable to match it.
+
+The home-agency target is exactly one existing public.carriers row:
+- organization_id: a0000000-0000-0000-0000-000000000001
+- id: fad9151b-849b-46dc-b34d-d7e17670abbb
+- current name: Instabrain
+- replacement name: Fidelity
+- currently appointed: true
+- preserved-fields MD5, computed over to_jsonb(row) minus name and updated_at: 3d6783e15df06b815d1b2823dc1345bb
+
+The only matching identity exception is:
+
+| Trimmed, case-insensitive input | Canonical comparison identity |
+| --- | --- |
+| Instabrain | Fidelity Life |
+| Fidelity | Fidelity Life |
+| Fidelity Life | Fidelity Life |
+
+Normalize both sides of each comparison. Every other carrier continues through its existing trimmed, case-insensitive exact comparison. Fidelity & Guaranty stays distinct. No substring matching, internal-space collapse, punctuation removal, typo correction or broader carrier registry is introduced.
+
+The affected existing policy was verified privately: one sale, positive sale premium snapshot, zero captures, zero estimates. The selected grid has three active Fidelity Life whole-life candidates, so Final Expense does not identify the actual product. Customer identifiers, details, product names, rates, premium and amounts are intentionally excluded from this document and public source.
+
+## Conflict handling
+
+Draft PR #486 remains open and unmerged, head 2de28c320547983f68bed5f77d8ec9684ea3643d; GitHub reports it currently unmergeable. It covers strict age-optional behavior plus a separately gated five-sale historical backfill.
+
+Direct file overlaps with this plan:
+- src/lib/commission/policyPreview.ts
+- src/lib/commission/__tests__/policyPreview.test.ts
+- scripts/run_policy_commission_tests.sh
+- .github/workflows/policy-commission-tracking.yml
+- AGENT_RULES.md
+- WORK_LOG.md
+
+Start from current main on a dedicated fix branch. Do not merge/cherry-pick #486, its migration, backfill scripts or product assumptions. Preserve the current age requirements. If #486 moves or lands, review the actual diff and rerun the matching/security tests before release. Rebase that later work around the approved aliases when appropriate; do not change its five-sale manifest.
+
+Other open PRs were inventoried. Several overlap shared documentation, including #514 and commission closeout #478; preserve their history and do not overwrite root documents from an older branch.
+
+## Exact intended tracked file list
+
+Only these 13 paths are proposed. List them again in the branch's implementation_plan.md before implementation. Any additional tracked path requires an explicit scope amendment before editing.
+
+| Path | Intended change |
+| --- | --- |
+| src/lib/commission/policyPreview.ts | Add the three-value alias to carrierKey only; preserve candidate categories, sorting and all calculation/eligibility helpers. |
+| src/lib/commission/__tests__/policyPreview.test.ts | Alias matrix, case/trim behavior, unrelated-carrier rejection and unchanged policy-type controls. |
+| src/components/commission/preview/__tests__/PolicyCommissionEstimate.test.tsx | Alias candidates still require explicit product choice; keep age/term and change-clearing behavior. |
+| src/components/contacts/__tests__/policyCommissionPreviewModals.test.tsx | Exercise actual conversion and Record Policy components with synthetic alias products, capture payloads and stable retries. |
+| supabase/migrations/pending/policy_commission_fidelity_alias.sql | NEW guarded migration source replacing only the evaluator's carrier-comparison expression. |
+| supabase/tests/policy_commission_fidelity_alias.sql | NEW native regression tests for aliases, unchanged rejections, record-later, new-sale companions and idempotency. |
+| scripts/run_policy_commission_tests.sh | Apply the candidate only in dedicated isolated scenarios; run alias tests, inventory, preimage/replay guards and recovery tests without weakening historical assertions. |
+| .github/workflows/policy-commission-tracking.yml | Add exact pending-migration/ops path triggers and ensure root/app typechecks and relevant preview-hook tests execute. Retain isolated PostgreSQL/PostgREST setup and no production credentials. |
+| supabase/ops/policy_commission_fidelity_alias_rollback.sql | NEW exact-postimage-guarded function-only recovery; never remove estimates or rewrite history. |
+| supabase/ops/rename_home_agency_fidelity_carrier.sql | NEW guarded, one-row administrative rename with preflight, preservation checks and a separately gated inverse action. |
+| implementation_plan.md | Prepend this task's scope and evidence to the current complete plan; preserve previous content. |
+| WORK_LOG.md | Newest-first task entry with actual changes, files, checks, release status and remaining gates. |
+| AGENT_RULES.md | Narrowly amend the existing commission carrier-matching clause for these exact aliases; do not rewrite unrelated invariants. |
+
+The new migration source has a fixed pending path so the edit allowlist is exact without inventing a production version. After implementation approval, first create its stub using the installed Supabase CLI's documented migration-new command, then move it into the listed pending path before authoring. The generated temporary stub is not committed. No migration is created during this preparation. The release packet will name a version after the then-current hosted head and include the exact SQL checksum; any tracked path change for final version reconciliation is listed before editing. Never edit or replay 20261019170000_policy_commission_tracking.sql or any other historical migration.
+
+## Implementation details
+
+### Frontend
+
+Change carrierKey locally: retain trim().toLowerCase(), then map only instabrain, fidelity and fidelity life to fidelity life. No new dependency, form, UI, schema, product default or calculation engine.
+
+Final Expense continues to offer only whole_life products. Selection remains explicit even when only one product is available. Preserve insured age, term, credited-agent authority, selected-grid/revision checks, contract-level parsing, premium logic and rational arithmetic.
+
+### Backend
+
+Build from the freshly retrieved live evaluator definition, not a historic migration copy. Add a preimage guard for the exact function signature, full definition and security metadata. Refuse drift rather than silently overwriting it.
+
+Use CREATE OR REPLACE with the same signature and attributes, changing only the two normalized carrier operands into exact CASE alias mapping. Preserve the existing regexp-based edge trimming and lowercasing; do not add a new exposed helper, privilege, owner change, RLS policy, schema object or table write.
+
+Verify that all remaining definition bytes and all other live commission functions are unchanged. Preserve every unrelated validation and output: category, seller, grid/revision, product active state, variant, age/term-derived match, level, rate, premium, cents and installment distribution.
+
+Historical policy carrier strings remain untouched. Matching the old value is sufficient.
+
+### One-row Settings rename
+
+Keep this operational data action separate from the comparison-only migration.
+
+In one transaction:
+1. Confirm the exact org/id/name, expected preserved-field fingerprint and no conflicting Fidelity/Fidelity Life Settings row.
+2. Lock the target and bound concurrency so a conflicting insert/rename cannot create a duplicate during the action.
+3. Require exactly one target. UPDATE only name to Fidelity.
+4. Read back the same id/org and compare every other business field. The existing carriers_updated_at trigger is allowed to advance updated_at.
+5. Assert exactly one changed row and no new carrier. Abort on drift or unexpected differences.
+
+Preserve portal_url, logo_url, contact_phones, contact_emails, is_appointed, created_at, id and organization_id. Do not read contact values into public output.
+
+If already renamed, report an explicitly verified no-op only if identity, uniqueness and preservation checks still hold. Do not silently modify an unexpected row. Recovery changes only this row's name back under the same exact postconditions and requires approval; it does not repair or rewrite policies.
+
+## Verification matrix
+
+All write tests run on a proved isolated localhost PostgreSQL 17.6/PostgREST environment with synthetic records. Do not use a production-connected preview for conversion tests.
+
+1. Frontend/backend alias parity: all 3 x 3 policy/product alias pairs; surrounding whitespace and mixed case; ordinary carrier exact matches still work.
+2. Negative identity controls: Fidelity & Guaranty, Fidelity & Guaranty Life, prefixes/suffixes, partial names, misspellings, internal extra spaces and blank values do not cross-match. Fidelity & Guaranty still matches itself.
+3. Category controls: Final Expense and Whole Life match eligible whole_life only; Term and IUL remain separately filtered; unknown policy types remain rejected.
+4. Explicit selection: no product default; no selected product means no fabricated capture. Product selection and eligible age/term produce the same calculated figures as the existing engine.
+5. Native evaluator controls: unrelated seller, grid revision, inactive/unavailable product, variant, level, rate, premium and amount mismatches retain the same refusals.
+6. Existing policy: synthetic historical Instabrain policy with one win and no capture/estimate uses record_policy_commission_estimate_later; one recorded_later estimate, correct original seller/premium, four expected installments, no new win, no fabricated capture, and unchanged original policy data.
+7. Retry behavior: replay the exact request ID and inputs, including response-loss retry; same estimate/result, no duplicate sale/estimate/installments/events. Changed inputs with the same ID must retain conflict handling; a second new request must not create a second active estimate. Run existing concurrent-write tests.
+8. New sale paths: conversion and Record Policy plus the existing create/update-first-policy companion controls. An explicitly selected alias product gives the correct capture/estimate; retry produces exactly one sale and estimate. Preserve the current commission-savepoint behavior.
+9. Authorization: own seller/admin, unauthorized user and cross-organization cases remain unchanged; no direct commission-table insert path.
+10. Migration integrity: drift refusal, exact expected body diff, unchanged owner/ACL/security/volatility/search_path and unrelated object inventory; defined repeat behavior; recovery restores only the prior evaluator and leaves rows intact. Existing native historical suites remain unmodified.
+11. Rename: synthetic dry rehearsal covers missing target, wrong org/id, stale fingerprint, duplicate name, already-renamed state, preserved business fields and trigger timestamp behavior.
+12. Private-data review: only the approved alias labels/Fidelity & Guaranty may be real names in fixtures. Use independently synthetic product names, variants, rates and scenarios; never mirror private grid examples or customer records.
+
+Required commands/checks:
+- npx tsc --noEmit (required repo gate, but not sufficient).
+- npx tsc -p tsconfig.app.json --noEmit compared to exact current main. The root solution config checks zero application files; no false global type-clean claim.
+- Focused Vitest commission library, preview/component/modal, usePolicyCommissionPreview, sale API/submission and tracking recovery suites.
+- Native scripts/run_policy_commission_tests.sh against isolated PGURL only, including candidate SQL.
+- Vite build; whitespace and changed-file audit; privacy review of the full diff.
+- Exact final-head CI results before release. Do not count old main/#486 results as candidate verification.
+
+No implementation tests have run yet; this stage verified source and live state only.
+
+## Release sequence and approval boundaries
+
+1. Chris approves this implementation plan. Prepare the separate fix branch, listed files, local tests and draft PR. Publishing a draft may trigger existing read-only CI and integration previews; it is not permission to merge or mutate production. Observe preview outcomes without changing integrations.
+2. Present the exact tested commit, migration SQL/checksum/version, pre/postimage hashes, Settings one-row statement and recovery package. Recheck main, PR #486, live function/security metadata and hosted migration history.
+3. With exact backend approval, apply only the new alias migration through the supported deliberate migration route. Do not run an unrestricted db push or replay historical migrations.
+4. Immediately read back its full definition, metadata, history entry and unrelated function pins. Run security/performance/health advisors and compare with the baseline. Stop on unexplained drift.
+5. With exact frontend-release approval, merge the tested PR through the normal PR process. Verify the production deployment SHA, READY state and relevant assets. Never push directly to main.
+6. Execute the separately approved one-row Settings rename after the compatible matcher is deployed; read back identity/preserved fields. Have active agents refresh stale carrier lists.
+7. For Alexa's existing policy, first obtain the actual product confirmation privately. Re-read the original sale, seller, monthly premium snapshot, valid insured age/term, current selected grid/revision, seller's contract level and exact calculated result. Do not treat the current grid as historical paid compensation.
+8. Present the exact one-policy record-later action for approval: authenticated authorized actor, policy, original credited seller, confirmed product/variant, premium, age/term, grid/revision, level/rate/amounts and one stable UUID. Keep this private, outside Git/PR/fixtures. Use the existing app flow or an approved authenticated RPC client; no service-role bypass or invented JWT actor.
+9. After approval, call record_policy_commission_estimate_later once; for an unknown response retry the identical request. Do not invoke another sale writer or insert commission rows directly. Read back one recorded_later estimate, matching seller/premium/product, correct installments and unchanged sale count. No actual estimate can be recorded before this product/action gate.
+10. Append final WORK_LOG evidence and context snapshot with actual version/deployment/verification. Any recovery requires its own exact authorization; never delete financial history.
+
+## Narrow AGENT_RULES amendment
+
+Amend only the carrier-matching clause in the existing commission-preview invariant, and reference its server parity:
+
+"Commission carrier identity uses the existing trimmed, case-insensitive exact comparison, with only Instabrain, Fidelity and Fidelity Life treated as Fidelity Life in candidateProducts and private.policy_commission_evaluate. Fidelity & Guaranty remains distinct. Final Expense continues to list only that carrier's whole-life candidates; actual product selection is explicit. Aliases do not rewrite stored policies, financial history or sale-time captures."
+
+Preserve the surrounding owner/permission/eligibility language and all unrelated rules.
+
+## Context snapshot
+
+- Changes: preparation plan only; production remains unchanged.
+- Decisions: exact three-name alias; one existing Settings row renamed in place; separate branch from main; #486 remains independent; no automatic product.
+- Migrations/deployments: none executed. New comparison-only migration and one-row operational action are proposed.
+- Verification: source/live function and metadata inspected; Settings uniqueness and affected-policy counts checked; selected-grid ambiguity confirmed; Vercel baseline READY; advisors inspected. Implementation/native/CI acceptance is pending.
+- Blockers: implementation approval now; exact backend/release approvals later; actual product confirmation and one-policy writer approval before record-later.
+- Next action: approve the implementation plan. Product confirmation may be supplied while implementation proceeds.
+
+
+
+---
+
 ## Premium fixture scope amendment — before edits
 
 Update existing successful-submission fixtures to supply the newly required premium; preserve all carrier, retry, date, pending-save and appointment-link assertions. Add explicit blank/zero refusal cases.

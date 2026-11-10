@@ -6,6 +6,9 @@ on:
       - 'supabase/migrations/rollback/*_policy_sale_call_link*.rollback.sql'
       - 'supabase/tests/policy_sale_call_links.sql'
       - 'scripts/tests/sale-call-link-failure-boundaries.mjs'
+      - 'supabase/migrations/pending/policy_commission_fidelity_alias.sql'
+      - 'supabase/ops/policy_commission_fidelity_alias_rollback.sql'
+      - 'supabase/ops/rename_home_agency_fidelity_carrier.sql'
       - 'supabase/migrations/*_policy_commission_tracking.sql'
       - 'supabase/migrations/rollback/*_policy_commission_tracking.rollback.sql'
       - 'supabase/migrations/*_policy_commission_expected_windows.sql'
@@ -93,11 +96,27 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.16.0'
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Required TypeScript and exact-base application diagnostics
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          npx tsc --noEmit
+          git worktree add --detach "$RUNNER_TEMP/fidelity-type-base" "$BASE_SHA"
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$RUNNER_TEMP/fidelity-type-base/node_modules"
+          set +e
+          (cd "$RUNNER_TEMP/fidelity-type-base" && npx tsc -p tsconfig.app.json --noEmit) > "$RUNNER_TEMP/base-types" 2>&1
+          base_status=$?
+          npx tsc -p tsconfig.app.json --noEmit > "$RUNNER_TEMP/head-types" 2>&1
+          head_status=$?
+          set -e
+          test "$base_status" = "$head_status"
+          diff -u "$RUNNER_TEMP/base-types" "$RUNNER_TEMP/head-types"
       - name: Commission, commissions center, sale submission, contact and dialer handoff tests (synthetic data)
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321
@@ -105,7 +124,7 @@ jobs:
         run: >-
           npx vitest run src/lib/commission src/components/commission src/lib/__tests__/policySaleOutcome.test.ts
           src/lib/__tests__/saleHandoffApis.test.ts src/hooks/__tests__/usePolicySaleSubmission.test.tsx
-          src/hooks/__tests__/useClientPolicyCommissions.test.tsx src/components/contacts src/pages/__tests__/contactsClientSaleHandoff.test.tsx
+          src/hooks/__tests__/usePolicyCommissionPreview.test.tsx src/hooks/__tests__/useClientPolicyCommissions.test.tsx src/components/contacts src/pages/__tests__/contactsClientSaleHandoff.test.tsx
           src/lib/__tests__/normalizedPolicy.test.ts src/components/commissions src/pages/__tests__/commissionsPage.test.tsx
           src/pages/__tests__/commissionsHideAmounts.test.tsx
           src/hooks/__tests__/useCommissionsCenter.test.tsx src/components/layout/__tests__/viewAsSidebarNav.test.tsx

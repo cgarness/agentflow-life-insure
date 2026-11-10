@@ -42,8 +42,11 @@ export function policyTypeCategories(policyType: string): readonly CompCategory[
   return POLICY_TYPE_CATEGORIES.get(policyType) ?? [];
 }
 
-/** Exact carrier identity: surrounding spaces and letter case only. Never fuzzy, never another carrier. */
-const carrierKey = (carrier: string) => carrier.trim().toLowerCase();
+/** Exact identity with the approved Fidelity aliases; keep in sync with policy_commission_evaluate. */
+const carrierKey = (carrier: string) => {
+  const key = carrier.trim().toLowerCase();
+  return key === "instabrain" || key === "fidelity" || key === "fidelity life" ? "fidelity life" : key;
+};
 
 /** The selected grid's (active) products for this policy type and carrier, by name. Never auto-selected. */
 export function candidateProducts(context: ReadyCalculatorContext, policyType: string, carrier: string): CalculatorProduct[] {

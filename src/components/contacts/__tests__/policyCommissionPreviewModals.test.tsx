@@ -32,6 +32,7 @@ const h = vi.hoisted(() => ({
   context: null as unknown,
   rpcCalls: [] as Array<[string, unknown]>,
   readCalls: [] as string[],
+  carrierNames: ["Synthetic Carrier North", "Synthetic Carrier South"],
   saleFailures: 0,
   saleGate: null as Promise<void> | null,
 }));
@@ -54,7 +55,7 @@ vi.mock("@/integrations/supabase/client", () => {
     builder.maybeSingle = async () => (h.readCalls.push(table), { data: rows[table]?.(filters) ?? null, error: null });
     builder.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
       h.readCalls.push(table);
-      const data = table === "carriers" ? [{ name: "Synthetic Carrier North" }, { name: "Synthetic Carrier South" }] : [];
+      const data = table === "carriers" ? h.carrierNames.map((name) => ({ name })) : [];
       return Promise.resolve({ data, error: null }).then(resolve, reject);
     };
     return builder;
@@ -150,6 +151,7 @@ beforeEach(() => {
   Object.assign(h, { role: "Agent", impersonating: false, leadOwner: A, clientOwner: A, team: [], saleFailures: 0, saleGate: null, profilesById: null });
   h.perms = new Set([OWN]);
   h.profileRow = { id: B, first_name: "Synthetic", last_name: "B", email: "b@example.test", commission_level: "120" };
+  h.carrierNames = [NORTH, SOUTH];
   h.context = rawContext("100");
   h.rpcCalls = [];
   h.readCalls = [];
@@ -423,12 +425,19 @@ describe("AddClientModal", () => {
 });
 
 // ── RecordPolicyModal ────────────────────────────────────────────────────────────────────────────────
-async function openRecord(client?: QueryClient) {
+async function openRecord(client?: QueryClient, carrier = NORTH) {
   const onClose = vi.fn();
   const onSaved = vi.fn();
   mount(<RecordPolicyModal open clientId={CLIENT_ID} onClose={onClose} onSaved={onSaved} />, client);
   fireEvent.change(screen.getByLabelText("Policy type"), { target: { value: "Final Expense" } });
-  await pickCarrier(NORTH);
+  if (carrier === "Fidelity") {
+    const trigger = screen.getByRole("combobox", { name: "Carrier" });
+    await waitFor(() => expect(trigger).toBeEnabled());
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("option", { name: "Fidelity" }));
+  } else {
+    await pickCarrier(carrier);
+  }
   fireEvent.change(screen.getByLabelText("Monthly premium"), { target: { value: "100" } });
   fireEvent.change(screen.getByLabelText("Sold Date"), { target: { value: "2026-10-03" } });
   return { onClose, onSaved, submit: () => fireEvent.click(screen.getByRole("button", { name: "Record Policy" })) };
@@ -523,5 +532,66 @@ describe("View As", () => {
     expect(regions()).toHaveLength(0);
     expect(h.rpcCalls.map(([n]) => n)).not.toContain("get_commission_calculator_context");
     expect(h.readCalls.filter((t) => t !== "carriers")).toEqual([]);
+  });
+});
+
+// Real carrier labels are the alias contract only; products, rates and customer data remain synthetic.
+describe("Fidelity aliases in sale modals", () => {
+  function aliasGrid() {
+    h.carrierNames = ["Instabrain", "Fidelity", "Fidelity Life"];
+    const context = rawContext("100");
+    context.products = context.products.map((p) => ({ ...p, carrier: "Fidelity Life" }));
+    h.context = context;
+  }
+
+  it.each(["Instabrain", "Fidelity", "Fidelity Life"])("captures selected conversion product for %s and freezes retries", async (carrier) => {
+    aliasGrid();
+    const view = openConvert();
+    await fillPolicy(0, "Final Expense", "100", carrier);
+    await waitFor(() => expect(regions()).toHaveLength(1));
+    expect((within(regions()[0]).getByLabelText("Product") as HTMLSelectElement).value).toBe("");
+    choose(regions()[0], "Product", IDS.finalPlan);
+    expect(lines(regions()[0])).toHaveLength(2);
+    h.saleFailures = 1;
+    convert();
+    await screen.findByText(/Connection lost/);
+    convert();
+    await waitFor(() => expect(view.onSuccess).toHaveBeenCalledTimes(1));
+    const [first, retry] = salesTo("convert_lead_to_client_with_sales_handoff");
+    expect(retry).toEqual(first);
+    expect(first).toMatchObject({ p_client: { carrier }, p_commission: { slots: [{
+      product_id: IDS.finalPlan, credited_agent_id: A, insured_age: 60, monthly_premium: "100",
+      first_year_cents: 85800, advance_cents: 64350,
+    }] } });
+  });
+
+  it("saves an unselected conversion with no fabricated commission slot", async () => {
+    aliasGrid();
+    const view = openConvert();
+    await fillPolicy(0, "Final Expense", "100", "Fidelity");
+    await waitFor(() => expect(regions()).toHaveLength(1));
+    convert();
+    await waitFor(() => expect(view.onSuccess).toHaveBeenCalledTimes(1));
+    expect(commissionSlots("convert_lead_to_client_with_sales_handoff")).toEqual([0]);
+  });
+
+  it.each(["Instabrain", "Fidelity", "Fidelity Life"])("records the selected product for %s without changing the retry", async (carrier) => {
+    aliasGrid();
+    const view = await openRecord(undefined, carrier);
+    await waitFor(() => expect(regions()).toHaveLength(1));
+    expect((within(regions()[0]).getByLabelText("Product") as HTMLSelectElement).value).toBe("");
+    choose(regions()[0], "Product", IDS.finalPlan);
+    choose(regions()[0], "Insured age", "60");
+    h.saleFailures = 1;
+    view.submit();
+    await screen.findByText(/Connection lost/);
+    view.submit();
+    await waitFor(() => expect(view.onSaved).toHaveBeenCalledTimes(1));
+    const [first, retry] = salesTo("record_client_policy_handoff");
+    expect(retry).toEqual(first);
+    expect(first).toMatchObject({ p_policy: { carrier }, p_commission: { slots: [{
+      product_id: IDS.finalPlan, credited_agent_id: A, insured_age: 60, monthly_premium: "100",
+      first_year_cents: 85800, advance_cents: 64350,
+    }] } });
   });
 });
