@@ -1,3 +1,13 @@
+## November 10, 2026 Pacific — Reports cleanup released
+
+Chris approved database application and frontend release. Exact reviewed migration SHA-256 f3616e0d341e3e88c91df8df0f4971c9995d1b74e0b47f1cf92ccbb03e443462 applied through Supabase migrations as version 20261110191037 (name reports_initiated_attempts_and_required_premium); 377 history rows, Reports contract 3.4.0. The prepared source remains at supabase/migrations/pending/20261109062059_reports_initiated_attempts_and_required_premium.sql as immutable reviewed evidence, not an unapplied action. Do not replay it. Matching full readback a86162bbaf247f70e285e3dd5a8d07e528f44d8aa46cc791e478c6cbbcdd7b91 passed, including closure, ACLs, scoped readers, consistency and premium guard. Security advisors found no new findings; existing advisor items remain outside this release. Performance advisors also inspected.
+
+PR #522 merged as 1b3ab9f6a6e50ff22343fb0785aa2cc02bc9672d, identical tree to tested d1cbbeb. All eight workflows passed, 517 browser checks, 6,946 passing frontend tests with no new baseline failures, and zero fixture/scale/bounded differential mismatches. Both production deployments READY: agentflow dpl_D4GY6ywZVvSD9jfgPKivTkbkTPJt; agentflow-life-insure dpl_4ghqNuE9bqXo7fqpx5FkAoqYgCRb. Production /reports returned HTTP 200 on both aliases. No production synthetic writes, prospect calls, historical corrections, RLS changes or dialer transport changes. No authenticated live-user UI session was exercised; UI acceptance is the isolated 517-check run plus production asset verification.
+
+Calls is the display label, valid initiated attempts are included, Partial badges are removed, and new canonical policy sales require positive finite premiums. Known appointment outcome denominators and usable historical calculations remain intact. Closeout files: WORK_LOG.md, AGENT_RULES.md, implementation_plan.md, docs/plans/2026-11-09-reports-cleanup/release.md. No remaining feature or release blocker. Rollback is prepared but not authorized or executed.
+
+---
+
 ## November 8, 2026 Pacific — Cleanup loading-label regression corrected
 
 Hosted full frontend comparison 42575783277 found one new failing suite: reportsPage.test.tsx still expected the old accessible loading label Calls made. Updated that expectation to Calls; the failure/loading-not-zero assertion remains intact. Native hosted browser/database job 129023163782 passed all 517 browser checks at 913ec3f, matching the independent local run. No application, migration or production change in this correction. Full comparison rerun required.

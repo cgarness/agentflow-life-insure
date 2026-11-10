@@ -9167,3 +9167,6 @@ Before editing: `scripts/tests/reports-visual/verify.mjs`, `scripts/tests/report
 
 ### Cleanup Reports page test label amendment
 Before editing: `src/pages/__tests__/reportsPage.test.tsx`. The full baseline comparison found one stale loading-state accessible-name expectation, Calls made: loading. Update it to Calls: loading, preserving the assertion that failed/loading data is never shown as zero. No application behavior change.
+
+### November 10, 2026 Pacific — approved production release closeout
+Chris approved the exact database update and subsequent frontend release. Before editing, closeout files: WORK_LOG.md, AGENT_RULES.md, docs/plans/2026-11-09-reports-cleanup/release.md, and this implementation_plan.md. Documentation only; preserve reviewed SQL and all application bytes. Supabase applied the reviewed content as generated history version 20261110191037; do not replay the pending source filename as a second migration.
