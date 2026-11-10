@@ -1,3 +1,13 @@
+## November 10, 2026 Pacific — Fidelity existing-policy estimate completed
+
+Chris confirmed the actual whole-life product and authorized continuing the one-policy correction. After secure sign-in, the existing Record commission estimate dialog was used under Chris's authenticated admin account, with the original credited seller and sale premium snapshot. The displayed estimate matched the read-only evaluator check before the single submit. No service-role bypass, invented JWT actor, direct financial-table insert or sale writer was used.
+
+The UI shows the saved estimate. Private database readback verified exactly one active recorded_later estimate, one original sale, zero sale-time captures, four correct installments, zero receipts and one estimate_recorded event carrying the app-generated stable request ID. Seller, product, age/term, grid/revision, contract level, rate, premium source and amounts exactly match the reviewed inputs. The save was confirmed, so no unnecessary production retry was sent; identical-request retry protection was already proven by the isolated native suite. No immutable history or historical carrier string was rewritten.
+
+Files: WORK_LOG.md and implementation_plan.md only, as release closeout. No application, migration, workflow, rate or permission change. Customer identifiers, private product/rate values, premium, amounts and the private request manifest are excluded from Git and PR text. The released alias migration and Settings rename remain as previously verified. No remaining blocker or next implementation step for this task.
+
+---
+
 ## November 10, 2026 Pacific — Fidelity carrier alias fix released
 
 Chris explicitly approved the reviewed production migration, PR #524 release and one-row Settings rename. Applied policy_commission_fidelity_alias as hosted version 20261110205228; source SHA-256 fd42cbf91f9f59585752bd09a663babeddf4b3bf1ee0f05e939394b8439627c5. Stored history SQL MD5 5258e4444daf5e0bead0d6b981a288d2 exactly matches the reviewed source. The file supabase/migrations/pending/policy_commission_fidelity_alias.sql is now immutable applied evidence, not an unapplied action; never replay it.
