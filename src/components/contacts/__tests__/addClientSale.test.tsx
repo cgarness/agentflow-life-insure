@@ -22,6 +22,7 @@ async function setup(save:ReturnType<typeof vi.fn>){
  const fill=(label:string,value:string)=>fireEvent.change(screen.getByText(label).parentElement!.querySelector("input")!,{target:{value}});
  fill("First Name *","Pat");fill("Last Name *","Lee");fireEvent.change(screen.getByLabelText("Phone"),{target:{value:"5551234567"}});
  await pickCarrier("Test Carrier");
+ fill("Monthly Premium","100.00");
  return {close,page,submit:()=>fireEvent.submit(page.container.querySelector("form")!)};
 }
 describe("Add Client sale intent and retries",()=>{

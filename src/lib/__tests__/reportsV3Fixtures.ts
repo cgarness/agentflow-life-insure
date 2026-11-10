@@ -144,7 +144,7 @@ function emptyMetric(m: KpiEnvelope) {
     : { value: 0, status: "available", reason: null, coverage: null, numerator: m.numerator === null ? null : 0 });
 }
 
-// ---- A small, contract-valid v3 bundle for unit tests (no SQL payload file needed). Numbers reconcile: Calls made
+// ---- A small, contract-valid v3 bundle for unit tests (no SQL payload file needed). Numbers reconcile: Calls
 // is 200 on every surface; AP $4,000.50 over 4 policies (average rounds once to $1,000.13). ----
 export const T_ORG = "10000000-0000-0000-0000-000000000001";
 export const T_SELF = "11000000-0000-0000-0000-0000000000b1";

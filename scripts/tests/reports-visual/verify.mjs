@@ -56,7 +56,8 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
     if (["complete", "missing-premiums", "in-progress", "empty"].includes(scenario)) {
       const tiles = await page.evaluate(() => [...document.querySelectorAll("[data-kpi-id]")].map(t => ({ id: t.getAttribute("data-kpi-id"), chips: t.querySelectorAll("button[aria-expanded]").length })));
       check(`${tag}: exactly 23 metrics`, tiles.length === 23 && new Set(tiles.map(t => t.id)).size === 23);
-      check(`${tag}: at most two chips per tile`, tiles.every(t => t.chips <= 2));
+      check(`${tag}: at most one maturity chip per tile`, tiles.every(t => t.chips <= 1));
+      check(`${tag}: no Partial badges`, (await page.getByRole("button", { name: "Partial", exact: true }).count()) === 0);
       const helpers = await page.evaluate(() => [...document.querySelectorAll("[data-report-helper]")].map(e => e.getAttribute("data-report-helper")));
       check(`${tag}: only the permitted helper lines`, helpers.every(h => h === "period-averages" || h === "regional-unmapped") && helpers.filter(h => h === "period-averages").length === 1);
       check(`${tag}: no % in Production`, !(await page.locator("[data-report-group='production']").innerText()).includes("%"));
@@ -84,6 +85,17 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
   summary.scenarios[scenario] = result;
 }
 
+// Maturity remains a distinct, keyboard-accessible state.
+{
+  const { context, page } = await open({ scenario: "in-progress" });
+  const chip = page.getByRole("button", { name: "In progress", exact: true }).first();
+  await chip.focus(); await page.keyboard.press("Enter");
+  check("maturity disclosure opens by keyboard", (await chip.getAttribute("aria-expanded")) === "true");
+  await page.keyboard.press("Escape");
+  check("maturity disclosure closes with Escape", (await chip.getAttribute("aria-expanded")) === "false");
+  await context.close();
+}
+
 // Scopes, keyboard, reduced motion, zoom and CSV on the complete scenario.
 {
   for (const scope of ["Team", "Personal"]) {
@@ -95,11 +107,13 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
     await context.close();
   }
   const { context, page } = await open({ scenario: "missing-premiums" });
-  const chip = page.locator("[data-kpi-id='1'] button[aria-expanded]").first();
-  await chip.focus(); await page.keyboard.press("Enter");
-  check("chip disclosure opens by keyboard", (await chip.getAttribute("aria-expanded")) === "true");
+  const basis = page.getByRole("button", { name: "How it's calculated", exact: true }).first();
+  await basis.focus(); await page.keyboard.press("Enter");
+  check("calculation disclosure opens by keyboard", await page.getByRole("dialog").isVisible());
+  check("excluded records remain explained", (await page.getByRole("dialog").innerText()).includes("Excluded records"));
   await page.keyboard.press("Escape");
-  check("chip disclosure closes with Escape", (await chip.getAttribute("aria-expanded")) === "false");
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  check("calculation disclosure closes with Escape", !(await page.getByRole("dialog").isVisible()));
   const state = page.locator("svg[aria-label='Map of states'] path[tabindex='0']");
   await state.focus(); const first = await state.getAttribute("aria-label"); await page.keyboard.press("ArrowRight");
   const next = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
@@ -108,7 +122,7 @@ for (const scenario of ["complete", "missing-premiums", "in-progress", "empty", 
   check("heatmap is one grid with one tab stop", (await cell.count()) === 1);
   await cell.focus(); await page.keyboard.press("ArrowRight"); await page.keyboard.press("Enter");
   check("heatmap arrows move and Enter pins a cell", (await page.locator("[role='gridcell'][aria-selected='true']").count()) === 1
-    && (await page.locator("[data-heatmap-status]").innerText()).includes("calls made"));
+    && (await page.locator("[data-heatmap-status]").innerText()).includes("calls"));
   const animating = await page.evaluate(() => document.getAnimations().filter(a => a.playState === "running").length);
   check("reduced motion: nothing animates", animating === 0, String(animating));
   const downloads = [];

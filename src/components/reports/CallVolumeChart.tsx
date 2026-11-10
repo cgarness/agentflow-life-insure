@@ -99,7 +99,7 @@ const CallVolumeChart: React.FC<Props> = ({ volume, grouping, onExport }) => {
     ? () =>
         onExport(
           "Call Volume",
-          ["Period", "Calls made", "Contacted", "Inbound", "Call contact rate (%)"],
+          ["Period", "Calls", "Contacted", "Inbound", "Call contact rate (%)"],
           series.map((b) => [periodCell(b.first, b.last), b.calls_made, b.contacted, b.inbound_calls, b.calls_made > 0 ? roundHalfUp(100 * b.contacted, b.calls_made, 1) : null]),
         )
     : undefined;

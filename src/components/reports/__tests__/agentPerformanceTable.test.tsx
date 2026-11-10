@@ -22,7 +22,7 @@ describe("Agent performance (v3 join)", () => {
     const rows = screen.getAllByRole("row").slice(1);
     expect(rows[0].textContent).toContain("Avery Self"); expect(rows[0].textContent).toContain("You");
     expect(rows[1].textContent).toContain("Blake Peer");
-    for (const h of ["Policies sold", "Annual premium (AP)", "Calls made", "Contacted calls", "Call contact rate", "Calls per policy", "Sales appointments per policy", "1 Call Close", "Total talk time"]) {
+    for (const h of ["Policies sold", "Annual premium (AP)", "Calls", "Contacted calls", "Call contact rate", "Calls per policy", "Sales appointments per policy", "1 Call Close", "Total talk time"]) {
       expect(screen.getByRole("columnheader", { name: h })).toBeTruthy();
     }
     expect(rows[0].textContent).toContain("$4,000.50");

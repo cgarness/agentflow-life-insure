@@ -17,7 +17,7 @@ interface TableProps {
   firstHeader: string;
   extraHeaders?: string[];
   rows: CallRow[];
-  /** Reconciliation rows (RL-4, RL-49): shown in the footer so Calls made adds up to KPI 5. */
+  /** Reconciliation rows (RL-4, RL-49): shown in the footer so Calls adds up to KPI 5. */
   footRows: CallRow[];
 }
 
@@ -30,7 +30,7 @@ export function CallBreakdownTable({ label, firstHeader, extraHeaders = [], rows
         <thead>
           <tr>
             <th scope="col" className={TH_FIRST}>{firstHeader}</th>
-            {[...extraHeaders, "Calls made", "Contacted calls", "Call contact rate"].map(h => (
+            {[...extraHeaders, "Calls", "Contacted calls", "Call contact rate"].map(h => (
               <th key={h} scope="col" className={TH}><span className={TH_LABEL}>{h}</span></th>
             ))}
           </tr>

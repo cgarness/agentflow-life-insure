@@ -45,6 +45,7 @@ describe("ConvertLeadModal closing appointment (D-A1)", () => {
     expect(field.value).toBe("not_recorded");
     fireEvent.change(field, { target: { value: APPT } });
     fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "Acme" } });
+    fireEvent.change(screen.getByPlaceholderText("125.00"), {target:{value:"100.00"}});
     fireEvent.click(screen.getByRole("button", { name: /convert/i }));
     await waitFor(() => expect(h.requestIds).toHaveLength(1));
     expect(hasClosingAppointmentSelection(h.requestIds[0])).toBe(true);

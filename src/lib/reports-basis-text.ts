@@ -23,7 +23,7 @@ export const PREMIUM_AVERAGE_NOTE = "The average divides by the number of polici
 export const ADDITIONAL_PREMIUM_NOTE = "An additional policy's premium comes only from that policy; a missing one is unknown and never borrows the primary premium.";
 export const ZERO_PREMIUM_NOTE = "A $0 primary premium counts as a known zero only when the sale recorded an explicit $0; otherwise it is unknown.";
 
-export const CALLS_DATE_NOTE = "Calls made, contacted calls and talk time count outbound calls by the date each call was created.";
+export const CALLS_DATE_NOTE = "Calls, contacted calls and talk time count outbound calls by the date each call was created.";
 export const CONTACTED_RULE_NOTE = "An outbound call is contacted when its stored duration is more than 45 seconds or its disposition counts as contacted; a No Answer disposition never counts.";
 export const CALL_CONTACT_RATE_NOTE = "Call contact rate = contacted outbound calls ÷ outbound calls; with no outbound calls it shows —.";
 export const INBOUND_NOTE = "Inbound calls are shown separately and are not in calls made, talk time or the call contact rate.";
@@ -78,7 +78,7 @@ export const PERIOD_TOTALS_NOTE = "These are independent period totals, not one 
 export const TALK_TIME_NOTE = "Talk time is the stored duration of outbound calls; a missing duration counts as 0 seconds and is listed as unknown.";
 export const SESSION_TIME_NOTE = "Dialer session time comes from the Dialer's session records (start, heartbeat and end), clipped to the period. An agent's overlapping sessions count once.";
 export const SESSION_END_NOTE = "A session counts until its recorded end, even when that end was recorded long after the last heartbeat. A session still marked active stops at its last heartbeat once no heartbeat has arrived for 3 minutes; a live session counts up to the as-of time.";
-export const SESSION_RATE_NOTE = "Calls per session hour and talk time share of session use only session-matched calls: outbound calls by the same agent on the same campaign during a session. They divide by all of that agent's session time. Other calls stay in Calls made.";
+export const SESSION_RATE_NOTE = "Calls per session hour and talk time share of session use only session-matched calls: outbound calls by the same agent on the same campaign during a session. They divide by all of that agent's session time. Other calls stay in Calls.";
 
 export const CAMPAIGN_COUNTS_NOTE = "Campaign performance counts outbound calls; its converted leads are unique campaign leads given a converting disposition.";
 export const ATTRIBUTION_UNAVAILABLE_NOTE = "Attribution unavailable covers calls with no visible campaign and policies without one unambiguous, visible campaign lineage.";

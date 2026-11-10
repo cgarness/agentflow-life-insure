@@ -9,7 +9,7 @@ export const SMALL_STATE_CODES = ["VT", "NH", "MA", "RI", "CT", "NJ", "DE", "MD"
 export const REGIONAL_MODES = ["calls_made", "contacted_calls", "policies_sold", "ap"] as const;
 export type RegionalMode = (typeof REGIONAL_MODES)[number];
 export const REGIONAL_MODE_LABELS: Record<RegionalMode, string> = {
-  calls_made: "Calls made", contacted_calls: "Contacted calls", policies_sold: "Policies sold", ap: "AP",
+  calls_made: "Calls", contacted_calls: "Contacted calls", policies_sold: "Policies sold", ap: "AP",
 };
 export type StateRow = ReportStateBreakdownV3["jurisdictions"][number];
 export const stateName = (code: string) => STATE_ABBR_TO_NAME[code] ?? code;

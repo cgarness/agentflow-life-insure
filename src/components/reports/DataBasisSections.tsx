@@ -54,7 +54,7 @@ export default function DataBasisSections({ panels, timeZone, today }: DataBasis
   const coverage = KPI_REGISTRY.flatMap(k => {
     const e = envelopeOf(panels, k.id);
     if (!e || (e.status === "available" && e.maturity?.state !== "in_progress")) return [];
-    return [{ id: k.id, label: k.label, status: e.status === "unavailable" ? "Not available" : e.status === "partial" ? "Partial" : "In progress", lines: disclosureLines(k, e) }];
+    return [{ id: k.id, label: k.label, status: e.status === "unavailable" ? "Not available" : e.status === "partial" ? "Excluded records" : "In progress", lines: disclosureLines(k, e) }];
   });
   const notCurrent = (["summary", "journey", "salesAppointments"] as PanelKey[]).filter(k => panels[k].status !== "ready");
   return (

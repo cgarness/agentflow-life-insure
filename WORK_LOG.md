@@ -1,3 +1,41 @@
+## November 8, 2026 Pacific — Cleanup loading-label regression corrected
+
+Hosted full frontend comparison 42575783277 found one new failing suite: reportsPage.test.tsx still expected the old accessible loading label Calls made. Updated that expectation to Calls; the failure/loading-not-zero assertion remains intact. Native hosted browser/database job 129023163782 passed all 517 browser checks at 913ec3f, matching the independent local run. No application, migration or production change in this correction. Full comparison rerun required.
+
+---
+
+## November 8, 2026 Pacific — Cleanup disclosure browser timing
+
+Local desktop/mobile inspection confirms Calls, no Partial badges and no overflow. The new calculation-sheet keyboard test initially checked visibility during Radix's exit animation; it now waits for the dialog to become hidden after Escape before asserting closure. The product behavior is unchanged. At 9be51d7, cleanup native, reporting integrity, dialer DNC, policy/commission, SMS and UV workflows pass; both Vercel previews built successfully. Full Reports verification must finish on the final browser-test commit. No production mutation.
+
+---
+
+## November 8, 2026 Pacific — Cleanup database acceptance passed
+
+At hosted head 05964e2, isolated PostgreSQL 17.6 workflow 42574839515 passed the complete 3.4.0 migration, classifier cases, required-premium trigger, pinned enable/readback, exact rollback and original 3.3.0 enable/readback. Separate canonical-writer database passed create, update-first-policy, additional policy and conversion refusals/successes/retries with exactly four new events. No production access used.
+
+The original browser gate waited for the intentionally removed Partial chip and timed out. Updated its declared scenario to verify no Partial badges, keyboard-accessible How it's calculated with excluded-record details, unchanged maturity-chip keyboard behavior, and simplified Calls heatmap text. Final hosted frontend/browser checks pending. No merge, production SQL or deployment.
+
+---
+
+## November 8, 2026 Pacific — Reports cleanup release preparation (draft PR #522)
+
+Initial hosted native PostgreSQL apply/classifier/premium test passed (run 42573399350, head b07c183). Hosted form checks exposed old fixtures that omitted newly required premiums; fixed fixtures preserve carrier-selection, retry and appointment assertions and add invalid-premium refusal cases. All 35 affected form tests pass; root TypeScript and whitespace checks pass.
+
+Prepared contract 3.4.0 marker, exact 97-function enable/readback pins, guarded rollback restoring 3.3.0, and dedicated release notes. New isolated checks exercise admitted/refused/not-sent/unconfirmed/repeated call classifications and all four canonical policy writers with retries. Full release/rollback and writer checks are pending hosted verification. Existing original A–D packages stay immutable. Files listed before editing in implementation_plan.md; no production mutation, merge or deployment.
+
+---
+
+## November 8, 2026 Pacific — Reports cleanup implementation (local, NOT RELEASED)
+
+Chris approved Calls as the simplified label and proceeding with eligible-record reporting and premium validation. Base 40e2a962; separate branch fix/reports-eligible-records-20261109. Exact scope recorded in implementation_plan.md before edits. Report tiles/charts no longer repeat Partial; excluded-record details remain in How it's calculated and raw backend evidence remains intact. Usable appointment denominators and older-record exclusions are preserved. Record Policy, conversion rows and explicit client-sale forms require a positive valid premium; ordinary contacts and calculator drafts remain supported.
+
+Pending migration 20261109062059 uses exact live preimage guards to revise only the two v3 call/journey classifiers: include recorded attempts with an attempt ID, retain admitted and valid legacy attempts, exclude explicit refusals and not-sent records. Adds a private BEFORE INSERT premium guard on canonical policy wins; no historical writes. Not applied. No dialer, Twilio, RLS, customer correction or Dashboard/Leaderboard definition change. New isolated PostgreSQL 17.6 workflow exercises pending SQL against synthetic fixtures. Release/recovery closure pins and production deployment remain pending; do not ship frontend basis copy before the matching backend.
+
+Local verification: root npx tsc --noEmit passes; 452 focused tests pass, two existing skips across 31 files. Initial failures were the approved display-label override and the generated migration entering the frozen A–D order test; migration moved to pending, historic ordering assertion retained. Native execution not yet complete. Complete diff/file inventory in the implementation plan. No production mutation or deployment.
+
+---
+
 # AgentFlow Work Log
 
 ## November 8, 2026 Pacific — PR #521 hosted whitespace correction

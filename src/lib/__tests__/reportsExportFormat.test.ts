@@ -31,7 +31,7 @@ describe("CSV export", () => {
     const csv = buildReportCsv(
       { report: "Report Summary", scope: "organization", agentLabel: "All agents", window: reportWindow({ time_zone: "America/Chicago" }) },
       ["Metric", "Value"],
-      [["Calls made (outbound)", 19]],
+      [["Calls (outbound)", 19]],
     );
     expect(csv).toContain(`"Scope","Organization"`);
     expect(csv).toContain(`"Agent filter","All agents"`);

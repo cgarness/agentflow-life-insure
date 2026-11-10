@@ -60,7 +60,7 @@ const HeatmapGrid: React.FC<Props> = ({ rows, hours, metric, maxCalls, maxRate }
   return (
     <TooltipProvider>
       <ReportTableFrame label="Calling heatmap table" focus="grid"
-        caption={metric === "calls" ? "Calls made by day and agency hour" : "Call contact rate by day and agency hour"}
+        caption={metric === "calls" ? "Calls by day and agency hour" : "Call contact rate by day and agency hour"}
         tableClassName={cn("table-fixed border-spacing-[3px]", hours.length > 16 ? "min-w-[760px]" : "min-w-[520px]")}>
         <thead>
           <tr>
@@ -93,7 +93,7 @@ const HeatmapGrid: React.FC<Props> = ({ rows, hours, metric, maxCalls, maxRate }
                     <TooltipContent side="top" className="border-border bg-card text-xs text-foreground motion-reduce:animate-none motion-reduce:data-[state=closed]:animate-none">
                       <p className="font-semibold">{row.day} {hourName(cell.hour)}</p>
                       <div className="mt-1 space-y-0.5 text-muted-foreground">
-                        <p>Calls made: <span className="text-foreground tabular-nums">{formatCount(cell.calls)}</span></p>
+                        <p>Calls: <span className="text-foreground tabular-nums">{formatCount(cell.calls)}</span></p>
                         <p>Contacted: <span className="text-foreground tabular-nums">{formatCount(cell.contacted)}</span></p>
                         <p>Call contact rate: <span className="text-foreground tabular-nums">{formatRate(cell.rate === null ? null : cell.rate * 100)}</span></p>
                       </div>

@@ -14,7 +14,7 @@ const CampaignPerformance: React.FC<Props> = ({ campaigns, onExport }) => {
     { ...campaigns.calls_without_campaign, key: "without", label: "Calls without a campaign", extra: [null] },
     { ...campaigns.other_campaigns, key: "other", label: "Other campaigns", extra: [null] },
   ];
-  const handleExport = onExport && (() => onExport("Campaign performance", ["Campaign", "Type", "Calls made", "Contacted calls", "Call contact rate %"],
+  const handleExport = onExport && (() => onExport("Campaign performance", ["Campaign", "Type", "Calls", "Contacted calls", "Call contact rate %"],
     [...rows, ...foot].map(r => [r.label, (r.extra?.[0] as string | null) ?? null, r.calls_made, r.contacted_calls, callRate(r) || null])));
   return (
     <ReportSection title="Campaign performance" onExport={handleExport}>

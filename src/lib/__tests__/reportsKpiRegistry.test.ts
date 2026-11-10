@@ -7,8 +7,8 @@ const foundation = readFileSync("supabase/migrations/20261105120010_reports_v3_f
 const sqlRegistry = JSON.parse(foundation.match(/\$registry\$([\s\S]*?)\$registry\$/)![1]);
 
 describe("KPI registry", () => {
-  it("equals private.report_v3_metric_registry() field for field", () => {
-    expect(KPI_REGISTRY.map(sqlFields)).toEqual(sqlRegistry);
+  it("matches the SQL registry with the approved Calls display label", () => {
+    expect(KPI_REGISTRY.map(sqlFields)).toEqual(sqlRegistry.map((k: { id: number; label: string }) => k.id === 5 ? { ...k, label: "Calls" } : k));
   });
   it("holds exactly the 23 selected KPIs", () => {
     expect(KPI_REGISTRY.map(k => k.id)).toEqual([...REPORT_V3_KPI_IDS]);
