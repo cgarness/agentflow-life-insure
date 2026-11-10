@@ -562,4 +562,84 @@ SELECT test_assert((SELECT count(*) FROM wins WHERE idempotency_key = 'policy:' 
 SQL
 echo 'PASS producing-call capture rollback (L11): disabled capture, sales unaffected, links kept'
 
+
+# Fidelity aliases: additive comparison-only migration; all earlier migration suites remain unchanged.
+FIDELITY="$ROOT/supabase/migrations/pending/policy_commission_fidelity_alias.sql"
+FIDELITY_ROLLBACK="$ROOT/supabase/ops/policy_commission_fidelity_alias_rollback.sql"
+insights_db fidelity_guards
+commission_inventory > "$TEMP/fidelity.before"
+sql -c "ALTER FUNCTION private.policy_commission_evaluate(jsonb,jsonb,jsonb,jsonb,text) COST 101" >/dev/null
+expect_fail 'preimage or security metadata drift' "$FIDELITY"
+sql -c "ALTER FUNCTION private.policy_commission_evaluate(jsonb,jsonb,jsonb,jsonb,text) COST 100" >/dev/null
+sql -1 -f "$FIDELITY" >/dev/null
+commission_inventory > "$TEMP/fidelity.after"
+# Exactly one function body changes. Every other function/relation/ACL/constraint stays byte-identical.
+sed 's/f1e6cbc2e17d2ca2c2b8652ce8a5e6d1/74e05e9bcab074d959c9ed6896bf0f20/' "$TEMP/fidelity.before" > "$TEMP/fidelity.expected"
+diff -u "$TEMP/fidelity.expected" "$TEMP/fidelity.after"
+expect_fail 'preimage or security metadata drift' "$FIDELITY"
+sql -c "ALTER FUNCTION private.policy_commission_evaluate(jsonb,jsonb,jsonb,jsonb,text) COST 101" >/dev/null
+expect_fail 'preimage or security metadata drift' "$FIDELITY_ROLLBACK"
+sql -c "ALTER FUNCTION private.policy_commission_evaluate(jsonb,jsonb,jsonb,jsonb,text) COST 100" >/dev/null
+run_suite "$ROOT/supabase/tests/policy_commission_fidelity_alias.sql"
+# Recovery never removes financial history; reapply is tested only after exact recovery.
+sql -tAX -c "SELECT md5(jsonb_build_array((SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM policy_commission_estimates x),
+ (SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM policy_commission_captures x),
+ (SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM wins x))::text)" > "$TEMP/fidelity.rows.before"
+sql -1 -f "$FIDELITY_ROLLBACK" >/dev/null
+sql -tAX -c "SELECT md5(jsonb_build_array((SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM policy_commission_estimates x),
+ (SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM policy_commission_captures x),
+ (SELECT jsonb_agg(to_jsonb(x) ORDER BY id) FROM wins x))::text)" > "$TEMP/fidelity.rows.after"
+diff -u "$TEMP/fidelity.rows.before" "$TEMP/fidelity.rows.after"
+expect_fail 'preimage or security metadata drift' "$FIDELITY_ROLLBACK"
+sql -1 -f "$FIDELITY" >/dev/null
+for suite in security handoff tracking; do
+  new_db "fidelity_existing_$suite" applied
+  sql -1 -f "$FIDELITY" >/dev/null
+  run_suite "$ROOT/supabase/tests/policy_commission_$suite.sql"
+done
+echo 'PASS Fidelity preimage/replay/metadata/recovery guards and existing security/handoff/tracking suites'
+
+# The exact operational script is rehearsed with synthetic Settings fields, never production contacts.
+new_db fidelity_settings
+sql >/dev/null <<'SQL'
+CREATE TABLE public.carriers(id uuid PRIMARY KEY, organization_id uuid, name text, portal_url text, is_appointed boolean,
+  logo_url text, contact_phones jsonb, contact_emails jsonb, created_at timestamptz, updated_at timestamptz);
+INSERT INTO carriers VALUES('fad9151b-849b-46dc-b34d-d7e17670abbb','a0000000-0000-0000-0000-000000000001','Instabrain',
+  'https://example.test',true,NULL,'["5555550100"]','["synthetic@example.test"]','2026-01-01','2026-01-01');
+CREATE FUNCTION public.pc_alias_touch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.updated_at:=clock_timestamp(); RETURN NEW; END $$;
+CREATE TRIGGER carriers_updated_at BEFORE UPDATE ON public.carriers FOR EACH ROW EXECUTE FUNCTION public.pc_alias_touch();
+SQL
+FINGERPRINT=$(sql -tAX -c "SELECT md5((to_jsonb(c)-'name'-'updated_at')::text) FROM carriers c")
+sed "s/3d6783e15df06b815d1b2823dc1345bb/$FINGERPRINT/" "$ROOT/supabase/ops/rename_home_agency_fidelity_carrier.sql" > "$TEMP/rename.sql"
+expect_fail 'fidelity_action must be explicitly approved' "$TEMP/rename.sql"
+sql -v fidelity_action=rename -f "$TEMP/rename.sql" >/dev/null
+sql -v fidelity_action=rename -f "$TEMP/rename.sql" >/dev/null
+sql -c "SELECT test_assert((SELECT count(*)=1 AND min(name)='Fidelity' AND min(updated_at)>'2026-01-01' FROM carriers),'rename in place and timestamp')" >/dev/null
+sql -v fidelity_action=restore -f "$TEMP/rename.sql" >/dev/null
+sql -v fidelity_action=restore -f "$TEMP/rename.sql" >/dev/null
+for scenario in missing wrong_org wrong_id stale collision unexpected; do
+  case "$scenario" in
+    missing) sql -c 'ALTER TABLE carriers RENAME TO alias_saved; CREATE TABLE carriers (LIKE alias_saved INCLUDING ALL)' >/dev/null ;;
+    wrong_org) sql -c "UPDATE carriers SET organization_id=test_id(2)" >/dev/null ;;
+    wrong_id) sql -c "UPDATE carriers SET id=test_id(9988)" >/dev/null ;;
+    stale) sql -c "UPDATE carriers SET is_appointed=false" >/dev/null ;;
+    collision) sql -c "INSERT INTO carriers SELECT test_id(9988),organization_id,'Fidelity Life',portal_url,is_appointed,logo_url,contact_phones,contact_emails,created_at,updated_at FROM carriers" >/dev/null ;;
+    unexpected) sql -c "UPDATE carriers SET name='Unexpected'" >/dev/null ;;
+  esac
+  if sql -v fidelity_action=rename -f "$TEMP/rename.sql" > "$TEMP/rename.refusal" 2>&1; then
+    echo "FAIL: Settings $scenario unexpectedly accepted"; exit 1
+  fi
+  grep -Eq 'target or preserved fields changed|alias collision' "$TEMP/rename.refusal"
+  case "$scenario" in
+    missing) sql -c 'DROP TABLE carriers; ALTER TABLE alias_saved RENAME TO carriers' >/dev/null ;;
+    wrong_org) sql -c "UPDATE carriers SET organization_id='a0000000-0000-0000-0000-000000000001'" >/dev/null ;;
+    wrong_id) sql -c "UPDATE carriers SET id='fad9151b-849b-46dc-b34d-d7e17670abbb'" >/dev/null ;;
+    stale) sql -c "UPDATE carriers SET is_appointed=true" >/dev/null ;;
+    collision) sql -c 'DELETE FROM carriers WHERE id=test_id(9988)' >/dev/null ;;
+    unexpected) sql -c "UPDATE carriers SET name='Instabrain'" >/dev/null ;;
+  esac
+done
+sql -v fidelity_action=rename -f "$TEMP/rename.sql" >/dev/null
+echo 'PASS Fidelity one-row Settings rename, no-op, collision/drift refusals and recovery'
+
 echo 'PASS policy commission tracking database proofs'

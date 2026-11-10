@@ -110,6 +110,24 @@ describe("Final Expense product choice (decision P2)", () => {
     expect(within(panel()!).getByText("Choose a product.")).toBeTruthy();
   });
 
+  it.each(["Instabrain", "Fidelity", "Fidelity Life"])("requires an explicit product and eligible age for %s", (carrier) => {
+    const context = syntheticContext("100");
+    context.products = context.products.map((p) => ({ ...p, carrier: "Fidelity Life" }));
+    h.preview = ready({ context });
+    const view = setup({ carrier });
+    expect(productSelect().value).toBe("");
+    expect(figures()).toBeNull();
+    fireEvent.change(productSelect(), { target: { value: IDS.finalPlan } });
+    expect(figures()).toBeNull();
+    fireEvent.change(ageInput(), { target: { value: "60" } });
+    expect(figures()).toEqual(["Estimated first-year commission: $858.00", "Estimated advance (75%): $643.50"]);
+    fireEvent.change(ageInput(), { target: { value: "90" } });
+    expect(figures()).toBeNull();
+    view.rerender({ carrier: "Fidelity & Guaranty" });
+    expect(screen.queryByLabelText("Product")).toBeNull();
+    expect(figures()).toBeNull();
+  });
+
   it("shows the two compact estimate lines once the exact product and age are entered", () => {
     setup();
     fireEvent.change(productSelect(), { target: { value: IDS.finalPlan } });

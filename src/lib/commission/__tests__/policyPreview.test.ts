@@ -60,6 +60,33 @@ describe("candidate products", () => {
     expect(names("Unknown", NORTH)).toEqual([]);
   });
 
+  it("normalizes exactly the three Fidelity identities on either side", () => {
+    const aliases = ["Instabrain", "Fidelity", "Fidelity Life"];
+    for (const gridCarrier of aliases) {
+      const aliased = { ...context, products: context.products.map((p) => ({ ...p, carrier: gridCarrier })) };
+      for (const policyCarrier of aliases) {
+        const carrier = ` \t${policyCarrier.toUpperCase()}\n `;
+        expect(candidateProducts(aliased, "Final Expense", carrier).map((p) => p.id))
+          .toEqual([IDS.finalPlan, IDS.zeroPlan]);
+        expect(candidateProducts(aliased, "Term", carrier).map((p) => p.category)).toEqual(["term", "term", "term"]);
+        expect(candidateProducts(aliased, "IUL", carrier).map((p) => p.id)).toEqual([IDS.juvenile]);
+        expect(candidateProducts(aliased, "Unknown", carrier)).toEqual([]);
+      }
+    }
+  });
+
+  it("never aliases unrelated Fidelity names, punctuation, internal spaces or partial names", () => {
+    const aliased = { ...context, products: context.products.map((p) => ({ ...p, carrier: "Fidelity Life" })) };
+    for (const carrier of ["Fidelity & Guaranty", "Fidelity & Guaranty Life", "Fidelity Life Extra", "My Fidelity",
+      "Fidelity  Life", "Fidelity-Life", "Fidelit", "Instabrain Life", "", "   ", "__proto__", "constructor"]) {
+      expect(candidateProducts(aliased, "Final Expense", carrier)).toEqual([]);
+      const unrelated = { ...context, products: context.products.map((p) => ({ ...p, carrier })) };
+      expect(candidateProducts(unrelated, "Final Expense", "Fidelity")).toEqual([]);
+    }
+    const other = { ...context, products: context.products.map((p) => ({ ...p, carrier: "Fidelity & Guaranty" })) };
+    expect(candidateProducts(other, "Final Expense", "  FIDELITY & GUARANTY ")).toHaveLength(2);
+  });
+
   it("reports a product's supported term lengths (empty when terms do not apply)", () => {
     expect(productTermLengths(context, IDS.levelTerm)).toEqual([10, 15, 20, 30]);
     expect(productTermLengths(context, IDS.finalPlan)).toEqual([]);
