@@ -63,6 +63,14 @@ try {
   };
   const atlas = () => page.getByRole('button', { name: 'Atlas Example Life', exact: true });
   const beacon = () => page.getByRole('button', { name: 'Beacon Example Life', exact: true });
+  const settleCard = async (trigger) => {
+    const contentId = await trigger.getAttribute('aria-controls');
+    assert.ok(contentId, 'Carrier button controls its content panel');
+    await page.locator(`[id="${contentId}"]`).evaluate(async (element) => {
+      await Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => {})));
+    });
+  };
+  const openCard = async (trigger) => { await trigger.click(); await settleCard(trigger); };
   const carrierReads = () => page.evaluate(() => window.carrierFixture.events.filter((event) => event.table === 'carriers' && event.operation === 'select').length);
   const noOverflow = async (label) => {
     const sizes = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth }));
@@ -72,6 +80,7 @@ try {
     }
   };
   const capture = async (name) => {
+    if (await page.getByRole('dialog').count() === 0) await page.evaluate(() => window.scrollTo(0, 0));
     await noOverflow(name);
     await page.screenshot({ path: path.join(screenshots, `${name}.png`), fullPage: true });
     captures.push(name);
@@ -83,16 +92,18 @@ try {
   assert.equal(await page.locator('button[aria-expanded="true"]').count(), 0, 'All cards begin closed');
   await atlas().focus();
   await page.keyboard.press('Enter');
+  await settleCard(atlas());
   assert.equal(await atlas().getAttribute('aria-expanded'), 'true');
   await page.keyboard.press('ArrowDown');
   assert.equal(await beacon().evaluate((element) => element === document.activeElement), true);
   await page.keyboard.press('Space');
+  await settleCard(beacon());
   assert.equal(await beacon().getAttribute('aria-expanded'), 'true');
   assert.equal(await atlas().getAttribute('aria-expanded'), 'false');
   assert.equal(await page.locator('button[aria-expanded="true"]').count(), 1);
   await page.keyboard.press('Space');
   assert.equal(await beacon().getAttribute('aria-expanded'), 'false');
-  await atlas().click();
+  await openCard(atlas());
   record('Native Enter/Space and Radix arrow navigation; exactly one card open');
 
   const quick = page.getByRole('region', { name: 'Quick links', exact: true });
@@ -118,6 +129,7 @@ try {
   const contentId = await atlas().getAttribute('aria-controls');
   assert.equal(await page.locator(`[id="${contentId}"]`).evaluate((element) => getComputedStyle(element).animationName), 'none');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await settleCard(atlas());
   for (const [size, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }], ['compact', { width: 320, height: 740 }]]) {
     await page.setViewportSize(viewport);
     for (const theme of ['light', 'dark']) {
@@ -135,7 +147,7 @@ try {
   await page.getByRole('searchbox', { name: 'Search carriers' }).fill('underwriting');
   await page.getByText('No carriers found', { exact: true }).waitFor();
   await page.getByRole('searchbox', { name: 'Search carriers' }).fill('');
-  await beacon().click();
+  await openCard(beacon());
   await page.getByText('No resources added yet.', { exact: true }).waitFor();
   assert.equal(await page.getByRole('region', { name: 'Quick links', exact: true }).count(), 0);
   record('Name-only case-insensitive search, collapsed filtering and carrier empty state');
@@ -166,10 +178,10 @@ try {
   assert.equal(`carrier-resource-${saved.resource_links[2].id}-label`, stableId);
   assert.deepEqual(await page.evaluate(() => Object.keys(window.carrierFixture.events.filter((event) => event.table === 'carriers' && event.operation === 'update').at(-1).payload)), ['resource_links']);
   await page.getByRole('link', { name: 'Directory', exact: true }).click();
-  await atlas().click();
+  await openCard(atlas());
   assert.equal(await guides.getByRole('link').first().getAttribute('href'), 'https://atlas.example/faq');
   await page.reload();
-  await atlas().click();
+  await openCard(atlas());
   assert.equal(await guides.getByRole('link').first().getAttribute('href'), 'https://atlas.example/faq');
   record('Admin add/reorder/save, stable link IDs, resource-only patch and persisted directory reload');
 
@@ -206,7 +218,7 @@ try {
   await goto('/carriers');
   await atlas().waitFor();
   await page.getByRole('searchbox', { name: 'Search carriers' }).fill('Atlas');
-  await atlas().click();
+  await openCard(atlas());
   await page.evaluate(() => window.carrierFixture.setIdentity({ userId: window.carrierFixture.identities.userB, profileId: window.carrierFixture.identities.userB }));
   await page.waitForFunction(() => document.querySelector('input[aria-label="Search carriers"]')?.value === '');
   assert.equal(await atlas().getAttribute('aria-expanded'), 'false');

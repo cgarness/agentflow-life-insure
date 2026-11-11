@@ -1,3 +1,13 @@
+## November 11, 2026 — Carriers hosted verification follow-up; release pending
+
+PR #528 is open on the reviewed feature branch. Hosted frontend verification passes 281/281 focused tests and the production build. Hosted PostgreSQL 17.6 passes all 168 malformed-write checks plus actual-role isolation and metadata/legacy-row preservation; the pending SQL checksum remains unchanged. The completed broad local run has 7,186 passing tests, ten skipped and only the inherited voicemail-retention byte-contract assertion, reproduced on clean `e07d28b`; no unhandled errors. Application diagnostics remain the existing 79.
+
+The first actual Chromium run passed keyboard/single-open behavior and exact links/contact/clipboard checks, then caught a reduced-motion selector-specificity bug. Corrected the local Tailwind utilities in `CarrierAccordionCard.tsx` to override the shared Accordion state animation; compiled CSS confirms the important reduced-motion rules, and all 14 directory/page tests plus scoped lint pass. The browser verifier now waits for real expansion animations before body actions/screenshots. Final hosted browser outcome and artifact are recorded in PR #528; no result is inferred from the local browser build. The automatic Supabase Preview was cancelled by the existing concurrent-branch limit; no setting was changed and no production-connected preview writes were used.
+
+Files in this follow-up: `src/components/carriers/CarrierAccordionCard.tsx`, `scripts/tests/carriers/browser/verify.mjs`, this log and the focused verification record. No database/schema bytes, permission model, data, merge or deployment action changed. Production release still requires Chris's exact approval of the pending migration and frontend release, in that order.
+
+---
+
 ## November 11, 2026 — Expandable Carriers directory built; release pending
 
 Chris selected expandable carrier cards and said “Proceed with the build.” Implementation is on `feat/carrier-directory-20261111` from `e07d28bdef1d8a9a21f0eee408b181b625389527`; a plan and exact file manifest were written before edits. Main was rechecked unchanged. Team Commissions PR #527, age/backfill #486 and underwriting #398 remain separate work.

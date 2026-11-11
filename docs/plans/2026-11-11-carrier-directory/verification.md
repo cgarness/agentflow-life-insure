@@ -17,7 +17,7 @@ Implementation is on `feat/carrier-directory-20261111`, based on `e07d28bdef1d8a
 | Preservation | Native fingerprints compare all pre-existing columns, constraints, indexes, ACLs, RLS, helpers, private-schema permissions, update trigger and legacy carrier values. Old-client inserts default to `[]`; unrelated updates retain resources. |
 | Static/build | `npx tsc --noEmit` passes; production Vite build passes. Actual application type-check has the same 79 baseline diagnostics, with no added/resolved diagnostics after normalizing shifted lines and the existing Sidebar union's added `/carriers` literal. Scoped lint and whitespace checks pass. |
 
-The exact focused CI command passes **281 tests across 17 files**, recorded in `.github/workflows/carrier-directory.yml`. The inherited `recordingRetentionVoicemail.test.ts` assertion named “the authentication and conversation-recording purge are byte-identical to deployed v29” reproduces on clean base `e07d28b`; it is unrelated and remains unchanged. Final broader-suite and hosted check results are recorded in the PR as runs complete; do not interpret a test that was only authored as executed.
+The exact focused CI command passes **281 tests across 17 files**, locally and in [hosted frontend verification](https://github.com/cgarness/agentflow-life-insure/actions/runs/43080598452/job/130731822849). The completed broad regression run has **7,186 passing tests, 10 skipped, and one inherited failure** across 492 files. The failure in `recordingRetentionVoicemail.test.ts`, named “the authentication and conversation-recording purge are byte-identical to deployed v29,” reproduces on clean base `e07d28b`; it is unrelated and remains unchanged. No unhandled errors were reported. These runs used tree `89cef1f10b08970c573459e66f80d4a82f14e35b`; the subsequent change is the scoped reduced-motion correction and browser-wait stabilization described below. Final hosted results are recorded in the PR; do not interpret a test that was only authored as executed.
 
 Independent read-only reviews found and resolved two concrete issues before publication: stale optimistic-conflict recovery needed a backing-list refresh; saving Carriers from a legacy permission array needed to keep unrelated missing pages denied. The editor's 50-row test was also changed to a direct display-value query after expensive accessibility queries exceeded jsdom's time budget under concurrent full-suite load; its boundary/editability assertions are retained.
 
@@ -38,7 +38,7 @@ PG_BIN_DIR=/path/to/postgresql/17/bin CARRIER_PG_TCP_PORT=55483 \
   bash scripts/run_carrier_resource_links_tests.sh
 ```
 
-It creates and cleans a disposable local database/cluster, refuses non-loopback connection URLs and clears libpq host/service overrides. The local runtime is 17.11; hosted CI separately pins **PostgreSQL 17.6** to match the inspected production version. Do not call that exact-version gate passed until its actual run succeeds.
+It creates and cleans a disposable local database/cluster, refuses non-loopback connection URLs and clears libpq host/service overrides. The local runtime is 17.11. The exact **PostgreSQL 17.6** gate also [passed in hosted CI](https://github.com/cgarness/agentflow-life-insure/actions/runs/43080598452/job/130731822193), with all 168 rejection checks, real-role access and preservation assertions observed in the job log. SQL bytes remain unchanged after that run.
 
 ## Browser evidence and limits
 
@@ -47,6 +47,10 @@ The isolated browser fixture builds successfully and imports the actual director
 The verifier defines nine scenario groups and ten screenshots: real Enter/Space/arrow actions, contact/clipboard behavior, exact links, 1440/390/320-pixel light/dark layouts, reduced motion, admin add/reorder/save/reload, failed-save recovery, Agent read-only controls, identity/org changes, View As and read-error recovery.
 
 Local Chromium launch was refused by the workspace (`process_singleton_posix.cc: socket() failed: Operation not permitted`) before page creation. No local browser scenario or screenshot is claimed. The PR workflow installs pinned Playwright 1.56.1 and executes the prepared verifier in an isolated runner; its observed outcome and screenshot artifact are the browser gate.
+
+The first hosted browser run passed native keyboard/single-open behavior and exact groups/new-tab/contact/actual-clipboard checks, then caught a real reduced-motion specificity issue: the shared Accordion's state selector overrode the local `animate-none`. The local reduced-motion descendant utilities now use Tailwind's important modifier, with compiled CSS confirming `animation:none !important` and `transition-property:none !important`. All 14 directory/page tests and scoped lint pass after that fix. The browser verifier retains its computed-style assertion and waits for real animations to settle before interacting with or capturing expanded content; it does not force animation completion or alter application styles. The rerun and screenshots are recorded in [PR #528](https://github.com/cgarness/agentflow-life-insure/pull/528).
+
+The automatic Supabase Preview check was cancelled by the existing concurrent-branch limit. No integration setting was changed. Vercel preview links therefore are not acceptance evidence for an isolated database; all write tests use the synthetic browser adapter or disposable native database.
 
 ## Exact pending production sequence
 

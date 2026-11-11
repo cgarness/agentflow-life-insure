@@ -10,7 +10,7 @@ export default function CarrierAccordionCard({ carrier }: { carrier: CarrierDire
   return (
     <AccordionItem
       value={carrier.id}
-      className="overflow-hidden rounded-xl border border-border bg-card shadow-sm motion-reduce:[&_*]:animate-none motion-reduce:[&_*]:transition-none"
+      className="overflow-hidden rounded-xl border border-border bg-card shadow-sm motion-reduce:[&_*]:!animate-none motion-reduce:[&_*]:!transition-none"
     >
       <AccordionTrigger className="gap-3 px-4 py-4 text-left hover:bg-accent/40 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[state=open]:bg-accent/40">
         <span className="flex min-w-0 flex-1 items-center gap-3">
