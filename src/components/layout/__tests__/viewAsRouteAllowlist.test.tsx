@@ -88,6 +88,7 @@ const ROUTES: [string, string][] = [
   ["/reports", "reports"],
   ["/calendar", "calendar"],
   ["/campaigns", "campaigns"],
+  ["/carriers", "carriers"],
   ["/settings", "settings"],
   ["/contacts/import", "contacts-import"],
   ["/leads/abc", "lead-detail"],

@@ -91,6 +91,8 @@ export const DB_ROLE_TO_KEY: Record<string, RoleKey> = {
 
 // Default pages (12 — Settings is always available; section visibility uses `s`)
 
+export const DEFAULT_CARRIERS_PAGE: PagePermission = { name: "Carriers", agent: true, teamLeader: true };
+
 export const DEFAULT_PAGES: PagePermission[] = [
   { name: "Dashboard", agent: true, teamLeader: true },
   { name: "Dialer", agent: true, teamLeader: true },
@@ -101,9 +103,22 @@ export const DEFAULT_PAGES: PagePermission[] = [
   { name: "Leaderboard", agent: true, teamLeader: true },
   { name: "Reports", agent: false, teamLeader: true },
   { name: "AI Agents", agent: false, teamLeader: true },
+  DEFAULT_CARRIERS_PAGE,
   { name: "Training", agent: true, teamLeader: true },
   { name: "Resources", agent: true, teamLeader: true },
 ];
+
+/** Add only Carriers for legacy arrays; explicit malformed flags deny, and other pages stay intact. */
+export function normalizeCarriersPagePermission<T extends { name: string; agent?: unknown; teamLeader?: unknown }>(
+  saved: T[],
+): (T | PagePermission)[] {
+  if (!saved.some((row) => row?.name === DEFAULT_CARRIERS_PAGE.name)) {
+    return [...saved, { ...DEFAULT_CARRIERS_PAGE }];
+  }
+  return saved.map((row) => row?.name === DEFAULT_CARRIERS_PAGE.name
+    ? { ...row, agent: row.agent === true, teamLeader: row.teamLeader === true }
+    : row);
+}
 
 // Default settings sections (all on — agency admin restricts per org via role_permissions.s)
 

@@ -1,3 +1,11 @@
+## November 11, 2026 — Carriers directory implementation
+
+Chris approved building the simplified expandable-card Carriers tab. Current plan and intended file list: [Carriers implementation plan](docs/plans/2026-11-11-carrier-directory/implementation_plan.md). Work is on `feat/carrier-directory-20261111` from `e07d28bdef1d8a9a21f0eee408b181b625389527`. Implementation and isolated verification are authorized; production migration execution, merge, and deployment remain pending approval of the finished result. Earlier entries below are preserved history.
+
+Implementation complete: directory, Settings resource editor, append-only page default and pending database validation. Local focused suite 281/281, root TypeScript, build, scoped lint and native PostgreSQL 17.11 pass; application diagnostics match the existing 79. [Verification and pending release sequence](docs/plans/2026-11-11-carrier-directory/verification.md) records the exact SQL checksum and isolated browser/17.6 CI gates. No production action has occurred.
+
+---
+
 ## November 10, 2026 Pacific — Fidelity task complete
 
 The specific product was confirmed privately, and the existing-policy estimate was recorded through the existing authenticated app flow with Chris's authorization. UI confirmation and private database readback verified the original seller/premium, exact reviewed inputs, one recorded_later estimate, one original sale, four correct installments, zero sale-time captures/receipts and one stable request event. No private customer/product/rate/request data is included here. Native retry/idempotency proofs remain valid; no unnecessary retry was executed after a confirmed save.

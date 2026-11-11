@@ -30,7 +30,7 @@ describe("the View As route allow-list", () => {
   it("refuses every other application route", () => {
     for (const path of [
       "/dashboard", "/dialer", "/calendar", "/campaigns", "/campaigns/abc", "/leaderboard",
-      "/reports", "/ai-agents", "/ai-agents/new", "/training", "/resources", "/settings",
+      "/reports", "/ai-agents", "/ai-agents/new", "/carriers", "/training", "/resources", "/settings",
       "/agent-profile", "/super-admin", "/super-admin/organizations/abc", "/ai-testing",
       "/control-center", "/app-link/xyz",
     ]) {
@@ -97,7 +97,7 @@ describe("the View As navigation allow-list", () => {
   it("refuses every other sidebar entry, Settings included", () => {
     for (const label of [
       "Dashboard", "Dialer", "Calendar", "Campaigns", "Leaderboard", "Reports",
-      "AI Agents", "Training", "Resources", "Settings", "Agencies", "Control Center", "AI Testing",
+      "AI Agents", "Carriers", "Training", "Resources", "Settings", "Agencies", "Control Center", "AI Testing",
     ]) {
       expect(isViewAsSupportedNavLabel(label), `admitted ${label}`).toBe(false);
     }
