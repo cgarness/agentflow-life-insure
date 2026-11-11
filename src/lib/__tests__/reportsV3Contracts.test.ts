@@ -985,7 +985,7 @@ describe("Reports v3 release files (release proposal R1–R5): staged enables, d
     ["20261105120017_reports_v3_release_enable.sql", "A", "3.0.0", "20261105120016", "20261105120020"],
     ["20261105120022_reports_v3_release_enable_pkg_b.sql", "B", "3.1.0", "20261105120021", "20261105120030"],
     ["20261105120033_reports_v3_release_enable_pkg_c.sql", "C", "3.2.0", "20261105120032", "20261105120040"],
-    ["20261105120044_reports_v3_release_enable_pkg_d.sql", "D", "3.3.0", "20261105120043", "99999999999999"],
+    ["20261105120044_reports_v3_release_enable_pkg_d.sql", "D", "3.3.0", "20261105120043", null],
   ] as const;
   const READERS = [
     "public.get_report_scope_v2(text)",
@@ -1002,7 +1002,7 @@ describe("Reports v3 release files (release proposal R1–R5): staged enables, d
     for (const [name, , , after, before] of RELEASE) {
       const i = all.indexOf(name);
       expect(all[i - 1].slice(0, 14), name).toBe(after);
-      if (i + 1 < all.length) expect(all[i + 1].slice(0, 14) >= before, name).toBe(true);
+      if (before !== null && i + 1 < all.length) expect(all[i + 1].slice(0, 14) >= before, name).toBe(true);
     }
   });
 
@@ -1085,8 +1085,10 @@ describe("Reports V2 migration order above the production head (renumbered after
     const all = readdirSync(join(ROOT, MIGRATIONS)).filter((n) => /^\d{14}_.*\.sql$/.test(n)).sort();
     const ours = all.filter((n) => n.startsWith("2026110512"));
     expect(ours.length).toBe(20); // PKG-A 8, PKG-B 3, PKG-C 4, PKG-D 5
-    expect(all.slice(-20)).toEqual(ours);
-    expect(all[all.length - 21]).toBe("20261105051037_dialer_admitted_call_counts.sql");
+    // The released package remains contiguous and has the same predecessor; later features may add migrations.
+    const first = all.indexOf(ours[0]);
+    expect(all.slice(first, first + 20)).toEqual(ours);
+    expect(all[first - 1]).toBe("20261105051037_dialer_admitted_call_counts.sql");
     expect(all.filter((n) => n.startsWith("2026110412"))).toEqual([]);
     for (const name of readdirSync(join(ROOT, ROLLBACKS)).filter((n) => /_(reports_v3|policy_sale|appointment|policy_appointment)/.test(n) && n.startsWith("202611"))) {
       expect(name.startsWith("2026110512"), name).toBe(true);

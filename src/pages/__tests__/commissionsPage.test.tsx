@@ -9,21 +9,25 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { syntheticContext } from "@/lib/commission/__tests__/syntheticGrid";
-import { ORG, USER, breakdown, drawer, goal, overview, policiesPage, scheduledPage, historyPage } from "@/components/commissions/__tests__/centerFixtures";
+import { ORG, USER, TEAM_AGENT, agentRoster, scopedResponse, breakdown, drawer, goal, overview, policiesPage, scheduledPage, historyPage } from "@/components/commissions/__tests__/centerFixtures";
 
 const h = vi.hoisted(() => ({
-  userId: "", impersonating: false, permitted: true, loading: false, role: "Agent", superAdmin: false, grid: "ready" as "ready" | "not_configured",
+  userId: "", impersonating: false, permitted: true, others: false, empty: false, loading: false, role: "Agent", superAdmin: false, grid: "ready" as "ready" | "not_configured",
   calls: [] as Array<[string, Record<string, unknown>]>, contextEnabled: [] as boolean[],
 }));
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     rpc: (name: string, args: Record<string, unknown>) => {
       h.calls.push([name, args]);
-      const data = name === "get_my_commission_overview" ? overview() : name === "get_my_commission_installments" ? scheduledPage()
-        : name === "get_my_commission_receipt_list" ? historyPage() : name === "get_my_commission_policy_list" ? policiesPage()
-          : name === "get_my_policy_commission" ? drawer() : name === "get_my_commission_breakdown" ? breakdown()
+      const data = name === "get_scoped_commission_overview" ? overview() : name === "get_scoped_commission_installments" ? scheduledPage()
+        : name === "get_scoped_commission_receipt_list" ? historyPage() : name === "get_scoped_commission_policy_list" ? policiesPage()
+          : name === "get_scoped_policy_commission" ? drawer() : name === "get_scoped_commission_breakdown" ? breakdown()
             : name === "get_my_commission_goal" ? goal() : null;
-      const request = Promise.resolve(data ? { data, error: null } : { data: null, error: { message: "unexpected", code: "XX000" } });
+      const roster = agentRoster(h.empty ? { agents: [], selected_agents: [], available_count: 0, total_count: 0, default_scope: null }
+        : !h.permitted ? { can_view_own: false, default_scope: "all", agents: agentRoster().agents.slice(1) } : {}, h.userId);
+      const response = name === "get_commission_agent_scope" ? roster : name.startsWith("get_scoped_") && data
+        ? scopedResponse(data, args, h.userId, h.permitted ? undefined : [TEAM_AGENT]) : data;
+      const request = Promise.resolve(response ? { data: response, error: null } : { data: null, error: { message: "unexpected", code: "XX000" } });
       return Object.assign(request, { abortSignal: () => request });
     },
   },
@@ -34,7 +38,7 @@ vi.mock("@/contexts/AuthContext", () => ({
       organization_id: ORG } }),
 }));
 vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizationId: ORG, role: "Agent" }) }));
-vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ canSeeCommission: () => h.permitted, isLoading: h.loading }) }));
+vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ canSeeCommission: (name: string) => name.includes("Others") ? h.others : h.permitted, isLoading: h.loading }) }));
 vi.mock("@/hooks/useCommissionCalculator", () => ({
   CALCULATOR_PERMISSION: "View Own Commission Percentage",
   useCommissionCalculatorAccess: () => ({ permitted: h.permitted, permissionsLoading: false, isImpersonating: h.impersonating }),
@@ -53,7 +57,7 @@ beforeAll(() => {
   globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 });
 beforeEach(() => {
-  h.userId = USER; h.impersonating = false; h.permitted = true; h.loading = false; h.role = "Agent"; h.superAdmin = false;
+  h.userId = USER; h.impersonating = false; h.permitted = true; h.others = false; h.empty = false; h.loading = false; h.role = "Agent"; h.superAdmin = false;
   h.grid = "ready"; h.calls = []; h.contextEnabled = [];
 });
 afterEach(cleanup);
@@ -79,12 +83,90 @@ function renderAt(url: string) {
     </QueryClientProvider>
   );
   const utils = render(tree());
-  return { ...utils, rerenderSame: () => utils.rerender(tree()) };
+  return { ...utils, client, rerenderSame: () => utils.rerender(tree()) };
 }
 const activeTab = () => screen.getByRole("navigation", { name: "Commissions" }).querySelector("[aria-current=page]")?.textContent;
 const calls = (fn: string) => h.calls.filter(([name]) => name === fn);
 
 describe("Commissions page", () => {
+  it("A08: Others-only defaults to All, hides Me/Calculator/goals, and makes only scoped financial reads", async () => {
+    h.role = "Team Leader"; h.permitted = false; h.others = true;
+    renderAt("/commissions");
+    await screen.findByRole("link", { name: "Expected" });
+    expect(screen.getByRole("button", { name: "Agents: All agents" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Calculator" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /goal/i })).toBeNull();
+    expect(calls("get_my_commission_goal")).toEqual([]);
+    expect(h.contextEnabled).toEqual([]);
+    for (const [name, args] of h.calls.filter(([name]) => name.startsWith("get_scoped_"))) {
+      expect(name).not.toContain("goal"); expect(args.p_agent_scope).toBe("all"); expect(args.p_agent_ids).toBeNull();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Agents: All agents" }));
+    expect(screen.queryByRole("button", { name: "Me" })).toBeNull();
+  });
+
+  it("A08: direct Calculator entry for Others-only issues no Calculator or financial request", async () => {
+    h.role = "Team Leader"; h.permitted = false; h.others = true;
+    renderAt("/commissions/calculator?agents=all");
+    expect(await screen.findByText("Your role doesn't include the personal Calculator.")).toBeInTheDocument();
+    expect(h.contextEnabled).toEqual([]);
+    expect(h.calls.every(([name]) => name === "get_commission_agent_scope")).toBe(true);
+  });
+
+  it("A13: no authorized members shows an empty scope without any financial request", async () => {
+    h.empty = true;
+    renderAt("/commissions");
+    await screen.findByText("No agents available");
+    expect(h.calls.map(([name]) => name)).toEqual(["get_commission_agent_scope"]);
+  });
+
+  it.each(["/commissions", "/commissions/payments", "/commissions/policies", "/commissions/calculator"])(
+    "A14: View As sends zero roster/financial/goal/calculator requests at %s", async (route) => {
+      h.impersonating = true;
+      renderAt(`${route}?agents=all`);
+      expect(screen.getByText("Commissions aren't available while viewing as another user.")).toBeInTheDocument();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(h.calls).toEqual([]); expect(h.contextEnabled).toEqual([]);
+    });
+
+  it("U03/U09/U12: selection survives tab/history/back-forward navigation; all reads use exact selected IDs", async () => {
+    const suffix = `agents=selected&agent_ids=${TEAM_AGENT}`;
+    renderAt(`/commissions?${suffix}`);
+    await screen.findByRole("link", { name: "Expected" });
+    expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull();
+    expect(calls("get_my_commission_goal")).toEqual([]);
+    fireEvent.click(screen.getByRole("link", { name: "Policies" }));
+    await screen.findByRole("table", { name: "Policies" });
+    expect(screen.getByTestId("location").textContent).toBe(`/commissions/policies?${suffix}`);
+    fireEvent.click(screen.getByRole("link", { name: "Payments" }));
+    await screen.findByRole("table", { name: "Scheduled payments" });
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    await screen.findByRole("table", { name: "Payment history" });
+    expect(new URLSearchParams(screen.getByTestId("location").textContent!.split("?")[1]).get("agent_ids")).toBe(TEAM_AGENT);
+    act(() => nav(-1));
+    await screen.findByRole("table", { name: "Scheduled payments" });
+    act(() => nav(1));
+    await screen.findByRole("table", { name: "Payment history" });
+    for (const [, args] of h.calls.filter(([name]) => name.startsWith("get_scoped_"))) {
+      expect(args.p_agent_scope).toBe("selected"); expect(args.p_agent_ids).toEqual([TEAM_AGENT]);
+    }
+  });
+
+  it("U13: Calculator inputs survive an agent selection change and its reporting round trip", async () => {
+    renderAt("/commissions/calculator");
+    fireEvent.change(screen.getByLabelText("Client age"), { target: { value: "45" } });
+    fireEvent.change(screen.getByLabelText("Monthly premium"), { target: { value: "75" } });
+    act(() => nav(`/commissions?agents=selected&agent_ids=${TEAM_AGENT}`));
+    await screen.findByRole("link", { name: "Expected" });
+    fireEvent.click(screen.getByRole("link", { name: "Calculator" }));
+    expect((screen.getByLabelText("Client age") as HTMLInputElement).value).toBe("45");
+    expect((screen.getByLabelText("Monthly premium") as HTMLInputElement).value).toBe("75");
+    expect(screen.queryByRole("button", { name: /^Agents:/ })).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: "Overview" }));
+    await screen.findByRole("link", { name: "Expected" });
+    expect(screen.getByTestId("location").textContent).toBe(`/commissions?agents=selected&agent_ids=${TEAM_AGENT}`);
+  });
+
   it("opens Overview by default with one heading and four tabs", async () => {
     renderAt("/commissions");
     expect(screen.getAllByRole("heading", { level: 1 }).map((x) => x.textContent)).toEqual(["Commissions"]);
@@ -92,13 +174,13 @@ describe("Commissions page", () => {
       .toEqual(["Overview", "Payments", "Policies", "Calculator"]);
     expect(activeTab()).toBe("Overview");
     await screen.findByRole("link", { name: "Expected" });
-    expect(calls("get_my_commission_overview")).toEqual([["get_my_commission_overview", { p_period: "this_month", p_from: null, p_to: null }]]);
+    expect(calls("get_scoped_commission_overview")).toEqual([["get_scoped_commission_overview", { p_period: "this_month", p_from: null, p_to: null, p_agent_scope: "me", p_agent_ids: null }]]);
   });
 
   it.each([
-    ["/commissions/payments", "Payments", "get_my_commission_installments"],
-    ["/commissions/payments?view=history", "Payments", "get_my_commission_receipt_list"],
-    ["/commissions/policies", "Policies", "get_my_commission_policy_list"],
+    ["/commissions/payments", "Payments", "get_scoped_commission_installments"],
+    ["/commissions/payments?view=history", "Payments", "get_scoped_commission_receipt_list"],
+    ["/commissions/policies", "Policies", "get_scoped_commission_policy_list"],
   ])("deep link %s", async (url, tab, read) => {
     renderAt(url);
     expect(activeTab()).toBe(tab);
@@ -131,50 +213,50 @@ describe("Commissions page", () => {
     renderAt("/commissions?period=last_month");
     await screen.findByRole("link", { name: "Expected" });
     fireEvent.click(screen.getByRole("link", { name: "Remaining" }));
-    expect(screen.getByTestId("location").textContent).toBe("/commissions/payments?period=last_month&status=remaining");
-    await waitFor(() => expect(calls("get_my_commission_installments").at(-1)?.[1]).toMatchObject(
+    expect(screen.getByTestId("location").textContent).toBe("/commissions/payments?period=last_month&status=remaining&agents=me");
+    await waitFor(() => expect(calls("get_scoped_commission_installments").at(-1)?.[1]).toMatchObject(
       { p_period: "last_month", p_scope: "range", p_status: "remaining", p_offset: 0 }));
     act(() => nav(-1));
     await screen.findByRole("link", { name: "Expected" });
     fireEvent.click(screen.getByRole("link", { name: "Received" }));
-    expect(screen.getByTestId("location").textContent).toBe("/commissions/payments?view=history&period=last_month");
-    await waitFor(() => expect(calls("get_my_commission_receipt_list").at(-1)?.[1]).toMatchObject({ p_period: "last_month", p_include_voided: false }));
+    expect(screen.getByTestId("location").textContent).toBe("/commissions/payments?view=history&period=last_month&agents=me");
+    await waitFor(() => expect(calls("get_scoped_commission_receipt_list").at(-1)?.[1]).toMatchObject({ p_period: "last_month", p_include_voided: false }));
     act(() => nav(-1));
     await screen.findByRole("link", { name: "Expected" });
     fireEvent.click(screen.getByRole("link", { name: "Next 90 days" }));
-    await waitFor(() => expect(calls("get_my_commission_installments").at(-1)?.[1]).toMatchObject({ p_scope: "next_90", p_status: "all" }));
+    await waitFor(() => expect(calls("get_scoped_commission_installments").at(-1)?.[1]).toMatchObject({ p_scope: "next_90", p_status: "all" }));
   });
 
   it("Policies keeps its address: All time, every type and carrier by default", async () => {
     renderAt("/commissions/policies");
-    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toEqual({ p_setup: "all", p_carrier: null,
-      p_carrier_unknown: false, p_category: null, p_period: "all", p_from: null, p_to: null, p_limit: 25, p_offset: 0 }));
+    await waitFor(() => expect(calls("get_scoped_commission_policy_list").at(-1)?.[1]).toEqual({ p_setup: "all", p_carrier: null,
+      p_agent_scope: "me", p_agent_ids: null, p_carrier_unknown: false, p_category: null, p_period: "all", p_from: null, p_to: null, p_limit: 25, p_offset: 0 }));
   });
 
   it("each breakdown bar or slice opens exactly its list, composing with the list's own filters", async () => {
     renderAt("/commissions?period=last_month");
     const carriers = await screen.findByRole("list", { name: "Carriers by Policies" });
     fireEvent.click(within(carriers).getByRole("link", { name: /^Harbor Mutual/ }));
-    expect(screen.getByTestId("location").textContent).toBe("/commissions/policies?period=last_month&carrier=Harbor+Mutual");
-    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toMatchObject(
+    expect(screen.getByTestId("location").textContent).toBe("/commissions/policies?period=last_month&carrier=Harbor+Mutual&agents=me");
+    await waitFor(() => expect(calls("get_scoped_commission_policy_list").at(-1)?.[1]).toMatchObject(
       { p_period: "last_month", p_carrier: "Harbor Mutual", p_carrier_unknown: false, p_category: null, p_setup: "all" }));
     fireEvent.change(screen.getByLabelText("Show"), { target: { value: "missing" } });
-    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toMatchObject(
+    await waitFor(() => expect(calls("get_scoped_commission_policy_list").at(-1)?.[1]).toMatchObject(
       { p_period: "last_month", p_carrier: "Harbor Mutual", p_setup: "missing", p_offset: 0 }));
     act(() => nav(-1));
     act(() => nav(-1));
     fireEvent.click(within(await screen.findByRole("list", { name: "Products by policies" })).getByRole("link", { name: /^Unknown/ }));
-    await waitFor(() => expect(calls("get_my_commission_policy_list").at(-1)?.[1]).toMatchObject(
+    await waitFor(() => expect(calls("get_scoped_commission_policy_list").at(-1)?.[1]).toMatchObject(
       { p_period: "last_month", p_category: "unknown", p_carrier: null }));
     act(() => nav(-1));
     fireEvent.click(await screen.findByRole("button", { name: "Received" }));
     fireEvent.click(within(screen.getByRole("list", { name: "Carriers by Received" })).getByRole("link", { name: /^Synthetic Life/ }));
-    expect(screen.getByTestId("location").textContent).toBe("/commissions/payments?view=history&period=last_month&carrier=Synthetic+Life");
-    await waitFor(() => expect(calls("get_my_commission_receipt_list").at(-1)?.[1]).toMatchObject(
+    expect(screen.getByTestId("location").textContent).toBe("/commissions/payments?view=history&period=last_month&carrier=Synthetic+Life&agents=me");
+    await waitFor(() => expect(calls("get_scoped_commission_receipt_list").at(-1)?.[1]).toMatchObject(
       { p_period: "last_month", p_carrier: "Synthetic Life", p_carrier_unknown: false, p_include_voided: false }));
     act(() => nav(-1));
     fireEvent.click(await screen.findByRole("link", { name: "View payments" }));
-    await waitFor(() => expect(calls("get_my_commission_installments").at(-1)?.[1]).toMatchObject(
+    await waitFor(() => expect(calls("get_scoped_commission_installments").at(-1)?.[1]).toMatchObject(
       { p_period: "next_month", p_scope: "range", p_status: "remaining", p_kind: "later" }));
   });
 
@@ -186,7 +268,7 @@ describe("Commissions page", () => {
     fireEvent.click(screen.getByRole("link", { name: "Calculator" }));
     expect(screen.getByText("Your agency hasn't set up the Commission Calculator yet")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("link", { name: "Overview" }));
-    expect(screen.getByRole("link", { name: "Expected" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Expected" })).toBeInTheDocument();
   });
 
   it("keeps calculator inputs across tab switches, never writes or reads reporting, and clears them for another user", async () => {
@@ -195,12 +277,12 @@ describe("Commissions page", () => {
     fireEvent.change(screen.getByLabelText("Monthly premium"), { target: { value: "85" } });
     const before = h.calls.length;
     fireEvent.click(screen.getByRole("link", { name: "Policies" }));
-    await waitFor(() => expect(calls("get_my_commission_policy_list")).toHaveLength(1));
+    await waitFor(() => expect(calls("get_scoped_commission_policy_list")).toHaveLength(1));
     fireEvent.click(screen.getByRole("link", { name: "Calculator" }));
     expect((screen.getByLabelText("Client age") as HTMLInputElement).value).toBe("41");
     expect((screen.getByLabelText("Monthly premium") as HTMLInputElement).value).toBe("85");
     // Only the Policies read happened: the calculator itself requested and wrote nothing.
-    expect(h.calls.slice(before).map(([name]) => name)).toEqual(["get_my_commission_policy_list"]);
+    expect(h.calls.slice(before).filter(([name]) => name !== "get_commission_agent_scope").map(([name]) => name)).toEqual(["get_scoped_commission_policy_list"]);
     h.userId = "00000000-0000-4000-8000-000000000999";
     view.rerenderSame();
     expect((screen.getByLabelText("Client age") as HTMLInputElement).value).toBe("");
@@ -224,7 +306,7 @@ describe("Commissions page", () => {
     expect(screen.getByText("Your level:").textContent).toBe("Your level: 100");
     expect(screen.getByText("Estimate only")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("link", { name: "Payments" }));
-    await waitFor(() => expect(calls("get_my_commission_installments")).toHaveLength(1));
+    await waitFor(() => expect(calls("get_scoped_commission_installments")).toHaveLength(1));
     fireEvent.click(screen.getByRole("link", { name: "Calculator" }));
     expect(estimate()).toEqual(["92.5%", "$1,110.00", "$832.50", "$92.50", "$92.50", "$92.50"]);
   });
@@ -237,7 +319,7 @@ describe("Commissions page", () => {
     h.impersonating = false;
     h.permitted = false;
     renderAt("/commissions/payments");
-    expect(screen.getByText("Your role doesn't include viewing your own commission.")).toBeInTheDocument();
+    expect(screen.getByText("Commissions aren't available")).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 20));
     expect(h.calls).toEqual([]);
     expect(h.contextEnabled.every((enabled) => !enabled)).toBe(true);
@@ -268,6 +350,6 @@ describe("Commissions page", () => {
     renderAt("/commissions");
     expect(screen.queryByText("Loading…")).toBeNull();
     await screen.findByRole("link", { name: "Expected" });
-    expect(calls("get_my_commission_overview")).toHaveLength(1);
+    expect(calls("get_scoped_commission_overview")).toHaveLength(1);
   });
 });

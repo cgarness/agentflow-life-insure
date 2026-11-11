@@ -5,6 +5,9 @@ import { AmountsToggle, AmountsVisibilityProvider } from "@/components/commissio
 import { IconTile, StatePanel } from "@/components/commission/ui/CommissionSurface";
 import CalculatorTab from "@/components/commissions/CalculatorTab";
 import { CommissionDrawer, type DrawerTarget, type OpenPolicy } from "@/components/commissions/CommissionDrawer";
+import { CommissionScopeProvider } from "@/components/commissions/CommissionScopeProvider";
+import { CommissionScopeBoundary } from "@/components/commissions/CommissionScopeBoundary";
+import { useCommissionScope } from "@/components/commissions/commissionScopeContext";
 import { CommissionsTabs } from "@/components/commissions/CommissionsTabs";
 import { OverviewTab } from "@/components/commissions/overview/OverviewTab";
 import { PaymentsTab } from "@/components/commissions/payments/PaymentsTab";
@@ -13,13 +16,7 @@ import { InfoTip } from "@/components/commissions/shared/Bits";
 import { useCommissionsAccess } from "@/hooks/useCommissionsCenter";
 import { COMMISSION_TABS, COMMISSIONS_PATH, type CommissionTab } from "@/lib/commission/centerFilters";
 
-/**
- * /commissions/:tab? — My commissions (Overview, Payments, Policies) and the Calculator. Guards direct entry itself:
- * "View Own Commission Percentage" (D3) and never under "View As" (the layout refuses the route too). One route, one
- * page instance, so switching tabs never remounts it; everything is keyed by the signed-in user and organization so no
- * figure, drawer, calculator input or Hide amounts choice survives an identity change. The eye control hides amounts on
- * every tab, the drawer and dialogs (a display preference for screen sharing, kept in this browser per user and agency).
- */
+/** The actual session owns the page, Calculator and Hide amounts; only scoped reporting remounts. */
 const CommissionsPage: React.FC = () => {
   const { tab: raw } = useParams<{ tab?: string }>();
   const access = useCommissionsAccess();
@@ -29,11 +26,11 @@ const CommissionsPage: React.FC = () => {
   let body: React.ReactNode;
   if (access.isImpersonating || (!access.permissionsLoading && !access.permitted)) {
     body = <StatePanel icon={Lock} title="Commissions aren't available" role="status"
-      body={access.isImpersonating ? "Commissions aren't available while viewing as another user." : "Your role doesn't include viewing your own commission."} />;
+      body={access.isImpersonating ? "Commissions aren't available while viewing as another user." : "Your role doesn't include viewing commissions."} />;
   } else if (!access.enabled) {
     body = <StatePanel icon={CircleDollarSign} title="Loading…" role="status" />;
   } else {
-    body = <Center key={`${access.userId}:${access.orgId}`} tab={tab} />;
+    body = <CommissionScopeProvider key={`${access.userId}:${access.orgId}`}><Center tab={tab} /></CommissionScopeProvider>;
   }
   const identity = access.enabled ? `${access.userId}:${access.orgId}` : "none";
   return (
@@ -48,7 +45,6 @@ const CommissionsPage: React.FC = () => {
           </InfoTip>
           {access.enabled && <AmountsToggle />}
         </div>
-        <CommissionsTabs active={tab} />
         {body}
       </div>
     </AmountsVisibilityProvider>
@@ -56,20 +52,27 @@ const CommissionsPage: React.FC = () => {
 };
 
 function Center({ tab }: { tab: CommissionTab }) {
-  const [target, setTarget] = useState<DrawerTarget | null>(null);
-  // The calculator stays mounted (hidden) once opened, so its inputs survive tab switches within this session.
+  const scope = useCommissionScope();
   const [calculatorOpened, setCalculatorOpened] = useState(tab === "calculator");
   useEffect(() => { if (tab === "calculator") setCalculatorOpened(true); }, [tab]);
+  return <>
+    <CommissionsTabs active={tab} />
+    {tab !== "calculator" && <CommissionScopeBoundary><FinancialContent tab={tab} /></CommissionScopeBoundary>}
+    {tab === "calculator" && !scope.canViewOwn && <StatePanel icon={Lock} title="Commissions aren't available" role="status"
+      body="Your role doesn't include the personal Calculator." />}
+    {calculatorOpened && scope.canViewOwn && <div hidden={tab !== "calculator"}><CalculatorTab /></div>}
+  </>;
+}
+
+function FinancialContent({ tab }: { tab: CommissionTab }) {
+  const [target, setTarget] = useState<DrawerTarget | null>(null);
   const open = useCallback<OpenPolicy>((policyId, intent) => setTarget({ policyId, payment: intent?.payment, opened: Date.now() }), []);
-  return (
-    <>
-      {tab === "overview" && <OverviewTab onOpen={open} />}
-      {tab === "payments" && <PaymentsTab onOpen={open} />}
-      {tab === "policies" && <PoliciesTab onOpen={open} />}
-      {calculatorOpened && <div hidden={tab !== "calculator"}><CalculatorTab /></div>}
-      <CommissionDrawer target={target} onClose={() => setTarget(null)} />
-    </>
-  );
+  return <>
+    {tab === "overview" && <OverviewTab onOpen={open} />}
+    {tab === "payments" && <PaymentsTab onOpen={open} />}
+    {tab === "policies" && <PoliciesTab onOpen={open} />}
+    <CommissionDrawer target={target} onClose={() => setTarget(null)} />
+  </>;
 }
 
 export default CommissionsPage;

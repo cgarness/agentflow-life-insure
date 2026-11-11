@@ -1,3 +1,4 @@
+import { useCommissionScope } from "../commissionScopeContext";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
@@ -18,6 +19,7 @@ const TD = "px-2 py-1.5 text-right tabular-nums";
  */
 export function BreakdownDetails(props: Props) {
   const { money } = useAmounts();
+  const { withScopeHref } = useCommissionScope();
   const [open, setOpen] = useState(false);
   const carrier = props.kind === "carrier";
   const rows = props.groups.map((g) => {
@@ -54,7 +56,7 @@ export function BreakdownDetails(props: Props) {
                 {rows.map(({ key, name, to, g, received }) => (
                   <tr key={key}>
                     <th scope="row" className="px-2 py-1.5 text-left font-normal">
-                      <Link to={to} className="text-foreground hover:underline">{name}</Link>
+                      <Link to={withScopeHref(to)} className="text-foreground hover:underline">{name}</Link>
                     </th>
                     <td className={TD}>{g.policies}</td>
                     <td className={TD}>{g.with_estimate_count}</td>
@@ -62,7 +64,7 @@ export function BreakdownDetails(props: Props) {
                     <td className={TD}>{g.with_estimate_count > 0 ? money(g.estimate_cents) : "—"}</td>
                     {received && (
                       <td className={TD}>
-                        {received.count > 0 ? <Link to={received.to} className="hover:underline">{money(received.cents)}</Link> : money(0)}
+                        {received.count > 0 ? <Link to={withScopeHref(received.to)} className="hover:underline">{money(received.cents)}</Link> : money(0)}
                       </td>
                     )}
                   </tr>

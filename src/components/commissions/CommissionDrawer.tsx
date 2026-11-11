@@ -13,6 +13,7 @@ import { useCommissionPolicy } from "@/hooks/useCommissionsCenter";
 import { asTrackedPolicy, type CommissionDrawerData } from "@/lib/commission/centerSchemas";
 import { CenterError } from "./shared/CenterState";
 import { contactName } from "./shared/format";
+import { useCommissionScope } from "./commissionScopeContext";
 
 /** `opened` distinguishes each opening, so a reopened drawer starts fresh. */
 export interface DrawerTarget { policyId: string; payment?: string; opened: number }
@@ -27,10 +28,13 @@ function policyLine(data: CommissionDrawerData): string {
 /**
  * One policy's saved commission, with the existing Phase 2A controls (Record payment, Edit dates, Edit date, Void,
  * hold, replace, confirm, Record estimate) and their unresolved-write recovery. Nothing here writes on its own; every
- * successful change refreshes the center, this drawer and the contact view together.
+ * successful change refreshes the center, this drawer and the contact view together. Every non-Me mode forces read
+ * access again here, so a writable payload can never expose financial actions in a team view.
  */
 function DrawerBody({ data, payment }: { data: CommissionDrawerData; payment?: string }) {
-  const policy = asTrackedPolicy(data.policy);
+  const { readOnly } = useCommissionScope();
+  const original = asTrackedPolicy(data.policy);
+  const policy = readOnly ? { ...original, access: "read" as const } : original;
   const canWrite = policy.access === "write";
   const [recording, setRecording] = useState(false);
   const [paying, setPaying] = useState(!!payment);
@@ -47,12 +51,12 @@ function DrawerBody({ data, payment }: { data: CommissionDrawerData; payment?: s
         </>
       ) : policy.capture && (policy.state === "awaiting_confirmation" || policy.state === "needs_attention") ? (
         <CaptureAttentionNotice policy={policy} onRecordLater={() => setRecording(true)} />
-      ) : canWrite ? (
+      ) : (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
           <span className="text-muted-foreground">No commission estimate recorded.</span>
-          <button type="button" className="font-medium text-primary hover:underline" onClick={() => setRecording(true)}>Record estimate</button>
+          {canWrite && <button type="button" className="font-medium text-primary hover:underline" onClick={() => setRecording(true)}>Record estimate</button>}
         </div>
-      ) : null}
+      )}
       {canWrite && <RecordEstimateDialog open={recording} onOpenChange={setRecording} policy={policy} replace={false} />}
     </div>
   );
@@ -60,6 +64,7 @@ function DrawerBody({ data, payment }: { data: CommissionDrawerData; payment?: s
 
 export function CommissionDrawer({ target, onClose }: { target: DrawerTarget | null; onClose: () => void }) {
   const { hidden } = useAmounts();
+  const { readOnly } = useCommissionScope();
   const query = useCommissionPolicy(target?.policyId ?? null);
   const data = query.data;
   // A drawer reopened for another policy never shows the previous one's figures.
@@ -72,6 +77,7 @@ export function CommissionDrawer({ target, onClose }: { target: DrawerTarget | n
             {shown ? contactName(shown.contact) : "Commission"}
           </SheetTitle>
           <SheetDescription>{shown ? policyLine(shown) : "Loading…"}</SheetDescription>
+          {readOnly && shown && <p className="text-sm text-muted-foreground">Agent: {shown.policy.agent_name ?? "Agent"}</p>}
           {shown?.contact && (
             <Link to={`/clients/${shown.contact.client_id}`} className="text-sm font-medium text-primary hover:underline">View policy</Link>
           )}

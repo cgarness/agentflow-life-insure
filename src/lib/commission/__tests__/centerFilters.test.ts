@@ -51,6 +51,19 @@ describe("commissions center URL filters", () => {
     expect(writePeriod(q("page=2&status=all"), { preset: "this_month", from: null, to: null }).toString()).toBe("status=all");
   });
 
+  it("U03: filter and pagination updates preserve dedicated agent parameters without overloading Scheduled date scope", () => {
+    const id = "00000000-0000-4000-8000-000000000903";
+    const params = q(`agents=selected&agent_ids=${id}&dates=next_90&page=4`);
+    const changed = withParam(params, "status", "remaining");
+    expect(changed.get("agents")).toBe("selected");
+    expect(changed.get("agent_ids")).toBe(id);
+    expect(changed.has("page")).toBe(false);
+    expect(parseScheduled(changed).scope).toBe("next_90");
+    const range = writePeriod(changed, customPeriod("2026-10-01", "2026-10-31"));
+    expect(range.get("agent_ids")).toBe(id);
+    expect(range.get("dates")).toBe("next_90");
+  });
+
   it("builds the exact list behind each card, chart month and review item", () => {
     const period = { preset: "last_month", from: null, to: null } as const;
     expect(tabPath("overview")).toBe("/commissions");

@@ -642,4 +642,103 @@ done
 sql -v fidelity_action=rename -f "$TEMP/rename.sql" >/dev/null
 echo 'PASS Fidelity one-row Settings rename, no-op, collision/drift refusals and recovery'
 
+# ── 7. Team Commissions: current hierarchy/read policies, native scopes, parity, HTTP, guarded recovery ──
+SCOPED="$ROOT/supabase/migrations/20261111015438_policy_commission_scoped_reads.sql"
+SCOPED_ROLLBACK="$ROOT/supabase/migrations/rollback/20261111015438_policy_commission_scoped_reads.sql"
+scoped_db() {
+  insights_db "$1"
+  sql -1 -f "$FIDELITY" >/dev/null
+  # Existing unchanged insights suite seeds the complete holds/void/replacement/restricted-contact book.
+  run_suite "$ROOT/supabase/tests/policy_commission_insights.sql"
+  python3 "$ROOT/scripts/policy_commission_scope_fixture.py" > "$TEMP/scoped-fixture.sql"
+  sql -f "$TEMP/scoped-fixture.sql" >/dev/null
+}
+scoped_inventory() {
+  sql -tAX -c "SELECT 'f|'||p.oid::regprocedure||'|'||pg_get_userbyid(p.proowner)||'|'||p.proacl::text||'|'||p.prosecdef||'|'||p.provolatile::text||'|'||coalesce(p.proconfig::text,'-')||'|'||md5(pg_get_functiondef(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','private','policy_commission_authz','policy_commission_reporting','policy_commission_insights','policy_commission_scoped') ORDER BY 1"
+}
+scoped_db scoped
+sql -v capture=true -f "$ROOT/supabase/tests/policy_commission_scoped_parity.sql" >/dev/null
+scoped_inventory > "$TEMP/scoped.before"
+commission_inventory > "$TEMP/scoped.commission.before"
+sql -c "ALTER FUNCTION public.get_my_commission_overview(text,date,date) COST 101" >/dev/null
+expect_fail 'preimage' "$SCOPED"
+sql -c "ALTER FUNCTION public.get_my_commission_overview(text,date,date) COST 100" >/dev/null
+sql -1 -f "$SCOPED" >/dev/null
+expect_fail 'already' "$SCOPED"
+sql -v capture=false -f "$ROOT/supabase/tests/policy_commission_scoped_parity.sql" | grep -E '^ *PASS'
+run_suite "$ROOT/supabase/tests/policy_commission_scoped.sql"
+if [ -n "${POSTGREST_BIN:-}" ]; then
+  PGURL="$PGURL" DB_URL="$DB_URL" POSTGREST_BIN="$POSTGREST_BIN" node "$ROOT/scripts/tests/policy_commission/commission_scoped_postgrest.mjs"
+fi
+# Recover exact prior readers without removing a single estimate/receipt; metadata drift must refuse recovery.
+sql -c "ALTER FUNCTION policy_commission_scoped.resolve_scope(text,uuid[]) COST 101" >/dev/null
+expect_fail 'drift' "$SCOPED_ROLLBACK"
+sql -c "ALTER FUNCTION policy_commission_scoped.resolve_scope(text,uuid[]) COST 100" >/dev/null
+sql -1 -f "$SCOPED_ROLLBACK" >/dev/null
+scoped_inventory > "$TEMP/scoped.rolledback"
+commission_inventory > "$TEMP/scoped.commission.rolledback"
+diff -u "$TEMP/scoped.before" "$TEMP/scoped.rolledback"
+diff -u "$TEMP/scoped.commission.before" "$TEMP/scoped.commission.rolledback"
+sql -v capture=false -f "$ROOT/supabase/tests/policy_commission_scoped_parity.sql" | grep -E '^ *PASS'
+sql -c "SELECT test_assert(to_jsonb(cs_history_digest())=cs_get('history_before'),'rollback retains complete financial history')" >/dev/null
+# Execute the exact reviewed SQL Editor packages, including atomic migration-history bookkeeping.
+# This loopback database has a synthetic history table; no hosted database or customer identity is used.
+SCOPED_RELEASE="$ROOT/docs/plans/2026-11-08-team-commissions/release"
+sql <<'SQL' >/dev/null
+CREATE SCHEMA supabase_migrations;
+CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY,statements text[],name text);
+INSERT INTO supabase_migrations.schema_migrations VALUES
+ ('20261110191037',ARRAY['synthetic prior history'],'reports_cleanup'),
+ ('20261110205228',ARRAY['synthetic current head'],'policy_commission_fidelity_alias');
+SQL
+sql -tAX -c 'SELECT to_jsonb(h) FROM supabase_migrations.schema_migrations h ORDER BY version' > "$TEMP/history.before"
+sql -f "$SCOPED_RELEASE/apply.sql" >/dev/null
+expect_fail 'history' "$SCOPED_RELEASE/apply.sql"
+python3 - "$SCOPED" > "$TEMP/history-assert.sql" <<'PY_RELEASE'
+from pathlib import Path
+import hashlib, sys
+body = Path(sys.argv[1]).read_bytes()
+print("SELECT test_assert((SELECT count(*)=1 FROM supabase_migrations.schema_migrations WHERE version='20261111015438' AND name='policy_commission_scoped_reads' AND cardinality(statements)=1 AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')='" + hashlib.sha256(body).hexdigest() + "'),'exact CLI history version/name/bytes');")
+PY_RELEASE
+sql -f "$TEMP/history-assert.sql" >/dev/null
+sql -c "UPDATE supabase_migrations.schema_migrations SET name='injected_history_drift' WHERE version='20261111015438'" >/dev/null
+expect_fail 'Recovery history' "$SCOPED_RELEASE/rollback.sql"
+sql -c "UPDATE supabase_migrations.schema_migrations SET name='policy_commission_scoped_reads' WHERE version='20261111015438'" >/dev/null
+python3 - "$SCOPED_RELEASE/rollback.sql" "$TEMP/package-hash-drift.sql" <<'PY_RELEASE'
+from pathlib import Path
+import re, sys
+body = Path(sys.argv[1]).read_text()
+body, count = re.subn(r"reviewed_hash text := '[0-9a-f]{64}'", "reviewed_hash text := '" + '0'*64 + "'", body)
+assert count == 1
+Path(sys.argv[2]).write_text(body)
+PY_RELEASE
+expect_fail 'Embedded SQL differs' "$TEMP/package-hash-drift.sql"
+sql -f "$SCOPED_RELEASE/rollback.sql" >/dev/null
+scoped_inventory > "$TEMP/scoped.package-rollback"
+diff -u "$TEMP/scoped.before" "$TEMP/scoped.package-rollback"
+sql -tAX -c 'SELECT to_jsonb(h) FROM supabase_migrations.schema_migrations h ORDER BY version' > "$TEMP/history.after"
+diff -u "$TEMP/history.before" "$TEMP/history.after"
+sql -c "SELECT test_assert(to_jsonb(cs_history_digest())=cs_get('history_before'),'release package rollback retains all financial history')" >/dev/null
+sql -v capture=false -f "$ROOT/supabase/tests/policy_commission_scoped_parity.sql" | grep -E '^ *PASS'
+sql -f "$SCOPED_RELEASE/apply.sql" >/dev/null
+sql -f "$TEMP/history-assert.sql" >/dev/null
+sql -v capture=false -f "$ROOT/supabase/tests/policy_commission_scoped_parity.sql" | grep -E '^ *PASS'
+echo 'PASS scoped preimage/replay/drift refusal, exact legacy parity, full catalog rollback and financial history preservation'
+echo 'PASS exact release packages: apply/history bytes/replay/history drift/hash drift/rollback catalog+history/reapply'
+if [ "${PC_SCOPE_MEASURE:-}" = 1 ]; then
+  DB_URL="$DB_URL" bash "$ROOT/scripts/tests/policy_commission/measure_scoped_reads.sh"
+  if [ -n "${POSTGREST_BIN:-}" ]; then
+    PGURL="$PGURL" DB_URL="$DB_URL" POSTGREST_BIN="$POSTGREST_BIN" node "$ROOT/scripts/tests/policy_commission/commission_scoped_scale_postgrest.mjs"
+  fi
+fi
+# Re-run unchanged existing Center and insights acceptance against the FINAL shared implementation and current hierarchy.
+for suite in center insights; do
+  insights_db "scoped_existing_$suite"
+  sql -1 -f "$FIDELITY" >/dev/null
+  python3 "$ROOT/scripts/policy_commission_scope_fixture.py" --schema-only > "$TEMP/scoped-schema.sql"
+  sql -f "$TEMP/scoped-schema.sql" >/dev/null
+  sql -1 -f "$SCOPED" >/dev/null
+  run_suite "$ROOT/supabase/tests/policy_commission_$suite.sql"
+done
+
 echo 'PASS policy commission tracking database proofs'

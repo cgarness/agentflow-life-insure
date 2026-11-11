@@ -1,4 +1,7 @@
-import { hashKey, useMutation, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCommissionScope } from "@/components/commissions/commissionScopeContext";
+import { commissionCenterKeys, commissionQueryIdentity, previousPageFor, guardedCommissionRead, guardedPersonalCommissionRead, hideDeniedData } from "./commissionCenterQuery";
+export { commissionCenterKeys } from "./commissionCenterQuery";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -8,19 +11,7 @@ import {
   effectiveScheduled, periodReady, scheduledReady, type CommissionPeriod, type HistoryFilter, type PoliciesFilter, type ScheduledFilter,
 } from "@/lib/commission/centerFilters";
 
-/**
- * Commissions center access and reads. The page, its navigation item and every read require the existing "View Own
- * Commission Percentage" toggle (the same one the server enforces); nothing is requested under "View As" (the server
- * would answer for the real user). Keys sit under the ["policy-commissions"] prefix, so every tracking write
- * (useTrackingMutation → useRefreshPolicyCommissions) refreshes the center, the drawer and the contact view together.
- * They include the signed-in user, organization and every effective filter, so an earlier identity's or filter's result
- * is never shown for a newer one.
- *
- * Admin and Super Admin hold the toggle without the role_permissions read, so their access is known as soon as their
- * profile is. `fullAccess` repeats usePermissions' own definition (that file is byte-pinned by reportsContracts.test.ts),
- * which the server's policy_commission_toggle also uses for p_full. Every other role fails closed until its permissions
- * load; `permitted` stays false and `permissionsLoading` true meanwhile.
- */
+/** Navigation eligibility is Own OR permitted Team Leader/admin access. Every server request remains authoritative. */
 export function useCommissionsAccess() {
   const { user, profile, isImpersonating } = useAuth();
   const { viewer } = useEffectiveViewer();
@@ -28,105 +19,90 @@ export function useCommissionsAccess() {
   const userId = user?.id ?? null;
   const orgId = viewer?.organizationId ?? null;
   const fullAccess = profile?.is_super_admin === true || profile?.role === "Admin";
-  const permitted = (fullAccess || !permissionsLoading) && canSeeCommission(CALCULATOR_PERMISSION);
+  const ownPermitted = (fullAccess || !permissionsLoading) && canSeeCommission(CALCULATOR_PERMISSION);
+  const teamPermitted = fullAccess || (!permissionsLoading && profile?.role === "Team Leader" && canSeeCommission("View Others' Commission Percentage"));
+  const permitted = ownPermitted || teamPermitted;
   const enabled = permitted && !isImpersonating && !viewer?.isImpersonating && !!userId && !!orgId && viewer?.viewerId === userId;
-  return { userId, orgId, permitted, permissionsLoading, isImpersonating, enabled };
+  const authorityKey = `${profile?.role}:${profile?.is_super_admin}:${ownPermitted}:${teamPermitted}:${profile?.status}`;
+  return { userId, orgId, permitted, ownPermitted, teamPermitted, authorityKey, permissionsLoading, isImpersonating: !!isImpersonating || !!viewer?.isImpersonating, enabled };
 }
 
-export const commissionCenterKeys = {
-  all: ["policy-commissions", "center"] as const,
-  overview: (u: string | null, o: string | null, p: CommissionPeriod) => ["policy-commissions", "center", u, o, "overview", p] as const,
-  scheduled: (u: string | null, o: string | null, f: ScheduledFilter) => ["policy-commissions", "center", u, o, "scheduled", f] as const,
-  history: (u: string | null, o: string | null, f: HistoryFilter) => ["policy-commissions", "center", u, o, "history", f] as const,
-  policies: (u: string | null, o: string | null, f: PoliciesFilter) => ["policy-commissions", "center", u, o, "policies", f] as const,
-  policy: (u: string | null, o: string | null, id: string | null) => ["policy-commissions", "center", u, o, "policy", id] as const,
-  breakdown: (u: string | null, o: string | null, p: CommissionPeriod) => ["policy-commissions", "center", u, o, "breakdown", p] as const,
-  goal: (u: string | null, o: string | null, month: string | null) => ["policy-commissions", "center", u, o, "goal", month] as const,
-};
-
-const common = { staleTime: 15_000, retry: false } as const;
-
-/** Everything that identifies a list's result except its page. */
-const listIdentity = (key: readonly unknown[]) => hashKey([key[2], key[3], key[4], { ...(key[5] as object), page: 0 }]);
-
-/**
- * Keeps the shown page on screen (as placeholder data, marked by `isPlaceholderData`) only while ANOTHER PAGE of the same
- * effective filter loads for the same user and organization. A changed filter or identity gets no placeholder: the list
- * shows its loading state until its own rows arrive, and a failed request shows the error.
- */
-function previousPageFor<T>(key: readonly unknown[]) {
-  const identity = listIdentity(key);
-  return (previous: T | undefined, query: Query<T, Error, T, readonly unknown[]> | undefined) =>
-    query && listIdentity(query.queryKey) === identity ? previous : undefined;
+const common = { staleTime: 15_000, retry: false, refetchOnWindowFocus: "always", refetchOnReconnect: "always" } as const;
+function useReadContext() {
+  const access = useCommissionsAccess();
+  const scope = useCommissionScope();
+  const identity = commissionQueryIdentity(scope.scope ?? undefined, scope.revision);
+  return { access, scope, identity, enabled: access.enabled && scope.ready && (scope.managed || access.ownPermitted),
+    selection: scope.managed ? scope.scope ?? undefined : undefined };
 }
 
 export function useCommissionOverview(period: CommissionPeriod) {
-  const a = useCommissionsAccess();
-  return useQuery({
-    queryKey: commissionCenterKeys.overview(a.userId, a.orgId, period),
-    queryFn: ({ signal }) => commissionCenterApi.overview(period, signal),
-    enabled: a.enabled && periodReady(period),
+  const { access: a, scope, identity, enabled, selection } = useReadContext();
+  return hideDeniedData(useQuery({
+    queryKey: commissionCenterKeys.overview(a.userId, a.orgId, period, identity),
+    queryFn: ({ signal }) => guardedCommissionRead(scope, () => commissionCenterApi.overview(period, signal, selection)),
+    enabled: enabled && periodReady(period),
     ...common,
-  });
+  }));
 }
 
 export function useScheduledPayments(filter: ScheduledFilter) {
-  const a = useCommissionsAccess();
+  const { access: a, scope, identity, enabled, selection } = useReadContext();
   const effective = effectiveScheduled(filter);
-  const queryKey = commissionCenterKeys.scheduled(a.userId, a.orgId, effective);
-  return useQuery({
+  const queryKey = commissionCenterKeys.scheduled(a.userId, a.orgId, effective, identity);
+  return hideDeniedData(useQuery({
     queryKey,
-    queryFn: ({ signal }) => commissionCenterApi.scheduled(effective, signal),
-    enabled: a.enabled && scheduledReady(effective),
+    queryFn: ({ signal }) => guardedCommissionRead(scope, () => commissionCenterApi.scheduled(effective, signal, selection)),
+    enabled: enabled && scheduledReady(effective),
     placeholderData: previousPageFor(queryKey),
     ...common,
-  });
+  }));
 }
 
 export function usePaymentHistory(filter: HistoryFilter) {
-  const a = useCommissionsAccess();
-  const queryKey = commissionCenterKeys.history(a.userId, a.orgId, filter);
-  return useQuery({
+  const { access: a, scope, identity, enabled, selection } = useReadContext();
+  const queryKey = commissionCenterKeys.history(a.userId, a.orgId, filter, identity);
+  return hideDeniedData(useQuery({
     queryKey,
-    queryFn: ({ signal }) => commissionCenterApi.history(filter, signal),
-    enabled: a.enabled && periodReady(filter.period),
+    queryFn: ({ signal }) => guardedCommissionRead(scope, () => commissionCenterApi.history(filter, signal, selection)),
+    enabled: enabled && periodReady(filter.period),
     placeholderData: previousPageFor(queryKey),
     ...common,
-  });
+  }));
 }
 
 export function useCommissionPolicies(filter: PoliciesFilter) {
-  const a = useCommissionsAccess();
-  const queryKey = commissionCenterKeys.policies(a.userId, a.orgId, filter);
-  return useQuery({
+  const { access: a, scope, identity, enabled, selection } = useReadContext();
+  const queryKey = commissionCenterKeys.policies(a.userId, a.orgId, filter, identity);
+  return hideDeniedData(useQuery({
     queryKey,
-    queryFn: ({ signal }) => commissionCenterApi.policies(filter, signal),
-    enabled: a.enabled && periodReady(filter.period),
+    queryFn: ({ signal }) => guardedCommissionRead(scope, () => commissionCenterApi.policies(filter, signal, selection)),
+    enabled: enabled && periodReady(filter.period),
     placeholderData: previousPageFor(queryKey),
     ...common,
-  });
+  }));
 }
 
 /** Carrier and product breakdowns, comparison and Months 10–12 for the Overview's period (one server snapshot). */
 export function useCommissionBreakdown(period: CommissionPeriod) {
-  const a = useCommissionsAccess();
-  return useQuery({
-    queryKey: commissionCenterKeys.breakdown(a.userId, a.orgId, period),
-    queryFn: ({ signal }) => commissionCenterApi.breakdown(period, signal),
-    enabled: a.enabled && periodReady(period),
+  const { access: a, scope, identity, enabled, selection } = useReadContext();
+  return hideDeniedData(useQuery({
+    queryKey: commissionCenterKeys.breakdown(a.userId, a.orgId, period, identity),
+    queryFn: ({ signal }) => guardedCommissionRead(scope, () => commissionCenterApi.breakdown(period, signal, selection)),
+    enabled: enabled && periodReady(period),
     ...common,
-  });
+  }));
 }
 
 /** The seller's goal for one calendar month (`null`: the period is not a single whole month, so no goal is shown). */
 export function useCommissionGoal(month: string | null) {
-  const a = useCommissionsAccess();
-  return useQuery({
-    queryKey: commissionCenterKeys.goal(a.userId, a.orgId, month),
-    queryFn: ({ signal }) => commissionCenterApi.goal(month!, signal),
-    enabled: a.enabled && !!month,
+  const { access: a, scope, identity, enabled, selection } = useReadContext();
+  return hideDeniedData(useQuery({
+    queryKey: commissionCenterKeys.goal(a.userId, a.orgId, month, identity),
+    queryFn: ({ signal }) => guardedPersonalCommissionRead(scope, () => commissionCenterApi.goal(month!, signal)),
+    enabled: enabled && a.ownPermitted && scope.isMe && !!month,
     ...common,
-  });
+  }));
 }
 
 /**
@@ -135,14 +111,14 @@ export function useCommissionGoal(month: string | null) {
  * saved. Refused outright when commissions are not available (e.g. under "View As").
  */
 export function useCommissionGoalMutation(month: string | null) {
-  const a = useCommissionsAccess();
+  const { access: a, scope, identity, enabled, selection } = useReadContext();
   const queryClient = useQueryClient();
-  const key = commissionCenterKeys.goal(a.userId, a.orgId, month);
+  const key = commissionCenterKeys.goal(a.userId, a.orgId, month, identity);
   return useMutation({
     mutationFn: async (targetCents: number | null) => {
-      if (!a.enabled || !month) throw new Error("Commissions aren't available.");
-      if (targetCents === null) await commissionCenterApi.clearGoal(month);
-      else await commissionCenterApi.setGoal(month, targetCents);
+      if (!enabled || !a.ownPermitted || !scope.isMe || !month) throw new Error("Commissions aren't available.");
+      await guardedPersonalCommissionRead(scope, () => targetCents === null
+        ? commissionCenterApi.clearGoal(month) : commissionCenterApi.setGoal(month, targetCents));
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: key, exact: true }),
   });
@@ -150,12 +126,12 @@ export function useCommissionGoalMutation(month: string | null) {
 
 /** The drawer's policy, re-read whenever it opens (tracking writes also refresh it). */
 export function useCommissionPolicy(policyId: string | null) {
-  const a = useCommissionsAccess();
-  return useQuery({
-    queryKey: commissionCenterKeys.policy(a.userId, a.orgId, policyId),
-    queryFn: ({ signal }) => commissionCenterApi.policy(policyId!, signal),
-    enabled: a.enabled && !!policyId,
+  const { access: a, scope, identity, enabled, selection } = useReadContext();
+  return hideDeniedData(useQuery({
+    queryKey: commissionCenterKeys.policy(a.userId, a.orgId, policyId, identity),
+    queryFn: ({ signal }) => guardedCommissionRead(scope, () => commissionCenterApi.policy(policyId!, signal, selection)),
+    enabled: enabled && !!policyId,
     ...common,
     staleTime: 0,
-  });
+  }));
 }

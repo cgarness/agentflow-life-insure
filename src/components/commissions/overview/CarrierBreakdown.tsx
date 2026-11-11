@@ -1,3 +1,4 @@
+import { useCommissionScope } from "../commissionScopeContext";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AmountsHiddenPanel } from "@/components/commission/ui/AmountsVisibility";
@@ -43,6 +44,7 @@ function Bar({ label, value, max, text, fill, to, onClick }: {
  */
 export function CarrierBreakdown({ data, period }: { data: CommissionBreakdown; period: CommissionPeriod }) {
   const { hidden, money } = useAmounts();
+  const { withScopeHref } = useCommissionScope();
   const [metric, setMetric] = useState<CarrierMetric>("policies");
   const [all, setAll] = useState(false);
   const bars = carrierBars(data.carriers, metric, all);
@@ -54,7 +56,7 @@ export function CarrierBreakdown({ data, period }: { data: CommissionBreakdown; 
   const otherNamed = carrierBars(data.carriers, metric, true).shown.slice(bars.shown.length);
   const target = (g: CarrierGroup) => {
     const carrier = { carrier: g.carrier, carrierUnknown: g.carrier === null };
-    return metric === "received" ? historyHref(period, carrier) : soldPoliciesHref(period, { carrier });
+    return withScopeHref(metric === "received" ? historyHref(period, carrier) : soldPoliciesHref(period, { carrier }));
   };
   const isMoney = metric !== "policies";
   return (

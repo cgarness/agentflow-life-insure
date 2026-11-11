@@ -1,0 +1,320 @@
+{
+  "provenance": "Synthetic only; function digests refreshed against hosted catalog November 10 2026 Pacific; current M1 ancestry is retained across Deleted intermediate nodes.",
+  "function_pins": {
+    "private.campaign_actor()": "f582e43731a968fb2e0961e80939ff7e",
+    "policy_commission_authz.actor_org()": "29be135fe6edfb5082838eeb22d48790",
+    "policy_commission_authz.access(uuid)": "a6da4418b7010c609d5be650615ae643"
+  },
+  "profiles": [
+    {
+      "id": 41,
+      "org": 1,
+      "name": "Direct leader",
+      "role": "Team Leader",
+      "path": "n14.n41",
+      "upline": 14
+    },
+    {
+      "id": 42,
+      "org": 1,
+      "name": "Indirect seller",
+      "role": "Agent",
+      "path": "n14.n41.n42",
+      "upline": 41
+    },
+    {
+      "id": 43,
+      "org": 1,
+      "name": "Agent child",
+      "role": "Agent",
+      "path": "n14.n11.n43",
+      "upline": 11
+    },
+    {
+      "id": 44,
+      "org": 1,
+      "name": "Deleted bridge",
+      "role": "Team Leader",
+      "path": "n14.n44",
+      "upline": 14,
+      "final_status": "Deleted"
+    },
+    {
+      "id": 45,
+      "org": 1,
+      "name": "Deleted seller",
+      "role": "Agent",
+      "path": "n14.n45",
+      "upline": 14,
+      "final_status": "Deleted"
+    },
+    {
+      "id": 46,
+      "org": 1,
+      "name": "Bridge child",
+      "role": "Agent",
+      "path": "n14.n44.n46",
+      "upline": 44
+    },
+    {
+      "id": 47,
+      "org": 1,
+      "name": "Inactive empty",
+      "role": "Agent",
+      "path": "n14.n47",
+      "upline": 14,
+      "final_status": "Inactive"
+    },
+    {
+      "id": 48,
+      "org": 1,
+      "name": "Active empty",
+      "role": "Agent",
+      "path": "n14.n48",
+      "upline": 14
+    }
+  ],
+  "read_policies": [
+    {
+      "cmd": "SELECT",
+      "qual": "(super_admin_own_org(organization_id) OR (organization_id = get_org_id()))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "company_settings",
+      "permissive": "PERMISSIVE",
+      "policyname": "company_settings_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "qual": "(super_admin_own_org(organization_id) OR ((organization_id = get_org_id()) AND (get_user_role() = 'Admin'::text)))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "company_settings",
+      "permissive": "PERMISSIVE",
+      "policyname": "company_settings_write",
+      "schemaname": "public",
+      "with_check": "(super_admin_own_org(organization_id) OR ((organization_id = get_org_id()) AND (get_user_role() = 'Admin'::text)))"
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((organization_id = get_user_org_id()) OR is_agency_group_peer_organization(organization_id))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "wins",
+      "permissive": "PERMISSIVE",
+      "policyname": "wins_select",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "qual": "((owner_id = ( SELECT auth.uid() AS uid)) AND (organization_id = ( SELECT policy_commission_authz.actor_org() AS actor_org)) AND (policy_commission_authz.access(( SELECT auth.uid() AS uid)) = 'write'::text))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "policy_commission_goals",
+      "permissive": "PERMISSIVE",
+      "policyname": "policy_commission_goals_owner",
+      "schemaname": "public",
+      "with_check": "((owner_id = ( SELECT auth.uid() AS uid)) AND (organization_id = ( SELECT policy_commission_authz.actor_org() AS actor_org)) AND (policy_commission_authz.access(( SELECT auth.uid() AS uid)) = 'write'::text))"
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(((organization_id IS NOT NULL) AND super_admin_own_org(organization_id)) OR ((organization_id = get_org_id()) AND ((get_user_role() = 'Admin'::text) OR ((get_user_role() = 'Team Leader'::text) AND ((id = auth.uid()) OR is_ancestor_of(auth.uid(), id))) OR ((get_user_role() = 'Agent'::text) AND (id = auth.uid())))))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "profiles",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_select_hierarchical",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "(organization_id = get_user_org_id())",
+      "roles": [
+        "public"
+      ],
+      "tablename": "profiles",
+      "permissive": "PERMISSIVE",
+      "policyname": "profiles_select_org",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "ALL",
+      "qual": "((assigned_agent_id = auth.uid()) OR ((organization_id IS NOT NULL) AND super_admin_own_org(organization_id)) OR ((get_user_role() = 'Admin'::text) AND (organization_id = get_org_id())) OR ((get_user_role() = 'Team Leader'::text) AND (organization_id = get_org_id()) AND is_ancestor_of(auth.uid(), assigned_agent_id)))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "clients",
+      "permissive": "PERMISSIVE",
+      "policyname": "Clients Hierarchical Access",
+      "schemaname": "public",
+      "with_check": "((assigned_agent_id = auth.uid()) OR ((organization_id IS NOT NULL) AND super_admin_own_org(organization_id)) OR ((get_user_role() = 'Admin'::text) AND (organization_id = get_org_id())) OR ((get_user_role() = 'Team Leader'::text) AND (organization_id = get_org_id()) AND is_ancestor_of(auth.uid(), assigned_agent_id)))"
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((organization_id = ( SELECT policy_commission_authz.actor_org() AS actor_org)) AND (policy_commission_authz.access(credited_agent_id) IS NOT NULL))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "policy_commission_handoffs",
+      "permissive": "PERMISSIVE",
+      "policyname": "policy_commission_handoffs_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((organization_id = ( SELECT policy_commission_authz.actor_org() AS actor_org)) AND (policy_commission_authz.access(credited_agent_id) IS NOT NULL))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "policy_commission_captures",
+      "permissive": "PERMISSIVE",
+      "policyname": "policy_commission_captures_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((organization_id = ( SELECT policy_commission_authz.actor_org() AS actor_org)) AND (policy_commission_authz.access(credited_agent_id) IS NOT NULL))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "policy_commission_estimates",
+      "permissive": "PERMISSIVE",
+      "policyname": "policy_commission_estimates_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((organization_id = ( SELECT policy_commission_authz.actor_org() AS actor_org)) AND (policy_commission_authz.access(credited_agent_id) IS NOT NULL))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "policy_commission_installments",
+      "permissive": "PERMISSIVE",
+      "policyname": "policy_commission_installments_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((organization_id = ( SELECT policy_commission_authz.actor_org() AS actor_org)) AND (policy_commission_authz.access(credited_agent_id) IS NOT NULL))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "policy_commission_receipts",
+      "permissive": "PERMISSIVE",
+      "policyname": "policy_commission_receipts_read",
+      "schemaname": "public",
+      "with_check": null
+    },
+    {
+      "cmd": "SELECT",
+      "qual": "((organization_id = ( SELECT policy_commission_authz.actor_org() AS actor_org)) AND (policy_commission_authz.access(credited_agent_id) IS NOT NULL))",
+      "roles": [
+        "authenticated"
+      ],
+      "tablename": "policy_commission_events",
+      "permissive": "PERMISSIVE",
+      "policyname": "policy_commission_events_read",
+      "schemaname": "public",
+      "with_check": null
+    }
+  ],
+  "fixture_differences": [
+    "Read policies match live catalog exactly after applying overlay. All new function grants checked separately.",
+    "Native fixture has no hosted supabase_auth_admin role; its profiles SELECT grant is irrelevant to authenticated callers.",
+    "Existing synthetic sale harness has narrower ancillary table privileges than hosted broad Supabase defaults; authenticated SELECT authority matches, and new functions deny anon/service_role explicitly. No fixture privilege grants are included in the production migration.",
+    "Disposable pc_login(integer) token issuer is SECURITY DEFINER with fixed search_path solely to read the next synthetic actor while switching test identities under live profiles RLS. It is absent from production; every production commission reader/helper remains SECURITY INVOKER."
+  ],
+  "read_table_security": [
+    {
+      "name": "company_settings",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "wins",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "policy_commission_goals",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "profiles",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "clients",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "policy_commission_handoffs",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "policy_commission_captures",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "policy_commission_estimates",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "policy_commission_installments",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "policy_commission_receipts",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    },
+    {
+      "name": "policy_commission_events",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "authenticated_select": true
+    }
+  ]
+}

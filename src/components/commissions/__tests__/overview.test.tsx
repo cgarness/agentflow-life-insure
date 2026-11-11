@@ -25,7 +25,8 @@ import { SummaryCards } from "../overview/SummaryCards";
 import { CommissionTimeline } from "../overview/CommissionTimeline";
 import { NeedsReview } from "../overview/NeedsReview";
 import { UpcomingList } from "../overview/UpcomingList";
-import { overview } from "./centerFixtures";
+import { overview, testScope, TEAM_AGENT } from "./centerFixtures";
+import { CommissionScopeContext } from "../commissionScopeContext";
 
 beforeAll(() => {
   globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
@@ -90,5 +91,27 @@ describe("Overview", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Record payment" })[0]);
     expect(onOpen).toHaveBeenCalledWith(data.upcoming.rows[0].policy_id, { payment: data.upcoming.rows[0].installment_id });
     expect(href("View all 6")).toBe("/commissions/payments?dates=next_90");
+  });
+
+  it("U04/U09/U12: every overview drill-down carries exact agents; team Upcoming and goals have no write controls", () => {
+    const scope = testScope({ mode: "selected", agentIds: [TEAM_AGENT] });
+    const onOpen = vi.fn();
+    inRouter(<CommissionScopeContext.Provider value={scope}>
+      <SummaryCards data={data} period={MONTH} />
+      <CommissionTimeline buckets={data.timeline} />
+      <NeedsReview data={data} />
+      <UpcomingList rows={data.upcoming.rows.map((row) => ({ ...row, credited_agent_id: TEAM_AGENT, agent_name: "Jordan Agent" }))}
+        total={data.upcoming.total_count} onOpen={onOpen} />
+    </CommissionScopeContext.Provider>);
+    for (const link of screen.getAllByRole("link")) {
+      const url = new URL(link.getAttribute("href")!, "https://example.test");
+      expect(url.searchParams.get("agents")).toBe("selected");
+      expect(url.searchParams.get("agent_ids")).toBe(TEAM_AGENT);
+    }
+    expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /goal/i })).toBeNull();
+    expect(screen.getAllByText("Agent: Jordan Agent").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /Client 1/ }));
+    expect(onOpen).toHaveBeenCalledWith(data.upcoming.rows[0].policy_id);
   });
 });

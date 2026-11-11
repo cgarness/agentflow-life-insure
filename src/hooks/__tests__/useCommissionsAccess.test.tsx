@@ -47,8 +47,9 @@ import { useCommissionsAccess } from "../useCommissionsCenter";
 let client: QueryClient;
 const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 const permissionReads = () => h.reads.filter((read) => read.table === "role_permissions");
-const stored = (agent: boolean, teamLeader: boolean) => ({
-  p: [], f: [], d: [], s: [], c: [{ name: "View Own Commission Percentage", description: "", agent, teamLeader }],
+const stored = (agent: boolean, teamLeader: boolean, others = false) => ({
+  p: [], f: [], d: [], s: [], c: [{ name: "View Own Commission Percentage", description: "", agent, teamLeader },
+    { name: "View Others' Commission Percentage", description: "", agent: others, teamLeader: others }],
 });
 /** Releases the held role_permissions read and waits until the hook has committed the loaded permissions. */
 async function resolvePermissions(permissions: ReturnType<typeof stored>, result: { current: { permissionsLoading: boolean } }) {
@@ -123,6 +124,22 @@ describe("useCommissionsAccess", () => {
     expect(result.current.isImpersonating).toBe(true);
     expect(result.current.enabled).toBe(false);
     await resolvePermissions(stored(true, true), result);
+    expect(result.current.enabled).toBe(false);
+  });
+
+  it("A08: permits a Team Leader with Others on and Own off after permissions resolve", async () => {
+    h.role = "Team Leader";
+    const { result } = renderHook(() => useCommissionsAccess(), { wrapper });
+    expect(result.current.enabled).toBe(false);
+    await resolvePermissions(stored(false, false, true), result);
+    expect(result.current.enabled).toBe(true);
+    expect(result.current.permitted).toBe(true);
+  });
+
+  it("A02: an ordinary Agent gains no team authority from the Others toggle", async () => {
+    const { result } = renderHook(() => useCommissionsAccess(), { wrapper });
+    await resolvePermissions(stored(false, false, true), result);
+    expect(result.current.permitted).toBe(false);
     expect(result.current.enabled).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useCommissionScope } from "@/components/commissions/commissionScopeContext";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
@@ -76,6 +77,7 @@ export function resetUnresolvedTrackingWrites() {
  * data; `syncing` is true until that read settles.
  */
 export function useTrackingMutation<F = unknown>(operation: string) {
+  const { deny: denyScope } = useCommissionScope();
   const refresh = useRefreshPolicyCommissions();
   const { user } = useAuth();
   const { viewer } = useEffectiveViewer();
@@ -137,9 +139,11 @@ export function useTrackingMutation<F = unknown>(operation: string) {
       } else {
         setState((current) => ({ status: "error", message, locked: kind === "unknown" || current.locked }));
       }
+      // Notify only after preserving the original unresolved operation and request ID.
+      if (kind === "denied") denyScope(error as Error);
       return null;
     }
-  }, [refresh]);
+  }, [refresh, denyScope]);
 
   /** Resends an unresolved write exactly (same request id and call); nothing happens when none is pending. */
   const retry = useCallback(async <T,>(): Promise<T | null> => {

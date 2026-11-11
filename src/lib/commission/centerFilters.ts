@@ -4,7 +4,7 @@ import { PRODUCT_CATEGORIES, type ProductCategory } from "./centerSchemas";
 /**
  * Commissions center filters live in the URL (so tabs, card links, chart drill-downs and browser back/forward agree).
  * Every value is parsed with Zod and an unknown value falls back to its default; nothing is trusted as authority (the
- * server resolves the period against the agency date and scopes every read to the signed-in seller).
+ * server resolves the period against the agency date and validates the committed agent selection).
  */
 export const COMMISSIONS_PATH = "/commissions";
 export const COMMISSION_TABS = ["overview", "payments", "policies", "calculator"] as const;

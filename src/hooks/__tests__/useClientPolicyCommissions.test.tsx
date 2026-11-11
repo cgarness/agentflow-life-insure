@@ -33,6 +33,8 @@ vi.mock("@/hooks/useOrganization", () => ({ useOrganization: () => ({ organizati
 
 import { resetUnresolvedTrackingWrites, useClientPolicyCommissions, useTrackingMutation } from "../useClientPolicyCommissions";
 import { commissionTrackingApi } from "@/lib/commission/trackingApi";
+import { CommissionScopeContext } from "@/components/commissions/commissionScopeContext";
+import { testScope } from "@/components/commissions/__tests__/centerFixtures";
 
 let client: QueryClient;
 const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
@@ -105,6 +107,36 @@ describe("useTrackingMutation", () => {
   const holdIds = () => h.calls.filter(([name]) => name === "set_policy_commission_hold").map(([, args]) => args.p_request_id);
   const lost = { data: null, error: { code: "", message: "TypeError: Failed to fetch" } };
   const saved = { data: { estimate_id: CLIENT, state_revision: 2, status: "ok" }, error: null };
+
+  it("denied retry clears its scope after preserving the original unresolved form and exact request across return to Me", async () => {
+    h.responses = [lost, { data: null, error: { code: "42501", message: "Commission access is unavailable" } }, saved];
+    const deny = vi.fn();
+    const scopedWrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>
+      <CommissionScopeContext.Provider value={testScope({ mode: "me", agentIds: [] }, { managed: true, deny })}>
+        {children}
+      </CommissionScopeContext.Provider>
+    </QueryClientProvider>;
+    const first = renderHook(() => useTrackingMutation<{ reason: string }>("hold:e1"), { wrapper: scopedWrapper });
+    await act(async () => { await first.result.current.run(write, { reason: "Carrier review" }); });
+    expect(deny).not.toHaveBeenCalled();
+    await act(async () => { await first.result.current.retry(); });
+    expect(deny).toHaveBeenCalledOnce();
+    expect(deny.mock.calls[0][0]).toMatchObject({ kind: "denied" });
+    expect(first.result.current).toMatchObject({ unresolved: true, locked: true, pending: { reason: "Carrier review" } });
+    first.unmount();
+    // Scope denial unmounts the financial subtree. Returning to Me must recover this same operation.
+    const returned = renderHook(() => useTrackingMutation<{ reason: string }>("hold:e1"), { wrapper: scopedWrapper });
+    expect(returned.result.current).toMatchObject({ unresolved: true, locked: true, pending: { reason: "Carrier review" } });
+    expect(holdIds()).toHaveLength(2);
+    const changedInputs = vi.fn(async () => { throw new Error("new form must not be sent"); });
+    await act(async () => { await returned.result.current.run(changedInputs, { reason: "Changed form" }); });
+    expect(changedInputs).not.toHaveBeenCalled();
+    expect(returned.result.current).toMatchObject({ unresolved: false, locked: false });
+    const requests = h.calls.filter(([name]) => name === "set_policy_commission_hold").map(([, args]) => args);
+    expect(requests).toHaveLength(3);
+    expect(requests[1]).toEqual(requests[0]);
+    expect(requests[2]).toEqual(requests[0]);
+  });
 
   it("an unresolved write survives closing and remounting: restart refuses, retry resends the exact call and id", async () => {
     h.responses = [lost, saved];

@@ -1,0 +1,410 @@
+{
+  "project_id": "jncvvsvckxhqgqvkppmj",
+  "external_project_binding_required": true,
+  "status": "prepared_not_applied",
+  "source_base": "e07d28bdef1d8a9a21f0eee408b181b625389527",
+  "version": "20261111015438",
+  "name": "policy_commission_scoped_reads",
+  "expected_hosted_head": "20261110205228",
+  "migration": "supabase/migrations/20261111015438_policy_commission_scoped_reads.sql",
+  "migration_sha256": "553cf6d61c93cbe12de16e0c080b1cd58256b5d6ae659fc32dbd1d4fed346917",
+  "rollback": "supabase/migrations/rollback/20261111015438_policy_commission_scoped_reads.sql",
+  "rollback_sha256": "043a07e09acef78a6b229f471640a0e21944baaccca1a544deafd7489766b079",
+  "apply_package_sha256": "484aa30fe53e958f19cc51b2ca3d02c9e04753353da6a82acd124009749c827f",
+  "rollback_package_sha256": "88146d1ca1205f30e178e0d75988df4ddb072b405f01e361acc3132dad45879c",
+  "sql_effects": "19 new invoker/stable functions, 2 types, 1 non-exposed schema; replace 10 legacy reader/helper bodies; authenticated execute only; set a 20-second PostgREST request budget only on the three new public Overview, Scheduled and Breakdown RPCs; insert one exact migration-history row",
+  "request_budget": {
+    "statement_timeout_seconds": 20,
+    "functions": [
+      "public.get_scoped_commission_overview",
+      "public.get_scoped_commission_installments",
+      "public.get_scoped_commission_breakdown"
+    ],
+    "mechanism": "Function SET statement_timeout, hoisted by PostgREST for that request transaction",
+    "unchanged": "Role/database defaults and all legacy/helper function settings"
+  },
+  "rollback_effects": "Restore 10 captured reader/helper definitions; remove 19 functions, 2 types and schema with RESTRICT; delete only the exact guarded migration-history row; no business data changes",
+  "production_authorization": "Separate exact release approval required; rollback also requires authorization unless explicitly included",
+  "functions": [
+    {
+      "signature": "policy_commission_reporting.installments(uuid,uuid,date,uuid[])",
+      "definition_md5": "bf500a61127e483a68379d460f6e4b14",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "6f4376e58933f1e15cf765edb10fc47740ab2d2a2de6b501597f1be11425f697",
+      "source_definition_sha256": "a9e63e70a40d4568c92c1f052876456d9374bb096caa726466904bc58e90b76f"
+    },
+    {
+      "signature": "policy_commission_reporting.policies(uuid,uuid,uuid)",
+      "definition_md5": "7d607a2a8842683ce052687932b03a41",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "fb48967fc15eb588867cbd83e28980db71a312f4655d9818a88c4feb16f5777c",
+      "source_definition_sha256": "8208745353204914decc99a81a46306fe895bcd161e4a2a1b189d50fed6490c9"
+    },
+    {
+      "signature": "policy_commission_scoped.installments(text,uuid[],date,uuid[],date,date,text,boolean)",
+      "definition_md5": "b93ed60e533c243687245b4bc2adc8df",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "df09f3b1c1027246c8f359b2a1461b467203d52a0a7c314ab74b0b5e1c2d6d48",
+      "source_definition_sha256": "85e605461ed725371da8a2e36f6ce9e4aed134dde9277622183471ff9399cfe8"
+    },
+    {
+      "signature": "policy_commission_scoped.policies(text,uuid[],uuid,uuid[])",
+      "definition_md5": "5ad4e133b1be417aa9fcea399e9bdb36",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "913106d1d7564d79471eb10787c81f75b7408875a8c0e05882dbd2ce28cab0bc",
+      "source_definition_sha256": "f9d774e52d84ca78f738880b48d89a6e684874de8ecb1f17bed60764f3d4b6b8"
+    },
+    {
+      "signature": "policy_commission_scoped.read_breakdown(text,uuid[],text,date,date,boolean)",
+      "definition_md5": "a4c97ed098b646a48b89faec77d892ab",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "a6fdf0d6b5d23828a8cff4a34fcf9f48e924a5ab35d7f5411b6cf457991b393b",
+      "source_definition_sha256": "ef1c6fd26b4bd992e31f5040a1e4eae147a914db289b224e345f40f68ab95e1c"
+    },
+    {
+      "signature": "policy_commission_scoped.read_installments(text,uuid[],text,date,date,text,text,text,text,integer,integer,boolean)",
+      "definition_md5": "ea5b56b161b33342f66b08ad93d54936",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "b0d8657c672d2dec266f9461a10014c6fc61ca91a725befce0b74e9b8504d221",
+      "source_definition_sha256": "b1170ae9a261a2186c79c2c2e5003457480a5707de16ffe9aad87653697c5922"
+    },
+    {
+      "signature": "policy_commission_scoped.read_overview(text,uuid[],text,date,date,boolean)",
+      "definition_md5": "5482cf66e308ae04508a6088c3fae732",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "3d6644ad8f6379c14c3a0afa2632bf085e7d6babc7ec123d149bd0d9f55b81e1",
+      "source_definition_sha256": "f772d6f631171098b012a1fb4bc323d3c510f719826dc398721c42d39d92b139"
+    },
+    {
+      "signature": "policy_commission_scoped.read_policies(text,uuid[],text,text,integer,integer,boolean)",
+      "definition_md5": "570a3a1585f0703f988592dea09fafb6",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "b3c4c789052e6f2a36f1bd4866150cf13d7613e63f8fa5bbcb2fb5bd84300ff4",
+      "source_definition_sha256": "0a69cd819fa8056cfeb0f28a2f219a311be4ad7e3abd49f1bc407d84325b2c25"
+    },
+    {
+      "signature": "policy_commission_scoped.read_policy_detail(text,uuid[],uuid,boolean)",
+      "definition_md5": "9aae4e996f3417a95628628c6c371df5",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "f32226cadba46f9c0842aefb80c4ae4df10f174465d6261e4b2044c697ba07c3",
+      "source_definition_sha256": "1164fed1e890cd711084abcf945f3f4c12611d89fb73e11fa84798ec93040481"
+    },
+    {
+      "signature": "policy_commission_scoped.read_policy_list(text,uuid[],text,text,boolean,text,text,date,date,integer,integer,boolean)",
+      "definition_md5": "2b74ef07cf1c73669f5d7131f50a4421",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "fb86bc50f11c8406892bfdec84fd5f7acaabb7e7118a3cca712a2a873b3187a7",
+      "source_definition_sha256": "37063b84491d3ef8fe13312b5706dcdc80c7728d8e5fdfda868957ea8983fe22"
+    },
+    {
+      "signature": "policy_commission_scoped.read_receipt_list(text,uuid[],text,date,date,boolean,text,boolean,integer,integer,boolean)",
+      "definition_md5": "8a74df542d315f88fbe38508415b3f41",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "9e35673761a6644296fc351ab5a4865fb9a4d7e862b4d3f7ee61b685570c0d20",
+      "source_definition_sha256": "5b21e63834b49b3cadfcbcc2be6037e6f3bfa3a98bb8889dba3ef483970fea82"
+    },
+    {
+      "signature": "policy_commission_scoped.read_receipts(text,uuid[],text,date,date,boolean,integer,integer,boolean)",
+      "definition_md5": "11fd48c7abf2670f548f35e9c92c7638",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "5a7092aeb0939e3f1c4bff8b03e5ab8b78684b7a09b8a6d9b91d40d28c7194ec",
+      "source_definition_sha256": "c851db4125afdadf2c62fb7f286e3bfbfa13b7ee471d7207358bc187bcfdc7cd"
+    },
+    {
+      "signature": "policy_commission_scoped.resolve_scope(text,uuid[])",
+      "definition_md5": "838a8e2a0760e3eb71544e59ed00a38a",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "e6d279c4fc4f6fa62c58eac400edd8922c143962d9f400018b1a6e20877c6bb9",
+      "source_definition_sha256": "cb5ab89c73ebac409944da163172dca8de1fa194e339fe71bd98e84a0e482099"
+    },
+    {
+      "signature": "policy_commission_scoped.viewer(text,uuid[])",
+      "definition_md5": "378c1226266f3daa1ad4fba73e81c5f2",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "7b8680a990c7e9fec53b2359f7a5173e33fdd8e0ae02c9d48c125e12128d6bd1",
+      "source_definition_sha256": "5cd769920f4b5be58bee05ffc48af217030a2f63e04ec723cb8245c03ff8d2c3"
+    },
+    {
+      "signature": "public.get_commission_agent_scope(text,integer,integer,text,uuid[])",
+      "definition_md5": "c3ab5f0bfb1978fddbd438f2ce30e077",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "5eefd9f5d11d00deb30478240cbd1bd091476d37dc5e6020863978ade84d264f",
+      "source_definition_sha256": "abc726f6877afd2e8f7510eb903e687b9c937e2d9b50668666bdf839ce30917d"
+    },
+    {
+      "signature": "public.get_my_commission_breakdown(text,date,date)",
+      "definition_md5": "873cd4448ac0e5ae9afd7aa2dba55cc4",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "17d95178389b9c9cc263265af2649f34561d41d4a8ae224e884fb84ae369bc41",
+      "source_definition_sha256": "32ed8f2436ac33cf882a5bd5ef226134d932876b9f50d8a60401bee99972759c"
+    },
+    {
+      "signature": "public.get_my_commission_installments(text,date,date,text,text,text,text,integer,integer)",
+      "definition_md5": "e2978a44f3e584df53dcbf5ab4c2941f",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "7375d3e0963a26dd66b1b02f9905fa18b5d16bcc00dda8a78c06cada86cc704a",
+      "source_definition_sha256": "eeb727ad62145f158e4a3047ac916e141e6ef91b11abf249ca9c1231c7ca015d"
+    },
+    {
+      "signature": "public.get_my_commission_overview(text,date,date)",
+      "definition_md5": "b7fdb4cf6774cd602310ef3f6e0542de",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "13e5d1a80ae95db0d1c66158d3a848fa7094a7a03c35569988152700ab3ea4d2",
+      "source_definition_sha256": "61db9547ac9aef1dd5485f375e46a5d5fe354af2df1e0753926b0d0c673f9326"
+    },
+    {
+      "signature": "public.get_my_commission_policies(text,text,integer,integer)",
+      "definition_md5": "4fd4eb5a1f5fcd911df7b9b7124f3fc2",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "e378b6e2fd7c9207c70c5aa4b4322685948a288b29f0efe8ed568fc941fd3134",
+      "source_definition_sha256": "95db03bf6c727eb9d2eb3f96fdd5483c612374d6a7db1c25d6057b64305897d4"
+    },
+    {
+      "signature": "public.get_my_commission_policy_list(text,text,boolean,text,text,date,date,integer,integer)",
+      "definition_md5": "0efdbd5f2920846c9a9b36203d788b9a",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "f5580b9a0c9ab9b205a4b8e116f57e3828b5f3c56bc15b62a77d54a5a54ec251",
+      "source_definition_sha256": "ed7e2ad8d2271fb03d56d88a5af6ffa5725e36c9a99618d732ef6440cfa6797c"
+    },
+    {
+      "signature": "public.get_my_commission_receipt_list(text,date,date,boolean,text,boolean,integer,integer)",
+      "definition_md5": "f9b6c1f060b38f876a3ec52b26550881",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "6b26dbea17210946e77b6a6afdf0ce95c1f965e070fffd48475c466f1f5e120a",
+      "source_definition_sha256": "b7c886dd359cc8e8ad2969186ee144ae44b9c5d5c9c35dcb15094df14da2fda3"
+    },
+    {
+      "signature": "public.get_my_commission_receipts(text,date,date,boolean,integer,integer)",
+      "definition_md5": "574fe1fc0f6ab66fb3f7c5763771f5aa",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "5733bbb72b3276beca69ada5e8b90c35e9fd4ee127882d6eb45e683dcc5d836e",
+      "source_definition_sha256": "0dae99b33db5ae27cfa8764c9b9f800cfb8c3d98adbd7ef6ec9660a6373cb90c"
+    },
+    {
+      "signature": "public.get_my_policy_commission(uuid)",
+      "definition_md5": "f46f80066141eb4619432ac15eac2a30",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "1a5c8b2f21e3324ba6b1b945bdb7e94bf3a8c76e0c1fac5258a4ef1399476cf0",
+      "source_definition_sha256": "a83f9fe88d65a71c3378db06e729e8ebe660536e88262ee2539b7eed7c5be1dd"
+    },
+    {
+      "signature": "public.get_scoped_commission_breakdown(text,uuid[],text,date,date)",
+      "definition_md5": "9a1a015e790fe3d3d7a487bd97f26560",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp",
+        "statement_timeout=20s"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "4611d22bbb68528e1a96c86b31b5550f301ce8649f49001149d7cd1f6a1da29c",
+      "source_definition_sha256": "958923c51bd561642ea70691fd27d2ae87daac2a7f9c4b70247b64a19c2cfa4f"
+    },
+    {
+      "signature": "public.get_scoped_commission_installments(text,uuid[],text,date,date,text,text,text,text,integer,integer)",
+      "definition_md5": "aac1a7259a1bd7312fac8c22cc6ed173",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp",
+        "statement_timeout=20s"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "bd588b2373511acd797796f34f165caf1345f063c78365f00e061d57553fff1b",
+      "source_definition_sha256": "eacf44e8fb8c3eb0b763793ffae7bfc2a9f7c854a525339709e57efc1f31e4ea"
+    },
+    {
+      "signature": "public.get_scoped_commission_overview(text,uuid[],text,date,date)",
+      "definition_md5": "e69ef2f5232afd09ff9ced41397ba499",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp",
+        "statement_timeout=20s"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "a6fcd3fa04a4b169900fbbafeaea21cc078210b6aa083b03c2f14faec792fd52",
+      "source_definition_sha256": "8850ea8a46b1866a96ae9fab6ce4b99458a2d76621164523d0d42d3db3bf7fc4"
+    },
+    {
+      "signature": "public.get_scoped_commission_policy_list(text,uuid[],text,text,boolean,text,text,date,date,integer,integer)",
+      "definition_md5": "cc2ee92ee749fb536d4fc29b6d4d900b",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "b7d7077eee99828ddcc7ef586e2e367d4386c349c99838f6320219926321a1fa",
+      "source_definition_sha256": "23d51eb4e305d40101e2d4016625d9596af66ad729d57ecd73dca4bfdd314a4d"
+    },
+    {
+      "signature": "public.get_scoped_commission_receipt_list(text,uuid[],text,date,date,boolean,text,boolean,integer,integer)",
+      "definition_md5": "625861aa2293981965f43d3143a7e084",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "4b3bd9f42e004f44a302824d2883c75ef4d18b8f5a6848598be713dba0f240ee",
+      "source_definition_sha256": "2eb806b8435d51b7cf7edc1f23a4de9b5d7a74c6967f3d7237e8571e9223ce8b"
+    },
+    {
+      "signature": "public.get_scoped_policy_commission(text,uuid[],uuid)",
+      "definition_md5": "819c750c61a1d0509a3921514e8e3ef2",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "provolatile": "s",
+      "prosecdef": false,
+      "source_body_sha256": "70a0fc918d21d535f85008f085ec8c6afb9260a4c55ac9aaa50d17d85088e74d",
+      "source_definition_sha256": "2201b9cba86ceacb485f64762e435359b2e9a007340990c8c36950d487593338"
+    }
+  ]
+}

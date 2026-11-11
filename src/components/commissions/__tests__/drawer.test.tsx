@@ -4,11 +4,11 @@
  * id). A restricted contact keeps its financial history and controls but shows no name or link.
  */
 import React, { useState } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ORG, USER, drawer } from "./centerFixtures";
+import { ORG, USER, testScope, drawer } from "./centerFixtures";
 
 const h = vi.hoisted(() => ({
   calls: [] as Array<[string, Record<string, unknown>]>,
@@ -36,18 +36,24 @@ vi.mock("@/components/commission/preview/PolicyCommissionEstimate", () => ({
 
 import { resetUnresolvedTrackingWrites } from "@/hooks/useClientPolicyCommissions";
 import { CommissionDrawer, type DrawerTarget } from "../CommissionDrawer";
+import { CommissionScopeContext } from "../commissionScopeContext";
 
 const POLICY = "00000000-0000-4000-8000-000000000301";
 const ADVANCE = "00000000-0000-4000-8000-000000000601";
 let setTarget: (t: DrawerTarget | null) => void;
-function Harness({ initial }: { initial: DrawerTarget | null }) {
+let setTeam: (team: boolean) => void;
+function Harness({ initial, initialTeam = false }: { initial: DrawerTarget | null; initialTeam?: boolean }) {
   const [target, set] = useState<DrawerTarget | null>(initial);
+  const [team, changeTeam] = useState(initialTeam);
   setTarget = set;
-  return <CommissionDrawer target={target} onClose={() => set(null)} />;
+  setTeam = changeTeam;
+  return <CommissionScopeContext.Provider value={testScope({ mode: team ? "all" : "me", agentIds: [] })}>
+    <CommissionDrawer key={String(team)} target={target} onClose={() => set(null)} />
+  </CommissionScopeContext.Provider>;
 }
-const renderDrawer = (initial: DrawerTarget | null) => render(
+const renderDrawer = (initial: DrawerTarget | null, initialTeam = false) => render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <MemoryRouter><Harness initial={initial} /></MemoryRouter>
+    <MemoryRouter><Harness initial={initial} initialTeam={initialTeam} /></MemoryRouter>
   </QueryClientProvider>,
 );
 const receipts = () => h.calls.filter(([n]) => n === "record_policy_commission_receipt");
@@ -62,6 +68,15 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Commission drawer", () => {
+  it("A19/U09: a team view forces read-only even when an Admin/self payload advertises write access", async () => {
+    renderDrawer({ policyId: POLICY, payment: ADVANCE, opened: 1 }, true);
+    const sheet = await screen.findByRole("dialog");
+    await within(sheet).findByText("Estimated commission");
+    expect(within(sheet).queryByRole("button", { name: /Record payment|Record estimate|Edit dates|Edit date|Place on hold|Replace|Void|Confirm|Dismiss/ })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Record payment received" })).toBeNull();
+    expect(h.calls.every(([name]) => name.startsWith("get_"))).toBe(true);
+  });
+
   it("shows the policy with the existing tracking controls and a link to the contact", async () => {
     renderDrawer({ policyId: POLICY, opened: 1 });
     const sheet = await screen.findByRole("dialog");
@@ -101,10 +116,15 @@ describe("Commission drawer", () => {
     await within(dialog).findByText("We couldn't confirm this change. Retry sends exactly the same change.");
     const first = receipts()[0][1];
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    setTarget(null);
+    act(() => setTarget(null));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-    setTarget({ policyId: POLICY, opened: 2 });
+    // U11: a selection remount cannot erase the registry or retry the uncertain write automatically.
+    act(() => { setTeam(true); setTarget({ policyId: POLICY, opened: 2 }); });
+    await screen.findByText("Estimated commission");
+    expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull();
+    expect(receipts()).toHaveLength(1);
+    act(() => { setTeam(false); setTarget({ policyId: POLICY, opened: 3 }); });
     const sheet = await screen.findByRole("dialog");
     fireEvent.click((await within(sheet).findAllByRole("button", { name: "Record payment" }))[0]);
     const again = await screen.findByRole("dialog", { name: "Record payment received" });
