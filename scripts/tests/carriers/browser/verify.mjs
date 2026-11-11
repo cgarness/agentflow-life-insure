@@ -78,9 +78,22 @@ try {
     for (const dialog of await page.getByRole('dialog').all()) {
       assert.ok(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1), `${label}: dialog overflow`);
     }
+    for (const trigger of await page.locator('[aria-labelledby="carriers-heading"] button[aria-controls][aria-expanded]').all()) {
+      const bounds = await trigger.evaluate((element) => {
+        const rect = element.getBoundingClientRect(), parent = element.parentElement.getBoundingClientRect();
+        return { name: element.textContent, left: rect.left, right: rect.right, parentLeft: parent.left, parentRight: parent.right,
+          width: element.clientWidth, scrollWidth: element.scrollWidth };
+      });
+      assert.ok(bounds.left >= bounds.parentLeft - 1 && bounds.right <= bounds.parentRight + 1 && bounds.scrollWidth <= bounds.width + 1,
+        `${label}: clipped carrier header ${JSON.stringify(bounds)}`);
+    }
   };
   const capture = async (name) => {
     if (await page.getByRole('dialog').count() === 0) await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(async () => {
+      const finite = document.getAnimations().filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime));
+      await Promise.all(finite.map((animation) => animation.finished.catch(() => {})));
+    });
     await noOverflow(name);
     await page.screenshot({ path: path.join(screenshots, `${name}.png`), fullPage: true });
     captures.push(name);

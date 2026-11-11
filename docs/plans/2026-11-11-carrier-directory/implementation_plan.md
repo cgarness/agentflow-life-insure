@@ -6,7 +6,7 @@ Chris selected the simplified expandable-card design, then said **“Proceed wit
 
 Baseline: `e07d28bdef1d8a9a21f0eee408b181b625389527`; branch `feat/carrier-directory-20261111`. Read `AGENT_RULES.md`, `VISION.md`, and latest `WORK_LOG.md`. The latest Fidelity carrier identity and commission changes must be preserved. PR #527 (Team Commissions), #486 (age/backfill), and #398 (underwriting draft) are separate work; recheck main before publishing.
 
-Implementation is complete on the feature branch. Local focused verification passes 281 tests across 17 files; root TypeScript, production build, scoped lint and native PostgreSQL 17.11 pass. Application TypeScript matches the 79 inherited diagnostics. The prepared workflow supplies exact PostgreSQL 17.6 and isolated browser gates; local Chromium is blocked before launch. See [verification](verification.md) for evidence, limitations and the exact pending production sequence. Current hosted and broader-suite results are recorded in the pull request.
+Implementation is complete on the feature branch. Local focused verification passes 281 tests across 17 files; root TypeScript, production build, scoped lint and native PostgreSQL 17.11 pass. The strict application TypeScript comparison reports base=79, candidate=78, new=0 after removing an inherited impossible Sidebar comparison. Hosted PostgreSQL 17.6 and isolated browser gates have passed; final follow-up results are recorded in the pull request. Local Chromium is blocked before launch. See [verification](verification.md) for evidence, limitations and the exact pending production sequence.
 
 ## Product behavior
 

@@ -2,7 +2,7 @@
 
 Chris approved building the simplified expandable-card Carriers tab. Current plan and intended file list: [Carriers implementation plan](docs/plans/2026-11-11-carrier-directory/implementation_plan.md). Work is on `feat/carrier-directory-20261111` from `e07d28bdef1d8a9a21f0eee408b181b625389527`. Implementation and isolated verification are authorized; production migration execution, merge, and deployment remain pending approval of the finished result. Earlier entries below are preserved history.
 
-Implementation complete: directory, Settings resource editor, append-only page default and pending database validation. Local focused suite 281/281, root TypeScript, build, scoped lint and native PostgreSQL 17.11 pass; application diagnostics match the existing 79. [Verification and pending release sequence](docs/plans/2026-11-11-carrier-directory/verification.md) records the exact SQL checksum and isolated browser/17.6 CI gates. No production action has occurred.
+Implementation complete: directory, Settings resource editor, append-only page default and pending database validation. Local focused suite 281/281, root TypeScript, build, scoped lint and native PostgreSQL 17.11 pass. The strict application baseline comparison reports base=79, candidate=78, new=0 after removing an inherited impossible Sidebar comparison. Hosted PostgreSQL 17.6 and browser gates passed; final mobile follow-up evidence is recorded in PR #528. [Verification and pending release sequence](docs/plans/2026-11-11-carrier-directory/verification.md) records the exact SQL checksum and isolated gates. No production action has occurred.
 
 ---
 

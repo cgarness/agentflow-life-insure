@@ -134,7 +134,7 @@ const Sidebar: React.FC = () => {
             label={item.label}
             path={item.path}
             collapsed={collapsed}
-            isActive={location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path))}
+            isActive={location.pathname.startsWith(item.path)}
             onClick={() => setMobileOpen(false)}
           />
         ))}
