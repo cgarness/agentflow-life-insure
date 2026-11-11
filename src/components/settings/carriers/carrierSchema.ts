@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { carrierResourceLinksSchema } from "@/lib/carrierResources";
 
 const labeledContactSchema = z.object({
   label: z.string().trim().max(50, "Label must be 50 characters or less"),
@@ -88,6 +89,7 @@ export const carrierSchema = z.object({
     ),
 
   is_appointed: z.boolean().default(false),
+  resource_links: carrierResourceLinksSchema.default([]),
 });
 
 export type CarrierFormInput = z.input<typeof carrierSchema>;

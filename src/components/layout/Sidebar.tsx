@@ -4,7 +4,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import {
   ChevronLeft, ChevronRight, ArrowLeft, ShieldAlert, FlaskConical, Gauge,
   LayoutDashboard, Phone, Users, MessageSquare, Calendar,
-  Megaphone, Trophy, BarChart3, Bot, GraduationCap, Settings, X, FileText
+  Megaphone, Trophy, BarChart3, Bot, ShieldCheck, GraduationCap, Settings, X, FileText
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSidebarContext } from "@/contexts/SidebarContext";
@@ -34,6 +34,7 @@ const MAIN_MENU = [
   { icon: Trophy, label: "Leaderboard", path: "/leaderboard" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
   { icon: Bot, label: "AI Agents", path: "/ai-agents" },
+  { icon: ShieldCheck, label: "Carriers", path: "/carriers" },
   { icon: GraduationCap, label: "Training", path: "/training" },
   { icon: FileText, label: "Resources", path: "/resources" },
   { icon: Settings, label: "Settings", path: "/settings" },
@@ -133,7 +134,7 @@ const Sidebar: React.FC = () => {
             label={item.label}
             path={item.path}
             collapsed={collapsed}
-            isActive={location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path))}
+            isActive={location.pathname.startsWith(item.path)}
             onClick={() => setMobileOpen(false)}
           />
         ))}

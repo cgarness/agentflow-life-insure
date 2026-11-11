@@ -1707,6 +1707,7 @@ export type Database = {
           name: string
           organization_id: string
           portal_url: string | null
+          resource_links: Json
           updated_at: string
         }
         Insert: {
@@ -1719,6 +1720,7 @@ export type Database = {
           name: string
           organization_id: string
           portal_url?: string | null
+          resource_links?: Json
           updated_at?: string
         }
         Update: {
@@ -1731,6 +1733,7 @@ export type Database = {
           name?: string
           organization_id?: string
           portal_url?: string | null
+          resource_links?: Json
           updated_at?: string
         }
         Relationships: [

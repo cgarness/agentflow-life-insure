@@ -81,7 +81,7 @@ const SETTINGS_SECTION_LABELS = SETTINGS_CONFIG.flatMap((c) => c.sections.map((s
 const SUPPORTED = ["Contacts", "Conversations"];
 const UNSUPPORTED = [
   "Dashboard", "Dialer", "Calendar", "Campaigns", "Leaderboard", "Reports",
-  "AI Agents", "Training", "Resources", "Commissions", "Settings",
+  "AI Agents", "Carriers", "Training", "Resources", "Commissions", "Settings",
 ];
 const SUPER_ADMIN_ONLY = ["AI Testing", "Agencies", "Control Center"];
 
