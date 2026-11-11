@@ -1,10 +1,36 @@
 # Carrier directory verification
 
+## Production release — November 11, 2026
+
+Chris approved the reviewed migration and frontend release. The canonical AgentFlow feature is live; this section supersedes the pending-release status in the preparation record below.
+
+- Migration: `carrier_resource_links`, hosted version `20261111192142`, applied once through the migration API.
+- Source SHA-256: `6809e2be65dd77835251edd069b85e043ac6793d9dfce6266f6954401e3ce97d`.
+- Stored statement MD5: `e44199916cd206b7fcc33104c247ab91`; validator body MD5: `54f8118072bffb64086fdc3c2d0b0843`.
+- Feature merge: [PR #528](https://github.com/cgarness/agentflow-life-insure/pull/528), `144151f556977c3b89dac83c3b2c3edf409256cf`; tree `4761ed2d6056e24ec9532888edea78a8558b8f60`, identical to reviewed head `d2952a3ade551c1e4709bed4b502ad50e02a9f14`.
+
+Readback confirms `jsonb NOT NULL DEFAULT '[]'`, the enabled INSERT/UPDATE OF resource_links trigger, SECURITY INVOKER, `search_path=pg_catalog`, and no direct anon/authenticated/service_role execution. The complete pre-existing values of all 12 carrier rows retain MD5 `808ac3666569a24f9cd44e05df654ac5`; all new arrays are empty. Existing columns, constraints, indexes, policies, raw table ACL, old trigger, private-schema permissions and existing function inventory remain identical. Raw PG17 ACL additionally exposes the already-existing MAINTAIN grants omitted from the original information_schema-based fixture; those privileges were preserved, not introduced or hardened. Security/performance advisor output differs only in observed_at timestamps; health remains empty.
+
+### Feature production builds
+
+| Project | Deployment | Status | Verification |
+|---|---|---|---|
+| agentflow | `dpl_5vXiWy8kFXLexKTfFHqH8HSGBtVZ` | READY, main / feature merge above | Canonical www.fflagent.com aliases point to it; `/carriers`, entry JS and CSS return HTTP 200. The bundle contains the new route, search, groups, resource editor and contact actions with the correct production Supabase URL. |
+| agentflow-life-insure | `dpl_7kPBBYjjCTQSwzfdfr225pZH8T91` | READY, main / feature merge above | Alias updated and static assets return HTTP 200, but the legacy project bundle has undefined Supabase URL/key initialization. A successful build does not prove that alternate app starts. |
+
+The legacy project's configuration inputs (`client.ts`, `vite.config.ts`, `vercel.json`) were not changed by this PR. Historical onset of its configuration issue is unconfirmed because its preceding immutable deployment requires Vercel authentication and environment-metadata reads are denied. No settings, credentials or protection changes were made. This separate legacy issue does not affect the correctly configured canonical site.
+
+The live browser reached the expected sign-in page from the canonical Carriers route; no authenticated production session or carrier edit was exercised. The nine signed-in browser scenarios and all ten screenshots passed at the exact feature head in [run 43082286811](https://github.com/cgarness/agentflow-life-insure/actions/runs/43082286811), alongside 281 focused tests and native PostgreSQL 17.6 validation. All eleven final-head workflows passed. The [full hosted comparison](https://github.com/cgarness/agentflow-life-insure/actions/runs/43082286713) reports 7,085 candidate tests passing versus 6,958 on base, no new failing tests/files, zero unhandled runtime errors and 78 inherited application type diagnostics. Its one failed test and nine failed files are baseline issues; this is not a globally clean test/typecheck claim.
+
+Deployment-filtered production error/fatal logs had no records in the short initial READY-to-read windows (agentflow 19:23:10–19:23:54 UTC; legacy 19:23:08–19:24:03 UTC). Those function/daemon logs do not cover browser exceptions or Supabase API errors. The legacy asset finding demonstrates that limitation.
+
+The pending-path SQL is now immutable applied evidence despite its historical PENDING comment. Do not replay it. Release closeout changes only this document, WORK_LOG and the root plan; later documentation-only builds do not alter the application or SQL source reviewed above.
+
 ## Story and release status
 
 An authenticated life-insurance agent opens Carriers, searches their agency's existing carrier names, expands one card, and uses its portal, guides/training and labeled contacts. An agency administrator edits ordered links in Settings → Carriers; an acknowledged organization-scoped save refreshes the directory without changing unrelated carrier fields.
 
-Implementation is on `feat/carrier-directory-20261111`, based on `e07d28bdef1d8a9a21f0eee408b181b625389527`. Main was rechecked and unchanged before publication. PR #527, #486 and #398 remain separate work. This feature is **not applied to production, merged, deployed or live**. No carrier resources were seeded or existing carriers renamed.
+The preparation record below describes `feat/carrier-directory-20261111`, based on `e07d28bdef1d8a9a21f0eee408b181b625389527`. Main was rechecked and unchanged before publication. PR #527, #486 and #398 remain separate work. At that preparation stage, production application/merge/deployment were pending; the completed release section above supersedes that status. No carrier resources were seeded or existing carriers renamed.
 
 ## Executed local evidence
 
@@ -54,7 +80,7 @@ The automatic Supabase Preview check was cancelled by the existing concurrent-br
 
 The corrected feature workflow [passed all three jobs](https://github.com/cgarness/agentflow-life-insure/actions/runs/43081268574): 281 focused tests/build, native PostgreSQL 17.6, and all nine browser scenarios with ten screenshots and zero external requests. The wider CI type-baseline gate then identified a changed inherited Sidebar diagnostic: its new path union included `/carriers`, so its exact diagnostic comparison correctly refused to treat it as byte-identical. Removed the impossible `item.path !== "/"` branch (all core menu paths are non-root), preserving active-route behavior. The unmodified strict comparator now reports **base=79, candidate=78, new=0**; all 56 Sidebar/View As tests pass. Final hosted checks are recorded in the PR.
 
-Visual inspection of all ten screenshots found that an unbroken long carrier name could clip the mobile expand arrow, despite the original document-overflow assertion passing. The trigger now has `min-w-0` so its existing truncated name can shrink within the card. The verifier additionally checks every trigger against its header bounds and intrinsic scroll width, and waits for real finite document animations before screenshots to avoid capturing a theme transition. It retains all earlier assertions and does not cancel or force animations. Final browser results and inspected screenshots are recorded in PR #528.
+Visual inspection of all ten screenshots found that an unbroken long carrier name could clip the mobile expand arrow, despite the original document-overflow assertion passing. The trigger now has `min-w-0` so its name can wrap within the card. The verifier additionally checks every trigger against its header bounds and intrinsic scroll width, and waits for real finite document animations before screenshots to avoid capturing a theme transition. It retains all earlier assertions and does not cancel or force animations. Final browser results and inspected screenshots are recorded in PR #528.
 
 ## Exact pending production sequence
 

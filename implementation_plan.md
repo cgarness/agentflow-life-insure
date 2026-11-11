@@ -1,3 +1,15 @@
+## November 11, 2026 — Carriers production release complete
+
+Chris approved the exact migration and PR #528 release. `carrier_resource_links` is applied as hosted version `20261111192142`, with reviewed SHA-256 `6809e2be65dd77835251edd069b85e043ac6793d9dfce6266f6954401e3ce97d` and stored SQL MD5 `e44199916cd206b7fcc33104c247ab91`. Column/validator/trigger readback, preserved carrier/security fingerprints and advisor comparison pass. The reviewed SQL remains immutable applied evidence in its pending path and must never be replayed.
+
+PR #528 merged as `144151f556977c3b89dac83c3b2c3edf409256cf`, with exactly the tested tree `4761ed2d6056e24ec9532888edea78a8558b8f60`. Both linked feature production builds are READY. Canonical AgentFlow serves the new Carriers route, code and styles with correct Supabase configuration; the unauthenticated browser reaches sign-in. Signed-in flow acceptance is the isolated nine-scenario browser run. All eleven final-head workflows passed, including the full comparison with no new test/type/runtime failures. Existing hosted baseline failures remain documented.
+
+The separate legacy Vercel project's current bundle has undefined Supabase initialization; the approved PR did not change those configuration inputs. Historical onset cannot be established with available access. No environment/settings/protection changes were made, and the canonical site is unaffected. See the newest WORK_LOG and [verification](docs/plans/2026-11-11-carrier-directory/verification.md) for exact deployment IDs, evidence and limits.
+
+Release closeout edits are limited to `WORK_LOG.md`, this `implementation_plan.md`, and `docs/plans/2026-11-11-carrier-directory/verification.md`. No additional application, migration or workflow changes. Earlier pending-release entries below are preserved history and are superseded by this completion status.
+
+---
+
 ## November 11, 2026 — Carriers directory implementation
 
 Chris approved building the simplified expandable-card Carriers tab. Current plan and intended file list: [Carriers implementation plan](docs/plans/2026-11-11-carrier-directory/implementation_plan.md). Work is on `feat/carrier-directory-20261111` from `e07d28bdef1d8a9a21f0eee408b181b625389527`. Implementation and isolated verification are authorized; production migration execution, merge, and deployment remain pending approval of the finished result. Earlier entries below are preserved history.
