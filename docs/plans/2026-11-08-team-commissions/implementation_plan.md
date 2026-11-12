@@ -1,4 +1,14 @@
-## November 12 refreshed candidate / performance blocker
+## November 12 — approved bounded request budgets
+
+Chris approved proceeding with the proposed 40-second cap after clarifying that the scale case represents one agency, not all agencies combined. The scope is exactly three new readers: `get_scoped_commission_overview`, `get_scoped_commission_installments`, and `get_scoped_commission_policy_list`. `get_scoped_commission_breakdown` remains at 20 seconds. Existing My APIs, helpers, role/database limits and security rules remain unchanged. Broader multi-agency concurrency work is deferred and has not been verified. This is implementation approval only; production release remains separately gated.
+
+Exact intended files: the existing `20261112165503` migration and guarded rollback; release transaction packages/manifest and generator as needed; `measure_scoped_reads.sh`, `commission_scoped_scale_postgrest.mjs`, native harness/runner exact-setting assertions, `.github/workflows/policy-commission-tracking.yml` test wall-clock allowance, root/focused plans, verification/evidence, release document, narrow AGENT_RULES invariant and WORK_LOG. Preserve original failures and all financial/security assertions. Regenerate actual catalog pins and prove the 40/20-second caps and eight-second pooled default restoration, complete scale matrix and final-head CI before the production approval request.
+
+Current prepared migration SHA-256 `0118728fde1d70d45c6595745a15109f997674e3801b608e037fd7f618debff1`; apply transaction `750d5c13a56d1a2b59e942d5fba2e7dcd68b4681535d107bbcd72a50c5ef8f5d`; rollback source `6c6a6cb2cc61d903624a91f1e65c5433dfeae0f887a164d5d530bf31b2cf34d0`; rollback transaction `6e4665af865fb5b70250ce3e3742c32a4ba46425bd008b3bc6bd55e96e1ebb2f`. Native catalog pins were refreshed from all 29 actual function postimages. Only the three approved new headers change; all function bodies and existing helper/legacy metadata remain unchanged. Full verification is pending.
+
+Current status: approved budget changes and exact packages are prepared; full verification is running. No production changes. Historical entries and measurements below are retained; their earlier pending-budget language is superseded by this approval.
+
+## Historical — November 12 candidate before budget approval
 
 Current base `713aa48d2c71de7da595d74bee878324654e3255` includes released Carriers; its permission-hook bytes and histories are preserved. Refreshed hosted head `20261111192142` leaves all28 commission/auth preimages unchanged. New CLI source is `supabase/migrations/20261112165503_policy_commission_scoped_reads.sql`, with matching rollback; replaces only the older UNAPPLIED Team Commissions timestamp. Current migration SHA-256 `636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366`. No production changes.
 
@@ -12,7 +22,7 @@ Baseline: main `e07d28bdef1d8a9a21f0eee408b181b625389527`, branch `feat/team-com
 
 Supabase CLI 2.84.5 generated `20261111015438_policy_commission_scoped_reads.sql`, which sorts after hosted history. Matching rollback restores fresh captured legacy definitions and removes new objects in explicit dependency order without CASCADE or business data changes.
 
-## Local candidate complete — production not authorized
+## Historical — November 10 local candidate, production not authorized
 
 Implementation, all 51 acceptance scenarios, final full native runner (exit 0), 36 repeated scale cases, exact SQL apply/history/rollback/reapply proofs, 48 browser checks, 163 focused frontend tests and production build are complete. Full frontend: 7,110 passed; unchanged one baseline failure/ten pending. Application TypeScript and global lint retain byte-equivalent base findings (79 diagnostics; 11 errors/145 warnings); scoped lint/root TypeScript pass. The only prepared budget extension is20 seconds on the three new public aggregate RPCs, verified through real PostgREST with 8-second role defaults/restoration. No RLS/auth/writer/role/database setting change.
 

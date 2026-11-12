@@ -7,17 +7,20 @@
   "name": "policy_commission_scoped_reads",
   "expected_hosted_head": "20261111192142",
   "migration": "supabase/migrations/20261112165503_policy_commission_scoped_reads.sql",
-  "migration_sha256": "636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366",
+  "migration_sha256": "0118728fde1d70d45c6595745a15109f997674e3801b608e037fd7f618debff1",
   "rollback": "supabase/migrations/rollback/20261112165503_policy_commission_scoped_reads.sql",
-  "rollback_sha256": "043a07e09acef78a6b229f471640a0e21944baaccca1a544deafd7489766b079",
-  "apply_package_sha256": "9a0fe4dad8d18b54d78e4d6b985be865b7bab01a96971e2eba86f9c7e780435e",
-  "rollback_package_sha256": "4426445f5a0946619bfc00376c961a71a0e001f41ec57f18f65138fed6daa050",
-  "sql_effects": "19 new invoker/stable functions, 2 types, 1 non-exposed schema; replace 10 legacy reader/helper bodies; authenticated execute only; set a 20-second PostgREST request budget only on the three new public Overview, Scheduled and Breakdown RPCs; insert one exact migration-history row",
+  "rollback_sha256": "6c6a6cb2cc61d903624a91f1e65c5433dfeae0f887a164d5d530bf31b2cf34d0",
+  "apply_package_sha256": "750d5c13a56d1a2b59e942d5fba2e7dcd68b4681535d107bbcd72a50c5ef8f5d",
+  "rollback_package_sha256": "6e4665af865fb5b70250ce3e3742c32a4ba46425bd008b3bc6bd55e96e1ebb2f",
+  "sql_effects": "19 new invoker/stable functions, 2 types, 1 non-exposed schema; replace 10 legacy reader/helper bodies; authenticated execute only; set a 40-second PostgREST request budget only on new Overview, Scheduled and Policies RPCs; retain 20 seconds on new Breakdown; insert one exact migration-history row",
   "request_budget": {
-    "statement_timeout_seconds": 20,
+    "statement_timeout_seconds": 40,
     "functions": [
       "public.get_scoped_commission_overview",
       "public.get_scoped_commission_installments",
+      "public.get_scoped_commission_policy_list"
+    ],
+    "retained_20_second_functions": [
       "public.get_scoped_commission_breakdown"
     ],
     "mechanism": "Function SET statement_timeout, hoisted by PostgREST for that request transaction",
@@ -341,44 +344,45 @@
     },
     {
       "signature": "public.get_scoped_commission_installments(text,uuid[],text,date,date,text,text,text,text,integer,integer)",
-      "definition_md5": "aac1a7259a1bd7312fac8c22cc6ed173",
+      "definition_md5": "873863d814257a2e15528d13b730707d",
       "owner": "postgres",
       "acl": "{postgres=X/postgres,authenticated=X/postgres}",
       "proconfig": [
         "search_path=pg_catalog, pg_temp",
-        "statement_timeout=20s"
+        "statement_timeout=40s"
       ],
       "provolatile": "s",
       "prosecdef": false,
       "source_body_sha256": "bd588b2373511acd797796f34f165caf1345f063c78365f00e061d57553fff1b",
-      "source_definition_sha256": "eacf44e8fb8c3eb0b763793ffae7bfc2a9f7c854a525339709e57efc1f31e4ea"
+      "source_definition_sha256": "32b1acd496a30b5dd3483564c823c3011dac86b523f4514ca279cfacb8767d21"
     },
     {
       "signature": "public.get_scoped_commission_overview(text,uuid[],text,date,date)",
-      "definition_md5": "e69ef2f5232afd09ff9ced41397ba499",
+      "definition_md5": "804245059bc2aa2432791117ce3c74b6",
       "owner": "postgres",
       "acl": "{postgres=X/postgres,authenticated=X/postgres}",
       "proconfig": [
         "search_path=pg_catalog, pg_temp",
-        "statement_timeout=20s"
+        "statement_timeout=40s"
       ],
       "provolatile": "s",
       "prosecdef": false,
       "source_body_sha256": "a6fcd3fa04a4b169900fbbafeaea21cc078210b6aa083b03c2f14faec792fd52",
-      "source_definition_sha256": "8850ea8a46b1866a96ae9fab6ce4b99458a2d76621164523d0d42d3db3bf7fc4"
+      "source_definition_sha256": "507c61fb9a82c95767d8034b09f93f8dd3fa46f54629391db2cc9b51bd47b8e3"
     },
     {
       "signature": "public.get_scoped_commission_policy_list(text,uuid[],text,text,boolean,text,text,date,date,integer,integer)",
-      "definition_md5": "cc2ee92ee749fb536d4fc29b6d4d900b",
+      "definition_md5": "fc5a9b6961b8933873fb7c91c742baa0",
       "owner": "postgres",
       "acl": "{postgres=X/postgres,authenticated=X/postgres}",
       "proconfig": [
-        "search_path=pg_catalog, pg_temp"
+        "search_path=pg_catalog, pg_temp",
+        "statement_timeout=40s"
       ],
       "provolatile": "s",
       "prosecdef": false,
       "source_body_sha256": "b7d7077eee99828ddcc7ef586e2e367d4386c349c99838f6320219926321a1fa",
-      "source_definition_sha256": "23d51eb4e305d40101e2d4016625d9596af66ad729d57ecd73dca4bfdd314a4d"
+      "source_definition_sha256": "68cf5b4926cd7f6537336416f227ceaab4cf5e19bef560b722e4e3c4a51d2ecb"
     },
     {
       "signature": "public.get_scoped_commission_receipt_list(text,uuid[],text,date,date,boolean,text,boolean,integer,integer)",

@@ -61,7 +61,9 @@ jobs:
   database:
     name: PostgreSQL 17.6 + PostgREST 12.2.3 (synthetic data)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Seven warm samples for every large-book query plus8/20/40s cap probes need more job time.
+    # This wall-clock allowance does not alter the individually asserted query budgets.
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:17.6

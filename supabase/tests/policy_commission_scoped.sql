@@ -167,7 +167,7 @@ SELECT test_assert((SELECT count(*) FROM policy_commission_reporting.policies(te
 SELECT test_assert((SELECT count(*) FROM policy_commission_reporting.installments(test_id(11),test_id(1),current_date))=0,'A16 legacy installment helper self-only');
 SELECT 'PASS A16 direct granted helper validation and legacy self-only helper boundaries' AS result;
 RESET ROLE;
-SELECT test_assert(bool_and(NOT p.prosecdef AND p.provolatile='s' AND p.proconfig=CASE WHEN n.nspname='public' AND p.proname IN ('get_scoped_commission_overview','get_scoped_commission_installments','get_scoped_commission_breakdown') THEN ARRAY['search_path=pg_catalog, pg_temp','statement_timeout=20s'] ELSE ARRAY['search_path=pg_catalog, pg_temp'] END
+SELECT test_assert(bool_and(NOT p.prosecdef AND p.provolatile='s' AND p.proconfig=CASE WHEN n.nspname='public' AND p.proname IN ('get_scoped_commission_overview','get_scoped_commission_installments','get_scoped_commission_policy_list') THEN ARRAY['search_path=pg_catalog, pg_temp','statement_timeout=40s'] WHEN n.nspname='public' AND p.proname='get_scoped_commission_breakdown' THEN ARRAY['search_path=pg_catalog, pg_temp','statement_timeout=20s'] ELSE ARRAY['search_path=pg_catalog, pg_temp'] END
   AND pg_get_userbyid(p.proowner)='postgres' AND has_function_privilege('authenticated',p.oid,'EXECUTE')
   AND NOT has_function_privilege('anon',p.oid,'EXECUTE') AND NOT has_function_privilege('service_role',p.oid,'EXECUTE')
   AND NOT EXISTS(SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee=0)),

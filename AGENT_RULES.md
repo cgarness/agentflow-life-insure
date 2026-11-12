@@ -889,8 +889,9 @@ evidence: `verification.md` beside it.
   STABLE SECURITY INVOKER, with fixed search paths, explicit tenant/seller predicates and authenticated-only execution.
   No new SECURITY DEFINER, RLS change, private actor grant, table write grant or financial writer. Legacy public signatures,
   defaults and response contracts, and the old reporting fact layouts/self-only behavior, remain compatible.
-  The prepared three new aggregate RPCs (overview/installments/breakdown) have explicit 20-second PostgREST-hoisted
-  request budgets for measured large books. Keep existing role/database limits and legacy/helper metadata unchanged;
+  The approved new overview/installments/policy-list RPCs have explicit 40-second PostgREST-hoisted
+  request budgets; the new breakdown RPC retains 20 seconds. These are bounded allowances, not latency guarantees.
+  Keep existing role/database limits and legacy/helper metadata unchanged;
   include these new function settings in exact production approval and verify actual HTTP enforcement/restoration.
   Fixed dynamic SELECTs bind values with USING; never interpolate filters or actor/seller inputs into SQL text.
   Scale verification includes at least seven warm calls to expose cached-plan regressions, plus real HTTP budget/reset checks.

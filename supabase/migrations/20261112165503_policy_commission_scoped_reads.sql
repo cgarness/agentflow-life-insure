@@ -7,8 +7,8 @@
 -- Optional installment windows/kinds only narrow the exact requested output domain; no-filter
 -- defaults retain every legacy installment, including undated records. Typed ROW projections
 -- preserve the old composite layouts without serializing and reparsing every summary fact.
--- Only the new public Overview, Scheduled and Breakdown RPCs declare a bounded 20s
--- transaction request budget for PostgREST to hoist. Role/database defaults, legacy
+-- Only new public Overview, Scheduled and Policies RPCs declare the approved bounded 40s
+-- request budget; Breakdown retains 20s. PostgREST hoists these per request. Role/database defaults, legacy
 -- readers and helper-function settings are unchanged; release approval must name this effect.
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '120s';
@@ -363,7 +363,7 @@ CREATE FUNCTION public.get_scoped_commission_overview(p_agent_scope text,p_agent
  LANGUAGE sql
  STABLE SECURITY INVOKER
  SET search_path TO 'pg_catalog', 'pg_temp'
- SET statement_timeout TO '20s'
+ SET statement_timeout TO '40s'
 AS $function$
  SELECT policy_commission_scoped.read_overview(p_agent_scope,p_agent_ids,p_period,p_from,p_to,false)
 $function$;
@@ -448,7 +448,7 @@ CREATE FUNCTION public.get_scoped_commission_installments(p_agent_scope text,p_a
  LANGUAGE sql
  STABLE SECURITY INVOKER
  SET search_path TO 'pg_catalog', 'pg_temp'
- SET statement_timeout TO '20s'
+ SET statement_timeout TO '40s'
 AS $function$
  SELECT policy_commission_scoped.read_installments(p_agent_scope,p_agent_ids,p_period,p_from,p_to,p_scope,p_status,p_kind,p_carrier,p_limit,p_offset,false)
 $function$;
@@ -821,6 +821,7 @@ CREATE FUNCTION public.get_scoped_commission_policy_list(p_agent_scope text,p_ag
  LANGUAGE sql
  STABLE SECURITY INVOKER
  SET search_path TO 'pg_catalog', 'pg_temp'
+ SET statement_timeout TO '40s'
 AS $function$
  SELECT policy_commission_scoped.read_policy_list(p_agent_scope,p_agent_ids,p_setup,p_carrier,p_carrier_unknown,p_category,p_period,p_from,p_to,p_limit,p_offset,false)
 $function$;

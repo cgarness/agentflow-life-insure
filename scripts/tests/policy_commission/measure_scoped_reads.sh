@@ -61,7 +61,7 @@ if [ "${PC_SCOPE_SEED_ONLY:-}" = 1 ]; then exit 0; fi
 psql "$DB_URL" -qX -v ON_ERROR_STOP=1 -v samples="${PC_SCOPE_SAMPLES:-7}" <<'SQL'
 \pset footer off
 -- The refreshed production authenticated/authenticator statement budget is 8 seconds.
--- Three NEW public readers explicitly configure20s; other readers retain8s. Each direct statement models
+-- Three approved NEW readers configure40s; Breakdown retains20s; other readers retain8s. Each direct statement models
 -- that metadata budget. The separate actualPostgREST suite proves HTTP hoisting and transaction restoration.
 SET statement_timeout='8s';
 CREATE FUNCTION cs_measure(p_n integer,p_label text,p_query text,p_sample integer,p_plan boolean DEFAULT false)
@@ -121,6 +121,6 @@ if [ -n "${PC_SCOPE_OUTPUT:-}" ]; then
   psql "$DB_URL" -tAX -v ON_ERROR_STOP=1 -c 'SELECT jsonb_agg(to_jsonb(p) ORDER BY agents,read) FROM cs_scale_plans p' > "$PC_SCOPE_OUTPUT/query-plans.json"
 fi
 psql "$DB_URL" -qX -v ON_ERROR_STOP=1 <<'SQL'
-SELECT test_assert(NOT EXISTS(SELECT 1 FROM cs_scale_timing WHERE outcome<>'ok'),'all scoped scale requests complete within reviewed per-RPC budget (8s default; exactly three new readers20s)');
+SELECT test_assert(NOT EXISTS(SELECT 1 FROM cs_scale_timing WHERE outcome<>'ok'),'all scoped scale requests complete within reviewed per-RPC budget (8s default; exactly three approved new readers40s and Breakdown20s)');
 SELECT 'PASS scoped scale: 1/10/100/1000 authorized sellers, 50/500/5000/50000 policies; actual authenticated-role queries' AS result;
 SQL

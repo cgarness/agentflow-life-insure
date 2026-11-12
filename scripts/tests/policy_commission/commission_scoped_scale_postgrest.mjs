@@ -19,12 +19,15 @@ const samples = []; let child, originalTimeout;
 try {
   originalTimeout = (await cluster`SELECT split_part(setting,'=',2) value FROM pg_roles r CROSS JOIN LATERAL unnest(r.rolconfig) setting WHERE r.rolname='authenticated' AND setting LIKE 'statement_timeout=%'`)[0]?.value;
   await cluster.unsafe(`DROP ROLE IF EXISTS ${authRole}; CREATE ROLE ${authRole} LOGIN NOINHERIT PASSWORD '${password}'; GRANT anon,authenticated TO ${authRole}; ALTER ROLE ${authRole} SET statement_timeout='8s'; ALTER ROLE authenticated SET statement_timeout='8s'`);
-  for (const [name, timeout] of [['pc_scope_default_probe', null], ['pc_scope_twenty_probe', '20s']]) {
-    await admin.unsafe(`CREATE FUNCTION public.${name}(p_delay double precision DEFAULT 0) RETURNS jsonb LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog,pg_temp ${timeout ? "SET statement_timeout='20s'" : ''} AS $$ SELECT jsonb_build_object('statement_timeout',current_setting('statement_timeout')) FROM pg_sleep(p_delay) $$; REVOKE ALL ON FUNCTION public.${name}(double precision) FROM PUBLIC,anon,service_role; GRANT EXECUTE ON FUNCTION public.${name}(double precision) TO authenticated`);
+  for (const [name, timeout] of [['pc_scope_default_probe', null], ['pc_scope_twenty_probe', '20s'], ['pc_scope_forty_probe', '40s']]) {
+    await admin.unsafe(`CREATE FUNCTION public.${name}(p_delay double precision DEFAULT 0) RETURNS jsonb LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog,pg_temp ${timeout ? `SET statement_timeout='${timeout}'` : ''} AS $$ SELECT jsonb_build_object('statement_timeout',current_setting('statement_timeout')) FROM pg_sleep(p_delay) $$; REVOKE ALL ON FUNCTION public.${name}(double precision) FROM PUBLIC,anon,service_role; GRANT EXECUTE ON FUNCTION public.${name}(double precision) TO authenticated`);
   }
-  const expectedTimed = ['get_scoped_commission_overview', 'get_scoped_commission_installments', 'get_scoped_commission_breakdown'].sort();
-  const timed = await admin`SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'get_%commission%' AND p.proconfig @> ARRAY['statement_timeout=20s'] ORDER BY p.proname`;
-  assert.deepEqual(timed.map(row => row.proname), expectedTimed, 'only three released public readers extend their request budget');
+  const expectedTimed = [
+    ['get_scoped_commission_breakdown','20s'], ['get_scoped_commission_installments','40s'],
+    ['get_scoped_commission_overview','40s'], ['get_scoped_commission_policy_list','40s'],
+  ];
+  const timed = await admin`SELECT p.proname,split_part(setting,'=',2) budget FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL unnest(p.proconfig) setting WHERE n.nspname='public' AND p.proname LIKE 'get_%commission%' AND setting LIKE 'statement_timeout=%' ORDER BY p.proname`;
+  assert.deepEqual(timed.map(row => [row.proname,row.budget]), expectedTimed, 'exactly the three approved new readers use40s; Breakdown remains20s; legacy readers unchanged');
   const [actor] = await admin`SELECT p.id,p.organization_id,p.role FROM cs_scale_cases c JOIN profiles p ON p.id=test_id(c.actor) WHERE c.n=1000`;
   assert.ok(actor, '50,000-policy synthetic book is required');
   const body = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: actor.id, role: 'authenticated', exp: Math.floor(Date.now()/1000)+3600, app_metadata: { organization_id: actor.organization_id, role: actor.role } })}`;
@@ -56,24 +59,31 @@ try {
     assert.equal(scheduled.status,200,JSON.stringify(scheduled.data)); assert.equal(scheduled.data.total_count,ledger.payments); assert.equal(scheduled.data.rows.length,25);
     for (const [key,column] of [['expected_cents','expected'],['received_cents','received'],['remaining_cents','remaining'],['excess_cents','excess']]) assert.equal(scheduled.data.totals[key],Number(ledger[column]),`complete ledger total ${key}`);
     await defaultRestored();
+    const policies=await rpc('get_scoped_commission_policy_list',{p_agent_scope:'all',p_agent_ids:null,p_period:'all',p_limit:25,p_offset:iteration*25});
+    assert.equal(policies.status,200,JSON.stringify(policies.data)); assert.equal(policies.data.total_count,50000); assert.equal(policies.data.rows.length,25);
+    const [policyLedger]=await admin`SELECT count(*)::int policies,sum(e.first_year_cents) estimate FROM wins w JOIN policy_commission_estimates e ON e.win_id=w.id AND e.organization_id=w.organization_id AND e.credited_agent_id=w.agent_id AND e.status='active' WHERE w.organization_id=${actor.organization_id}`;
+    assert.equal(policies.data.totals.policies,policyLedger.policies); assert.equal(policies.data.totals.estimate_cents,Number(policyLedger.estimate));
+    await defaultRestored();
     const breakdown=await rpc('get_scoped_commission_breakdown',{p_agent_scope:'all',p_agent_ids:null,p_period:'this_year'});
     assert.equal(breakdown.status,200,JSON.stringify(breakdown.data));
     const [sold]=await admin`SELECT count(*)::int policies,sum(e.first_year_cents) estimate FROM wins w JOIN policy_commission_estimates e ON e.win_id=w.id AND e.organization_id=w.organization_id AND e.credited_agent_id=w.agent_id AND e.status='active' WHERE w.organization_id=${actor.organization_id} AND w.sold_date BETWEEN ${breakdown.data.meta.from}::date AND ${breakdown.data.meta.to}::date`;
     assert.equal(breakdown.data.sold.policies,sold.policies); assert.equal(breakdown.data.sold.estimate_cents,Number(sold.estimate));
     await defaultRestored();
   }
-  // Synthetic probes independently demonstrate both active caps; release readers retain their exact definitions.
+  // Synthetic probes independently demonstrate all three active caps; release readers retain their exact definitions.
   const eight=await rpc('pc_scope_default_probe',{p_delay:9}); assert.equal(eight.data.code,'57014'); assert.ok(eight.ms>=7500 && eight.ms<15000);
   await defaultRestored();
   const twenty=await rpc('pc_scope_twenty_probe',{p_delay:21}); assert.equal(twenty.data.code,'57014'); assert.ok(twenty.ms>=19000 && twenty.ms<30000);
   await defaultRestored();
+  const forty=await rpc('pc_scope_forty_probe',{p_delay:41}); assert.equal(forty.data.code,'57014'); assert.ok(forty.ms>=39000 && forty.ms<50000);
+  await defaultRestored();
   assert.ok(samples.some(s=>s.name==='get_scoped_commission_overview' && s.status===200 && s.ms>8000),'an exact released request actually exceeds the role default and completes under its own cap');
-  const evidence={version,agents:1000,policies:50000,installments:200000,role_default:'8s',new_rpc_timeout:'20s',samples};
+  const evidence={version,agents:1000,policies:50000,installments:200000,role_default:'8s',new_rpc_timeouts:Object.fromEntries(expectedTimed),samples};
   if(PC_SCOPE_OUTPUT){await mkdir(PC_SCOPE_OUTPUT,{recursive:true});await writeFile(`${PC_SCOPE_OUTPUT}/postgrest-scale.json`,JSON.stringify(evidence,null,2)+'\n');}
-  console.log('PASS actual PostgREST scoped20s/role8s hoisting, caps, transaction reset, repeated50k-book complete-ledger reconciliation');
+  console.log('PASS actual PostgREST approved scoped40s/Breakdown20s/role8s hoisting, caps, transaction reset, repeated50k-book complete-ledger reconciliation');
 } finally {
   child?.kill('SIGTERM'); await new Promise(resolve=>setTimeout(resolve,100));
-  await admin.unsafe('DROP FUNCTION IF EXISTS public.pc_scope_default_probe(double precision); DROP FUNCTION IF EXISTS public.pc_scope_twenty_probe(double precision)').catch(()=>{});
+  await admin.unsafe('DROP FUNCTION IF EXISTS public.pc_scope_default_probe(double precision); DROP FUNCTION IF EXISTS public.pc_scope_twenty_probe(double precision); DROP FUNCTION IF EXISTS public.pc_scope_forty_probe(double precision)').catch(()=>{});
   await admin.end();
   await cluster.unsafe(`DROP ROLE IF EXISTS ${authRole}`).catch(()=>{});
   if(originalTimeout) await cluster.unsafe(`ALTER ROLE authenticated SET statement_timeout='${originalTimeout.replaceAll("'","''")}'`); else await cluster.unsafe('ALTER ROLE authenticated RESET statement_timeout');

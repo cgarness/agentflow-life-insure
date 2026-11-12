@@ -1,14 +1,16 @@
 # Team Commissions release packet
 
-Status: implementation candidate; hosted performance gate BLOCKED. **Not applied, merged, deployed, or live.** Production is not authorized. The approval request/PR description pins the exact published head and hosted check results; do not approve or execute against another head.
+Status: approved budget adjustment under verification; final-head release gates remain open. **Not applied, merged, deployed, or live.** Production is not authorized. The approval request/PR description pins the exact published head and hosted check results; do not approve or execute against another head.
 
-## Blocking performance decision — not production approval
+## Approved bounded request budgets — not production approval
 
-The original hosted native run preserved all assertions and failed three 1,000-agent/50,000-policy cases: Overview and all-time Scheduled exceeded20seconds; Policies exceeded its8-second role default. Seven other workflows passed. Earlier local timings are historical evidence and do not override these hosted failures. Profiling attributes most installment-read cost to the existing per-row financial RLS checks. No RLS/auth primitive/security mode, database/role timeout, new index or writer change has been introduced to bypass this cost.
+The original hosted native run preserved all assertions and failed three 1,000-agent/50,000-policy cases: Overview and all-time Scheduled exceeded 20 seconds; Policies exceeded its eight-second role default. Seven other workflows passed. Earlier local timings are historical evidence and do not override these hosted failures. Profiling attributes most installment-read cost to the existing per-row financial RLS checks. No RLS/auth primitive/security mode, database/role timeout, new index or writer change has been introduced to bypass this cost.
 
-Proposed implementation decision: permit a bounded **40-second request budget only on three affected new public read APIs**: `get_scoped_commission_overview`, `get_scoped_commission_installments`, and `get_scoped_commission_policy_list`. The first two currently declare20seconds; Policies currently inherits8seconds. Breakdown remains at its existing20-second budget. Existing eight My APIs and all role/database/helper settings remain unchanged. This proposal is NOT implemented or production-authorized. It would allow the largest books to complete but would not make their reads faster. If accepted, update the function-specific settings, regenerate hashes, preserve original failures, run unchanged full-ledger/authorization/scale assertions, explicitly test40-second cancellation and pooled default restoration, and finish final-head CI before requesting exact production release approval. If rejected, a separate approved performance architecture/capacity decision is required; do not silently truncate All agents or loosen RLS.
+Chris approved implementation of a bounded **40-second request budget only on three affected new public read APIs**: `get_scoped_commission_overview`, `get_scoped_commission_installments`, and `get_scoped_commission_policy_list`. Breakdown remains at 20 seconds. Existing eight My APIs and all role/database/helper settings remain unchanged. Production execution is NOT authorized. The allowance does not make reads faster or establish multi-agency capacity. Regenerated packages and the new cap, pooled-default restoration, financial/authorization, scale and final-head CI evidence must pass before production approval is requested. Do not truncate All agents or loosen RLS to meet the limit.
 
-Both production projects are still on main713aa48d. Canonical AgentFlow is configured; the separate legacy Vercel project has a previously documented Supabase environment initialization problem, outside this feature. A READY build alone must not be described as functional acceptance there.
+The subsequent hosted native run at `fccb074` completed the 36-case scale assertion, actual 20-/eight-second HTTP proofs and final database proof marker. Its workflow conclusion is **cancelled**, rather than green, because the 20-minute job wall-clock allowance was exhausted around cleanup. This differs from the original head's real request-timeout failures, which remain recorded. The current native job allows 35 minutes for all seven warm samples plus the new 40-/20-/eight-second probes and additional Policies HTTP checks; no financial or authorization assertion is removed. Completion under one runner does not establish production capacity or invalidate the earlier slower-run observations.
+
+Both production projects are still on main `713aa48d`. Canonical AgentFlow is configured; the separate legacy Vercel project has a previously documented Supabase environment initialization problem, outside this feature. A READY build alone must not be described as functional acceptance there.
 
 ## Target and boundaries
 
@@ -24,14 +26,14 @@ CLI-generated source: `supabase/migrations/20261112165503_policy_commission_scop
 
 | Artifact | SHA-256 |
 | --- | --- |
-| Migration | `636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366` |
-| Rollback source | `043a07e09acef78a6b229f471640a0e21944baaccca1a544deafd7489766b079` |
-| Apply transaction | `9a0fe4dad8d18b54d78e4d6b985be865b7bab01a96971e2eba86f9c7e780435e` |
-| Rollback transaction | `4426445f5a0946619bfc00376c961a71a0e001f41ec57f18f65138fed6daa050` |
+| Migration | `0118728fde1d70d45c6595745a15109f997674e3801b608e037fd7f618debff1` |
+| Rollback source | `6c6a6cb2cc61d903624a91f1e65c5433dfeae0f887a164d5d530bf31b2cf34d0` |
+| Apply transaction | `750d5c13a56d1a2b59e942d5fba2e7dcd68b4681535d107bbcd72a50c5ef8f5d` |
+| Rollback transaction | `6e4665af865fb5b70250ce3e3742c32a4ba46425bd008b3bc6bd55e96e1ebb2f` |
 
 The migration creates the non-PostgREST-exposed `policy_commission_scoped` schema, two composite types, twelve shared helpers and seven public readers. It replaces only the bodies of eight existing personal readers and two existing self-only fact helpers, preserving their signatures, defaults, types, owner, ACL and security metadata. All new functions are STABLE SECURITY INVOKER with fixed search paths. New function privileges explicitly exclude PUBLIC, anon and service_role; authenticated receives only intended usage/execute access. No financial writer, authorization primitive, table grant, RLS policy or business row is changed.
 
-The three new public aggregate readers `get_scoped_commission_overview`, `get_scoped_commission_installments` and `get_scoped_commission_breakdown` are prepared with a **20-second function-specific statement timeout**, hoisted by PostgREST for those requests. This is an explicit effect in the production approval. Existing role/database settings, helper settings and all eight My reader metadata remain unchanged at their existing general eight-second behavior. The 50,000-policy diagnostic took 11.436 seconds for Overview and 9.650 seconds for all-time Scheduled after safe optimizations; eight-second refusals remain recorded. Actual HTTP enforcement/restoration passed, including repeated full-ledger reconciliation, 8/20-second cap probes and restoration on one pooled connection. All 36 final native scale cases passed with seven warm samples each. This is not a production capacity or concurrency guarantee.
+Prepared function-specific settings are exactly 40 seconds for the new Overview, Installments and Policy List readers, and 20 seconds for Breakdown. PostgREST must hoist these settings for their requests; direct SQL alone cannot prove timer behavior. Existing role/database/helper settings and all eight My reader metadata remain unchanged. The original eight-/20-second refusals and the earlier local timings remain in the verification record. The new budget must be verified through repeated full-ledger HTTP requests, 40-/20-second cancellation probes and restoration of the eight-second role default on the same pooled connection. This is not a production hardware or concurrency guarantee.
 
 The SQL Editor apply package embeds the exact migration bytes in one transaction. It checks the operator, exact prior history head, source SHA-256, fresh preimages and security metadata, refuses replay, executes the reviewed source, verifies all postimages and records one exact `schema_migrations` row under version `20261112165503`. Target project identity is checked externally through the dashboard; database name `postgres` is not treated as proof of project identity. The migration API's apply-time timestamp is not substituted for the reviewed CLI version. No `db push` or pending-directory replay is part of this release.
 
@@ -55,6 +57,12 @@ The guarded package [release/rollback.sql](release/rollback.sql) requires the ex
 For a frontend-only regression, first restore the compatible personal frontend at the inspected base on both projects; the shared backend remains compatible. If an authorization defect affects shared definitions, contain every affected public and directly callable helper path, including legacy My readers; disabling only the newly named endpoints is insufficient. The consolidated request includes conditional execution of the exact guarded backend rollback and restoration of the compatible personal frontend when one of the listed failure triggers occurs. A drifted guard is a stop condition, not permission to force recovery.
 
 Rollback triggers: authorization/tenant leakage, incompatible personal contracts, unexplained financial reconciliation mismatch, or a blocking released regression. Conditional rollback is part of the proposed exact approval; no unrelated recovery or data correction is included. Until Chris approves that request, rollback is prepared only.
+
+## Current verification handoff
+
+Local verification of the approved adjustment is combined evidence: the first full attempt passed historical regressions, then stopped at a stale A17 expected-settings list. That list was updated to the exact three approved 40-second settings while retaining the full security/configuration assertions. A duplicate historical rerun was explicitly interrupted; a fresh scoped/package/parity/36-case-scale/HTTP/Center/Insights run is in progress. No single complete local runner pass is claimed. The final exact-head hosted complete runner and final timings will be pinned in PR #527 before the candidate is declared release-ready.
+
+Code and regenerated packages are prepared. The exact final commit and completed native/hosted evidence are recorded in PR #527 to avoid a self-referential documentation commit. Do not request or execute production release until those gates pass. The hashes above identify the approved implementation candidate, not production authorization.
 
 ## Historical local evidence and current limitations
 
