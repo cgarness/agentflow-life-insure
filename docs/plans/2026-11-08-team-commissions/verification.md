@@ -1,3 +1,9 @@
+## November 12 verification status
+
+Refreshed isolated package rehearsal passed (exit0): current timestamp/history guards, all scoped authorization/reconciliation cases, eight-reader parity across six actors before/after/rollback/reapply, drift/refusal checks, exact catalog/history restoration, and unchanged Center/Insights regressions. This does not clear the separate hosted scale blocker.
+
+**Not release-ready:** original hosted run42952161107 failed the1,000-agent/50,000-policy Overview, Policies and all-time Scheduled budgets. All original assertions remain. The historical51local scenario passes below are retained, not presented as a clean hosted gate. Browser readiness is now corrected:49/49checks in each of three cold runs and one4xCPU run, preserving single-Escape/focus behavior. Final hosted browser verification remains required. Currentmain713aa48d and hostedhistory20261111192142 were refreshed; newmigration20261112165503 preserves function logic/security. The proposed40-second new-reader budget requires a decision and has not been implemented.
+
 # Team Commissions verification
 
 Status: all 51 acceptance scenarios executed successfully; complete local verification passed; hosted candidate CI pending. No production changes. Base e07d28bdef1d8a9a21f0eee408b181b625389527. Native authorization/reconciliation, legacy parity and exact package rehearsal passed on the frozen migration SHA-256 553cf6d61c93cbe12de16e0c080b1cd58256b5d6ae659fc32dbd1d4fed346917. Interface evidence uses the final frontend.

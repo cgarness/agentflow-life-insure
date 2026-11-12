@@ -8,12 +8,15 @@ const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.env.COMMISSION_BROWSER_URL || "http://127.0.0.1:4186/";
 const output = process.env.COMMISSION_BROWSER_OUTPUT || "commission-browser-evidence";
+const cpuRate = Number(process.env.COMMISSION_BROWSER_CPU_RATE || 1);
 const axe = readFileSync(process.env.AXE_CORE_PATH || require.resolve("axe-core/axe.min.js"), "utf8");
 if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/$/.test(base)) throw new Error("Browser gate requires a loopback synthetic server.");
+if (!Number.isFinite(cpuRate) || cpuRate < 1 || cpuRate > 20) throw new Error("CPU throttle must be between 1 and 20.");
 mkdirSync(output, { recursive: true });
 const started = Date.now();
 const results = { fixture: "Team Commissions isolated synthetic browser", started_at: new Date(started).toISOString(),
-  browser: "", duration_ms: 0, checks: [], screenshots: [], requests: [] };
+  browser: "", cpu_rate: cpuRate, duration_ms: 0, checks: [], screenshots: [], requests: [] };
+let activePage = null;
 const check = (name, pass, detail = null) => { results.checks.push({ name, pass, detail }); if (!pass) console.error(`FAIL ${name}: ${JSON.stringify(detail)}`); };
 const browser = await chromium.launch({ headless: true,
   ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}), args: ["--no-sandbox", "--disable-dev-shm-usage"] });
@@ -35,12 +38,22 @@ async function open({ route = "/commissions", scenario = "team", width = 1440 } 
     blocked.push(request.request().url()); return request.abort();
   });
   const page = await context.newPage();
+  activePage = page;
+  if (cpuRate > 1) await (await context.newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: cpuRate });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`${base}?scenario=${scenario}&route=${encodeURIComponent(route)}`);
   await page.waitForFunction(() => !!window.commissionFixture);
   return { context, page, blocked, errors };
 }
 const ready = (page) => page.getByRole("link", { name: "Expected", exact: true }).waitFor();
+async function openAgentsByKeyboard(page, trigger) {
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("dialog", { name: "Choose agents", exact: true }).waitFor();
+  // Visibility precedes Radix's passive-effect autofocus and dismissable-layer registration.
+  // Observe its normal focus transfer before sending the next key; do not force focus or retry Escape.
+  await page.waitForFunction(() => document.querySelector('[role="dialog"][aria-label="Choose agents"]')?.contains(document.activeElement));
+}
 const choose = async (page, name) => {
   await page.getByRole("button", { name: /^Agents:/ }).click();
   await page.getByRole("button", { name, exact: true }).click();
@@ -88,7 +101,7 @@ try {
     await ready(page);
     const original = await location(page), reads = financial(await calls(page)).length;
     const trigger = page.getByRole("button", { name: "Agents: Me", exact: true });
-    await trigger.focus(); await page.keyboard.press("Enter");
+    await openAgentsByKeyboard(page, trigger);
     await page.getByRole("checkbox", { name: /Jordan Agent/ }).check();
     await page.getByLabel("Search agents", { exact: true }).fill("Jordan");
     await page.getByRole("checkbox", { name: /Jordan Agent/ }).waitFor();
@@ -147,7 +160,7 @@ try {
   {
     const { context, page } = await open(); await ready(page);
     const trigger = page.getByRole("button", { name: "Agents: Me", exact: true });
-    await trigger.focus(); await page.keyboard.press("Enter");
+    await openAgentsByKeyboard(page, trigger);
     await page.getByLabel("Search agents", { exact: true }).waitFor();
     await page.addScriptTag({ content: axe });
     const violations = await page.evaluate(async () => (await window.axe.run(document.body, {
@@ -167,8 +180,10 @@ try {
     await page.goto(`${base}?scenario=team&route=${encodeURIComponent(applied)}`); await ready(page);
     check("U03: reload rehydrates committed selected URL", await location(page) === applied && await page.getByRole("button", { name: "Agents: 2 agents", exact: true }).count() === 1);
     const restoredTrigger = page.getByRole("button", { name: "Agents: 2 agents", exact: true });
-    await restoredTrigger.focus(); await page.keyboard.press("Enter");
+    await openAgentsByKeyboard(page, restoredTrigger);
     await page.getByLabel("Search agents", { exact: true }).waitFor();
+    check("U15: keyboard opening transfers focus into selector after reload", await page.getByRole("dialog", { name: "Choose agents", exact: true })
+      .evaluate((node) => node.contains(document.activeElement)));
     await page.keyboard.press("Escape");
     await page.getByLabel("Search agents", { exact: true }).waitFor({ state: "hidden" });
     await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Agents: 2 agents");
@@ -208,6 +223,17 @@ try {
   }
 } catch (error) {
   check("browser gate completed", false, String(error?.stack || error));
+  if (activePage && !activePage.isClosed()) {
+    await capture(activePage, "failure.png").catch(() => {});
+    results.failure_state = await activePage.evaluate(() => ({
+      url: window.location.href,
+      route: document.querySelector('[data-testid="location"]')?.textContent,
+      focused_element: document.activeElement?.outerHTML,
+      selector_expanded: document.querySelector('[aria-label^="Agents:"]')?.getAttribute("aria-expanded"),
+      popover_state: document.querySelector('[role="dialog"][aria-label="Choose agents"]')?.getAttribute("data-state"),
+      requests: window.commissionFixture?.requests(),
+    })).catch(() => ({ unavailable: true }));
+  }
 } finally {
   await browser.close();
   results.duration_ms = Date.now() - started;

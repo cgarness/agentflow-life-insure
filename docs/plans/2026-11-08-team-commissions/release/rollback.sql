@@ -20,18 +20,18 @@ BEGIN
   IF encode(sha256(convert_to(reviewed_sql,'UTF8')),'hex') IS DISTINCT FROM reviewed_hash THEN
     RAISE EXCEPTION 'Embedded SQL differs from approved bytes' USING ERRCODE='55000';
   END IF;
-  IF (SELECT max(version) FROM supabase_migrations.schema_migrations) IS DISTINCT FROM '20261111015438'
+  IF (SELECT max(version) FROM supabase_migrations.schema_migrations) IS DISTINCT FROM '20261112165503'
      OR NOT EXISTS(SELECT 1 FROM supabase_migrations.schema_migrations
-        WHERE version='20261111015438' AND name='policy_commission_scoped_reads' AND cardinality(statements)=1
-          AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')='553cf6d61c93cbe12de16e0c080b1cd58256b5d6ae659fc32dbd1d4fed346917') THEN
+        WHERE version='20261112165503' AND name='policy_commission_scoped_reads' AND cardinality(statements)=1
+          AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')='636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366') THEN
     RAISE EXCEPTION 'Recovery history differs from the exact approved release' USING ERRCODE='55000';
   END IF;
   EXECUTE reviewed_sql;
   DELETE FROM supabase_migrations.schema_migrations
-    WHERE version='20261111015438' AND name='policy_commission_scoped_reads' AND cardinality(statements)=1
-      AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')='553cf6d61c93cbe12de16e0c080b1cd58256b5d6ae659fc32dbd1d4fed346917';
+    WHERE version='20261112165503' AND name='policy_commission_scoped_reads' AND cardinality(statements)=1
+      AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')='636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366';
   IF NOT FOUND OR to_regnamespace('policy_commission_scoped') IS NOT NULL
-     OR (SELECT max(version) FROM supabase_migrations.schema_migrations) IS DISTINCT FROM '20261110205228' THEN
+     OR (SELECT max(version) FROM supabase_migrations.schema_migrations) IS DISTINCT FROM '20261111192142' THEN
     RAISE EXCEPTION 'Recovery metadata readback failed' USING ERRCODE='55000';
   END IF;
 END $team_commissions_release$;

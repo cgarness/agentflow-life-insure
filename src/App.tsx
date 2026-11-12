@@ -29,6 +29,7 @@ import Leaderboard from "./pages/Leaderboard";
 import AIAgentsPage from "./pages/AIAgentsPage";
 import AIAgentCreate from "./pages/AIAgentCreate";
 import Training from "./pages/Training";
+import CarriersPage from "@/pages/CarriersPage";
 import Resources from "./pages/Resources";
 import AppLinkEmbedPage from "./pages/AppLinkEmbedPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -157,6 +158,7 @@ const App = () => (
                           <Route path="/reports" element={<PageGuard pageName="Reports"><Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading Reports…</div>}><Reports /></Suspense></PageGuard>} />
                           <Route path="/ai-agents" element={<PageGuard pageName="AI Agents"><AIAgentsPage /></PageGuard>} />
                           <Route path="/ai-agents/new" element={<PageGuard pageName="AI Agents"><AIAgentCreate /></PageGuard>} />
+                          <Route path="/carriers" element={<PageGuard pageName="Carriers"><CarriersPage /></PageGuard>} />
                           <Route path="/training" element={<PageGuard pageName="Training"><Training /></PageGuard>} />
                           <Route path="/resources" element={<PageGuard pageName="Resources"><Resources /></PageGuard>} />
                           <Route path="/commissions/:tab?" element={<CommissionsPage />} />

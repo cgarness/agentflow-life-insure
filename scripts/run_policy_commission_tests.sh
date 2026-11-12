@@ -643,8 +643,8 @@ sql -v fidelity_action=rename -f "$TEMP/rename.sql" >/dev/null
 echo 'PASS Fidelity one-row Settings rename, no-op, collision/drift refusals and recovery'
 
 # ── 7. Team Commissions: current hierarchy/read policies, native scopes, parity, HTTP, guarded recovery ──
-SCOPED="$ROOT/supabase/migrations/20261111015438_policy_commission_scoped_reads.sql"
-SCOPED_ROLLBACK="$ROOT/supabase/migrations/rollback/20261111015438_policy_commission_scoped_reads.sql"
+SCOPED="$ROOT/supabase/migrations/20261112165503_policy_commission_scoped_reads.sql"
+SCOPED_ROLLBACK="$ROOT/supabase/migrations/rollback/20261112165503_policy_commission_scoped_reads.sql"
 scoped_db() {
   insights_db "$1"
   sql -1 -f "$FIDELITY" >/dev/null
@@ -689,7 +689,8 @@ CREATE SCHEMA supabase_migrations;
 CREATE TABLE supabase_migrations.schema_migrations(version text PRIMARY KEY,statements text[],name text);
 INSERT INTO supabase_migrations.schema_migrations VALUES
  ('20261110191037',ARRAY['synthetic prior history'],'reports_cleanup'),
- ('20261110205228',ARRAY['synthetic current head'],'policy_commission_fidelity_alias');
+ ('20261110205228',ARRAY['synthetic prior history'],'policy_commission_fidelity_alias'),
+ ('20261111192142',ARRAY['synthetic current head'],'carrier_resource_links');
 SQL
 sql -tAX -c 'SELECT to_jsonb(h) FROM supabase_migrations.schema_migrations h ORDER BY version' > "$TEMP/history.before"
 sql -f "$SCOPED_RELEASE/apply.sql" >/dev/null
@@ -698,12 +699,12 @@ python3 - "$SCOPED" > "$TEMP/history-assert.sql" <<'PY_RELEASE'
 from pathlib import Path
 import hashlib, sys
 body = Path(sys.argv[1]).read_bytes()
-print("SELECT test_assert((SELECT count(*)=1 FROM supabase_migrations.schema_migrations WHERE version='20261111015438' AND name='policy_commission_scoped_reads' AND cardinality(statements)=1 AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')='" + hashlib.sha256(body).hexdigest() + "'),'exact CLI history version/name/bytes');")
+print("SELECT test_assert((SELECT count(*)=1 FROM supabase_migrations.schema_migrations WHERE version='20261112165503' AND name='policy_commission_scoped_reads' AND cardinality(statements)=1 AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')='" + hashlib.sha256(body).hexdigest() + "'),'exact CLI history version/name/bytes');")
 PY_RELEASE
 sql -f "$TEMP/history-assert.sql" >/dev/null
-sql -c "UPDATE supabase_migrations.schema_migrations SET name='injected_history_drift' WHERE version='20261111015438'" >/dev/null
+sql -c "UPDATE supabase_migrations.schema_migrations SET name='injected_history_drift' WHERE version='20261112165503'" >/dev/null
 expect_fail 'Recovery history' "$SCOPED_RELEASE/rollback.sql"
-sql -c "UPDATE supabase_migrations.schema_migrations SET name='policy_commission_scoped_reads' WHERE version='20261111015438'" >/dev/null
+sql -c "UPDATE supabase_migrations.schema_migrations SET name='policy_commission_scoped_reads' WHERE version='20261112165503'" >/dev/null
 python3 - "$SCOPED_RELEASE/rollback.sql" "$TEMP/package-hash-drift.sql" <<'PY_RELEASE'
 from pathlib import Path
 import re, sys

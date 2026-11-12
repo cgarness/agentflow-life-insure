@@ -25,6 +25,7 @@ import {
   DEFAULT_DATA_ACCESS,
   DEFAULT_COMMISSION,
   DEFAULT_SETTINGS_SECTIONS,
+  normalizeCarriersPagePermission,
   mergeSettingsSections,
   DATA_SCOPE_KEY_MAP,
   resolveContactsPermission,
@@ -61,7 +62,9 @@ function normalizePermissions(
       `[usePermissions] Malformed permissions.${key} for org=${orgId} role=${dbRole}. Using defaults.`
     );
 
-  const p = Array.isArray(raw.p) ? (raw.p as RolePermissions["p"]) : (warn("p"), defaults.p);
+  const p = Array.isArray(raw.p)
+    ? normalizeCarriersPagePermission(raw.p as RolePermissions["p"])
+    : (warn("p"), defaults.p);
   const f = Array.isArray(raw.f) ? (raw.f as RolePermissions["f"]) : (warn("f"), defaults.f);
   const d = Array.isArray(raw.d) ? (raw.d as RolePermissions["d"]) : (warn("d"), defaults.d);
   const c = Array.isArray(raw.c) ? (raw.c as RolePermissions["c"]) : (warn("c"), defaults.c);

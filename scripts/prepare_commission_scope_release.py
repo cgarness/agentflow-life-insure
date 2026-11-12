@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "20261111015438"
+VERSION = "20261112165503"
 NAME = "policy_commission_scoped_reads"
 TARGET_PROJECT = "jncvvsvckxhqgqvkppmj"
 SOURCE = ROOT / f"supabase/migrations/{VERSION}_{NAME}.sql"
@@ -166,7 +166,7 @@ BEGIN
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--postimages", type=Path, default=OUT / "manifest.json")
-    parser.add_argument("--hosted-head", default="20261110205228")
+    parser.add_argument("--hosted-head", default="20261111192142")
     args = parser.parse_args()
     if not re.fullmatch(r"\d{14}", args.hosted_head) or args.hosted_head >= VERSION:
         parser.error("--hosted-head must be the freshly verified earlier hosted migration version")
@@ -185,7 +185,7 @@ def main() -> None:
     (OUT / "rollback.sql").write_text(undo)
     manifest = {
         "project_id": TARGET_PROJECT, "external_project_binding_required": True,
-        "status": "prepared_not_applied", "source_base": "e07d28bdef1d8a9a21f0eee408b181b625389527",
+        "status": "prepared_not_applied", "source_base": "713aa48d2c71de7da595d74bee878324654e3255",
         "version": VERSION, "name": NAME, "expected_hosted_head": args.hosted_head,
         "migration": str(SOURCE.relative_to(ROOT)), "migration_sha256": digest(forward),
         "rollback": str(RECOVERY.relative_to(ROOT)), "rollback_sha256": digest(recovery),

@@ -1,30 +1,39 @@
 # Team Commissions release packet
 
-Status: complete, locally verified review candidate. **Not applied, merged, deployed, or live.** Production is not authorized. The approval request/PR description pins the exact published head and hosted check results; do not approve or execute against another head.
+Status: implementation candidate; hosted performance gate BLOCKED. **Not applied, merged, deployed, or live.** Production is not authorized. The approval request/PR description pins the exact published head and hosted check results; do not approve or execute against another head.
+
+## Blocking performance decision — not production approval
+
+The original hosted native run preserved all assertions and failed three 1,000-agent/50,000-policy cases: Overview and all-time Scheduled exceeded20seconds; Policies exceeded its8-second role default. Seven other workflows passed. Earlier local timings are historical evidence and do not override these hosted failures. Profiling attributes most installment-read cost to the existing per-row financial RLS checks. No RLS/auth primitive/security mode, database/role timeout, new index or writer change has been introduced to bypass this cost.
+
+Proposed implementation decision: permit a bounded **40-second request budget only on three affected new public read APIs**: `get_scoped_commission_overview`, `get_scoped_commission_installments`, and `get_scoped_commission_policy_list`. The first two currently declare20seconds; Policies currently inherits8seconds. Breakdown remains at its existing20-second budget. Existing eight My APIs and all role/database/helper settings remain unchanged. This proposal is NOT implemented or production-authorized. It would allow the largest books to complete but would not make their reads faster. If accepted, update the function-specific settings, regenerate hashes, preserve original failures, run unchanged full-ledger/authorization/scale assertions, explicitly test40-second cancellation and pooled default restoration, and finish final-head CI before requesting exact production release approval. If rejected, a separate approved performance architecture/capacity decision is required; do not silently truncate All agents or loosen RLS.
+
+Both production projects are still on main713aa48d. Canonical AgentFlow is configured; the separate legacy Vercel project has a previously documented Supabase environment initialization problem, outside this feature. A READY build alone must not be described as functional acceptance there.
 
 ## Target and boundaries
 
-- Repository: `cgarness/agentflow-life-insure`; feature branch `feat/team-commissions-20261110`; inspected main `e07d28bdef1d8a9a21f0eee408b181b625389527`.
-- Supabase: `AGENTFLOW CRM`, `jncvvsvckxhqgqvkppmj`; current hosted head `20261110205228`.
+- Repository: `cgarness/agentflow-life-insure`; feature branch `feat/team-commissions-20261110`; inspected main `713aa48d2c71de7da595d74bee878324654e3255`.
+- Supabase: `AGENTFLOW CRM`, `jncvvsvckxhqgqvkppmj`; current hosted head `20261111192142`.
 - Frontends affected by a merge: Vercel `agentflow` (`prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc`) and `agentflow-life-insure` (`prj_PctERc2MEVcpKkYtBtQYc1ruunKb`), team `team_iPboOWpwdIQRwdxmA5GJp5Rq`.
+- Refreshed production rollback candidates at the current base: `agentflow` / `dpl_EfAsR22pWSx88eQFEAgxaXFC4BTT`; `agentflow-life-insure` / `dpl_5C7Dv3f13uW3qQd1GhLi5Dj7xRVq`. Recheck before any approved release; preserve the Carriers release.
 - Excludes PR #486, historical corrections, customer data changes, carrier Settings changes, permission settings, Reports metrics, sale writers, contact ownership and telephony.
 
 ## Prepared database change
 
-CLI-generated source: `supabase/migrations/20261111015438_policy_commission_scoped_reads.sql`. The exact source, rollback, transaction-package hashes and 29 postimage/security pins are in [release/manifest.json](release/manifest.json). Any SQL change requires regeneration, testing and a new exact approval.
+CLI-generated source: `supabase/migrations/20261112165503_policy_commission_scoped_reads.sql`. The exact source, rollback, transaction-package hashes and 29 postimage/security pins are in [release/manifest.json](release/manifest.json). Any SQL change requires regeneration, testing and a new exact approval.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| Migration | `553cf6d61c93cbe12de16e0c080b1cd58256b5d6ae659fc32dbd1d4fed346917` |
+| Migration | `636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366` |
 | Rollback source | `043a07e09acef78a6b229f471640a0e21944baaccca1a544deafd7489766b079` |
-| Apply transaction | `484aa30fe53e958f19cc51b2ca3d02c9e04753353da6a82acd124009749c827f` |
-| Rollback transaction | `88146d1ca1205f30e178e0d75988df4ddb072b405f01e361acc3132dad45879c` |
+| Apply transaction | `9a0fe4dad8d18b54d78e4d6b985be865b7bab01a96971e2eba86f9c7e780435e` |
+| Rollback transaction | `4426445f5a0946619bfc00376c961a71a0e001f41ec57f18f65138fed6daa050` |
 
 The migration creates the non-PostgREST-exposed `policy_commission_scoped` schema, two composite types, twelve shared helpers and seven public readers. It replaces only the bodies of eight existing personal readers and two existing self-only fact helpers, preserving their signatures, defaults, types, owner, ACL and security metadata. All new functions are STABLE SECURITY INVOKER with fixed search paths. New function privileges explicitly exclude PUBLIC, anon and service_role; authenticated receives only intended usage/execute access. No financial writer, authorization primitive, table grant, RLS policy or business row is changed.
 
 The three new public aggregate readers `get_scoped_commission_overview`, `get_scoped_commission_installments` and `get_scoped_commission_breakdown` are prepared with a **20-second function-specific statement timeout**, hoisted by PostgREST for those requests. This is an explicit effect in the production approval. Existing role/database settings, helper settings and all eight My reader metadata remain unchanged at their existing general eight-second behavior. The 50,000-policy diagnostic took 11.436 seconds for Overview and 9.650 seconds for all-time Scheduled after safe optimizations; eight-second refusals remain recorded. Actual HTTP enforcement/restoration passed, including repeated full-ledger reconciliation, 8/20-second cap probes and restoration on one pooled connection. All 36 final native scale cases passed with seven warm samples each. This is not a production capacity or concurrency guarantee.
 
-The SQL Editor apply package embeds the exact migration bytes in one transaction. It checks the operator, exact prior history head, source SHA-256, fresh preimages and security metadata, refuses replay, executes the reviewed source, verifies all postimages and records one exact `schema_migrations` row under version `20261111015438`. Target project identity is checked externally through the dashboard; database name `postgres` is not treated as proof of project identity. The migration API's apply-time timestamp is not substituted for the reviewed CLI version. No `db push` or pending-directory replay is part of this release.
+The SQL Editor apply package embeds the exact migration bytes in one transaction. It checks the operator, exact prior history head, source SHA-256, fresh preimages and security metadata, refuses replay, executes the reviewed source, verifies all postimages and records one exact `schema_migrations` row under version `20261112165503`. Target project identity is checked externally through the dashboard; database name `postgres` is not treated as proof of project identity. The migration API's apply-time timestamp is not substituted for the reviewed CLI version. No `db push` or pending-directory replay is part of this release.
 
 ## Publication and release order
 
@@ -47,6 +56,6 @@ For a frontend-only regression, first restore the compatible personal frontend a
 
 Rollback triggers: authorization/tenant leakage, incompatible personal contracts, unexplained financial reconciliation mismatch, or a blocking released regression. Conditional rollback is part of the proposed exact approval; no unrelated recovery or data correction is included. Until Chris approves that request, rollback is prepared only.
 
-## Evidence and limitations
+## Historical local evidence and current limitations
 
-See [verification.md](verification.md) for the full A01–A19, F01–F14 and U01–U18 matrix. Local checks are complete: all 51 acceptance scenarios, the full native runner (exit 0, about 13m12s), 36 scale cases/288 samples/36 plans, exact apply/history/rollback/reapply, 48 Chromium browser checks, 163 focused frontend tests and production build passed. The full frontend suite has 7,110 passing tests and the same one baseline failure/ten pending; application TypeScript retains 79 existing diagnostics, global lint: 11 errors/145 warnings, with exact-base equivalence. Root TypeScript/scoped lint pass. Screenshots and complete evidence are linked there. Hosted check links and the exact published head are pinned in the PR/approval request. No production acceptance claim is made.
+See [verification.md](verification.md) for the full A01–A19, F01–F14 and U01–U18 matrix. The original local candidate passed: all 51 acceptance scenarios, the full native runner (exit 0, about 13m12s), 36 scale cases/288 samples/36 plans, exact apply/history/rollback/reapply, 48 Chromium browser checks, 163 focused frontend tests and production build passed. The full frontend suite has 7,110 passing tests and the same one baseline failure/ten pending; application TypeScript retains 79 existing diagnostics, global lint: 11 errors/145 warnings, with exact-base equivalence. Root TypeScript/scoped lint pass. Screenshots and complete evidence are linked there. Hosted check links and the exact published head are pinned in the PR/approval request. No production acceptance claim is made.

@@ -202,10 +202,10 @@ describe("frontend data-path contract", () => {
 describe("Dialer / Leaderboard boundary", () => {
   it("preserves shared Contacted and permission definitions", () => {
     expect(gitBlobSha(read("src/lib/report-utils.ts"))).toBe("9fa35b22a24648e5901a985d59f853288c049c57");
-    // Approved reporting work changes Dialer failure handling; Reports contracts above remain enforced.
-    expect(gitBlobSha(read("src/hooks/usePermissions.ts"))).toBe("6789cc0e0208ffe1569c820c83b038b3b78e1ea5");
-    // 2026-10-13: approved Google Sheets V1 adds contacts.leads.import_google_sheets (no existing default changed).
-    expect(gitBlobSha(read("src/config/permissionDefaults.ts"))).toBe("b55fb46453371ab3d5aca5e97cf3d5bb881e1fed");
+    // 2026-11-11: approved Carriers-only legacy normalization; carrierPermissions.test.tsx pins existing semantics.
+    expect(gitBlobSha(read("src/hooks/usePermissions.ts"))).toBe("0f0d933cd4f827c1f2200fde254997cc20be6c20");
+    // 2026-11-11: additive Carriers page/default helper; all existing defaults and Reports contracts stay enforced.
+    expect(gitBlobSha(read("src/config/permissionDefaults.ts"))).toBe("71b81c35f62574e435b516208a6f469ba25dc3dc");
   });
 });
 

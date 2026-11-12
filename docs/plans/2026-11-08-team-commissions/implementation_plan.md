@@ -1,3 +1,9 @@
+## November 12 refreshed candidate / performance blocker
+
+Current base `713aa48d2c71de7da595d74bee878324654e3255` includes released Carriers; its permission-hook bytes and histories are preserved. Refreshed hosted head `20261111192142` leaves all28 commission/auth preimages unchanged. New CLI source is `supabase/migrations/20261112165503_policy_commission_scoped_reads.sql`, with matching rollback; replaces only the older UNAPPLIED Team Commissions timestamp. Current migration SHA-256 `636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366`. No production changes.
+
+The first hosted run failed three largest-book timeout cases, despite earlier local passes; this remains blocking. Corrected browser readiness passed49checks in each of four runs (three cold, one4xCPU), without relaxing Escape/focus assertions. Current-base full checks and regenerated package rehearsal are being completed. Proposed40-second budgets for three affected new readers are detailed in release.md and are not implemented. No repeated feature-plan approval is required; only this measured performance tradeoff remains a decision. Exact current-head evidence supersedes historical results below where stated.
+
 # Team Commissions — approved implementation, production not authorized
 
 November 10, 2026 Pacific. Chris explicitly approved this complete implementation in the task prompt, including isolated tests, branch publication and a reviewable PR. Do not request the same implementation approval again. No production mutation, merge or deployment is authorized. Exact production actions will be consolidated after the candidate passes verification.

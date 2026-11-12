@@ -1,3 +1,9 @@
+## November 12 refreshed candidate / performance blocker
+
+Current base `713aa48d2c71de7da595d74bee878324654e3255` includes released Carriers; its permission-hook bytes and histories are preserved. Refreshed hosted head `20261111192142` leaves all28 commission/auth preimages unchanged. New CLI source is `supabase/migrations/20261112165503_policy_commission_scoped_reads.sql`, with matching rollback; replaces only the older UNAPPLIED Team Commissions timestamp. Current migration SHA-256 `636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366`. No production changes.
+
+The first hosted run failed three largest-book timeout cases, despite earlier local passes; this remains blocking. Corrected browser readiness passed49checks in each of four runs (three cold, one4xCPU), without relaxing Escape/focus assertions. Current-base full checks and regenerated package rehearsal are being completed. Proposed40-second budgets for three affected new readers are detailed in release.md and are not implemented. No repeated feature-plan approval is required; only this measured performance tradeoff remains a decision. Exact current-head evidence supersedes historical results below where stated.
+
 # Team Commissions — approved implementation, production not authorized
 
 November 10, 2026 Pacific. Chris explicitly approved this complete implementation in the task prompt, including isolated tests, branch publication and a reviewable PR. Do not request the same implementation approval again. No production mutation, merge or deployment is authorized. Exact production actions will be consolidated after the candidate passes verification.
@@ -11,6 +17,10 @@ Supabase CLI 2.84.5 generated `20261111015438_policy_commission_scoped_reads.sql
 Implementation, all 51 acceptance scenarios, final full native runner (exit 0), 36 repeated scale cases, exact SQL apply/history/rollback/reapply proofs, 48 browser checks, 163 focused frontend tests and production build are complete. Full frontend: 7,110 passed; unchanged one baseline failure/ten pending. Application TypeScript and global lint retain byte-equivalent base findings (79 diagnostics; 11 errors/145 warnings); scoped lint/root TypeScript pass. The only prepared budget extension is20 seconds on the three new public aggregate RPCs, verified through real PostgREST with 8-second role defaults/restoration. No RLS/auth/writer/role/database setting change.
 
 Migration SHA-256 `553cf6d61c93cbe12de16e0c080b1cd58256b5d6ae659fc32dbd1d4fed346917`; exact source/security pins, full measurements, screenshots and rollback are in the focused release/evidence documents. Current main remains `e07d28bdef1d8a9a21f0eee408b181b625389527`, hosted head `20261110205228`; no production changes. Next: publish/inspect exact-head CI and deliver the single concrete production release request. Do not repeat implementation approval.
+
+## November 12 resumption and baseline refresh
+
+Implementation approval persists. Integrate current main `713aa48d` and preserve the released Carriers feature, its permission-hook bytes and work-log history. Refresh production metadata and regenerate a CLI-ordered migration/release package after hosted head `20261111192142`; never replay the carrier migration. Complete the browser readiness correction and resolve hosted 50,000-policy budget failures without relaxing assertions. Intended follow-up paths are the existing Team Commissions migration/rollback/packages/generator, native tests/runners/workflow, browser runner, root/focused plans, evidence, release document, narrow invariant and work log. Exact new migration filename will be recorded when generated. Production remains unauthorized.
 
 ## Execution and ownership
 
@@ -143,6 +153,26 @@ Add `scripts/tests/policy_commission/commission_scoped_scale_postgrest.mjs` befo
 ## Verification and release sequence
 
 Run all A01–A19, F01–F14 and U01–U18 scenarios with recorded evidence; native current-hierarchy PostgreSQL and PostgREST; legacy before/after/rollback parity; 1/10/100/1000 agents and 50,000 policies; focused regressions, actual app TypeScript, root TypeScript, lint, build and desktop/mobile/keyboard browser checks. Compare failures against exact base with equivalent tooling, never weaken assertions. Inspect GitHub/Supabase/Vercel automation before publication. Production request will name exact PR/head, migration/hash/effects, both linked Vercel projects, backend-first/frontend-second actions, readback and rollback. All test/result fields remain pending until executed.
+
+---
+
+## November 11, 2026 — Carriers production release complete
+
+Chris approved the exact migration and PR #528 release. `carrier_resource_links` is applied as hosted version `20261111192142`, with reviewed SHA-256 `6809e2be65dd77835251edd069b85e043ac6793d9dfce6266f6954401e3ce97d` and stored SQL MD5 `e44199916cd206b7fcc33104c247ab91`. Column/validator/trigger readback, preserved carrier/security fingerprints and advisor comparison pass. The reviewed SQL remains immutable applied evidence in its pending path and must never be replayed.
+
+PR #528 merged as `144151f556977c3b89dac83c3b2c3edf409256cf`, with exactly the tested tree `4761ed2d6056e24ec9532888edea78a8558b8f60`. Both linked feature production builds are READY. Canonical AgentFlow serves the new Carriers route, code and styles with correct Supabase configuration; the unauthenticated browser reaches sign-in. Signed-in flow acceptance is the isolated nine-scenario browser run. All eleven final-head workflows passed, including the full comparison with no new test/type/runtime failures. Existing hosted baseline failures remain documented.
+
+The separate legacy Vercel project's current bundle has undefined Supabase initialization; the approved PR did not change those configuration inputs. Historical onset cannot be established with available access. No environment/settings/protection changes were made, and the canonical site is unaffected. See the newest WORK_LOG and [verification](docs/plans/2026-11-11-carrier-directory/verification.md) for exact deployment IDs, evidence and limits.
+
+Release closeout edits are limited to `WORK_LOG.md`, this `implementation_plan.md`, and `docs/plans/2026-11-11-carrier-directory/verification.md`. No additional application, migration or workflow changes. Earlier pending-release entries below are preserved history and are superseded by this completion status.
+
+---
+
+## November 11, 2026 — Carriers directory implementation
+
+Chris approved building the simplified expandable-card Carriers tab. Current plan and intended file list: [Carriers implementation plan](docs/plans/2026-11-11-carrier-directory/implementation_plan.md). Work is on `feat/carrier-directory-20261111` from `e07d28bdef1d8a9a21f0eee408b181b625389527`. Implementation and isolated verification are authorized; production migration execution, merge, and deployment remain pending approval of the finished result. Earlier entries below are preserved history.
+
+Implementation complete: directory, Settings resource editor, append-only page default and pending database validation. Local focused suite 281/281, root TypeScript, build, scoped lint and native PostgreSQL 17.11 pass. The strict application baseline comparison reports base=79, candidate=78, new=0 after removing an inherited impossible Sidebar comparison. Hosted PostgreSQL 17.6 and browser gates passed; final mobile follow-up evidence is recorded in PR #528. [Verification and pending release sequence](docs/plans/2026-11-11-carrier-directory/verification.md) records the exact SQL checksum and isolated gates. No production action has occurred.
 
 ---
 

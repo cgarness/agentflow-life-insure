@@ -7,7 +7,9 @@ import {
   FolderOpen, Loader2, ShieldCheck, AlertTriangle
 } from "lucide-react";
 import {
+  DEFAULT_CARRIERS_PAGE,
   DEFAULT_SETTINGS_SECTIONS,
+  normalizeCarriersPagePermission,
   mergeSettingsSections,
   type SettingsSectionPermission,
   CONTACTS_PERMISSIONS,
@@ -83,6 +85,7 @@ const defaultPages: PageAccess[] = [
   { name: "Leaderboard", icon: Trophy, agent: true, teamLeader: true },
   { name: "Reports", icon: FileText, agent: false, teamLeader: true },
   { name: "AI Agents", icon: Bot, agent: false, teamLeader: true },
+  { ...DEFAULT_CARRIERS_PAGE, icon: ShieldCheck },
   { name: "Training", icon: GraduationCap, agent: true, teamLeader: true },
   { name: "Resources", icon: FolderOpen, agent: true, teamLeader: true },
 ];
@@ -184,12 +187,15 @@ function deepClone<T>(obj: T): T {
 function mergePagesWithIcons(
   stored: { name: string; agent?: boolean; teamLeader?: boolean }[],
 ): PageAccess[] {
+  const normalized = normalizeCarriersPagePermission(stored);
   return defaultPages.map((def) => {
-    const row = stored.find((p) => p.name === def.name);
+    const row = normalized.find((p) => p.name === def.name);
     return {
       ...def,
-      agent: row?.agent ?? def.agent,
-      teamLeader: row?.teamLeader ?? def.teamLeader,
+      // Missing saved pages deny in usePermissions. Only the shared Carriers
+      // normalizer supplies a new default; editing it must not grant other pages.
+      agent: row?.agent ?? false,
+      teamLeader: row?.teamLeader ?? false,
     };
   });
 }

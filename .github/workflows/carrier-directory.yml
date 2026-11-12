@@ -1,0 +1,103 @@
+name: Carrier directory verification
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'supabase/migrations/pending/carrier_resource_links.sql'
+      - 'supabase/tests/carrier_resource_links*.sql'
+      - 'scripts/run_carrier_resource_links_tests.sh'
+      - 'scripts/tests/carriers/**'
+      - '.github/workflows/carrier-directory.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VITE_SUPABASE_URL: http://127.0.0.1:54321
+      VITE_SUPABASE_ANON_KEY: isolated-test-only
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Required TypeScript check
+        run: npx tsc --noEmit
+      - name: Carrier, permissions, View As and policy-carrier regressions
+        run: >-
+          npx vitest run --maxWorkers=2
+          src/lib/__tests__/carrierResources.test.ts
+          src/lib/__tests__/carrierPermissions.test.tsx
+          src/lib/__tests__/carrierSelection.test.ts
+          src/lib/__tests__/reportsContracts.test.ts
+          src/lib/__tests__/permissionsSettingsContacts.test.tsx
+          src/lib/__tests__/contactsPermissions.test.ts
+          src/lib/__tests__/viewAsSurfaces.test.ts
+          src/hooks/__tests__/useCarrierDirectory.test.tsx
+          src/hooks/__tests__/useOrganizationCarriers.test.tsx
+          src/components/carriers/__tests__/CarrierDirectory.test.tsx
+          src/components/settings/carriers/__tests__/CarrierResourceLinksEditor.test.tsx
+          src/components/settings/__tests__/CarriersResources.test.tsx
+          src/components/layout/__tests__/viewAsSidebarNav.test.tsx
+          src/components/layout/__tests__/viewAsRouteAllowlist.test.tsx
+          src/components/shared/__tests__/carrierCombobox.test.tsx
+          src/components/settings/commission-grids/__tests__/carrierGroups.test.tsx
+          src/components/contacts/__tests__/recordPolicyModal.test.tsx
+      - name: Production build (isolated values only)
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_ANON_KEY: isolated-test-only
+        run: npm run build
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-test-only
+        ports: ['55446:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Native validation, RLS and preservation
+        env:
+          PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55446
+        run: bash scripts/run_carrier_resource_links_tests.sh
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Isolated browser tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/carrier-browser" --no-save playwright@1.56.1
+          "$RUNNER_TEMP/carrier-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Desktop, mobile, keyboard and save/reload
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/carrier-browser/node_modules/playwright/index.mjs
+          CARRIER_SCREENSHOTS: ${{ runner.temp }}/carrier-screenshots
+        run: node scripts/tests/carriers/browser/verify.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: carrier-browser-evidence
+          path: ${{ runner.temp }}/carrier-screenshots
+          if-no-files-found: ignore

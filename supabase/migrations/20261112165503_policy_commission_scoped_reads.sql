@@ -1,5 +1,5 @@
 -- Team Commissions: shared scoped reads; no financial writes, RLS changes or table grants.
--- CLI-generated 20261111015438, based on e07d28bdef1d8a9a21f0eee408b181b625389527.
+-- CLI-generated 20261112165503, based on 713aa48d2c71de7da595d74bee878324654e3255.
 -- Production application requires Chris's approval of this exact content hash and release packet.
 -- Apply atomically. Legacy signatures/types, owners, grants, goals and every writer remain intact.
 -- Fixed fact-query text with USING bindings avoids generic-plan cliffs without changing nested

@@ -1,5 +1,5 @@
 {
-  "status": "locally_verified_prepared_not_applied_merged_or_deployed",
+  "status": "BLOCKED: hosted scale budgets; resumption verification in progress",
   "base_commit": "e07d28bdef1d8a9a21f0eee408b181b625389527",
   "branch": "feat/team-commissions-20261110",
   "production_project": "jncvvsvckxhqgqvkppmj",
@@ -7511,5 +7511,4101 @@
       "sha256": "d3a33cd4ca52fca19366c4425729dfdb10a4cc138e699c4a15af2a1296086de0",
       "git_blob": "1dd8e8f5e6380194f2b729a9e76c071633f3a1da"
     }
-  ]
+  ],
+  "resumption": {
+    "base_commit": "713aa48d2c71de7da595d74bee878324654e3255",
+    "migration_version": "20261112165503",
+    "migration_sha256": "636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366",
+    "database_refresh": {
+      "captured_at_utc": "2026-11-12T17:00:27.974557+00:00",
+      "project": "jncvvsvckxhqgqvkppmj",
+      "read_only": true,
+      "hosted_migration_head": "20261111192142",
+      "hosted_migration_name": "carrier_resource_links",
+      "hosted_source_sha256": "6809e2be65dd77835251edd069b85e043ac6793d9dfce6266f6954401e3ce97d",
+      "main": "713aa48d2c71de7da595d74bee878324654e3255",
+      "new_cli_version": "20261112165503",
+      "old_unapplied_version": "20261111015438",
+      "preimage_metadata_count": 28,
+      "preimage_metadata_identical": true,
+      "prior_inventory_count": 729,
+      "prior_inventory_identical": true,
+      "unrelated_new_function": "private.validate_carrier_resource_links()",
+      "financial_rls_policies_count": 33,
+      "financial_rls_identical": true,
+      "tables_count": 11,
+      "table_rls_and_grants_identical": true,
+      "existing_captured_indexes_count": 60,
+      "existing_captured_indexes_identical": true,
+      "new_capture_includes_company_settings_indexes": 3,
+      "scoped_schema_absent": true,
+      "exposed_schemas_setting": null,
+      "default_function_acl_unchanged": "postgres/public={postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "files": {
+        "functions.json": {
+          "sha256": "f1c3ed93e27b578055e54d05f8e57a4bedd637d1aa47cd00d10e9244bf68fdba",
+          "bytes": 69816
+        },
+        "inventory.json": {
+          "sha256": "8893e2a5426bf0dc4483772944b7a4abedf281285a3ee78a99563a366fe9777b",
+          "bytes": 243292
+        },
+        "rls.json": {
+          "sha256": "03fb64f56c5eb2902d44144ccc376caae4a1a4aaff6b49faeb9631c203d10815",
+          "bytes": 31340
+        }
+      }
+    },
+    "browser_repeat": {
+      "environment": {
+        "node": "v22.23.5",
+        "os": "PRETTY_NAME=\"Ubuntu 26.04.1 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"26.04\"\nVERSION=\"26.04.1 LTS (Resolute Raccoon)\"\nVERSION_CODENAME=resolute\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=resolute\nLOGO=ubuntu-logo\n",
+        "playwright": "1.56.1",
+        "axe": "4.10.2"
+      },
+      "runs": [
+        {
+          "run": "run-cold-1",
+          "fixture": "Team Commissions isolated synthetic browser",
+          "started_at": "2026-11-12T16:55:30.083Z",
+          "browser": "141.0.7390.37",
+          "cpu_rate": 1,
+          "duration_ms": 10258,
+          "checks": [
+            {
+              "name": "U15 1440: no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: Overview team writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U12 1440: no goal requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U09 1440: Scheduled writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: Scheduled no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03 1440: History retains All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: Policies writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 1440: team list masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 1440: team drawer masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: drawer mutations absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: no runtime errors",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "isolation 1440: no external browser requests",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U15 390: no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: Overview team writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U12 390: no goal requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U09 390: Scheduled writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: Scheduled no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03 390: History retains All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: Policies writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 390: team list masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 390: team drawer masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: drawer mutations absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: no runtime errors",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "isolation 390: no external browser requests",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U01: draft/search makes no financial request",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: Cancel preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: Escape preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: dismissal preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: default Me plus checked downline commits both",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: default self selection retained",
+              "pass": true,
+              "detail": [
+                "00000000-0000-4000-8000-000000000901",
+                "00000000-0000-4000-8000-000000000903"
+              ]
+            },
+            {
+              "name": "U17: All independent of empty picker search",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: no per-agent report fan-out",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A14: View As zero protected requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A08: team-only default All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A08: no Calculator/goal",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A13: empty scope zero financial reads",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U18: All self-only retains selector",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U10/U18: return to Me restores controls",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: open selector accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U15: keyboard Tab/Space/Enter commits two exact agents",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03: reload rehydrates committed selected URL",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: keyboard opening transfers focus into selector after reload",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: Escape returns focus to selector trigger",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U05: late A after B and All cannot replace current selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U05: superseded A reads cancelled",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U08: detected loss clears drawer, agent names, figures and carrier options",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U16: invalid explicit URL has no financial reads",
+              "pass": true,
+              "detail": null
+            }
+          ],
+          "screenshots": [
+            "desktop.png",
+            "mobile.png"
+          ],
+          "requests": [
+            {
+              "scenario": "all-1440",
+              "requests": [
+                {
+                  "name": "get_commission_agent_scope",
+                  "args": {
+                    "p_search": null,
+                    "p_limit": 50,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_overview",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_breakdown",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_installments",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_scope": "range",
+                    "p_status": "all",
+                    "p_kind": null,
+                    "p_carrier": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_receipt_list",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_include_voided": false,
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_policy_list",
+                  "args": {
+                    "p_setup": "all",
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_category": null,
+                    "p_period": "all",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_policy_commission",
+                  "args": {
+                    "p_policy_id": "00000000-0000-4000-8000-000000000301",
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                }
+              ]
+            },
+            {
+              "scenario": "all-390",
+              "requests": [
+                {
+                  "name": "get_commission_agent_scope",
+                  "args": {
+                    "p_search": null,
+                    "p_limit": 50,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_overview",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_breakdown",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_installments",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_scope": "range",
+                    "p_status": "all",
+                    "p_kind": null,
+                    "p_carrier": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_receipt_list",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_include_voided": false,
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_policy_list",
+                  "args": {
+                    "p_setup": "all",
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_category": null,
+                    "p_period": "all",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_policy_commission",
+                  "args": {
+                    "p_policy_id": "00000000-0000-4000-8000-000000000301",
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "run": "run-cold-2",
+          "fixture": "Team Commissions isolated synthetic browser",
+          "started_at": "2026-11-12T16:55:48.616Z",
+          "browser": "141.0.7390.37",
+          "cpu_rate": 1,
+          "duration_ms": 10439,
+          "checks": [
+            {
+              "name": "U15 1440: no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: Overview team writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U12 1440: no goal requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U09 1440: Scheduled writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: Scheduled no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03 1440: History retains All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: Policies writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 1440: team list masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 1440: team drawer masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: drawer mutations absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: no runtime errors",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "isolation 1440: no external browser requests",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U15 390: no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: Overview team writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U12 390: no goal requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U09 390: Scheduled writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: Scheduled no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03 390: History retains All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: Policies writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 390: team list masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 390: team drawer masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: drawer mutations absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: no runtime errors",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "isolation 390: no external browser requests",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U01: draft/search makes no financial request",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: Cancel preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: Escape preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: dismissal preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: default Me plus checked downline commits both",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: default self selection retained",
+              "pass": true,
+              "detail": [
+                "00000000-0000-4000-8000-000000000901",
+                "00000000-0000-4000-8000-000000000903"
+              ]
+            },
+            {
+              "name": "U17: All independent of empty picker search",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: no per-agent report fan-out",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A14: View As zero protected requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A08: team-only default All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A08: no Calculator/goal",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A13: empty scope zero financial reads",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U18: All self-only retains selector",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U10/U18: return to Me restores controls",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: open selector accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U15: keyboard Tab/Space/Enter commits two exact agents",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03: reload rehydrates committed selected URL",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: keyboard opening transfers focus into selector after reload",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: Escape returns focus to selector trigger",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U05: late A after B and All cannot replace current selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U05: superseded A reads cancelled",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U08: detected loss clears drawer, agent names, figures and carrier options",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U16: invalid explicit URL has no financial reads",
+              "pass": true,
+              "detail": null
+            }
+          ],
+          "screenshots": [
+            "desktop.png",
+            "mobile.png"
+          ],
+          "requests": [
+            {
+              "scenario": "all-1440",
+              "requests": [
+                {
+                  "name": "get_commission_agent_scope",
+                  "args": {
+                    "p_search": null,
+                    "p_limit": 50,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_overview",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_breakdown",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_installments",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_scope": "range",
+                    "p_status": "all",
+                    "p_kind": null,
+                    "p_carrier": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_receipt_list",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_include_voided": false,
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_policy_list",
+                  "args": {
+                    "p_setup": "all",
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_category": null,
+                    "p_period": "all",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_policy_commission",
+                  "args": {
+                    "p_policy_id": "00000000-0000-4000-8000-000000000301",
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                }
+              ]
+            },
+            {
+              "scenario": "all-390",
+              "requests": [
+                {
+                  "name": "get_commission_agent_scope",
+                  "args": {
+                    "p_search": null,
+                    "p_limit": 50,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_overview",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_breakdown",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_installments",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_scope": "range",
+                    "p_status": "all",
+                    "p_kind": null,
+                    "p_carrier": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_receipt_list",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_include_voided": false,
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_policy_list",
+                  "args": {
+                    "p_setup": "all",
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_category": null,
+                    "p_period": "all",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_policy_commission",
+                  "args": {
+                    "p_policy_id": "00000000-0000-4000-8000-000000000301",
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "run": "run-cold-3",
+          "fixture": "Team Commissions isolated synthetic browser",
+          "started_at": "2026-11-12T16:55:59.404Z",
+          "browser": "141.0.7390.37",
+          "cpu_rate": 1,
+          "duration_ms": 10191,
+          "checks": [
+            {
+              "name": "U15 1440: no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: Overview team writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U12 1440: no goal requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U09 1440: Scheduled writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: Scheduled no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03 1440: History retains All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: Policies writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 1440: team list masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 1440: team drawer masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: drawer mutations absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: no runtime errors",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "isolation 1440: no external browser requests",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U15 390: no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: Overview team writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U12 390: no goal requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U09 390: Scheduled writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: Scheduled no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03 390: History retains All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: Policies writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 390: team list masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 390: team drawer masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: drawer mutations absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: no runtime errors",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "isolation 390: no external browser requests",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U01: draft/search makes no financial request",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: Cancel preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: Escape preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: dismissal preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: default Me plus checked downline commits both",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: default self selection retained",
+              "pass": true,
+              "detail": [
+                "00000000-0000-4000-8000-000000000901",
+                "00000000-0000-4000-8000-000000000903"
+              ]
+            },
+            {
+              "name": "U17: All independent of empty picker search",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: no per-agent report fan-out",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A14: View As zero protected requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A08: team-only default All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A08: no Calculator/goal",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A13: empty scope zero financial reads",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U18: All self-only retains selector",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U10/U18: return to Me restores controls",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: open selector accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U15: keyboard Tab/Space/Enter commits two exact agents",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03: reload rehydrates committed selected URL",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: keyboard opening transfers focus into selector after reload",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: Escape returns focus to selector trigger",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U05: late A after B and All cannot replace current selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U05: superseded A reads cancelled",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U08: detected loss clears drawer, agent names, figures and carrier options",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U16: invalid explicit URL has no financial reads",
+              "pass": true,
+              "detail": null
+            }
+          ],
+          "screenshots": [
+            "desktop.png",
+            "mobile.png"
+          ],
+          "requests": [
+            {
+              "scenario": "all-1440",
+              "requests": [
+                {
+                  "name": "get_commission_agent_scope",
+                  "args": {
+                    "p_search": null,
+                    "p_limit": 50,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_overview",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_breakdown",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_installments",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_scope": "range",
+                    "p_status": "all",
+                    "p_kind": null,
+                    "p_carrier": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_receipt_list",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_include_voided": false,
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_policy_list",
+                  "args": {
+                    "p_setup": "all",
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_category": null,
+                    "p_period": "all",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_policy_commission",
+                  "args": {
+                    "p_policy_id": "00000000-0000-4000-8000-000000000301",
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                }
+              ]
+            },
+            {
+              "scenario": "all-390",
+              "requests": [
+                {
+                  "name": "get_commission_agent_scope",
+                  "args": {
+                    "p_search": null,
+                    "p_limit": 50,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_overview",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_breakdown",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_installments",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_scope": "range",
+                    "p_status": "all",
+                    "p_kind": null,
+                    "p_carrier": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_receipt_list",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_include_voided": false,
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_policy_list",
+                  "args": {
+                    "p_setup": "all",
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_category": null,
+                    "p_period": "all",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_policy_commission",
+                  "args": {
+                    "p_policy_id": "00000000-0000-4000-8000-000000000301",
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "run": "run-cpu-4",
+          "fixture": "Team Commissions isolated synthetic browser",
+          "started_at": "2026-11-12T16:56:09.921Z",
+          "browser": "141.0.7390.37",
+          "cpu_rate": 4,
+          "duration_ms": 28182,
+          "checks": [
+            {
+              "name": "U15 1440: no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: Overview team writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U12 1440: no goal requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U09 1440: Scheduled writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: Scheduled no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03 1440: History retains All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: Policies writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 1440: team list masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 1440: team drawer masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 1440: drawer mutations absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 1440: no runtime errors",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "isolation 1440: no external browser requests",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U15 390: no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: Overview team writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U12 390: no goal requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U09 390: Scheduled writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: Scheduled no page overflow",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03 390: History retains All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: Policies writes absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 390: team list masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U14 390: team drawer masked",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U09 390: drawer mutations absent",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15 390: no runtime errors",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "isolation 390: no external browser requests",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U01: draft/search makes no financial request",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: Cancel preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: Escape preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U01: dismissal preserves selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: default Me plus checked downline commits both",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: default self selection retained",
+              "pass": true,
+              "detail": [
+                "00000000-0000-4000-8000-000000000901",
+                "00000000-0000-4000-8000-000000000903"
+              ]
+            },
+            {
+              "name": "U17: All independent of empty picker search",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U02: no per-agent report fan-out",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A14: View As zero protected requests",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A08: team-only default All",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A08: no Calculator/goal",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "A13: empty scope zero financial reads",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U18: All self-only retains selector",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U10/U18: return to Me restores controls",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: open selector accessibility",
+              "pass": true,
+              "detail": []
+            },
+            {
+              "name": "U15: keyboard Tab/Space/Enter commits two exact agents",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U03: reload rehydrates committed selected URL",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: keyboard opening transfers focus into selector after reload",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U15: Escape returns focus to selector trigger",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U05: late A after B and All cannot replace current selection",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U05: superseded A reads cancelled",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U08: detected loss clears drawer, agent names, figures and carrier options",
+              "pass": true,
+              "detail": null
+            },
+            {
+              "name": "U16: invalid explicit URL has no financial reads",
+              "pass": true,
+              "detail": null
+            }
+          ],
+          "screenshots": [
+            "desktop.png",
+            "mobile.png"
+          ],
+          "requests": [
+            {
+              "scenario": "all-1440",
+              "requests": [
+                {
+                  "name": "get_commission_agent_scope",
+                  "args": {
+                    "p_search": null,
+                    "p_limit": 50,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_overview",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_breakdown",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_installments",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_scope": "range",
+                    "p_status": "all",
+                    "p_kind": null,
+                    "p_carrier": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_receipt_list",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_include_voided": false,
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_policy_list",
+                  "args": {
+                    "p_setup": "all",
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_category": null,
+                    "p_period": "all",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_policy_commission",
+                  "args": {
+                    "p_policy_id": "00000000-0000-4000-8000-000000000301",
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                }
+              ]
+            },
+            {
+              "scenario": "all-390",
+              "requests": [
+                {
+                  "name": "get_commission_agent_scope",
+                  "args": {
+                    "p_search": null,
+                    "p_limit": 50,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_overview",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_breakdown",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_installments",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_scope": "range",
+                    "p_status": "all",
+                    "p_kind": null,
+                    "p_carrier": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_receipt_list",
+                  "args": {
+                    "p_period": "this_month",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_include_voided": false,
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_commission_policy_list",
+                  "args": {
+                    "p_setup": "all",
+                    "p_carrier": null,
+                    "p_carrier_unknown": false,
+                    "p_category": null,
+                    "p_period": "all",
+                    "p_from": null,
+                    "p_to": null,
+                    "p_limit": 25,
+                    "p_offset": 0,
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                },
+                {
+                  "name": "get_scoped_policy_commission",
+                  "args": {
+                    "p_policy_id": "00000000-0000-4000-8000-000000000301",
+                    "p_agent_scope": "all",
+                    "p_agent_ids": null
+                  },
+                  "aborted": false
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "followup": {
+        "reason": "First hosted browser run sent Escape before Radix passive-effect focus/layer readiness after reload.",
+        "correction": "Wait for natural focus transfer into Choose agents before sending one Escape. Existing close and trigger-focus assertions remain; an extra autofocus assertion increases the gate to49 checks.",
+        "production_code_changed": false,
+        "runner_sha256": "31b19978a2534920a9bcfb7a97c5213d2fe9266d33ebb76b66c18c35df8d486f",
+        "bundle_archive_sha256": "a32b3181c152f8eb4f2f12e5e4b32674e5c3560d016f7f83bda3030722fd5a24",
+        "bundle_source": "Existing actual-page compiled synthetic browser adapter from candidate8e64259553a5b04989e3dc294d2aed68e4a8bfb2; external browser requests blocked.",
+        "cold_definition": "New Chromium process and browser contexts per run; static server sends Cache-Control:no-store.",
+        "platform_override": "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64; pinned Playwright1.56.1 predates Ubuntu26.04.",
+        "limitation": "Does not replace final GitHub Actions Ubuntu24.04 dev-Vite gate.",
+        "sandbox": {
+          "session_id": "sbx_1OXRqy37oZRBXdxRayFR2nBjwxaV",
+          "persistent": false,
+          "exposed_routes": [],
+          "production_credentials": false,
+          "status": "stopped",
+          "readback_verified": true
+        }
+      }
+    },
+    "hosted_first_failure": {
+      "head": "8e64259553a5b04989e3dc294d2aed68e4a8bfb2",
+      "workflow_run": 42952161107,
+      "job": 130298732547,
+      "status": "failed",
+      "reason": "three largest scale cases exceeded unchanged reviewed per-RPC budgets",
+      "samples": [
+        {
+          "ms": 234.264,
+          "read": "breakdown",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 223.664,
+          "read": "breakdown",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 225.055,
+          "read": "breakdown",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 223.774,
+          "read": "breakdown",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 232.725,
+          "read": "breakdown",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 200.32,
+          "read": "breakdown",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 196.949,
+          "read": "breakdown",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 198.282,
+          "read": "breakdown",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 106.584,
+          "read": "history",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 105.531,
+          "read": "history",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 104.617,
+          "read": "history",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 104.774,
+          "read": "history",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 104.915,
+          "read": "history",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 106.542,
+          "read": "history",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 104.523,
+          "read": "history",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 108.078,
+          "read": "history",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 25.445,
+          "read": "months_10_12",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.264,
+          "read": "months_10_12",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.33,
+          "read": "months_10_12",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.695,
+          "read": "months_10_12",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.547,
+          "read": "months_10_12",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.827,
+          "read": "months_10_12",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.357,
+          "read": "months_10_12",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.792,
+          "read": "months_10_12",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 215.575,
+          "read": "overview",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 214.865,
+          "read": "overview",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 211.598,
+          "read": "overview",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 212.094,
+          "read": "overview",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 212.292,
+          "read": "overview",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 214.465,
+          "read": "overview",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 212.48,
+          "read": "overview",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 213.002,
+          "read": "overview",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 204.386,
+          "read": "policies",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 205.697,
+          "read": "policies",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 204.36,
+          "read": "policies",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 204.504,
+          "read": "policies",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 204.35,
+          "read": "policies",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 217.852,
+          "read": "policies",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 203.271,
+          "read": "policies",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 205.539,
+          "read": "policies",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2.404,
+          "read": "roster",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1.817,
+          "read": "roster",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1.839,
+          "read": "roster",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1.76,
+          "read": "roster",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1.864,
+          "read": "roster",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1.728,
+          "read": "roster",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1.58,
+          "read": "roster",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1.61,
+          "read": "roster",
+          "agents": 1,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 72.866,
+          "read": "scheduled",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 72.672,
+          "read": "scheduled",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 72.545,
+          "read": "scheduled",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 72.942,
+          "read": "scheduled",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 73.225,
+          "read": "scheduled",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 72.833,
+          "read": "scheduled",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 73.048,
+          "read": "scheduled",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 73.527,
+          "read": "scheduled",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.467,
+          "read": "scheduled_default",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.406,
+          "read": "scheduled_default",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.239,
+          "read": "scheduled_default",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.511,
+          "read": "scheduled_default",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.116,
+          "read": "scheduled_default",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.018,
+          "read": "scheduled_default",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 23.917,
+          "read": "scheduled_default",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 24.022,
+          "read": "scheduled_default",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 43.869,
+          "read": "scheduled_next90",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 43.939,
+          "read": "scheduled_next90",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 43.821,
+          "read": "scheduled_next90",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 44.116,
+          "read": "scheduled_next90",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 43.399,
+          "read": "scheduled_next90",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 43.855,
+          "read": "scheduled_next90",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 43.743,
+          "read": "scheduled_next90",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 43.891,
+          "read": "scheduled_next90",
+          "agents": 1,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 187.849,
+          "read": "breakdown",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 182.472,
+          "read": "breakdown",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 183.052,
+          "read": "breakdown",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 183.561,
+          "read": "breakdown",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 182.89,
+          "read": "breakdown",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 181.97,
+          "read": "breakdown",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 182.272,
+          "read": "breakdown",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 182.188,
+          "read": "breakdown",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 65.002,
+          "read": "history",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 64.288,
+          "read": "history",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 64.342,
+          "read": "history",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 64.101,
+          "read": "history",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 63.195,
+          "read": "history",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 63.247,
+          "read": "history",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 63.803,
+          "read": "history",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 66.194,
+          "read": "history",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 117.227,
+          "read": "months_10_12",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 118.164,
+          "read": "months_10_12",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 117.261,
+          "read": "months_10_12",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 116.958,
+          "read": "months_10_12",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 117.196,
+          "read": "months_10_12",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 116.743,
+          "read": "months_10_12",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 126.429,
+          "read": "months_10_12",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 119.642,
+          "read": "months_10_12",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 295.235,
+          "read": "overview",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 294.486,
+          "read": "overview",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 297.118,
+          "read": "overview",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 296.083,
+          "read": "overview",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 296.433,
+          "read": "overview",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 292.843,
+          "read": "overview",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 294.913,
+          "read": "overview",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 295.42,
+          "read": "overview",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 120.602,
+          "read": "policies",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 120.085,
+          "read": "policies",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 120.701,
+          "read": "policies",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 121.622,
+          "read": "policies",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 120.63,
+          "read": "policies",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 120.36,
+          "read": "policies",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 120.678,
+          "read": "policies",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 120.879,
+          "read": "policies",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2.626,
+          "read": "roster",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2.482,
+          "read": "roster",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2.436,
+          "read": "roster",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2.444,
+          "read": "roster",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2.409,
+          "read": "roster",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2.414,
+          "read": "roster",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2.425,
+          "read": "roster",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2.406,
+          "read": "roster",
+          "agents": 10,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 252.8,
+          "read": "scheduled",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 256.216,
+          "read": "scheduled",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 255.253,
+          "read": "scheduled",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 271.949,
+          "read": "scheduled",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 259.413,
+          "read": "scheduled",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 256.198,
+          "read": "scheduled",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 256.391,
+          "read": "scheduled",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 255.193,
+          "read": "scheduled",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 114.622,
+          "read": "scheduled_default",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 115.322,
+          "read": "scheduled_default",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 114.634,
+          "read": "scheduled_default",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 116.042,
+          "read": "scheduled_default",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 116.288,
+          "read": "scheduled_default",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 115.823,
+          "read": "scheduled_default",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 117.993,
+          "read": "scheduled_default",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 116.384,
+          "read": "scheduled_default",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 207.783,
+          "read": "scheduled_next90",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 206.677,
+          "read": "scheduled_next90",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 205.934,
+          "read": "scheduled_next90",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 207.247,
+          "read": "scheduled_next90",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 207.072,
+          "read": "scheduled_next90",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 207.183,
+          "read": "scheduled_next90",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 203.926,
+          "read": "scheduled_next90",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 205.829,
+          "read": "scheduled_next90",
+          "agents": 10,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1962.209,
+          "read": "breakdown",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1915.988,
+          "read": "breakdown",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1904.446,
+          "read": "breakdown",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1928.861,
+          "read": "breakdown",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1919.698,
+          "read": "breakdown",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1929.219,
+          "read": "breakdown",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1922.661,
+          "read": "breakdown",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1926.291,
+          "read": "breakdown",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 406.055,
+          "read": "history",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 404.669,
+          "read": "history",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 404.376,
+          "read": "history",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 396.457,
+          "read": "history",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 400.379,
+          "read": "history",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 400.101,
+          "read": "history",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 402.412,
+          "read": "history",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 403.402,
+          "read": "history",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1191.233,
+          "read": "months_10_12",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1173.914,
+          "read": "months_10_12",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1174.957,
+          "read": "months_10_12",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1165.927,
+          "read": "months_10_12",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1180.135,
+          "read": "months_10_12",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1173.772,
+          "read": "months_10_12",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1173.524,
+          "read": "months_10_12",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1167.223,
+          "read": "months_10_12",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4119.744,
+          "read": "overview",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4112.688,
+          "read": "overview",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4117.248,
+          "read": "overview",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4105.158,
+          "read": "overview",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4116.693,
+          "read": "overview",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4147.056,
+          "read": "overview",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4133.282,
+          "read": "overview",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4130.708,
+          "read": "overview",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 903.971,
+          "read": "policies",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 923.989,
+          "read": "policies",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 929.277,
+          "read": "policies",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 960.112,
+          "read": "policies",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 923.881,
+          "read": "policies",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 925.009,
+          "read": "policies",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 920.629,
+          "read": "policies",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 921.856,
+          "read": "policies",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 10.152,
+          "read": "roster",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 10.099,
+          "read": "roster",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 10.146,
+          "read": "roster",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 9.948,
+          "read": "roster",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 9.963,
+          "read": "roster",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 9.947,
+          "read": "roster",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 9.978,
+          "read": "roster",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 10.081,
+          "read": "roster",
+          "agents": 100,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 3659.644,
+          "read": "scheduled",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 3693.832,
+          "read": "scheduled",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 3693.977,
+          "read": "scheduled",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 3670.664,
+          "read": "scheduled",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 3694.184,
+          "read": "scheduled",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 3678.186,
+          "read": "scheduled",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 3692.34,
+          "read": "scheduled",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 3682.227,
+          "read": "scheduled",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1263.976,
+          "read": "scheduled_default",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1257.928,
+          "read": "scheduled_default",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1253.027,
+          "read": "scheduled_default",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1241.409,
+          "read": "scheduled_default",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1267.697,
+          "read": "scheduled_default",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1267.993,
+          "read": "scheduled_default",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1251.496,
+          "read": "scheduled_default",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 1251.07,
+          "read": "scheduled_default",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2696.195,
+          "read": "scheduled_next90",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2670.836,
+          "read": "scheduled_next90",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2699.662,
+          "read": "scheduled_next90",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2674.846,
+          "read": "scheduled_next90",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2674.002,
+          "read": "scheduled_next90",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2659.209,
+          "read": "scheduled_next90",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2700.661,
+          "read": "scheduled_next90",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 2678.003,
+          "read": "scheduled_next90",
+          "agents": 100,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 15914.641,
+          "read": "breakdown",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 15755.158,
+          "read": "breakdown",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 15874.113,
+          "read": "breakdown",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 15767.288,
+          "read": "breakdown",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 15791.353,
+          "read": "breakdown",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 15857.218,
+          "read": "breakdown",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 15782.739,
+          "read": "breakdown",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 15775.506,
+          "read": "breakdown",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 6669.402,
+          "read": "history",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4436.018,
+          "read": "history",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4420.552,
+          "read": "history",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4398.453,
+          "read": "history",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4380.047,
+          "read": "history",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4350.969,
+          "read": "history",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4406.395,
+          "read": "history",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 4392.091,
+          "read": "history",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8832.623,
+          "read": "months_10_12",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8943.943,
+          "read": "months_10_12",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8840.384,
+          "read": "months_10_12",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8766.876,
+          "read": "months_10_12",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8903.125,
+          "read": "months_10_12",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8941.931,
+          "read": "months_10_12",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8932.842,
+          "read": "months_10_12",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8960.105,
+          "read": "months_10_12",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 20013.118,
+          "read": "overview",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "57014:canceling statement due to statement timeout"
+        },
+        {
+          "ms": 8010.63,
+          "read": "policies",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "57014:canceling statement due to statement timeout"
+        },
+        {
+          "ms": 85.941,
+          "read": "roster",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 86.07,
+          "read": "roster",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 85.119,
+          "read": "roster",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 85.267,
+          "read": "roster",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 85.341,
+          "read": "roster",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 85.485,
+          "read": "roster",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 85.263,
+          "read": "roster",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 86.014,
+          "read": "roster",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 20024.419,
+          "read": "scheduled",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "57014:canceling statement due to statement timeout"
+        },
+        {
+          "ms": 8998.901,
+          "read": "scheduled_default",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 9091.79,
+          "read": "scheduled_default",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 9060.339,
+          "read": "scheduled_default",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8999.289,
+          "read": "scheduled_default",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 8962.972,
+          "read": "scheduled_default",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 9089.961,
+          "read": "scheduled_default",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 9049.244,
+          "read": "scheduled_default",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 9059.477,
+          "read": "scheduled_default",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        },
+        {
+          "ms": 17780.362,
+          "read": "scheduled_next90",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "ok"
+        },
+        {
+          "ms": 17886.628,
+          "read": "scheduled_next90",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 1,
+          "outcome": "ok"
+        },
+        {
+          "ms": 17959.955,
+          "read": "scheduled_next90",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 2,
+          "outcome": "ok"
+        },
+        {
+          "ms": 17767.584,
+          "read": "scheduled_next90",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 3,
+          "outcome": "ok"
+        },
+        {
+          "ms": 17753.437,
+          "read": "scheduled_next90",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 4,
+          "outcome": "ok"
+        },
+        {
+          "ms": 17718.222,
+          "read": "scheduled_next90",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 5,
+          "outcome": "ok"
+        },
+        {
+          "ms": 17775.982,
+          "read": "scheduled_next90",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 6,
+          "outcome": "ok"
+        },
+        {
+          "ms": 17739.031,
+          "read": "scheduled_next90",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 7,
+          "outcome": "ok"
+        }
+      ],
+      "failures": [
+        {
+          "ms": 20013.118,
+          "read": "overview",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "57014:canceling statement due to statement timeout"
+        },
+        {
+          "ms": 8010.63,
+          "read": "policies",
+          "agents": 1000,
+          "budget": "8s",
+          "sample": 0,
+          "outcome": "57014:canceling statement due to statement timeout"
+        },
+        {
+          "ms": 20024.419,
+          "read": "scheduled",
+          "agents": 1000,
+          "budget": "20s",
+          "sample": 0,
+          "outcome": "57014:canceling statement due to statement timeout"
+        }
+      ],
+      "notes": [
+        "No budget changed or assertion weakened.",
+        "Prior local pass is not portable production capacity evidence."
+      ]
+    },
+    "production_mutations": false,
+    "budget_proposal_implemented": false,
+    "package_rehearsal": {
+      "exit_code": 0,
+      "log_sha256": "a15d335b3afe8469b5aceabed14c759b2fa840f0e160eddb055044a2caadd076",
+      "coverage": [
+        "current timestamp/history",
+        "authorization and reconciliation",
+        "eight legacy readers across six actors before/after/rollback/reapply",
+        "preimage/replay/metadata/history/hash drift refusal",
+        "exact catalog and financial history restoration",
+        "Center and Insights regressions"
+      ],
+      "http_and_scale_rerun": false
+    }
+  }
 }
