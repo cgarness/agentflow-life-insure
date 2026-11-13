@@ -1,5 +1,15 @@
 # Team Commissions verification — current candidate
 
+## Production verification — November 12, 2026 Pacific
+
+The approved exact head `2adb92f31caf19b1c709e034dd77688046d4e76a` passed all nine hosted workflows before release. The approved backend package is applied at version `20261112165503`; all 29 reviewed function/security pins and the stored migration SHA-256 match. The 733 prior function metadata records, financial table grants, RLS and indexes are unchanged; no new advisor findings. The helper schema remains unexposed.
+
+PR #527 merged as `2129fa8b195cee77ad75f614abe655facfad2725`, with exactly the tested tree. Both production projects are READY at that commit; canonical www.fflagent.com passed real authenticated checks for Me/All/exact/multiple scopes, draft cancellation/application, URL/reload/history persistence, Scheduled/History/Policies, read-only detail and hidden amounts, return to Me and Calculator context. Original amount visibility was restored. No customer financial data was changed and no token/actor impersonation was used.
+
+See [machine-readable release record](production-release.json), [exact readback](evidence/production/readback.json), and [masked live overview](evidence/production/overview-hidden.jpg). Full multi-role/race/revocation and 8/20/40-second HTTP enforcement remain isolated CI evidence; not repeated against production. Actual hosted hoisted-settings configuration was not exposed by available tools. Existing high CPU and Dashboard statistics issues were observed before new-frontend verification; commission smoke reads succeeded. The secondary project's pre-existing environment initialization issue is outside scope. Hardware variance and multi-agency concurrency remain unverified.
+
+The historical candidate entries below retain their original failure details and are superseded only where this production record states a completed result.
+
 Status: approved 40-second adjustment under verification, not release-ready and not production-authorized. The original native CI failures remain recorded. Only the new Overview, Installments and Policy List request budgets change to 40 seconds; Breakdown retains 20 seconds, all existing role/helper/legacy settings stay unchanged. Final hashes and new native/HTTP/scale/CI results must be recorded before the consolidated production request.
 
 On published head `fccb074f3aa79680321a4f510b48e8c3c9e9de0a`, the corrected browser gate passed **49/49** on GitHub Ubuntu24/dev-Vite (run `43265905809`, job `131349267657`), in addition to three fresh local browser runs and one 4× CPU run. The current-base full frontend comparison passed (run `43265905763`, job `131349267053`): **7,136 candidate tests passed versus 7,085 base**, no new failing tests/files, one inherited failed test and nine inherited failed files, zero unhandled runtime errors, and 78 inherited application TypeScript diagnostics. Root TypeScript, Reports contracts, scoped lint and build passed. This is a successful baseline-comparison gate, not a globally clean suite.

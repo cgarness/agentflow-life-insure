@@ -1,0 +1,600 @@
+{
+  "head": "20261112165503",
+  "types": [
+    {
+      "acl": "{postgres=U/postgres,authenticated=U/postgres}",
+      "name": "installment_fact",
+      "owner": "postgres",
+      "attributes": [
+        {
+          "name": "installment_id",
+          "type": "uuid"
+        },
+        {
+          "name": "estimate_id",
+          "type": "uuid"
+        },
+        {
+          "name": "policy_id",
+          "type": "uuid"
+        },
+        {
+          "name": "kind",
+          "type": "text"
+        },
+        {
+          "name": "sequence",
+          "type": "smallint"
+        },
+        {
+          "name": "expected_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "timing_precision",
+          "type": "text"
+        },
+        {
+          "name": "expected_on",
+          "type": "date"
+        },
+        {
+          "name": "expected_until",
+          "type": "date"
+        },
+        {
+          "name": "window_start",
+          "type": "date"
+        },
+        {
+          "name": "window_end",
+          "type": "date"
+        },
+        {
+          "name": "received_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "receipt_count",
+          "type": "integer"
+        },
+        {
+          "name": "remaining_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "excess_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "estimate_status",
+          "type": "text"
+        },
+        {
+          "name": "product_carrier",
+          "type": "text"
+        },
+        {
+          "name": "product_name",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "text"
+        },
+        {
+          "name": "credited_agent_id",
+          "type": "uuid"
+        },
+        {
+          "name": "agent_name",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "acl": "{postgres=U/postgres,authenticated=U/postgres}",
+      "name": "policy_fact",
+      "owner": "postgres",
+      "attributes": [
+        {
+          "name": "policy_id",
+          "type": "uuid"
+        },
+        {
+          "name": "win_id",
+          "type": "uuid"
+        },
+        {
+          "name": "client_id",
+          "type": "uuid"
+        },
+        {
+          "name": "sold_date",
+          "type": "date"
+        },
+        {
+          "name": "sale_created_at",
+          "type": "timestamp with time zone"
+        },
+        {
+          "name": "win_policy_type",
+          "type": "text"
+        },
+        {
+          "name": "win_premium",
+          "type": "numeric"
+        },
+        {
+          "name": "win_premium_snapshot",
+          "type": "boolean"
+        },
+        {
+          "name": "estimate_id",
+          "type": "uuid"
+        },
+        {
+          "name": "estimate_status",
+          "type": "text"
+        },
+        {
+          "name": "first_year_cents",
+          "type": "bigint"
+        },
+        {
+          "name": "product_carrier",
+          "type": "text"
+        },
+        {
+          "name": "product_name",
+          "type": "text"
+        },
+        {
+          "name": "capture_status",
+          "type": "text"
+        },
+        {
+          "name": "contact_visible",
+          "type": "boolean"
+        },
+        {
+          "name": "contact_name",
+          "type": "text"
+        },
+        {
+          "name": "source",
+          "type": "text"
+        },
+        {
+          "name": "carrier",
+          "type": "text"
+        },
+        {
+          "name": "policy_type",
+          "type": "text"
+        },
+        {
+          "name": "premium_text",
+          "type": "text"
+        },
+        {
+          "name": "effective_date",
+          "type": "text"
+        },
+        {
+          "name": "payment_frequency",
+          "type": "text"
+        },
+        {
+          "name": "credited_agent_id",
+          "type": "uuid"
+        },
+        {
+          "name": "agent_name",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "schema": {
+    "acl": "{postgres=UC/postgres,authenticated=U/postgres}",
+    "owner": "postgres",
+    "anon_usage": false,
+    "service_role_usage": false,
+    "authenticated_usage": true,
+    "authenticated_create": false
+  },
+  "history": [
+    {
+      "name": "policy_commission_scoped_reads",
+      "version": "20261112165503",
+      "source_sha256": "0118728fde1d70d45c6595745a15109f997674e3801b608e037fd7f618debff1",
+      "statements_count": 1
+    }
+  ],
+  "functions": [
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_reporting.installments(uuid,uuid,date,uuid[])",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "bf500a61127e483a68379d460f6e4b14"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_reporting.policies(uuid,uuid,uuid)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "7d607a2a8842683ce052687932b03a41"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.installments(text,uuid[],date,uuid[],date,date,text,boolean)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "b93ed60e533c243687245b4bc2adc8df"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.policies(text,uuid[],uuid,uuid[])",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "5ad4e133b1be417aa9fcea399e9bdb36"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.read_breakdown(text,uuid[],text,date,date,boolean)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "a4c97ed098b646a48b89faec77d892ab"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.read_installments(text,uuid[],text,date,date,text,text,text,text,integer,integer,boolean)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "ea5b56b161b33342f66b08ad93d54936"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.read_overview(text,uuid[],text,date,date,boolean)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "5482cf66e308ae04508a6088c3fae732"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.read_policies(text,uuid[],text,text,integer,integer,boolean)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "570a3a1585f0703f988592dea09fafb6"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.read_policy_detail(text,uuid[],uuid,boolean)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "9aae4e996f3417a95628628c6c371df5"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.read_policy_list(text,uuid[],text,text,boolean,text,text,date,date,integer,integer,boolean)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "2b74ef07cf1c73669f5d7131f50a4421"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.read_receipt_list(text,uuid[],text,date,date,boolean,text,boolean,integer,integer,boolean)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "8a74df542d315f88fbe38508415b3f41"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.read_receipts(text,uuid[],text,date,date,boolean,integer,integer,boolean)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "11fd48c7abf2670f548f35e9c92c7638"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.resolve_scope(text,uuid[])",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "838a8e2a0760e3eb71544e59ed00a38a"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "policy_commission_scoped.viewer(text,uuid[])",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "378c1226266f3daa1ad4fba73e81c5f2"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_commission_agent_scope(text,integer,integer,text,uuid[])",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "c3ab5f0bfb1978fddbd438f2ce30e077"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_my_commission_breakdown(text,date,date)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "873cd4448ac0e5ae9afd7aa2dba55cc4"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_my_commission_installments(text,date,date,text,text,text,text,integer,integer)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "e2978a44f3e584df53dcbf5ab4c2941f"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_my_commission_overview(text,date,date)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "b7fdb4cf6774cd602310ef3f6e0542de"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_my_commission_policies(text,text,integer,integer)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "4fd4eb5a1f5fcd911df7b9b7124f3fc2"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_my_commission_policy_list(text,text,boolean,text,text,date,date,integer,integer)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "0efdbd5f2920846c9a9b36203d788b9a"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_my_commission_receipt_list(text,date,date,boolean,text,boolean,integer,integer)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "f9b6c1f060b38f876a3ec52b26550881"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_my_commission_receipts(text,date,date,boolean,integer,integer)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "574fe1fc0f6ab66fb3f7c5763771f5aa"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_my_policy_commission(uuid)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "f46f80066141eb4619432ac15eac2a30"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp",
+        "statement_timeout=20s"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_scoped_commission_breakdown(text,uuid[],text,date,date)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "9a1a015e790fe3d3d7a487bd97f26560"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp",
+        "statement_timeout=40s"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_scoped_commission_installments(text,uuid[],text,date,date,text,text,text,text,integer,integer)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "873863d814257a2e15528d13b730707d"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp",
+        "statement_timeout=40s"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_scoped_commission_overview(text,uuid[],text,date,date)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "804245059bc2aa2432791117ce3c74b6"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp",
+        "statement_timeout=40s"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_scoped_commission_policy_list(text,uuid[],text,text,boolean,text,text,date,date,integer,integer)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "fc5a9b6961b8933873fb7c91c742baa0"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_scoped_commission_receipt_list(text,uuid[],text,date,date,boolean,text,boolean,integer,integer)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "625861aa2293981965f43d3143a7e084"
+    },
+    {
+      "matches": true,
+      "present": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "prosecdef": false,
+      "signature": "public.get_scoped_policy_commission(text,uuid[],uuid)",
+      "actual_acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "provolatile": "s",
+      "actual_owner": "postgres",
+      "actual_definition_md5": "819c750c61a1d0509a3921514e8e3ef2"
+    }
+  ],
+  "all_29_match": true,
+  "helper_function_count": 12
+}

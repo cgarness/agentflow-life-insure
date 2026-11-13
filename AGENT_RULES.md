@@ -878,8 +878,8 @@ nav entry. Contract and metric definitions: `docs/plans/2026-10-20-commissions-c
 evidence: `verification.md` beside it.
 
 - **Personal compatibility and approved Team Commissions extension.** The eight legacy My readers remain self-only,
-  credited to `auth.uid()` / `wins.agent_id`, never the client's assignee. Team Commissions is approved for implementation
-  (November 10, 2026), **not yet production release**; its exact candidate/release status is in
+  credited to `auth.uid()` / `wins.agent_id`, never the client's assignee. Team Commissions was released
+  November 12, 2026 through PR #527 and migration `20261112165503`; its exact verification/release status is in
   `docs/plans/2026-11-08-team-commissions/verification.md`. New scoped readers accept only validated `me`, `all`, or
   exact `selected` agent filters, derive the real actor/org server-side, and recheck existing commission authorization
   on every call. All means the full currently authorized same-organization universe, including self only with Own;
