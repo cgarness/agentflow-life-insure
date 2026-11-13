@@ -1,0 +1,102 @@
+{
+  "release_date_pacific": "2026-11-12",
+  "production_project": "jncvvsvckxhqgqvkppmj",
+  "approved_pr": 527,
+  "approved_head": "2adb92f31caf19b1c709e034dd77688046d4e76a",
+  "merge_commit": "2129fa8b195cee77ad75f614abe655facfad2725",
+  "merge_tree": "fb4899612f0b8762437373a3544cacd10de3040b",
+  "migration": {
+    "version": "20261112165503",
+    "sha256": "0118728fde1d70d45c6595745a15109f997674e3801b608e037fd7f618debff1",
+    "apply_sha256": "750d5c13a56d1a2b59e942d5fba2e7dcd68b4681535d107bbcd72a50c5ef8f5d",
+    "status": "applied_and_read_back",
+    "history_statements": 1
+  },
+  "preflight": {
+    "production_auto_deploy": "already_off_no_setting_changed",
+    "functions_28_unchanged": true,
+    "prior_inventory_733_unchanged": true,
+    "financial_tables_11_unchanged": true,
+    "rls_policies_33_unchanged": true,
+    "indexes_63_unchanged": true,
+    "exposed_schemas": [
+      "public",
+      "graphql_public"
+    ],
+    "dashboard_high_cpu_warning": true
+  },
+  "readback": {
+    "functions_matched": 29,
+    "new_helpers": 12,
+    "prior_function_metadata_unchanged": true,
+    "inventory_before": 733,
+    "inventory_after": 752,
+    "all_function_changes_match_manifest": true,
+    "helper_schema_exposed": false,
+    "authenticated_create": false,
+    "anon_usage": false,
+    "service_role_usage": false,
+    "new_advisors": {
+      "security": 0,
+      "performance": 0,
+      "health": 0
+    },
+    "tables_policies_indexes_unchanged": true
+  },
+  "deployments": [
+    {
+      "project": "agentflow",
+      "id": "dpl_BkWJopDn2qqe76eomPdMMcyibrPg",
+      "url": "https://agentflow-dbsqslc25-cgarness-projects.vercel.app",
+      "alias": "https://www.fflagent.com",
+      "status": "READY",
+      "commit": "2129fa8b195cee77ad75f614abe655facfad2725",
+      "asset": "index-Dpvl_57Z.js",
+      "authenticated_acceptance": true
+    },
+    {
+      "project": "agentflow-life-insure",
+      "id": "dpl_HMMPmAWo1Foz5kXsy6TAs6DSGgSZ",
+      "url": "https://agentflow-life-insure-76o21jdtq-cgarness-projects.vercel.app",
+      "status": "READY",
+      "commit": "2129fa8b195cee77ad75f614abe655facfad2725",
+      "asset": "index-BxDRQtMt.js",
+      "authenticated_acceptance": false,
+      "limitation": "Previously documented Supabase environment initialization issue remains outside release; build and scoped assets verified only."
+    }
+  ],
+  "live_acceptance": {
+    "actor": "real signed-in owner account with Super Admin navigation; no impersonation",
+    "me_overview": true,
+    "all_overview": true,
+    "draft_cancel_preserves_selection": true,
+    "apply_commits_scope": true,
+    "search_exact_agent": true,
+    "single_agent_attribution": true,
+    "two_agent_attribution": true,
+    "reload_persistence": true,
+    "back_forward": true,
+    "scheduled": true,
+    "history": true,
+    "policies": true,
+    "readonly_team_drawer": true,
+    "hidden_amounts": true,
+    "return_to_me": true,
+    "personal_calculator_context": true,
+    "original_amount_preference_restored": true,
+    "commission_console_errors": 0
+  },
+  "limitations": [
+    "Single real account smoke test; synthetic CI contains full role/security/race matrix.",
+    "No production financial writes, test records, or fabricated credentials.",
+    "No deliberate production 8/20/40-second timeout probes; function settings read back; enforcement/reset proved in isolated hosted PostgREST.",
+    "Production PostgREST hoisted settings not exposed by available dashboard/config catalogs; supported function-level setting behavior documented by Supabase, not directly read from service configuration.",
+    "High CPU warning existed before application; initial old-bundle Dashboard statistics load failed, while commission reads succeeded. No compute or unrelated Dashboard changes.",
+    "Hardware variance and multi-agency concurrency remain unverified."
+  ],
+  "rollback": {
+    "executed": false,
+    "source_sha256": "6c6a6cb2cc61d903624a91f1e65c5433dfeae0f887a164d5d530bf31b2cf34d0",
+    "transaction_sha256": "6e4665af865fb5b70250ce3e3742c32a4ba46425bd008b3bc6bd55e96e1ebb2f"
+  }
+}

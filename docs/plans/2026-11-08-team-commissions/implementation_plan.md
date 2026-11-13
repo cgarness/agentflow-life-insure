@@ -1,3 +1,7 @@
+## November 12, 2026 Pacific — released
+
+The exact approved PR #527 release is applied, merged and deployed. Canonical AgentFlow passed authenticated smoke checks. See [production-release.json](production-release.json) and the newest WORK_LOG entry for hashes, deployment references, verification and practical limitations. The historical status entries below are retained and superseded by this release record. No further production action is authorized by this documentation update.
+
 ## November 12 — approved bounded request budgets
 
 Chris approved proceeding with the proposed 40-second cap after clarifying that the scale case represents one agency, not all agencies combined. The scope is exactly three new readers: `get_scoped_commission_overview`, `get_scoped_commission_installments`, and `get_scoped_commission_policy_list`. `get_scoped_commission_breakdown` remains at 20 seconds. Existing My APIs, helpers, role/database limits and security rules remain unchanged. Broader multi-agency concurrency work is deferred and has not been verified. This is implementation approval only; production release remains separately gated.

@@ -1,5 +1,15 @@
 # Team Commissions release packet
 
+## Production closeout — November 12, 2026 Pacific
+
+Chris approved the exact release request after final-head CI. Migration `20261112165503` is **applied and read back**; PR #527 is **merged** as `2129fa8b195cee77ad75f614abe655facfad2725`; both identified Vercel projects are **deployed READY** at that merge. Canonical www.fflagent.com passed real-account scoped commission smoke checks. Rollback was not required. See [production-release.json](production-release.json), [production readback](evidence/production/readback.json) and the newest WORK_LOG entry.
+
+Production auto-deploy was already OFF, so no setting was changed. Exposed schemas remain public/graphql_public. All 29 reviewed function/security pins and the exact stored source SHA-256 match; old function metadata, financial table grants, RLS and indexes are unchanged. Advisors report no new findings. The secondary project's pre-existing environment issue is not declared fixed.
+
+The approved three 40-second settings and Breakdown's 20-second setting are installed. Direct service hoisted-settings configuration and deliberate production timer enforcement were not verified; native hosted HTTP cap/reset evidence remains the basis for those behavior claims. The dashboard showed high CPU before application. Production smoke checks used one legitimate account and read existing records only; no large-book or concurrency load was imposed.
+
+The remaining text is the immutable candidate-era packet and historical evidence, not the current authorization/status. The actual request approved the exact head `2adb92f31caf19b1c709e034dd77688046d4e76a` after all nine workflows passed. The migration and transaction hashes below are unchanged. Do not replay the applied migration or treat this closeout as authorization for another deployment.
+
 Status: approved budget adjustment under verification; final-head release gates remain open. **Not applied, merged, deployed, or live.** Production is not authorized. The approval request/PR description pins the exact published head and hosted check results; do not approve or execute against another head.
 
 ## Approved bounded request budgets — not production approval
