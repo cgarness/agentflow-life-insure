@@ -22,6 +22,11 @@ on:
       - 'supabase/migrations/*_commission_grids_*.sql'
       - 'supabase/tests/policy_commission_*.sql'
       - 'supabase/tests/fixtures/policy_commission/**'
+      - 'supabase/migrations/*_policy_commission_scoped_reads.sql'
+      - 'supabase/migrations/rollback/*_policy_commission_scoped_reads.sql'
+      - 'scripts/policy_commission_scope_fixture.py'
+      - 'scripts/prepare_commission_scope_release.py'
+      - 'docs/plans/2026-11-08-team-commissions/release/**'
       - 'scripts/policy_commission_fixture.py'
       - 'scripts/policy_sale_fixture.py'
       - 'scripts/reporting_fixture.py'
@@ -36,6 +41,8 @@ on:
       - 'src/hooks/useClientPolicyCommissions.ts'
       - 'src/hooks/usePolicyCommissionPreview.ts'
       - 'src/hooks/useCommissionsCenter.ts'
+      - 'src/hooks/useCommissionAgentRoster.ts'
+      - 'src/hooks/__tests__/useCommissionsCenter.test.tsx'
       - 'src/components/commission/**'
       - 'src/components/commissions/**'
       - 'src/pages/CommissionsPage.tsx'
@@ -54,7 +61,9 @@ jobs:
   database:
     name: PostgreSQL 17.6 + PostgREST 12.2.3 (synthetic data)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Seven warm samples for every large-book query plus8/20/40s cap probes need more job time.
+    # This wall-clock allowance does not alter the individually asserted query budgets.
+    timeout-minutes: 35
     services:
       postgres:
         image: postgres:17.6
@@ -87,7 +96,17 @@ jobs:
           PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55447
           PGPASSWORD: isolated-test-only
           PC_MEASURE: '1'
+          PC_SCOPE_MEASURE: '1'
+          PC_SCOPE_SAMPLES: '7'
+          PC_SCOPE_OUTPUT: ${{ runner.temp }}/commission-scope-scale
         run: POSTGREST_BIN="$RUNNER_TEMP/postgrest" bash scripts/run_policy_commission_tests.sh
+      - name: Native scope timings and query plans
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: team-commissions-native-scale
+          path: ${{ runner.temp }}/commission-scope-scale
+          if-no-files-found: warn
   frontend:
     name: Commission tracking, sale submission and contact tests
     runs-on: ubuntu-latest
@@ -128,3 +147,45 @@ jobs:
           src/lib/__tests__/normalizedPolicy.test.ts src/components/commissions src/pages/__tests__/commissionsPage.test.tsx
           src/pages/__tests__/commissionsHideAmounts.test.tsx
           src/hooks/__tests__/useCommissionsCenter.test.tsx src/components/layout/__tests__/viewAsSidebarNav.test.tsx
+
+  browser:
+    name: Team Commissions real-page browser (isolated synthetic data)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install isolated, pinned browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/commission-browser-tools" --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1 axe-core@4.10.2
+          node "$RUNNER_TEMP/commission-browser-tools/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Verify actual page with synthetic auth and database adapters
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_ANON_KEY: inert-test-key
+        run: |
+          mkdir -p "$RUNNER_TEMP/commission-browser-output"
+          npx vite --config scripts/tests/policy_commission/browser/vite.config.ts --host 127.0.0.1 > "$RUNNER_TEMP/commission-browser-output/vite.log" 2>&1 &
+          vite_pid=$!
+          trap 'kill "$vite_pid"' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:4186 >/dev/null; then break; fi
+            sleep 1
+          done
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/commission-browser-tools/node_modules/playwright" \
+          AXE_CORE_PATH="$RUNNER_TEMP/commission-browser-tools/node_modules/axe-core/axe.min.js" \
+          COMMISSION_BROWSER_OUTPUT="$RUNNER_TEMP/commission-browser-output" \
+          node scripts/tests/policy_commission/commission_scoped_browser.mjs
+      - name: Browser screenshots and verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: team-commissions-browser
+          path: ${{ runner.temp }}/commission-browser-output
+          if-no-files-found: error

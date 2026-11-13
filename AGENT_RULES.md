@@ -779,7 +779,7 @@ An **estimate tool only**. Agents estimate first-year commission from their agen
 - A durable private location for the source and artifact must be named before release.
 
 **Calculator and settings surfaces.**
-- The Commissions nav item (where "Commission Calculator" was) and the `/commissions` route, including its Calculator tab (`/commissions/calculator`; the old `/commission-calculator` address redirects there), respect the existing "View Own Commission Percentage" permission (D3). The nav item no longer needs a ready grid: only the Calculator tab does. This is screen-level for the calculator, not a database secrecy claim.
+- The Commissions nav item (where "Commission Calculator" was) and the `/commissions` route, including its Calculator tab (`/commissions/calculator`; the old `/commission-calculator` address redirects there), originally respected the existing "View Own Commission Percentage" permission (D3). The approved Team Commissions extension below admits reporting with Own OR permitted team access; Calculator remains Own-only. The nav item does not need a ready grid: only the Calculator tab does. This is screen-level for the calculator, not a database secrecy claim.
 - Neither surface is a View As surface: no query is issued under View As.
 - Contract levels are parsed strictly and never defaulted, nearest-matched or written back.
 - Settings › Commission Grids is admin-only through `ADMIN_ONLY_SETTINGS_SECTIONS`. Never add it to `SETTINGS_CONFIG`: every section there inherits Agent / Team Leader access by default.
@@ -877,10 +877,34 @@ the hosted head became `20261020192723 / uv_personal_brand`).
 nav entry. Contract and metric definitions: `docs/plans/2026-10-20-commissions-center/implementation_plan.md` §4;
 evidence: `verification.md` beside it.
 
-- **My commissions only.** Every role sees only rows credited to the signed-in seller (`credited_agent_id` =
-  `auth.uid()`, the sale's `wins.agent_id`, never the client's assignee) in the caller's own organization, behind the
-  existing Own toggle. No agent id or organization is accepted from the browser. Team, agency, leaderboard or
-  Agency Group views need separate approval, and so does any new permission or setting.
+- **Personal compatibility and approved Team Commissions extension.** The eight legacy My readers remain self-only,
+  credited to `auth.uid()` / `wins.agent_id`, never the client's assignee. Team Commissions is approved for implementation
+  (November 10, 2026), **not yet production release**; its exact candidate/release status is in
+  `docs/plans/2026-11-08-team-commissions/verification.md`. New scoped readers accept only validated `me`, `all`, or
+  exact `selected` agent filters, derive the real actor/org server-side, and recheck existing commission authorization
+  on every call. All means the full currently authorized same-organization universe, including self only with Own;
+  individual selection never expands to descendants. Ordinary Agents gain no team authority; no Agency Group or
+  cross-organization sharing. Current hierarchy controls access to history without changing the credited seller.
+- **Team reads share personal financial definitions.** New `policy_commission_scoped` helpers and public readers are
+  STABLE SECURITY INVOKER, with fixed search paths, explicit tenant/seller predicates and authenticated-only execution.
+  No new SECURITY DEFINER, RLS change, private actor grant, table write grant or financial writer. Legacy public signatures,
+  defaults and response contracts, and the old reporting fact layouts/self-only behavior, remain compatible.
+  The approved new overview/installments/policy-list RPCs have explicit 40-second PostgREST-hoisted
+  request budgets; the new breakdown RPC retains 20 seconds. These are bounded allowances, not latency guarantees.
+  Keep existing role/database limits and legacy/helper metadata unchanged;
+  include these new function settings in exact production approval and verify actual HTTP enforcement/restoration.
+  Fixed dynamic SELECTs bind values with USING; never interpolate filters or actor/seller inputs into SQL text.
+  Scale verification includes at least seven warm calls to expose cached-plan regressions, plus real HTTP budget/reset checks.
+- **Non-Me is read-only.** All and Selected remain read-only for Admins and the caller's own rows. A raw selected[self]
+  request is read-only; only explicit Me enables existing personal controls. Own-off/Others-on users may enter authorized
+  team reporting without personal goals or Calculator requests. View As sends zero roster/financial/goal/calculator requests.
+  Client details continue through the actual caller's RLS; never use wins.contact_name as a hidden-contact fallback.
+- **Scope changes are atomic.** Picker drafts do not fetch money until Apply; Cancel/dismissal retains selection. Committed
+  URL scope survives tabs/history/drill-downs. Financial caches and the keyed reporting subtree include actor/org/canonical
+  scope/revision; cancellation and response identity guards prevent stale cross-scope results. Detected permission loss
+  clears affected rows/names/drawers. Revision is cache identity, never authority; no instantaneous remote revocation claim.
+  Calculator inputs and Hide amounts remain personal, outside the selection-keyed subtree; unresolved writes retain their
+  original request IDs in the existing recovery registry. Team goals, overrides and historical backfills remain excluded.
 - **Reads only.** Five SECURITY INVOKER, STABLE reads (`get_my_commission_overview` / `_installments` / `_receipts` /
   `_policies`, `get_my_policy_commission`) over shared definitions in the non-exposed schema
   `policy_commission_reporting` (EXECUTE `authenticated` only). Existing RLS on the commission tables, `wins`,

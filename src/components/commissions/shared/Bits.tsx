@@ -36,11 +36,14 @@ export function Chip({ tone, children }: { tone: ChipTone; children: React.React
   );
 }
 
-export function PolicyIdentity({ contact, detail }: { contact: CenterContact; detail: string }) {
+export function PolicyIdentity({ contact, detail, agentName, agentClassName = "md:hidden" }: {
+  contact: CenterContact; detail: string; agentName?: string; agentClassName?: string;
+}) {
   return (
     <span className="min-w-0">
       <span className={cn("block truncate text-sm font-medium", contact ? "text-foreground" : "italic text-muted-foreground")}>{contactName(contact)}</span>
       <span className="block truncate text-xs text-muted-foreground">{detail}</span>
+      {agentName && <span className={cn("block truncate text-xs text-muted-foreground", agentClassName)}>Agent: {agentName}</span>}
     </span>
   );
 }

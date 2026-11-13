@@ -1,3 +1,171 @@
+## November 12 — approved bounded request budgets
+
+Chris approved proceeding with the proposed 40-second cap after clarifying that the scale case represents one agency, not all agencies combined. The scope is exactly three new readers: `get_scoped_commission_overview`, `get_scoped_commission_installments`, and `get_scoped_commission_policy_list`. `get_scoped_commission_breakdown` remains at 20 seconds. Existing My APIs, helpers, role/database limits and security rules remain unchanged. Broader multi-agency concurrency work is deferred and has not been verified. This is implementation approval only; production release remains separately gated.
+
+Exact intended files: the existing `20261112165503` migration and guarded rollback; release transaction packages/manifest and generator as needed; `measure_scoped_reads.sh`, `commission_scoped_scale_postgrest.mjs`, native harness/runner exact-setting assertions, `.github/workflows/policy-commission-tracking.yml` test wall-clock allowance, root/focused plans, verification/evidence, release document, narrow AGENT_RULES invariant and WORK_LOG. Preserve original failures and all financial/security assertions. Regenerate actual catalog pins and prove the 40/20-second caps and eight-second pooled default restoration, complete scale matrix and final-head CI before the production approval request.
+
+Current prepared migration SHA-256 `0118728fde1d70d45c6595745a15109f997674e3801b608e037fd7f618debff1`; apply transaction `750d5c13a56d1a2b59e942d5fba2e7dcd68b4681535d107bbcd72a50c5ef8f5d`; rollback source `6c6a6cb2cc61d903624a91f1e65c5433dfeae0f887a164d5d530bf31b2cf34d0`; rollback transaction `6e4665af865fb5b70250ce3e3742c32a4ba46425bd008b3bc6bd55e96e1ebb2f`. Native catalog pins were refreshed from all 29 actual function postimages. Only the three approved new headers change; all function bodies and existing helper/legacy metadata remain unchanged. Full verification is pending.
+
+Current status: approved budget changes and exact packages are prepared; full verification is running. No production changes. Historical entries and measurements below are retained; their earlier pending-budget language is superseded by this approval.
+
+## Historical — November 12 candidate before budget approval
+
+Current base `713aa48d2c71de7da595d74bee878324654e3255` includes released Carriers; its permission-hook bytes and histories are preserved. Refreshed hosted head `20261111192142` leaves all28 commission/auth preimages unchanged. New CLI source is `supabase/migrations/20261112165503_policy_commission_scoped_reads.sql`, with matching rollback; replaces only the older UNAPPLIED Team Commissions timestamp. Current migration SHA-256 `636b81d3f4ca4977f93fb728ec8dd5141b89debedf46822fa774d92be9d84366`. No production changes.
+
+The first hosted run failed three largest-book timeout cases, despite earlier local passes; this remains blocking. Corrected browser readiness passed49checks in each of four runs (three cold, one4xCPU), without relaxing Escape/focus assertions. Current-base full checks and regenerated package rehearsal are being completed. Proposed40-second budgets for three affected new readers are detailed in release.md and are not implemented. No repeated feature-plan approval is required; only this measured performance tradeoff remains a decision. Exact current-head evidence supersedes historical results below where stated.
+
+# Team Commissions — approved implementation, production not authorized
+
+November 10, 2026 Pacific. Chris explicitly approved this complete implementation in the task prompt, including isolated tests, branch publication and a reviewable PR. Do not request the same implementation approval again. No production mutation, merge or deployment is authorized. Exact production actions will be consolidated after the candidate passes verification.
+
+Baseline: main `e07d28bdef1d8a9a21f0eee408b181b625389527`, branch `feat/team-commissions-20261110`. Read authoritative rules, vision, latest work log and root plan plus the complete saved 51-scenario reference. Draft PR #486 remains separate at `2de28c320547983f68bed5f77d8ec9684ea3643d`; no optional-age/backfill import. Hosted history head `20261110205228` (Fidelity alias), preceding `20261110191037` (Reports cleanup). Both are already applied; pending files are immutable evidence, never replay actions. Current reader/authz function definitions, metadata, grants, RLS, index and profile column inventories captured read-only before editing. Refresh preimages before release.
+
+Supabase CLI 2.84.5 generated `20261111015438_policy_commission_scoped_reads.sql`, which sorts after hosted history. Matching rollback restores fresh captured legacy definitions and removes new objects in explicit dependency order without CASCADE or business data changes.
+
+## Historical — November 10 local candidate, production not authorized
+
+Implementation, all 51 acceptance scenarios, final full native runner (exit 0), 36 repeated scale cases, exact SQL apply/history/rollback/reapply proofs, 48 browser checks, 163 focused frontend tests and production build are complete. Full frontend: 7,110 passed; unchanged one baseline failure/ten pending. Application TypeScript and global lint retain byte-equivalent base findings (79 diagnostics; 11 errors/145 warnings); scoped lint/root TypeScript pass. The only prepared budget extension is20 seconds on the three new public aggregate RPCs, verified through real PostgREST with 8-second role defaults/restoration. No RLS/auth/writer/role/database setting change.
+
+Migration SHA-256 `553cf6d61c93cbe12de16e0c080b1cd58256b5d6ae659fc32dbd1d4fed346917`; exact source/security pins, full measurements, screenshots and rollback are in the focused release/evidence documents. Current main remains `e07d28bdef1d8a9a21f0eee408b181b625389527`, hosted head `20261110205228`; no production changes. Next: publish/inspect exact-head CI and deliver the single concrete production release request. Do not repeat implementation approval.
+
+## November 12 resumption and baseline refresh
+
+Implementation approval persists. Integrate current main `713aa48d` and preserve the released Carriers feature, its permission-hook bytes and work-log history. Refresh production metadata and regenerate a CLI-ordered migration/release package after hosted head `20261111192142`; never replay the carrier migration. Complete the browser readiness correction and resolve hosted 50,000-policy budget failures without relaxing assertions. Intended follow-up paths are the existing Team Commissions migration/rollback/packages/generator, native tests/runners/workflow, browser runner, root/focused plans, evidence, release document, narrow invariant and work log. Exact new migration filename will be recorded when generated. Production remains unauthorized.
+
+## Execution and ownership
+
+One integration owner coordinates database migration, frontend scope/cache, reporting UI, native authorization/reconciliation and frontend/browser verification workstreams. Independent read-only review covers auth and publication automation. Existing shared plans/history are preserved by prepending this task. Tests use isolated synthetic fixtures only. No production impersonation or customer commission write.
+
+Implement shared set-based invoker reads in `policy_commission_scoped`; seven new public readers; eight compatible self-only public My readers and two existing fact wrappers. Preserve saved integer cents, receipt aggregation, current hierarchy authorization, actual-caller client RLS, tenant predicates on every financial table, timezone fail-closed behavior, historical seller attribution and existing writer/recovery contracts. No new RLS, SECURITY DEFINER, private actor grant, table write grant, permission setting, index without measurement, or financial engine.
+
+Discovery contract: `get_commission_agent_scope(p_search text default null,p_limit integer default 50,p_offset integer default 0,p_agent_scope text default null,p_agent_ids uuid[] default null)`; authorized paged agents and resolved selected_agents, available_count/total_count, can_view_own/can_select_others, default_scope/scope_revision. Each reporting API prepends `p_agent_scope text`, `p_agent_ids uuid[]` to its corresponding existing defaulted read arguments; full signatures will be recorded with the migration before release. Scoped responses retain existing fields plus meta.agent_scope {mode,agent_ids,revision}; team rows add credited_agent_id/agent_name. Selected self remains read-only on the server; UI may commit explicit Me.
+
+URL commits agents/agent_ids independently of Scheduled date scope. Draft Apply/Cancel selector; full authorized All resolution; no protected View As requests; own-or-team navigation; keyed reporting subtree with Calculator/Hide amounts outside; scope-aware keys and cancellation; no unauthorized cached rows after detected revocation. Backend revalidates every request; no claim of instantaneous remote revocation.
+
+## Exact intended file manifest
+
+The following paths are authorized for this task and listed before implementation. Three focused helper modules keep boundaries under 200 lines; dedicated parity, measurement and synthetic browser harness files are justified verification additions to the reference. Root owns documentation and evidence. No package/lock, usePermissions, telephony, Reports implementation or writer edits.
+
+- `implementation_plan.md`
+- `AGENT_RULES.md`
+- `WORK_LOG.md`
+- `docs/plans/2026-11-08-team-commissions/implementation_plan.md`
+- `docs/plans/2026-11-08-team-commissions/verification.md`
+- `src/lib/commission/centerScope.ts`
+- `src/components/commissions/CommissionScopeProvider.tsx`
+- `src/components/commissions/commissionScopeContext.ts`
+- `src/components/commissions/CommissionAgentSelector.tsx`
+- `src/pages/CommissionsPage.tsx`
+- `src/components/layout/CommissionsNavItem.tsx`
+- `src/hooks/useCommissionsCenter.ts`
+- `src/lib/commission/centerApi.ts`
+- `src/lib/commission/centerFilters.ts`
+- `src/lib/commission/centerSchemas.ts`
+- `src/components/commissions/CommissionsTabs.tsx`
+- `src/components/commissions/CommissionDrawer.tsx`
+- `src/components/commissions/overview/OverviewTab.tsx`
+- `src/components/commissions/overview/SummaryCards.tsx`
+- `src/components/commissions/overview/CommissionTimeline.tsx`
+- `src/components/commissions/overview/CarrierBreakdown.tsx`
+- `src/components/commissions/overview/ProductBreakdown.tsx`
+- `src/components/commissions/overview/BreakdownDetails.tsx`
+- `src/components/commissions/overview/MonthsTenToTwelve.tsx`
+- `src/components/commissions/overview/NeedsReview.tsx`
+- `src/components/commissions/overview/UpcomingList.tsx`
+- `src/components/commissions/payments/ScheduledTable.tsx`
+- `src/components/commissions/payments/HistoryView.tsx`
+- `src/components/commissions/policies/PoliciesTab.tsx`
+- `src/components/commissions/policies/PoliciesTable.tsx`
+- `src/components/commissions/shared/Bits.tsx`
+- `src/lib/commission/__tests__/centerScope.test.ts`
+- `src/components/commissions/__tests__/agentScope.test.tsx`
+- `src/hooks/__tests__/useCommissionsAccess.test.tsx`
+- `src/hooks/__tests__/useCommissionsCenter.test.tsx`
+- `src/pages/__tests__/commissionsPage.test.tsx`
+- `src/pages/__tests__/commissionsHideAmounts.test.tsx`
+- `src/components/commissions/__tests__/centerFixtures.ts`
+- `src/components/commissions/__tests__/filterConsistency.test.tsx`
+- `src/components/commissions/__tests__/drawer.test.tsx`
+- `src/components/commissions/__tests__/lists.test.tsx`
+- `src/components/commissions/__tests__/overview.test.tsx`
+- `src/components/commissions/__tests__/breakdowns.test.tsx`
+- `src/components/commissions/__tests__/goal.test.tsx`
+- `src/lib/commission/__tests__/centerFilters.test.ts`
+- `src/lib/commission/__tests__/centerSchemas.test.ts`
+- `src/lib/commission/__tests__/centerInsights.test.ts`
+- `scripts/policy_commission_scope_fixture.py`
+- `supabase/tests/policy_commission_scoped_harness.sql`
+- `supabase/tests/fixtures/policy_commission/scoped_hierarchy.json`
+- `supabase/tests/policy_commission_scoped.sql`
+- `scripts/tests/policy_commission/commission_scoped_postgrest.mjs`
+- `scripts/run_policy_commission_tests.sh`
+- `.github/workflows/policy-commission-tracking.yml`
+- `src/hooks/useCommissionAgentRoster.ts`
+- `src/hooks/commissionCenterQuery.ts`
+- `src/components/commissions/CommissionScopeBoundary.tsx`
+- `supabase/migrations/20261111015438_policy_commission_scoped_reads.sql`
+- `supabase/migrations/rollback/20261111015438_policy_commission_scoped_reads.sql`
+- `scripts/tests/policy_commission/measure_scoped_reads.sh`
+- `supabase/tests/policy_commission_scoped_parity.sql`
+- `scripts/tests/policy_commission/commission_scoped_browser.mjs`
+- `scripts/tests/policy_commission/browser/index.html`
+- `scripts/tests/policy_commission/browser/main.tsx`
+- `scripts/tests/policy_commission/browser/vite.config.ts`
+- `scripts/tests/policy_commission/browser/fixtures.ts`
+- `docs/plans/2026-11-08-team-commissions/release.md`
+- `docs/plans/2026-11-08-team-commissions/evidence/baseline.json`
+- `docs/plans/2026-11-08-team-commissions/evidence/verification-summary.json`
+- `docs/plans/2026-11-08-team-commissions/evidence/desktop.png`
+- `docs/plans/2026-11-08-team-commissions/evidence/mobile.png`
+
+## Manifest amendment — detected personal permission loss
+
+Before editing these additional paths, integration review found that shared personal tracking denials do not notify the reporting scope. Add only a current-scope denial notification after the existing recovery handling; preserve request IDs, exact retry inputs, unknown-outcome registry and server writers unchanged. Calculator denial is observed through the provider query-cache subscriber without editing CalculatorTab.
+
+- `src/hooks/useClientPolicyCommissions.ts`
+- `src/hooks/__tests__/useClientPolicyCommissions.test.tsx`
+
+## Manifest amendment — atomic release package
+
+The migration API assigns an apply-time version. To preserve the CLI-generated version without creating new hosted/source drift, prepare the existing SQL Editor style transaction package. It pins the production project/head and exact SQL bytes, verifies preimages/postimages, and records the exact source in migration history atomically. It is a review artifact only; production execution remains separately gated. Recovery restores all shared legacy paths and removes only its exact guarded migration-history row, never a business row. Any uncertain result must be read back before retry.
+
+- `scripts/prepare_commission_scope_release.py`
+- `docs/plans/2026-11-08-team-commissions/release/apply.sql`
+- `docs/plans/2026-11-08-team-commissions/release/rollback.sql`
+- `docs/plans/2026-11-08-team-commissions/release/manifest.json`
+
+## Manifest amendment — historical Reports migration ordering test
+
+The full-suite comparison exposed two Reports contract assertions that require the released November 5 package to remain the final migrations forever. Adding any later root migration trips them. Update only `src/lib/__tests__/reportsV3Contracts.test.ts` to keep asserting the same 20-file contiguous package, exact predecessor, four enable positions, names, checksums and privilege classes while allowing later independent migrations. No Reports implementation or immutable migration changes; no assertion is waived.
+
+- `src/lib/__tests__/reportsV3Contracts.test.ts`
+
+## Scoped-helper performance refinement — recorded before editing
+
+Measured native plans found avoidable join amplification and generic-plan cliffs at large scopes. Internal `policy_commission_scoped.installments` may add optional narrowing inputs `p_window_from date`, `p_window_to date`, `p_kind text`, and `p_include_undated boolean` to apply the caller's existing effective filters before irrelevant ledger rows reach joins/RLS. No public API or existing self-only helper signature/default/composite changes. Unfiltered calls must retain every existing row, including undated rows. New optional arguments are validated and never confer actor/seller authority. Breakdown and Scheduled may pass only predicates equivalent to their current result domains; Overview must preserve Upcoming beyond 90 days and every review/held/summary domain. Final parity tests are required.
+
+The same listed migration/rollback, fixture, verification and package-generator files cover this refinement; no new file, security privilege, RLS/auth primitive, table/index, writer or production setting is authorized or changed. Fixed SQL with bound parameters may replace cached PL/pgSQL SELECT execution to avoid generic-plan cliffs; never interpolate browser input or weaken tenant/seller predicates. Record final helper signatures and hashes after measurement.
+
+## New aggregate RPC execution budgets — prepared, not applied
+
+The final safe query refinements remove repeated join/RLS amplification without changing authorization. Native 1,000-seller/50,000-policy diagnostics then complete Overview in 11.436 seconds and all-time/any Scheduled in 9.650 seconds; the existing general authenticated limit is eight seconds. Breakdown is below eight seconds with a narrow measured margin. Preserve full results and existing RLS rather than truncating the authorized universe or weakening access.
+
+Prepare `SET statement_timeout = '20s'` only on the three new public aggregate RPCs: `get_scoped_commission_overview`, `get_scoped_commission_installments`, and `get_scoped_commission_breakdown`. This is bounded metadata on new read APIs, not a role/database timeout change. Keep every existing My reader's full metadata and eight-second role behavior unchanged. No permission, RLS, auth primitive, schema exposure or writer change is added. PostgREST 12.2 supports hoisting function settings at transaction start; prove the actual HTTP behavior with authenticator/authenticated defaults of eight seconds, repeated large-book requests, full financial reconciliation, cancellation, and restoration of defaults on subsequent requests. Direct SQL cannot prove timer hoisting. Record both the original eight-second refusals and the measured new API results; do not call the original gate passed or claim production concurrency/hardware capacity.
+
+Regenerate the exact source/rollback/package hashes and postimage metadata, rerun the complete native/HTTP/legacy compatibility suites, and include these three 20-second function settings in the consolidated production release approval. Production version/hoisted-setting preflight remains necessary; the anonymous production OpenAPI endpoint is restricted to service_role, so do not bypass that control or acquire privileged keys for metadata. No hosted setting is changed during preparation. Existing listed files cover this refinement.
+
+## Manifest amendment — real HTTP aggregate-budget proof
+
+Add `scripts/tests/policy_commission/commission_scoped_scale_postgrest.mjs` before editing. It uses only the loopback synthetic large-book fixture with PostgREST 12.2.3, eight-second authenticator/authenticated defaults, repeated new aggregate calls, full totals, following-request default restoration and explicit bounded-timeout probes. Integrate it into the already listed native runner/workflow; do not use production credentials or modify hosted settings.
+
+- `scripts/tests/policy_commission/commission_scoped_scale_postgrest.mjs`
+
+## Verification and release sequence
+
+Run all A01–A19, F01–F14 and U01–U18 scenarios with recorded evidence; native current-hierarchy PostgreSQL and PostgREST; legacy before/after/rollback parity; 1/10/100/1000 agents and 50,000 policies; focused regressions, actual app TypeScript, root TypeScript, lint, build and desktop/mobile/keyboard browser checks. Compare failures against exact base with equivalent tooling, never weaken assertions. Inspect GitHub/Supabase/Vercel automation before publication. Production request will name exact PR/head, migration/hash/effects, both linked Vercel projects, backend-first/frontend-second actions, readback and rollback. All test/result fields remain pending until executed.
+
+---
+
 ## November 11, 2026 — Carriers production release complete
 
 Chris approved the exact migration and PR #528 release. `carrier_resource_links` is applied as hosted version `20261111192142`, with reviewed SHA-256 `6809e2be65dd77835251edd069b85e043ac6793d9dfce6266f6954401e3ce97d` and stored SQL MD5 `e44199916cd206b7fcc33104c247ab91`. Column/validator/trigger readback, preserved carrier/security fingerprints and advisor comparison pass. The reviewed SQL remains immutable applied evidence in its pending path and must never be replayed.

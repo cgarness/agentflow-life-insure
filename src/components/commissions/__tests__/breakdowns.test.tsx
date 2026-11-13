@@ -15,7 +15,8 @@ import { CarrierBreakdown } from "../overview/CarrierBreakdown";
 import { Comparisons } from "../overview/Comparisons";
 import { MonthsTenToTwelve } from "../overview/MonthsTenToTwelve";
 import { ProductBreakdown } from "../overview/ProductBreakdown";
-import { breakdown } from "./centerFixtures";
+import { breakdown, testScope, TEAM_AGENT } from "./centerFixtures";
+import { CommissionScopeContext } from "../commissionScopeContext";
 
 beforeAll(() => {
   globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
@@ -116,6 +117,32 @@ describe("By product", () => {
 });
 
 describe("Comparisons and Months 10–12", () => {
+  it("U04: carrier/product/detail/month links retain the selected sellers and each destination's filters", () => {
+    const scope = testScope({ mode: "selected", agentIds: [TEAM_AGENT] });
+    show(<CommissionScopeContext.Provider value={scope}>
+      <CarrierBreakdown data={data} period={MONTH} />
+      <ProductBreakdown data={data} period={MONTH} />
+      <MonthsTenToTwelve data={data.months_10_12} />
+    </CommissionScopeContext.Provider>);
+    const assertScopes = () => {
+      for (const link of screen.getAllByRole("link")) {
+        const url = new URL(link.getAttribute("href")!, "https://example.test");
+        expect(url.searchParams.get("agents")).toBe("selected");
+        expect(url.searchParams.get("agent_ids")).toBe(TEAM_AGENT);
+      }
+    };
+    assertScopes();
+    for (const button of screen.getAllByRole("button", { name: /Details/ })) fireEvent.click(button);
+    assertScopes();
+    fireEvent.click(screen.getByRole("button", { name: "Received" }));
+    assertScopes();
+    const received = new URL(within(screen.getByRole("list", { name: "Carriers by Received" })).getByRole("link", { name: /^Harbor Mutual/ }).getAttribute("href")!, "https://example.test");
+    expect(received.searchParams.get("view")).toBe("history");
+    const later = new URL(href("View payments")!, "https://example.test");
+    expect(later.searchParams.get("period")).toBe("next_month");
+    expect(later.searchParams.get("kind")).toBe("later");
+  });
+
   it("names both windows when month-to-date; differences always, a percentage only from an earlier value above zero", () => {
     show(<Comparisons data={data} />);
     expect(screen.getByText("Oct 1 – 20, 2026 vs Sep 1 – 20, 2026")).toBeInTheDocument();

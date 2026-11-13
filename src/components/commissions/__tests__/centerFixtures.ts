@@ -1,7 +1,46 @@
 /** Synthetic commissions center responses for tests (never production data). */
+import type { CommissionScopeContextValue } from "../commissionScopeContext";
+import { commissionScopeHref, type CommissionAgentScope } from "@/lib/commission/centerScope";
 export const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 export const USER = ID(901);
 export const ORG = ID(902);
+export const TEAM_AGENT = ID(903);
+export const OTHER_AGENT = ID(904);
+export const SCOPE_REVISION = "synthetic-scope-v1";
+
+/** Pure presentation context. Full-page tests exercise the actual provider and admission requests. */
+export function testScope(scope: CommissionAgentScope, extra: Partial<CommissionScopeContextValue> = {}): CommissionScopeContextValue {
+  return { managed: false, scope, revision: SCOPE_REVISION, financialKey: JSON.stringify(scope), ready: true,
+    isMe: scope.mode === "me", readOnly: scope.mode !== "me", canViewOwn: true, roster: null,
+    loading: false, error: null, invalid: false, apply: () => undefined, retry: () => undefined, deny: () => undefined,
+    acceptRevision: () => true, withScopeHref: (path) => commissionScopeHref(path, scope), ...extra };
+}
+
+/** Synthetic discovery payload; search/page never defines All membership. */
+export function agentRoster(extra: Record<string, unknown> = {}, user = USER) {
+  const agents = [
+    { agent_id: user, display_name: "Morgan Seller", status: "Active", is_self: true },
+    { agent_id: TEAM_AGENT, display_name: "Jordan Agent", status: "Active", is_self: false },
+    { agent_id: OTHER_AGENT, display_name: "Casey Archived", status: "Inactive", is_self: false },
+  ];
+  return { agents, selected_agents: agents, available_count: agents.length, total_count: agents.length,
+    can_view_own: true, can_select_others: true, default_scope: "me", scope_revision: SCOPE_REVISION, ...extra };
+}
+
+/** Enrich existing financial fixtures with the new envelope; amounts remain the legacy test facts. */
+export function scopedResponse<T extends Record<string, unknown>>(value: T, args: Record<string, unknown> = {}, user = USER, allowedIds = [user, TEAM_AGENT, OTHER_AGENT]): T {
+  const mode = String(args.p_agent_scope ?? "me");
+  const ids = mode === "me" ? [user] : mode === "selected" ? args.p_agent_ids as string[] : allowedIds;
+  const seller = ids[0];
+  const identity = { credited_agent_id: seller, agent_name: seller === user ? "Morgan Seller" : "Jordan Agent" };
+  const result: Record<string, unknown> = { ...value,
+    meta: { ...(value.meta as object), agent_scope: { mode, agent_ids: ids, revision: SCOPE_REVISION } } };
+  if (Array.isArray(value.rows)) result.rows = value.rows.map((row) => ({ ...row, ...identity }));
+  if (value.upcoming) result.upcoming = { ...(value.upcoming as { rows: object[] }),
+    rows: (value.upcoming as { rows: object[] }).rows.map((row) => ({ ...row, ...identity })) };
+  if (value.policy) result.policy = { ...(value.policy as object), ...identity, access: mode === "me" ? "write" : "read" };
+  return result as T;
+}
 const meta = { today: "2026-10-20", time_zone: "America/Los_Angeles", as_of: "2026-10-20T17:00:00Z" };
 
 export function scheduledRow(n: number, extra: Record<string, unknown> = {}) {

@@ -8,7 +8,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ORG, USER, goal, overview } from "./centerFixtures";
+import { ORG, USER, testScope, goal, overview } from "./centerFixtures";
 
 const h = vi.hoisted(() => ({ calls: [] as Array<[string, Record<string, unknown>]>, target: null as number | null, failSet: false }));
 vi.mock("@/integrations/supabase/client", () => ({
@@ -38,16 +38,19 @@ vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ canSeeCommis
 import { AmountsToggle, AmountsVisibilityProvider } from "@/components/commission/ui/AmountsVisibility";
 import { overviewSchema } from "@/lib/commission/centerSchemas";
 import { SummaryCards } from "../overview/SummaryCards";
+import { CommissionScopeContext } from "../commissionScopeContext";
 
 const MONTH = { preset: "this_month", from: null, to: null } as const;
 const calls = (fn: string) => h.calls.filter(([n]) => n === fn).map(([, a]) => a);
-function show(meta: Partial<{ from: string; to: string }> = {}, received = 25157) {
+function show(meta: Partial<{ from: string; to: string }> = {}, received = 25157, team = false) {
   const base = overview();
   const data = overviewSchema.parse({ ...base, meta: { ...base.meta, ...meta }, summary: { ...base.summary, received_cents: received } });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}><MemoryRouter>
-      <AmountsVisibilityProvider userId={USER} organizationId={ORG}><AmountsToggle /><SummaryCards data={data} period={MONTH} /></AmountsVisibilityProvider>
+      <CommissionScopeContext.Provider value={testScope({ mode: team ? "all" : "me", agentIds: [] })}>
+        <AmountsVisibilityProvider userId={USER} organizationId={ORG}><AmountsToggle /><SummaryCards data={data} period={MONTH} /></AmountsVisibilityProvider>
+      </CommissionScopeContext.Provider>
     </MemoryRouter></QueryClientProvider>,
   );
 }
@@ -55,6 +58,14 @@ beforeEach(() => { h.calls = []; h.target = null; h.failSet = false; window.loca
 afterEach(cleanup);
 
 describe("Monthly goal", () => {
+  it("U12: team receipt totals never load or present a personal goal", async () => {
+    show({}, 75000, true);
+    await screen.findByText("$750.00");
+    expect(screen.queryByRole("button", { name: /goal/i })).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(h.calls).toEqual([]);
+  });
+
   it("only for one whole calendar month; reading creates nothing", async () => {
     show({ from: "2026-10-01", to: "2026-11-30" });
     await waitFor(() => expect(screen.getByText("$251.57")).toBeInTheDocument());

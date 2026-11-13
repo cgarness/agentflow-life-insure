@@ -1,3 +1,4 @@
+import { useCommissionScope } from "../commissionScopeContext";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -42,6 +43,7 @@ function MonthTooltip({ active, payload }: { active?: boolean; payload?: Array<{
  */
 export function CommissionTimeline({ buckets }: { buckets: TimelineBucket[] }) {
   const { hidden, money } = useAmounts();
+  const { withScopeHref } = useCommissionScope();
   const data = useMemo<Point[]>(() => buckets.map((b) => ({
     ...b, label: `${SHORT[Number(b.month.slice(5)) - 1]}${b.month.endsWith("-01") ? ` ${b.month.slice(2, 4)}` : ""}`,
     received: b.received_cents / 100, advance: b.expected_advance_cents / 100, later: b.expected_later_cents / 100,
@@ -96,10 +98,10 @@ export function CommissionTimeline({ buckets }: { buckets: TimelineBucket[] }) {
             </dl>
           </div>
           <div className="flex gap-4 whitespace-nowrap text-sm font-medium">
-            <Link className="text-primary hover:underline" to={scheduledHref({ period: customPeriod(month.from, month.to) })}>
+            <Link className="text-primary hover:underline" to={withScopeHref(scheduledHref({ period: customPeriod(month.from, month.to) }))}>
               Expected ({month.installment_count})
             </Link>
-            <Link className="text-primary hover:underline" to={historyHref(customPeriod(month.from, month.to))}>
+            <Link className="text-primary hover:underline" to={withScopeHref(historyHref(customPeriod(month.from, month.to)))}>
               Received ({month.receipt_count})
             </Link>
           </div>

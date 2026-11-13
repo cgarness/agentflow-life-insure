@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { commissionScopeMetaSchema } from "./centerScope";
 import { INSTALLMENT_KINDS, openPolicySchema, type OpenPolicyCommission } from "./trackingSchemas";
 
 /**
@@ -17,10 +18,12 @@ export type RowStatus = (typeof ROW_STATUSES)[number];
 const contactSchema = z.object({ client_id: uuid, name: z.string().nullable() }).nullable();
 export type CenterContact = z.infer<typeof contactSchema>;
 
-const metaSchema = z.object({ today: isoDate, time_zone: z.string().min(1), as_of: z.string() }).passthrough();
+const metaSchema = z.object({ today: isoDate, time_zone: z.string().min(1), as_of: z.string(), agent_scope: commissionScopeMetaSchema.optional() }).passthrough();
+const sellerFields = { credited_agent_id: uuid.optional(), agent_name: z.string().optional() };
 const rangeMeta = metaSchema.extend({ from: isoDate, to: isoDate });
 
 const scheduledRowSchema = z.object({
+  ...sellerFields,
   installment_id: uuid,
   estimate_id: uuid,
   policy_id: uuid,
@@ -85,6 +88,7 @@ export const scheduledPageSchema = z.object({
 export type ScheduledPage = z.infer<typeof scheduledPageSchema>;
 
 const historyRowSchema = z.object({
+  ...sellerFields,
   receipt_id: uuid,
   received_on: isoDate,
   recorded_at: z.string(),
@@ -116,6 +120,7 @@ export const SETUP_STATES = ["recorded", "on_hold", "needs_review", "missing"] a
 export type SetupState = (typeof SETUP_STATES)[number];
 
 const policyRowSchema = z.object({
+  ...sellerFields,
   policy_id: uuid,
   setup: z.enum(SETUP_STATES),
   contact: contactSchema,
@@ -152,10 +157,10 @@ export type PoliciesPage = z.infer<typeof policiesPageSchema>;
  * The drawer read: one policy in exactly the contact read's per-policy shape. `source` is unknown (null) for a contact
  * the viewer can no longer open; the reused tracking controls never read it.
  */
-const drawerPolicySchema = openPolicySchema.extend({ source: z.enum(["primary", "additional"]).nullable() });
+const drawerPolicySchema = openPolicySchema.extend({ source: z.enum(["primary", "additional"]).nullable(), agent_name: z.string().optional() });
 const drawerSchema = z.object({ policy: drawerPolicySchema, contact: contactSchema, meta: metaSchema });
 export type DrawerPolicy = z.infer<typeof drawerPolicySchema>;
-export interface CommissionDrawerData { policy: DrawerPolicy; contact: CenterContact }
+export interface CommissionDrawerData { policy: DrawerPolicy; contact: CenterContact; meta?: z.infer<typeof metaSchema> }
 
 /**
  * The reused Phase 2A controls take the contact read's policy type; they never read `source`, which is the only field
@@ -166,7 +171,7 @@ export const asTrackedPolicy = (policy: DrawerPolicy) => policy as Omit<DrawerPo
 export function parseDrawer(raw: unknown): CommissionDrawerData {
   const parsed = drawerSchema.parse(raw);
   if (parsed.policy.state === "recorded" && !parsed.policy.estimate) throw new Error("Recorded commission without an estimate");
-  return { policy: parsed.policy, contact: parsed.contact };
+  return { policy: parsed.policy, contact: parsed.contact, meta: parsed.meta };
 }
 
 /**

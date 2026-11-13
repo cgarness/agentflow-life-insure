@@ -11,20 +11,21 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { syntheticContext } from "@/lib/commission/__tests__/syntheticGrid";
 import { amountsPreferenceKey } from "@/lib/commission/amountsPreference";
 import {
-  ORG, USER, breakdown, drawer, goal, historyPage, overview, policiesPage, scheduledPage,
+  ORG, USER, agentRoster, scopedResponse, breakdown, drawer, goal, historyPage, overview, policiesPage, scheduledPage,
 } from "@/components/commissions/__tests__/centerFixtures";
 
 const h = vi.hoisted(() => ({ userId: "", failOverview: false }));
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    rpc: (name: string) => {
+    rpc: (name: string, args: Record<string, unknown>) => {
       const data = ({
-        get_my_commission_overview: overview(), get_my_commission_breakdown: breakdown(), get_my_commission_goal: goal(50000),
-        get_my_commission_installments: scheduledPage(), get_my_commission_receipt_list: historyPage(),
-        get_my_commission_policy_list: policiesPage(), get_my_policy_commission: drawer(),
+        get_scoped_commission_overview: overview(), get_scoped_commission_breakdown: breakdown(), get_my_commission_goal: goal(50000),
+        get_scoped_commission_installments: scheduledPage(), get_scoped_commission_receipt_list: historyPage(),
+        get_scoped_commission_policy_list: policiesPage(), get_scoped_policy_commission: drawer(),
       } as Record<string, unknown>)[name];
-      const failed = name === "get_my_commission_overview" && h.failOverview;
-      const request = Promise.resolve(data && !failed ? { data, error: null } : { data: null, error: { message: "boom", code: "XX000" } });
+      const failed = name === "get_scoped_commission_overview" && h.failOverview;
+      const response = name === "get_commission_agent_scope" ? agentRoster({}, h.userId) : name.startsWith("get_scoped_") && data ? scopedResponse(data as Record<string, unknown>, args, h.userId) : data;
+      const request = Promise.resolve(response && !failed ? { data: response, error: null } : { data: null, error: { message: "boom", code: "XX000" } });
       return Object.assign(request, { abortSignal: () => request });
     },
   },
@@ -72,6 +73,21 @@ function expectNoAmounts() {
 const tab = (name: string) => fireEvent.click(screen.getByRole("link", { name }));
 
 describe("Hide amounts", () => {
+  it("U14: All-agent lists, breakdowns and read-only drawer keep text and accessible money masked", async () => {
+    window.localStorage.setItem(amountsPreferenceKey(USER, ORG), "1");
+    renderAt("/commissions?agents=all");
+    await screen.findByText("Policies sold");
+    expectNoAmounts();
+    tab("Policies");
+    await screen.findByRole("table", { name: "Policies" });
+    expectNoAmounts();
+    expect(screen.getAllByText(/Morgan Seller/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /Client 1/ }));
+    await screen.findByText("Estimated commission");
+    expectNoAmounts();
+    expect(screen.queryByRole("button", { name: "Record payment" })).toBeNull();
+  });
+
   it("one eye control hides every amount on every tab and stays hidden across tab changes", async () => {
     renderAt("/commissions");
     await screen.findByText("Policies sold");

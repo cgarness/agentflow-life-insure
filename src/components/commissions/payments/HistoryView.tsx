@@ -1,3 +1,4 @@
+import { useCommissionScope } from "../commissionScopeContext";
 import { useSearchParams } from "react-router-dom";
 import { useAmounts } from "@/components/commission/ui/amountsContext";
 import { LoadingBlock } from "@/components/commission/ui/CommissionSurface";
@@ -12,6 +13,7 @@ import { CarrierSelect } from "../shared/CarrierSelect";
 import { CenterEmpty, CenterError } from "../shared/CenterState";
 import { kindLabel } from "../shared/format";
 
+const TEAM_GRID = "xl:grid xl:grid-cols-[7.5rem_minmax(0,1.6fr)_minmax(0,1fr)_6rem_7rem_minmax(0,1.2fr)] xl:items-center xl:gap-3";
 const GRID = "md:grid md:grid-cols-[7.5rem_minmax(0,1.6fr)_6rem_7rem_minmax(0,1.2fr)] md:items-center md:gap-3";
 
 function Correction({ row }: { row: HistoryRow }) {
@@ -27,6 +29,8 @@ function Correction({ row }: { row: HistoryRow }) {
  */
 export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
   const { money } = useAmounts();
+  const { readOnly } = useCommissionScope();
+  const grid = readOnly ? TEAM_GRID : GRID;
   const [params, setParams] = useSearchParams();
   const filter = parseHistory(params);
   const query = usePaymentHistory(filter);
@@ -50,22 +54,24 @@ export function HistoryView({ onOpen }: { onOpen: OpenPolicy }) {
         <>
           {query.isError && <CenterError compact error={query.error} onRetry={() => void query.refetch()} />}
           <div role="table" aria-label="Payment history" aria-busy={pending} className={`text-sm ${pending ? "opacity-60" : ""}`}>
-            <div role="row" className={`hidden px-2 pb-2 text-xs font-medium text-muted-foreground ${GRID}`}>
-              <span role="columnheader">Received</span><span role="columnheader">Client / policy</span><span role="columnheader">Payment</span>
+            <div role="row" className={`hidden px-2 pb-2 text-xs font-medium text-muted-foreground ${grid}`}>
+              <span role="columnheader">Received</span><span role="columnheader">Client / policy</span>
+              {readOnly && <span role="columnheader">Agent</span>}<span role="columnheader">Payment</span>
               <span role="columnheader" className="text-right">Amount</span><span role="columnheader">Corrections</span>
             </div>
             <div role="rowgroup" className="divide-y divide-border/60 border-y border-border/60">
               {data.rows.map((row) => (
-                <div role="row" key={row.receipt_id} className={`grid grid-cols-2 gap-x-3 gap-y-1 px-2 py-2.5 hover:bg-muted/30 ${GRID}`}>
+                <div role="row" key={row.receipt_id} className={`grid grid-cols-2 gap-x-3 gap-y-1 px-2 py-2.5 hover:bg-muted/30 ${grid}`}>
                   <span role="cell" className="tabular-nums">{formatCalendarDate(row.received_on)}</span>
-                  <span role="cell" className="order-first col-span-2 md:order-none md:col-span-1">
+                  <span role="cell" className={readOnly ? "order-first col-span-2 xl:order-none xl:col-span-1" : "order-first col-span-2 md:order-none md:col-span-1"}>
                     <button type="button" disabled={pending} onClick={() => onOpen(row.policy_id)} className="w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                      <PolicyIdentity contact={row.contact} detail={[row.carrier, row.product].filter(Boolean).join(" · ")} />
+                      <PolicyIdentity agentName={readOnly ? row.agent_name ?? "Agent" : undefined} agentClassName={readOnly ? "xl:hidden" : "md:hidden"} contact={row.contact} detail={[row.carrier, row.product].filter(Boolean).join(" · ")} />
                     </button>
                   </span>
-                  <span role="cell" className="text-right text-muted-foreground md:text-left md:text-foreground">{kindLabel(row.kind)}</span>
-                  <span role="cell" className={`tabular-nums md:text-right ${row.voided ? "text-muted-foreground line-through" : ""}`}>{money(row.amount_cents)}</span>
-                  <span role="cell" className="text-right md:text-left"><Correction row={row} /></span>
+                  {readOnly && <span role="cell" className="hidden min-w-0 truncate text-xs text-muted-foreground xl:block">{row.agent_name ?? "Agent"}</span>}
+                  <span role="cell" className={readOnly ? "text-right text-muted-foreground xl:text-left xl:text-foreground" : "text-right text-muted-foreground md:text-left md:text-foreground"}>{kindLabel(row.kind)}</span>
+                  <span role="cell" className={`tabular-nums ${readOnly ? "xl:text-right" : "md:text-right"} ${row.voided ? "text-muted-foreground line-through" : ""}`}>{money(row.amount_cents)}</span>
+                  <span role="cell" className={readOnly ? "text-right xl:text-left" : "text-right md:text-left"}><Correction row={row} /></span>
                 </div>
               ))}
             </div>

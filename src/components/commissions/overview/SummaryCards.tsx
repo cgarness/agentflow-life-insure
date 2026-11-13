@@ -1,3 +1,4 @@
+import { useCommissionScope } from "../commissionScopeContext";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAmounts } from "@/components/commission/ui/amountsContext";
@@ -35,22 +36,23 @@ const payments = (n: number) => `${n} ${n === 1 ? "payment" : "payments"}`;
  */
 export function SummaryCards({ data, period }: { data: CommissionOverview; period: CommissionPeriod }) {
   const { money } = useAmounts();
+  const { isMe, withScopeHref } = useCommissionScope();
   const s = data.summary;
   const month = singleMonth(data.meta.from, data.meta.to);
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Card label="Expected" value={money(s.expected_cents)} note={payments(s.expected_count)}
         extra={s.held_expected_cents > 0 ? `On hold: ${money(s.held_expected_cents)} not included` : null}
-        to={scheduledHref({ period })}
+        to={withScopeHref(scheduledHref({ period }))}
         tip="Estimated payments whose expected date starts in this period. Payments on hold or without a date are not included." />
-      <Card label="Received" value={money(s.received_cents)} note={`${s.received_count} recorded`} to={historyHref(period)}
-        tip="Payments you recorded with a received date in this period. Voided payments are not included. Not carrier-verified.">
-        {month && <GoalProgress key={month} month={month} receivedCents={s.received_cents} />}
+      <Card label="Received" value={money(s.received_cents)} note={`${s.received_count} recorded`} to={withScopeHref(historyHref(period))}
+        tip="Recorded payments with a received date in this period. Voided payments are not included. Not carrier-verified.">
+        {isMe && month && <GoalProgress key={month} month={month} receivedCents={s.received_cents} />}
       </Card>
       <Card label="Remaining" value={money(s.remaining_cents)} note={`of ${money(s.expected_cents)} expected`}
-        extra={s.excess_cents > 0 ? `${money(s.excess_cents)} above estimate` : null} to={scheduledHref({ period, status: "remaining" })}
+        extra={s.excess_cents > 0 ? `${money(s.excess_cents)} above estimate` : null} to={withScopeHref(scheduledHref({ period, status: "remaining" }))}
         tip="What is still expected on this period's payments after every payment recorded against them, whenever it was received. An overpayment on one payment never reduces another." />
-      <Card label="Next 90 days" value={money(data.next_90.remaining_cents)} note={payments(data.next_90.count)} to={scheduledHref({ scope: "next_90" })}
+      <Card label="Next 90 days" value={money(data.next_90.remaining_cents)} note={payments(data.next_90.count)} to={withScopeHref(scheduledHref({ scope: "next_90" }))}
         tip={`Remaining on payments expected from today through ${formatCalendarDate(data.next_90.to)}. Not affected by the selected period.`} />
     </div>
   );

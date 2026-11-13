@@ -1,3 +1,4 @@
+import { useCommissionScope } from "../commissionScopeContext";
 import { useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
@@ -34,6 +35,7 @@ function SliceTooltip({ active, payload, text }: { active?: boolean; payload?: A
  */
 export function ProductBreakdown({ data, period }: { data: CommissionBreakdown; period: CommissionPeriod }) {
   const { hidden, money } = useAmounts();
+  const { withScopeHref } = useCommissionScope();
   const navigate = useNavigate();
   const [metric, setMetric] = useState<Metric>("policies");
   const value = (g: ProductGroup) => (metric === "policies" ? g.policies : g.estimate_cents);
@@ -42,7 +44,7 @@ export function ProductBreakdown({ data, period }: { data: CommissionBreakdown; 
     ...g, label: CATEGORY_LABELS[g.category], value: value(g), share: total > 0 ? Math.round((value(g) / total) * 100) : 0,
   }));
   const text = (v: number) => (metric === "policies" ? String(v) : money(v));
-  const href = (category: ProductCategory) => soldPoliciesHref(period, { category });
+  const href = (category: ProductCategory) => withScopeHref(soldPoliciesHref(period, { category }));
   let body: ReactNode;
   if (data.products.length === 0) body = <CenterEmpty title="No policies sold in this period" />;
   else if (metric === "estimate" && hidden) body = <AmountsHiddenPanel />;
@@ -54,7 +56,7 @@ export function ProductBreakdown({ data, period }: { data: CommissionBreakdown; 
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie data={slices.filter((s) => s.value > 0)} dataKey="value" nameKey="label" innerRadius="62%" outerRadius="100%" startAngle={90} endAngle={-270}
-                stroke="hsl(var(--card))" strokeWidth={2} isAnimationActive={false} cursor="pointer"
+                stroke="hsl(var(--card))" strokeWidth={2} isAnimationActive={false} cursor="pointer" rootTabIndex={-1}
                 onClick={(slice: { payload?: Slice }) => slice.payload && navigate(href(slice.payload.category))}>
                 {slices.filter((s) => s.value > 0).map((s) => <Cell key={s.category} fill={COLOR[s.category]} />)}
               </Pie>

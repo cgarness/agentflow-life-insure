@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { drawer, historyPage, overview, policiesPage, policyRow, scheduledPage } from "@/components/commissions/__tests__/centerFixtures";
+import { USER, TEAM_AGENT, scopedResponse, drawer, historyPage, overview, policiesPage, policyRow, scheduledPage } from "@/components/commissions/__tests__/centerFixtures";
 
 const h = vi.hoisted(() => ({ calls: [] as Array<[string, Record<string, unknown>]>, response: { data: null as unknown, error: null as unknown } }));
 vi.mock("@/integrations/supabase/client", () => ({
@@ -45,6 +45,25 @@ describe("commissions center parsers", () => {
 });
 
 describe("commissions center API", () => {
+  it("scoped reads pass selection filters without actor, organization or authority inputs", async () => {
+    const scope = { mode: "selected" as const, agentIds: [TEAM_AGENT] };
+    h.response = { data: scopedResponse(scheduledPage(), { p_agent_scope: "selected", p_agent_ids: [TEAM_AGENT] }), error: null };
+    await commissionCenterApi.scheduled(parseScheduled(new URLSearchParams("dates=next_90&page=2")), undefined, scope);
+    expect(h.calls).toEqual([["get_scoped_commission_installments", {
+      p_agent_scope: "selected", p_agent_ids: [TEAM_AGENT], p_period: "this_month", p_from: null, p_to: null,
+      p_scope: "next_90", p_status: "all", p_kind: null, p_carrier: null, p_limit: 25, p_offset: 25,
+    }]]);
+  });
+
+  it("scoped success fails closed when seller identity escapes its envelope or authority metadata is missing", async () => {
+    const scope = { mode: "selected" as const, agentIds: [TEAM_AGENT] };
+    h.response = { data: scheduledPage(), error: null };
+    await expect(commissionCenterApi.scheduled(parseScheduled(new URLSearchParams()), undefined, scope)).rejects.toBeInstanceOf(CommissionCenterError);
+    const data = scopedResponse(scheduledPage(), { p_agent_scope: "selected", p_agent_ids: [TEAM_AGENT] });
+    h.response = { data: { ...data, rows: [{ ...data.rows[0], credited_agent_id: USER }, ...data.rows.slice(1)] }, error: null };
+    await expect(commissionCenterApi.scheduled(parseScheduled(new URLSearchParams()), undefined, scope)).rejects.toBeInstanceOf(CommissionCenterError);
+  });
+
   it("sends only filters (no agent or organization) and maps the scope", async () => {
     h.response = { data: scheduledPage(), error: null };
     await commissionCenterApi.scheduled(parseScheduled(new URLSearchParams("dates=next_90&page=2&kind=advance")));

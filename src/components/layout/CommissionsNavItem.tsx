@@ -14,7 +14,7 @@ interface CommissionsNavItemProps {
 
 /**
  * Main-navigation entry directly below Resources (where Commission Calculator was). Shown only when the role may "View
- * Own Commission Percentage" (D3) and never under "View As". Reporting needs no calculator grid, so no grid status is
+ * Own Commission Percentage" (D3), or authorized team commission access, and never under "View As". Reporting needs no calculator grid, so no grid status is
  * requested for the navigation.
  *
  * While a role's access is still loading (Admin and Super Admin never wait), it holds an inert slot with a nav row's box

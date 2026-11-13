@@ -44,7 +44,7 @@ export function PoliciesTab({ onOpen }: { onOpen: OpenPolicy }) {
           <div className="w-full max-w-xs space-y-1.5 sm:w-64">
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">Estimates set up
-                <InfoTip label="About estimates set up">Policies credited to you that have a saved estimate, out of every policy you sold.
+                <InfoTip label="About estimates set up">Policies in this view that have a saved estimate, out of all eligible policies.
                   A policy without one shows no amounts, not $0.</InfoTip>
               </span>
               <span className="tabular-nums text-foreground">{counts.with_estimate_count} of {counts.eligible_count}</span>

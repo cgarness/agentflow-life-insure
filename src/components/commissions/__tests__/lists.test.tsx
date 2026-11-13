@@ -7,14 +7,14 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ORG, USER, historyPage, historyRow, policiesPage, policyRow, scheduledPage, scheduledRow } from "./centerFixtures";
+import { ORG, USER, TEAM_AGENT, testScope, historyPage, historyRow, policiesPage, policyRow, scheduledPage, scheduledRow } from "./centerFixtures";
 
-const h = vi.hoisted(() => ({ calls: [] as Array<[string, Record<string, unknown>]>, data: {} as Record<string, unknown> }));
+const h = vi.hoisted(() => ({ calls: [] as Array<[string, Record<string, unknown>]>, data: {} as Record<string, unknown>, hold: false }));
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     rpc: (name: string, args: Record<string, unknown>) => {
       h.calls.push([name, args]);
-      const request = Promise.resolve({ data: h.data[name], error: null });
+      const request = h.hold ? new Promise(() => undefined) : Promise.resolve({ data: h.data[name], error: null });
       return Object.assign(request, { abortSignal: () => request });
     },
   },
@@ -27,6 +27,7 @@ vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ canSeeCommis
 
 import { PaymentsTab } from "../payments/PaymentsTab";
 import { PoliciesTab } from "../policies/PoliciesTab";
+import { CommissionScopeContext } from "../commissionScopeContext";
 
 function Where() {
   const location = useLocation();
@@ -39,7 +40,7 @@ function renderAt(url: string, node: React.ReactNode) {
 }
 const lastArgs = (fn: string) => h.calls.filter(([n]) => n === fn).at(-1)?.[1];
 beforeEach(() => {
-  h.calls = [];
+  h.calls = []; h.hold = false;
   onOpen.mockReset();
   h.data = {
     get_my_commission_installments: scheduledPage([
@@ -61,6 +62,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Payments › Scheduled", () => {
+  it.each([
+    ["/commissions/payments", "Scheduled payments", "get_my_commission_installments"],
+    ["/commissions/payments?view=history", "Payment history", "get_my_commission_receipt_list"],
+    ["/commissions/policies", "Policies", "get_my_commission_policy_list"],
+  ])("U07: %s labels retained rows as updating and disables every row action", async (url, label, rpc) => {
+    h.data[rpc] = { ...h.data[rpc] as object, total_count: 60 };
+    renderAt(url, label === "Policies" ? <PoliciesTab onOpen={onOpen} /> : <PaymentsTab onOpen={onOpen} />);
+    const table = await screen.findByRole("table", { name: label });
+    h.hold = true; fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(lastArgs(rpc)).toMatchObject({ p_offset: 25 }));
+    expect(screen.getByText(/Updating/)).toBeInTheDocument();
+    const actions = within(table).getAllByRole("button");
+    expect(actions.length).toBeGreaterThan(0);
+    for (const button of actions) { expect(button).toBeDisabled(); fireEvent.click(button); }
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it("one row per installment with window, amounts, status, and Record payment only where something remains", async () => {
     renderAt("/commissions/payments", <PaymentsTab onOpen={onOpen} />);
     const table = await screen.findByRole("table", { name: "Scheduled payments" });
@@ -137,6 +155,24 @@ describe("Payments › History", () => {
 });
 
 describe("Policies", () => {
+  it("U09: All is read-only even on the viewer's own rows; credited sellers remain visible", async () => {
+    h.data.get_my_commission_policy_list = policiesPage([
+      policyRow(1, { credited_agent_id: USER, agent_name: "Morgan Seller" }),
+      policyRow(2, { setup: "missing", estimate_cents: null, received_cents: null, remaining_cents: null, excess_cents: null, next_payment: null,
+        credited_agent_id: TEAM_AGENT, agent_name: "Jordan Agent" }),
+    ]);
+    renderAt("/commissions/policies?agents=all", <CommissionScopeContext.Provider value={testScope({ mode: "all", agentIds: [] })}>
+      <PoliciesTab onOpen={onOpen} />
+    </CommissionScopeContext.Provider>);
+    const table = await screen.findByRole("table", { name: "Policies" });
+    expect(within(table).queryByRole("button", { name: "Record estimate" })).toBeNull();
+    expect(within(table).getAllByText("Morgan Seller").length).toBeGreaterThan(0);
+    expect(within(table).getAllByText("Jordan Agent").length).toBeGreaterThan(0);
+    fireEvent.click(within(table).getByRole("button", { name: /Client 1/ }));
+    expect(onOpen).toHaveBeenCalledWith(policyRow(1).policy_id);
+    expect(h.calls.every(([name]) => name.startsWith("get_"))).toBe(true);
+  });
+
   it("one row per policy; missing values are dashes with Record estimate; held policies still show the next payment", async () => {
     renderAt("/commissions/policies", <PoliciesTab onOpen={onOpen} />);
     const table = await screen.findByRole("table", { name: "Policies" });
@@ -177,5 +213,37 @@ describe("Policies", () => {
     renderAt("/commissions/policies?period=custom&from=2026-10-01", <PoliciesTab onOpen={onOpen} />);
     await new Promise((r) => setTimeout(r, 30));
     expect(h.calls).toEqual([]);
+  });
+});
+
+describe("Team payments", () => {
+  it("U09: Scheduled hides every Record payment shortcut and shows the credited seller", async () => {
+    h.data.get_my_commission_installments = scheduledPage([scheduledRow(1, { credited_agent_id: TEAM_AGENT, agent_name: "Jordan Agent" })]);
+    renderAt("/commissions/payments?agents=all", <CommissionScopeContext.Provider value={testScope({ mode: "all", agentIds: [] })}>
+      <PaymentsTab onOpen={onOpen} />
+    </CommissionScopeContext.Provider>);
+    const table = await screen.findByRole("table", { name: "Scheduled payments" });
+    expect(within(table).queryByRole("button", { name: "Record payment" })).toBeNull();
+    expect(within(table).getAllByText("Jordan Agent").length).toBeGreaterThan(0);
+    fireEvent.click(within(table).getByRole("button", { name: /Client 1/ }));
+    expect(onOpen).toHaveBeenCalledWith(scheduledRow(1).policy_id);
+  });
+
+  it("U03: Scheduled/History navigation retains agent parameters separately from date scope", async () => {
+    renderAt(`/commissions/payments?agents=selected&agent_ids=${TEAM_AGENT}&period=last_month&dates=next_90`,
+      <CommissionScopeContext.Provider value={testScope({ mode: "selected", agentIds: [TEAM_AGENT] })}>
+        <PaymentsTab onOpen={onOpen} />
+      </CommissionScopeContext.Provider>);
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
+    const history = new URLSearchParams(screen.getByTestId("where").textContent!);
+    expect(history.get("agents")).toBe("selected");
+    expect(history.get("agent_ids")).toBe(TEAM_AGENT);
+    expect(history.get("period")).toBe("last_month");
+    expect(history.has("dates")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
+    const scheduled = new URLSearchParams(screen.getByTestId("where").textContent!);
+    expect(scheduled.get("agents")).toBe("selected");
+    expect(scheduled.get("agent_ids")).toBe(TEAM_AGENT);
+    expect(scheduled.has("view")).toBe(false);
   });
 });

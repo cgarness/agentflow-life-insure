@@ -1,3 +1,4 @@
+import { useCommissionScope } from "../commissionScopeContext";
 import { Link } from "react-router-dom";
 import { useAmounts } from "@/components/commission/ui/amountsContext";
 import { monthsTenToTwelveHref } from "@/lib/commission/centerFilters";
@@ -13,6 +14,7 @@ const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : 
  */
 export function MonthsTenToTwelve({ data }: { data: CommissionBreakdown["months_10_12"] }) {
   const { money } = useAmounts();
+  const { withScopeHref } = useCommissionScope();
   const month = formatMonth(data.from);
   return (
     <section aria-label="Months 10–12" className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
@@ -27,7 +29,7 @@ export function MonthsTenToTwelve({ data }: { data: CommissionBreakdown["months_
       <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>{count(data.policy_count, "policy", "policies")} · {count(data.payment_count, "payment", "payments")}</span>
         {data.payment_count > 0 && (
-          <Link to={monthsTenToTwelveHref()} className="text-sm font-medium text-primary hover:underline">View payments</Link>
+          <Link to={withScopeHref(monthsTenToTwelveHref())} className="text-sm font-medium text-primary hover:underline">View payments</Link>
         )}
       </div>
     </section>

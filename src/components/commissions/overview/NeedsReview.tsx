@@ -1,3 +1,4 @@
+import { useCommissionScope } from "../commissionScopeContext";
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { useAmounts } from "@/components/commission/ui/amountsContext";
@@ -30,23 +31,24 @@ function Item({ to, label, count, detail }: { to: string; label: string; count: 
  * and policies without an estimate. Plus how many of the seller's policies have an estimate. */
 export function NeedsReview({ data }: { data: CommissionOverview }) {
   const { money } = useAmounts();
+  const { withScopeHref } = useCommissionScope();
   const r = data.review;
   const { eligible_count: eligible, with_estimate_count: withEstimate } = data.setup;
   const pct = eligible > 0 ? Math.round((withEstimate / eligible) * 100) : 0;
   return (
     <div className="space-y-3">
       <ul className="-mx-2">
-        <Item to={scheduledHref({ scope: "any", status: "check_payment" })} label="Check payment" count={r.check_payment.count}
+        <Item to={withScopeHref(scheduledHref({ scope: "any", status: "check_payment" }))} label="Check payment" count={r.check_payment.count}
           detail={r.check_payment.count > 0 ? money(r.check_payment.remaining_cents) : undefined} />
-        <Item to={scheduledHref({ scope: "any", status: "date_needed" })} label="Date needed" count={r.date_needed.count} />
-        <Item to={policiesHref("needs_review")} label="Needs review" count={r.needs_review.count} />
-        <Item to={policiesHref("missing")} label="Missing commission" count={r.missing_estimate.count} />
+        <Item to={withScopeHref(scheduledHref({ scope: "any", status: "date_needed" }))} label="Date needed" count={r.date_needed.count} />
+        <Item to={withScopeHref(policiesHref("needs_review"))} label="Needs review" count={r.needs_review.count} />
+        <Item to={withScopeHref(policiesHref("missing"))} label="Missing commission" count={r.missing_estimate.count} />
       </ul>
       {eligible > 0 && (
         <div className="space-y-1.5 border-t border-border/60 pt-3">
           <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">Estimates set up
-              <InfoTip label="About estimates set up">Policies credited to you that have a saved estimate, out of every policy you sold.
+              <InfoTip label="About estimates set up">Policies in this view that have a saved estimate, out of all eligible policies.
                 A policy without one shows no amounts, not $0.</InfoTip>
             </span>
             <span className="tabular-nums text-foreground">{withEstimate} of {eligible}</span>

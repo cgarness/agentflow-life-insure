@@ -7,13 +7,14 @@ import React from "react";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ORG, USER, breakdown, goal, overview, scheduledPage, scheduledRow } from "@/components/commissions/__tests__/centerFixtures";
+import { ORG, USER, TEAM_AGENT, OTHER_AGENT, testScope, scopedResponse, breakdown, goal, overview, scheduledPage, scheduledRow } from "@/components/commissions/__tests__/centerFixtures";
 
 const h = vi.hoisted(() => ({
   userId: "", impersonating: false, permitted: true,
   calls: [] as Array<[string, Record<string, unknown>]>,
   pending: [] as Array<(value: { data: unknown; error: null }) => void>,
   hold: false,
+  aborted: 0,
 }));
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
@@ -23,8 +24,11 @@ vi.mock("@/integrations/supabase/client", () => ({
         : name === "get_my_commission_goal" ? goal(50000, String(args.p_month))
           : name === "set_my_commission_goal" ? { month: args.p_month, target_cents: args.p_target_cents, updated_at: "2026-10-20T17:00:00Z" }
             : scheduledPage([scheduledRow(h.calls.length)]);
-      const request = h.hold ? new Promise((resolve) => h.pending.push(resolve)) : Promise.resolve({ data, error: null });
-      return Object.assign(request, { abortSignal: () => request });
+      const response = name.startsWith("get_scoped_") ? scopedResponse(data, args) : data;
+      const request = h.hold ? new Promise((resolve) => h.pending.push(resolve)) : Promise.resolve({ data: response, error: null });
+      return Object.assign(request, { abortSignal: (signal: AbortSignal) => {
+        signal.addEventListener("abort", () => { h.aborted++; }, { once: true }); return request;
+      } });
     },
   },
 }));
@@ -40,12 +44,16 @@ import {
 } from "../useCommissionsCenter";
 import { useRefreshPolicyCommissions } from "../useClientPolicyCommissions";
 import { parseScheduled } from "@/lib/commission/centerFilters";
+import { CommissionScopeContext, type CommissionScopeContextValue } from "@/components/commissions/commissionScopeContext";
 
 let client: QueryClient;
-const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+let scope: CommissionScopeContextValue | null;
+const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>
+  {scope ? <CommissionScopeContext.Provider value={scope}>{children}</CommissionScopeContext.Provider> : children}
+</QueryClientProvider>;
 const MONTH = { preset: "this_month", from: null, to: null } as const;
 beforeEach(() => {
-  h.userId = USER; h.impersonating = false; h.permitted = true; h.calls = []; h.pending = []; h.hold = false;
+  h.userId = USER; h.impersonating = false; h.permitted = true; h.calls = []; h.pending = []; h.hold = false; h.aborted = 0; scope = null;
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
 afterEach(cleanup);
@@ -53,10 +61,10 @@ afterEach(cleanup);
 describe("useCommissionsCenter", () => {
   it("keys every read by user, organization and filter", async () => {
     const filter = parseScheduled(new URLSearchParams("status=remaining"));
-    expect(commissionCenterKeys.scheduled(USER, ORG, filter)).toEqual(["policy-commissions", "center", USER, ORG, "scheduled", filter]);
+    expect(commissionCenterKeys.scheduled(USER, ORG, filter)).toEqual(["policy-commissions", "center", USER, ORG, { scope: "me:", revision: "legacy" }, "scheduled", filter]);
     const { result } = renderHook(() => useCommissionOverview(MONTH), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(client.getQueryCache().findAll({ queryKey: ["policy-commissions", "center", USER, ORG, "overview"] })).toHaveLength(1);
+    expect(client.getQueryCache().findAll({ queryKey: ["policy-commissions", "center", USER, ORG, { scope: "me:", revision: "legacy" }, "overview"] })).toHaveLength(1);
   });
 
   it("requests nothing under View As, without the Own permission, or for an incomplete custom range", async () => {
@@ -99,12 +107,33 @@ describe("useCommissionsCenter", () => {
     }
   });
 
+  it("U05/U07: scoped pages retain only same-scope placeholders and cancel old selection reads", async () => {
+    scope = testScope({ mode: "selected", agentIds: [TEAM_AGENT] }, { managed: true });
+    const { result, rerender } = renderHook(({ page }) => useScheduledPayments({ ...parseScheduled(new URLSearchParams()), page }),
+      { wrapper, initialProps: { page: 1 } });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const first = result.current.data;
+    h.hold = true; rerender({ page: 2 });
+    expect(result.current.data).toBe(first); expect(result.current.isPlaceholderData).toBe(true);
+    scope = testScope({ mode: "selected", agentIds: [OTHER_AGENT] }, { managed: true });
+    rerender({ page: 2 });
+    expect(result.current.data).toBeUndefined(); expect(h.aborted).toBeGreaterThan(0);
+    const held = h.pending.splice(0);
+    await act(async () => { held.forEach((resolve) => resolve({ data: scopedResponse(scheduledPage(), {
+      p_agent_scope: "selected", p_agent_ids: [TEAM_AGENT],
+    }), error: null })); });
+    expect(result.current.data).toBeUndefined();
+    scope = testScope({ mode: "selected", agentIds: [TEAM_AGENT] }, { managed: true, revision: "new-authority" });
+    rerender({ page: 1 });
+    expect(result.current.data).toBeUndefined();
+  });
+
   it("Next 90 days and Any date share one key and request whatever the hidden custom range holds", async () => {
     const next90 = parseScheduled(new URLSearchParams("dates=next_90&period=custom&from=2026-10-05"));
     const { result } = renderHook(() => useScheduledPayments(next90), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(h.calls.at(-1)?.[1]).toMatchObject({ p_scope: "next_90", p_period: "this_month", p_from: null, p_to: null });
-    expect(client.getQueryCache().findAll({ queryKey: ["policy-commissions", "center", USER, ORG, "scheduled"] })[0].queryKey)
+    expect(client.getQueryCache().findAll({ queryKey: ["policy-commissions", "center", USER, ORG, { scope: "me:", revision: "legacy" }, "scheduled"] })[0].queryKey)
       .toEqual(commissionCenterKeys.scheduled(USER, ORG, parseScheduled(new URLSearchParams("dates=next_90"))));
   });
 
@@ -117,8 +146,8 @@ describe("useCommissionsCenter", () => {
   });
 
   it("breakdown and goal: keyed by user, organization and period or month; refreshed by any tracking write", async () => {
-    expect(commissionCenterKeys.breakdown(USER, ORG, MONTH)).toEqual(["policy-commissions", "center", USER, ORG, "breakdown", MONTH]);
-    expect(commissionCenterKeys.goal(USER, ORG, "2026-10-01")).toEqual(["policy-commissions", "center", USER, ORG, "goal", "2026-10-01"]);
+    expect(commissionCenterKeys.breakdown(USER, ORG, MONTH)).toEqual(["policy-commissions", "center", USER, ORG, { scope: "me:", revision: "legacy" }, "breakdown", MONTH]);
+    expect(commissionCenterKeys.goal(USER, ORG, "2026-10-01")).toEqual(["policy-commissions", "center", USER, ORG, { scope: "me:", revision: "legacy" }, "goal", "2026-10-01"]);
     const { result } = renderHook(() => ({ breakdown: useCommissionBreakdown(MONTH), goal: useCommissionGoal("2026-10-01"),
       none: useCommissionGoal(null), refresh: useRefreshPolicyCommissions() }), { wrapper });
     await waitFor(() => expect(result.current.breakdown.isSuccess && result.current.goal.isSuccess).toBe(true));
@@ -146,5 +175,13 @@ describe("useCommissionsCenter", () => {
     await act(async () => { await result.current.write.mutateAsync(125000); });
     await waitFor(() => expect(h.calls.map(([n, a]) => [n, a])).toEqual([
       ["set_my_commission_goal", { p_month: "2026-10-01", p_target_cents: 125000 }], ["get_my_commission_goal", { p_month: "2026-10-01" }]]));
+  });
+
+  it("U12: direct managed team goal mutations are denied without any RPC", async () => {
+    scope = testScope({ mode: "all", agentIds: [] }, { managed: true });
+    const { result } = renderHook(() => useCommissionGoalMutation("2026-10-01"), { wrapper });
+    await act(async () => { await result.current.mutateAsync(125000).catch(() => undefined); });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(h.calls).toEqual([]);
   });
 });
