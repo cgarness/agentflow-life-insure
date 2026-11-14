@@ -1,3 +1,5 @@
+import { useContactNumberAffinity } from "@/hooks/useContactNumberAffinity";
+import { ContactNumberControl } from "@/components/contacts/ContactNumberControl";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -127,6 +129,8 @@ const ConversationsPage = () => {
     };
   }, [selectedContact, isImpersonating, user?.id, profile?.id, profile?.organization_id]);
 
+  const contactNumbers = useContactNumberAffinity(selectedContact?.contact_id, selectedContact?.contact_type);
+
   // ---- Deep link validation ----------------------------------------------------------------
   // A viewer change needs no clearing effect: `selectedContact` and `deepLinkState` above stop
   // matching the new `viewerKey` on the very render the identity changes.
@@ -189,11 +193,14 @@ const ConversationsPage = () => {
       toast.error(REFUSAL_MESSAGES.authority);
       return false;
     }
+    if (!contactNumbers.canText) { toast.error("Review the contact’s texting number before sending."); return false; }
     const started = manualSmsSender.submit({
       ...smsScope,
       to: toE164Plus(selectedContact.contact_phone),
       body: text,
-      senderPreference: selectedCallerNumber ? toE164Plus(selectedCallerNumber) : null,
+      senderPreference: contactNumbers.sender?.number ?? (selectedCallerNumber ? toE164Plus(selectedCallerNumber) : null),
+      expectedSenderId: contactNumbers.sender?.id ?? null,
+      overrideSenderId: contactNumbers.override?.id ?? null,
       contactLabel: selectedContact.contact_name || null,
       origin,
     });
@@ -327,6 +334,8 @@ const ConversationsPage = () => {
               agencyName: branding.companyName,
             }}
             onSendMessage={handleSendMessage}
+            numberControl={<ContactNumberControl model={contactNumbers} phone={selectedContact.contact_phone} name={selectedContact.contact_name} />}
+            smsReady={contactNumbers.canText}
             onSubmitSms={handleSubmitSms}
             smsScope={smsScope}
             sending={sending}

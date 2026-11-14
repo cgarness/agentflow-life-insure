@@ -40,6 +40,7 @@ export interface QuickCallDetail {
   type: QuickCallContactType;
   /** Optional caller-ID override, when a surface has already chosen one. */
   fromNumber?: string;
+  oneCallNumberId?: string;
 }
 
 /** True when `phone` carries at least one digit — the listener's minimum bar. */
@@ -63,6 +64,7 @@ export function dispatchQuickCall(detail: QuickCallDetail): boolean {
     phone: detail.phone,
     type: detail.type,
     ...(detail.fromNumber ? { fromNumber: detail.fromNumber } : {}),
+    ...(detail.oneCallNumberId ? { oneCallNumberId: detail.oneCallNumberId } : {}),
   };
 
   window.dispatchEvent(new CustomEvent(QUICK_CALL_EVENT, { detail: payload }));

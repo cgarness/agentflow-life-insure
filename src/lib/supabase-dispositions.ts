@@ -16,6 +16,7 @@ type DispositionRow = {
   campaign_action: string | null;
   dnc_auto_add: boolean | null;
   counts_as_contacted: boolean | null;
+  affinity_class?: Disposition["affinityClass"];
   pipeline_stage_id: string | null;
   sort_order: number;
   usage_count: number;
@@ -39,6 +40,7 @@ function rowToDisposition(row: DispositionRow): Disposition {
     campaignAction: (row.campaign_action as Disposition["campaignAction"]) ?? "none",
     dncAutoAdd: row.dnc_auto_add ?? false,
     countsAsContacted: row.counts_as_contacted ?? false,
+    affinityClass: row.affinity_class ?? "unreviewed",
     pipelineStageId: row.pipeline_stage_id ?? null,
     order: row.sort_order,
     usageCount: row.usage_count,
@@ -105,6 +107,7 @@ export const dispositionsSupabaseApi = {
         campaign_action: input.campaignAction ?? "none",
         dnc_auto_add: input.dncAutoAdd ?? false,
         counts_as_contacted: input.countsAsContacted ?? false,
+        affinity_class: input.affinityClass ?? "unreviewed",
         pipeline_stage_id: input.pipelineStageId ?? null,
         sort_order: nextOrder,
         usage_count: 0,
@@ -149,6 +152,7 @@ export const dispositionsSupabaseApi = {
         ...(input.campaignAction !== undefined && { campaign_action: input.campaignAction }),
         ...(input.dncAutoAdd !== undefined && { dnc_auto_add: input.dncAutoAdd }),
         ...(input.countsAsContacted !== undefined && { counts_as_contacted: input.countsAsContacted }),
+        ...(input.affinityClass !== undefined && { affinity_class: input.affinityClass }),
         ...(input.isLocked !== undefined && { is_locked: input.isLocked }),
         ...(input.pipelineStageId !== undefined && { pipeline_stage_id: input.pipelineStageId || null }),
       })

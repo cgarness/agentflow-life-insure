@@ -1,3 +1,21 @@
+## November 14, 2026 Pacific — approved review publication
+
+Chris approved the three exact preview pauses and one draft PR. Saved and reloaded: Preview Branch Tracking OFF on both agentflow Vercel projects; Supabase Automatic branching OFF, Deploy to production remains OFF, Supabase changes-only ON and branch limit3 retained. No credentials, production mappings, existing branches or protection settings changed. Main remains2129fa8; all78 frozen source files match. Publish only prereq/sticky-numbers-baseline-20261113, open one draft PR, inspect isolated CI. Production installation/merge/deployment, preview restoration, activation and real communication remain held. Documentation changes only: root/focused plans, WORK_LOG and focused release approval/publication record; source and migrations remain frozen.
+
+## November 14, 2026 UTC — release preflight (read-only production)
+
+Authorization: Chris said Proceed to the read-only release checks. No publication, production mutation, configuration change, pilot or communication is authorized.
+
+Exact editable paths: root implementation_plan.md; WORK_LOG.md; docs/plans/2026-11-12-sticky-contact-numbers/implementation_plan.md; release-approval.md and new release-preflight.md in that same folder; evidence/release-preflight/*; the existing delivered approval Markdown replacement and a separate recoverable preflight evidence archive. Executable source, migrations, frozen package and source candidate remain unchanged.
+
+Commands/actions: git status --short; git fetch origin main; git rev-parse HEAD origin/main; read current docs/workflows; GitHub GET open PRs/files/check-runs/workflows; Supabase SELECT-only captured catalog queries, migration history, relation sizes/activity/cron metadata; retrieve six live Edge packages; Vercel GET project/deployment/environment metadata; permitted read-only authenticated browser fallback if connector lacks fields. Compare complete normalized captures and all frozen source hashes locally; git diff --check; local doc-only checkpoint and archive checksum/CRC checks. Do not rerun feature tests absent code changes.
+
+Complete:85/45/381 catalog/history matches; six complete Edge matches;78 source hashes; dashboard publication settings identified. Exact results and proposed three-switch/draft-PR authorization are in release-preflight.md. No settings/publication or production execution occurred. Secondary runtime configuration, quiet window/security review and production/pilot approvals remain gates.
+
+## November 14 — Sticky Contact Numbers candidate complete (publication/release held)
+
+Chris authorized bounded prerequisite reconstruction and Phases 1–5 in this session. Current main/base is `2129fa8b195cee77ad75f614abe655facfad2725`. Production remains read-only and publication remains HELD (no push/PR/preview/merge/deploy/activation/provider changes or real communication). Exact files, commands, progress, evidence and remaining gates: [focused plan](docs/plans/2026-11-12-sticky-contact-numbers/implementation_plan.md). Preserve all prior task sections below. Claude's reported local `d070707` was not recovered; prerequisites were reconstructed and the verified feature source is `a57ea11168fff51156b8d624b4966c10869d8dcd`. Phases 1–5, native/Edge/browser/concurrency/scale verification and the exact release packet are complete locally; production remains unchanged.
+
 ## November 12 — approved bounded request budgets
 
 Chris approved proceeding with the proposed 40-second cap after clarifying that the scale case represents one agency, not all agencies combined. The scope is exactly three new readers: `get_scoped_commission_overview`, `get_scoped_commission_installments`, and `get_scoped_commission_policy_list`. `get_scoped_commission_breakdown` remains at 20 seconds. Existing My APIs, helpers, role/database limits and security rules remain unchanged. Broader multi-agency concurrency work is deferred and has not been verified. This is implementation approval only; production release remains separately gated.

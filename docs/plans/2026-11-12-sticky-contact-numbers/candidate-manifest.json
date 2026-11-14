@@ -1,0 +1,922 @@
+{
+  "format": 1,
+  "repository": "cgarness/agentflow-life-insure",
+  "base_commit": "2129fa8b195cee77ad75f614abe655facfad2725",
+  "source_commit": "a57ea11168fff51156b8d624b4966c10869d8dcd",
+  "status": "isolated verified candidate; publication and production held",
+  "migrations": [
+    {
+      "path": "supabase/migrations/20261114003115_sticky_contact_numbers_foundation.sql",
+      "version": "20261114003115",
+      "name": "sticky_contact_numbers_foundation",
+      "bytes": 18061,
+      "sha256": "3ab479c4553d5d0087a1ee0acd4e2baada84b5255726aeb6db3eda6f107e7d39"
+    },
+    {
+      "path": "supabase/migrations/20261114003337_sticky_contact_numbers_sms.sql",
+      "version": "20261114003337",
+      "name": "sticky_contact_numbers_sms",
+      "bytes": 25131,
+      "sha256": "d2466f068e04c03866bdc4fa55303ef71e812d27af700d7e73cd101b043d4908"
+    },
+    {
+      "path": "supabase/migrations/20261114003652_sticky_contact_numbers_voice.sql",
+      "version": "20261114003652",
+      "name": "sticky_contact_numbers_voice",
+      "bytes": 26348,
+      "sha256": "269266bc6eda4ac6cf0362c48bfb139b62b02f198e53104a8d699e411d67de58"
+    },
+    {
+      "path": "supabase/migrations/20261114004102_sticky_contact_numbers_reconciliation.sql",
+      "version": "20261114004102",
+      "name": "sticky_contact_numbers_reconciliation",
+      "bytes": 18796,
+      "sha256": "9a6a6f670c7e18f74e0ab5c35604824699be238c67c9f6724736a4ff1e51cf64"
+    }
+  ],
+  "edge_packages": [
+    {
+      "slug": "twilio-sms",
+      "entrypoint": "twilio-sms/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "live_version": 61,
+      "live_ezbr_sha256": "9998fc4abf1fb729d4886cec860be7971b65868a2b98d228525b85ba29a2965f",
+      "source_manifest_sha256": "41f83e78926637a249681f99ffa4448576284aaeaa34251a225716ffbeb11735",
+      "files": [
+        {
+          "path": "_shared/a2p/auth.ts",
+          "bytes": 4108,
+          "sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099"
+        },
+        {
+          "path": "_shared/a2p/provider.ts",
+          "bytes": 4717,
+          "sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1"
+        },
+        {
+          "path": "_shared/a2p/sending.ts",
+          "bytes": 4197,
+          "sha256": "4abf54e745b9bc72a3377e842cd63a8945ea047e76815f6b82bbb5f173e8cb39"
+        },
+        {
+          "path": "_shared/a2p/store.ts",
+          "bytes": 2263,
+          "sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4"
+        },
+        {
+          "path": "_shared/a2p/types.ts",
+          "bytes": 2880,
+          "sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c"
+        },
+        {
+          "path": "_shared/sms/affinity.ts",
+          "bytes": 1100,
+          "sha256": "fdb194bd98208dd0d83354e9130c5fbb85a9eb0f689d4411393cbfaa465f0f64"
+        },
+        {
+          "path": "_shared/sms/consent.ts",
+          "bytes": 3676,
+          "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+        },
+        {
+          "path": "_shared/sms/dispatch.ts",
+          "bytes": 11399,
+          "sha256": "007bf0639cf4344d885920d147bc6425d8516362607a4b5a33c541d12eb14e63"
+        },
+        {
+          "path": "_shared/sms/manual.ts",
+          "bytes": 2033,
+          "sha256": "b79a2287b7ba780c9e61393c9f14a7c84d514e60c561e31b9a29ee03fb38edc9"
+        },
+        {
+          "path": "_shared/sms/readiness.ts",
+          "bytes": 1611,
+          "sha256": "0421ea9edd18b477c7613efd05bca9e7f8b50432cd79777057f98ad475918dac"
+        },
+        {
+          "path": "_shared/sms/scope.ts",
+          "bytes": 1558,
+          "sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077"
+        },
+        {
+          "path": "_shared/sms/wire.ts",
+          "bytes": 4824,
+          "sha256": "36229e668a46603d8822ca127ff10de5d126fe2c20e733bef1eb3f577f6ba97f"
+        },
+        {
+          "path": "_shared/twilioOutboundCreds.ts",
+          "bytes": 1026,
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802"
+        },
+        {
+          "path": "_shared/twilioSubaccountCreds.ts",
+          "bytes": 3335,
+          "sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b"
+        },
+        {
+          "path": "package-config.json",
+          "bytes": 237,
+          "sha256": "419c88a3061dc30fe38c72b1aa91e66b7f4eaf123da9c37a723970ab06db70b4"
+        },
+        {
+          "path": "twilio-sms/index.ts",
+          "bytes": 13237,
+          "sha256": "82cd4b5e5a5e4b9c09f9a75202a23aea48babcd2de80333ffff0158c78df1cc4"
+        }
+      ],
+      "external_imports": [
+        "https://esm.sh/@supabase/supabase-js@2",
+        "https://esm.sh/@supabase/supabase-js@2.98.0"
+      ]
+    },
+    {
+      "slug": "workflow-executor",
+      "entrypoint": "workflow-executor/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "live_version": 50,
+      "live_ezbr_sha256": "710c9f085acee7dbc774e23a7132739d440069f8d339dfbec3b8c39592343d5f",
+      "source_manifest_sha256": "c96d4a8de9cdd8d6d471152a37d0d99203d74799135c5821d4aec1f71a4a53a0",
+      "files": [
+        {
+          "path": "_shared/a2p/auth.ts",
+          "bytes": 4108,
+          "sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099"
+        },
+        {
+          "path": "_shared/a2p/provider.ts",
+          "bytes": 4717,
+          "sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1"
+        },
+        {
+          "path": "_shared/a2p/sending.ts",
+          "bytes": 4197,
+          "sha256": "4abf54e745b9bc72a3377e842cd63a8945ea047e76815f6b82bbb5f173e8cb39"
+        },
+        {
+          "path": "_shared/a2p/store.ts",
+          "bytes": 2263,
+          "sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4"
+        },
+        {
+          "path": "_shared/a2p/types.ts",
+          "bytes": 2880,
+          "sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c"
+        },
+        {
+          "path": "_shared/sms/affinity.ts",
+          "bytes": 1100,
+          "sha256": "fdb194bd98208dd0d83354e9130c5fbb85a9eb0f689d4411393cbfaa465f0f64"
+        },
+        {
+          "path": "_shared/sms/consent.ts",
+          "bytes": 3676,
+          "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+        },
+        {
+          "path": "_shared/sms/dispatch.ts",
+          "bytes": 11399,
+          "sha256": "007bf0639cf4344d885920d147bc6425d8516362607a4b5a33c541d12eb14e63"
+        },
+        {
+          "path": "_shared/sms/readiness.ts",
+          "bytes": 1611,
+          "sha256": "0421ea9edd18b477c7613efd05bca9e7f8b50432cd79777057f98ad475918dac"
+        },
+        {
+          "path": "_shared/sms/scope.ts",
+          "bytes": 1558,
+          "sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077"
+        },
+        {
+          "path": "_shared/sms/wire.ts",
+          "bytes": 4824,
+          "sha256": "36229e668a46603d8822ca127ff10de5d126fe2c20e733bef1eb3f577f6ba97f"
+        },
+        {
+          "path": "_shared/twilioOutboundCreds.ts",
+          "bytes": 1026,
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802"
+        },
+        {
+          "path": "_shared/twilioSubaccountCreds.ts",
+          "bytes": 3335,
+          "sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b"
+        },
+        {
+          "path": "_shared/workflowAuth.ts",
+          "bytes": 1387,
+          "sha256": "b8bce1930776e65817a513ab4884087cf59078eb88d254dfc00a50ef5b4bcafb"
+        },
+        {
+          "path": "_shared/workflowMergeFields.ts",
+          "bytes": 863,
+          "sha256": "f78b07267e70c5099cfc30e2d74568412e198a8bb2b213aad80442dd7059a459"
+        },
+        {
+          "path": "package-config.json",
+          "bytes": 251,
+          "sha256": "2ee1642dfe239d87a007ee6df5b5f76911b66965b6e85d7fdce5d1c028ece76a"
+        },
+        {
+          "path": "workflow-executor/index.ts",
+          "bytes": 32066,
+          "sha256": "ede638bfc6e80ec20335652987674b9faaba93b9e0ccf94d214b2d77589d1442"
+        }
+      ],
+      "external_imports": [
+        "https://esm.sh/@supabase/supabase-js@2",
+        "https://esm.sh/@supabase/supabase-js@2.98.0"
+      ]
+    },
+    {
+      "slug": "sms-consent-worker",
+      "entrypoint": "sms-consent-worker/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "live_version": 26,
+      "live_ezbr_sha256": "3b80b17980775e8625a15757db2148feb9ed0c0175e6db34389eb9f9ecc35e44",
+      "source_manifest_sha256": "b6a1c29848e1bb22d655dbb501a27392434f38724a693323a74d4f0afb9a8a07",
+      "files": [
+        {
+          "path": "_shared/a2p/auth.ts",
+          "bytes": 4108,
+          "sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099"
+        },
+        {
+          "path": "_shared/a2p/provider.ts",
+          "bytes": 4717,
+          "sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1"
+        },
+        {
+          "path": "_shared/a2p/sending.ts",
+          "bytes": 4197,
+          "sha256": "4abf54e745b9bc72a3377e842cd63a8945ea047e76815f6b82bbb5f173e8cb39"
+        },
+        {
+          "path": "_shared/a2p/store.ts",
+          "bytes": 2263,
+          "sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4"
+        },
+        {
+          "path": "_shared/a2p/types.ts",
+          "bytes": 2880,
+          "sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c"
+        },
+        {
+          "path": "_shared/sms/affinity.ts",
+          "bytes": 1100,
+          "sha256": "fdb194bd98208dd0d83354e9130c5fbb85a9eb0f689d4411393cbfaa465f0f64"
+        },
+        {
+          "path": "_shared/sms/confirmations.ts",
+          "bytes": 631,
+          "sha256": "aa44430439f719d845e49d55562fe276b329891afb7dff60df9dcb5b82a6c78c"
+        },
+        {
+          "path": "_shared/sms/consent.ts",
+          "bytes": 3676,
+          "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+        },
+        {
+          "path": "_shared/sms/dispatch.ts",
+          "bytes": 11399,
+          "sha256": "007bf0639cf4344d885920d147bc6425d8516362607a4b5a33c541d12eb14e63"
+        },
+        {
+          "path": "_shared/sms/readiness.ts",
+          "bytes": 1611,
+          "sha256": "0421ea9edd18b477c7613efd05bca9e7f8b50432cd79777057f98ad475918dac"
+        },
+        {
+          "path": "_shared/sms/scope.ts",
+          "bytes": 1558,
+          "sha256": "672186ef0e410cb48ee756c12c151c769612c1bee248e14115809cfa1bb04077"
+        },
+        {
+          "path": "_shared/sms/wire.ts",
+          "bytes": 4824,
+          "sha256": "36229e668a46603d8822ca127ff10de5d126fe2c20e733bef1eb3f577f6ba97f"
+        },
+        {
+          "path": "_shared/twilioOutboundCreds.ts",
+          "bytes": 1026,
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802"
+        },
+        {
+          "path": "_shared/twilioSubaccountCreds.ts",
+          "bytes": 3335,
+          "sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b"
+        },
+        {
+          "path": "package-config.json",
+          "bytes": 253,
+          "sha256": "daa2054d387c620184d12d20c45d5c8f8b50b8e91cbb868fcdb11a936cc117d2"
+        },
+        {
+          "path": "sms-consent-worker/index.ts",
+          "bytes": 3924,
+          "sha256": "f943827e215fbb9d2f2e29f3406a820c1822e1ddaa8c9c0952e39dfdfe125404"
+        }
+      ],
+      "external_imports": [
+        "https://esm.sh/@supabase/supabase-js@2",
+        "https://esm.sh/@supabase/supabase-js@2.98.0"
+      ]
+    },
+    {
+      "slug": "twilio-sms-webhook",
+      "entrypoint": "twilio-sms-webhook/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "live_version": 47,
+      "live_ezbr_sha256": "ef370d581b9d5fcdd120faacf68a7953166895bbe5f33fdd001122dacfb5a74f",
+      "source_manifest_sha256": "652a3798c51875292d78ba2b843706079826fa200a6c726fa6f91fb31b5822cd",
+      "files": [
+        {
+          "path": "_shared/a2p/auth.ts",
+          "bytes": 4108,
+          "sha256": "d8670ca6db5df5bb8b6da3721de7d05a6efdbbc6ea1d62fd89e3e7f39bbad099"
+        },
+        {
+          "path": "_shared/a2p/provider.ts",
+          "bytes": 4717,
+          "sha256": "f5ba478664add4bf20ef793be7a54fcbc6968bb5d921a8026c9cd9ee35fcf9f1"
+        },
+        {
+          "path": "_shared/a2p/store.ts",
+          "bytes": 2263,
+          "sha256": "35210bb174bb077e8a7507ef475beeb0c4fefbd5a2fe0f85002768c61e362cc4"
+        },
+        {
+          "path": "_shared/a2p/types.ts",
+          "bytes": 2880,
+          "sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c"
+        },
+        {
+          "path": "_shared/notification-recipients.ts",
+          "bytes": 16093,
+          "sha256": "83ce2be3c56ff16b7e46eb5b10b2faa7fcd6df17d9351af3cbbd38aa2ecef726"
+        },
+        {
+          "path": "_shared/sms/consent.ts",
+          "bytes": 3676,
+          "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+        },
+        {
+          "path": "_shared/sms/webhook.ts",
+          "bytes": 1498,
+          "sha256": "9e6a819b09ac66f816f6e284eb15ae2255f90e9f7669d18a404c5c6524b5019d"
+        },
+        {
+          "path": "_shared/sms/wire.ts",
+          "bytes": 4824,
+          "sha256": "36229e668a46603d8822ca127ff10de5d126fe2c20e733bef1eb3f577f6ba97f"
+        },
+        {
+          "path": "_shared/twilioOutboundCreds.ts",
+          "bytes": 1026,
+          "sha256": "f0e1eacded07d6223a9eb9f8221efd237d2526f07ffb7b5b35ed9c4936b19802"
+        },
+        {
+          "path": "_shared/twilioSubaccountCreds.ts",
+          "bytes": 3335,
+          "sha256": "350558d09b9ee5e587256648bc4a9004d28b203f54c4ef343d7999db7f47550b"
+        },
+        {
+          "path": "package-config.json",
+          "bytes": 253,
+          "sha256": "4fe08dad30aa5fee145634fb5234220a9e8e3f63519561100ea3f5e4b0670031"
+        },
+        {
+          "path": "twilio-sms-webhook/index.ts",
+          "bytes": 14988,
+          "sha256": "a6e20f06f8c2f7c1914fdb0dc512f6151fa2ddfdbfe22ed6ac096067a8500cb4"
+        }
+      ],
+      "external_imports": [
+        "https://esm.sh/@supabase/supabase-js@2",
+        "https://esm.sh/@supabase/supabase-js@2.98.0"
+      ]
+    },
+    {
+      "slug": "twilio-voice-inbound",
+      "entrypoint": "twilio-voice-inbound/index.ts",
+      "verify_jwt": false,
+      "import_map": false,
+      "live_version": 72,
+      "live_ezbr_sha256": "31898663eb54ee707ca905064ddeea81cc0a96104a50940773237772f066d5b7",
+      "source_manifest_sha256": "dbc079f452f8231275d03220de94f308b1a90ab7a9da7d94f5d7eb35807b91bb",
+      "files": [
+        {
+          "path": "_shared/a2p/types.ts",
+          "bytes": 2880,
+          "sha256": "d999469e6356b9a85a504cbe23d39d025287c67f85c5f3e42d9091b4d9a86c2c"
+        },
+        {
+          "path": "_shared/inbounds-room.ts",
+          "bytes": 912,
+          "sha256": "b0cc7a0067173ce1db6ff35637b96a8808be9a9872cb040e777d358f3aee9234"
+        },
+        {
+          "path": "_shared/notification-recipients.ts",
+          "bytes": 16093,
+          "sha256": "83ce2be3c56ff16b7e46eb5b10b2faa7fcd6df17d9351af3cbbd38aa2ecef726"
+        },
+        {
+          "path": "_shared/notifications.ts",
+          "bytes": 7702,
+          "sha256": "c853f6820058ef277dc2de853403349d8aa302fe654d1f628350f4563d3c172c"
+        },
+        {
+          "path": "_shared/sms/affinity.ts",
+          "bytes": 1100,
+          "sha256": "fdb194bd98208dd0d83354e9130c5fbb85a9eb0f689d4411393cbfaa465f0f64"
+        },
+        {
+          "path": "_shared/sms/consent.ts",
+          "bytes": 3676,
+          "sha256": "2f8f05b15fbda5ea49016ff5e19027d63096e80ef4c01c8cf90040f28b9f93cb"
+        },
+        {
+          "path": "_shared/sms/wire.ts",
+          "bytes": 4824,
+          "sha256": "36229e668a46603d8822ca127ff10de5d126fe2c20e733bef1eb3f577f6ba97f"
+        },
+        {
+          "path": "package-config.json",
+          "bytes": 206,
+          "sha256": "8cf830cd3e4e7c561f93403381563702cc9b549520c8ccdcfab7224425c016c9"
+        },
+        {
+          "path": "twilio-voice-inbound/failure.ts",
+          "bytes": 5388,
+          "sha256": "7555787d8fa86bdfce997851951ab67fbdcdafe3e5109fc8156dcfb1ae3aae40"
+        },
+        {
+          "path": "twilio-voice-inbound/index.ts",
+          "bytes": 63736,
+          "sha256": "70511d7db9a65180bb90ec7413178d293346de3846fbec6c68906079a0493630"
+        },
+        {
+          "path": "twilio-voice-inbound/planner.ts",
+          "bytes": 15564,
+          "sha256": "9659164e7f0cdb618c88fb9a539847fc9843b9889a9d4c4fb3ca48d213ac22ee"
+        },
+        {
+          "path": "twilio-voice-inbound/request.ts",
+          "bytes": 23501,
+          "sha256": "b1f7e54ceef67b4fa89719cea5ad7a78cb7bf86e12c24de5456a91eb824575d3"
+        },
+        {
+          "path": "twilio-voice-inbound/routing.ts",
+          "bytes": 6007,
+          "sha256": "da1724c407bcaef17bd52ae29f26aec2d17e8a175d88cebe4efb0a83cd207627"
+        },
+        {
+          "path": "twilio-voice-inbound/settings.ts",
+          "bytes": 29373,
+          "sha256": "a1b47ad960cea5193555d2aaf5eb2220cf7bd532f3ad39f73bc1afe7e619fdab"
+        },
+        {
+          "path": "twilio-voice-inbound/stages.ts",
+          "bytes": 31104,
+          "sha256": "ac465f6055258e080595539875c263840ff8fcab8e540de69088128ed4c7640c"
+        },
+        {
+          "path": "twilio-voice-inbound/twiml.ts",
+          "bytes": 11101,
+          "sha256": "87afd997166bb48d23a1b2113082014bb3b0b537305f0a567430a5d21dca4f80"
+        }
+      ],
+      "external_imports": [
+        "https://esm.sh/@supabase/supabase-js@2"
+      ]
+    }
+  ],
+  "unchanged_consumers": [
+    {
+      "slug": "clearpath-lead-alert",
+      "version": 25,
+      "verify_jwt": false,
+      "ezbr_sha256": "6d88feea6910dce56bb20cf3ca859e1da346c64257c22d44f697bf3731d44638"
+    }
+  ],
+  "source_files": [
+    {
+      "path": "scripts/sticky-numbers/baseline.mjs",
+      "bytes": 5422,
+      "sha256": "1fd05c5c37194b406939367f9cadde810fbc188019f68775da3ada0803bb1341"
+    },
+    {
+      "path": "scripts/sticky-numbers/block-network.cjs",
+      "bytes": 861,
+      "sha256": "42f89b577ba0ba07b133823930057f6d6f20d13c39cb676b36c3a7484817a360"
+    },
+    {
+      "path": "scripts/sticky-numbers/browser-auth.ts",
+      "bytes": 748,
+      "sha256": "b9fb8c17719b85440800c47b10cf700aa7c57a0d235f7bb0df30f3cbdfa20e84"
+    },
+    {
+      "path": "scripts/sticky-numbers/browser-edge.ts",
+      "bytes": 1015,
+      "sha256": "a2462299a4e0a490cc33a70869167daed5750cb7d70a139ce889109184d20c74"
+    },
+    {
+      "path": "scripts/sticky-numbers/browser-entry.tsx",
+      "bytes": 2884,
+      "sha256": "71a67796e7a0e12b1bc53fb97ed8aa74678af4e93f28709bb7c3d89e1b617d9a"
+    },
+    {
+      "path": "scripts/sticky-numbers/browser-tests.mjs",
+      "bytes": 4659,
+      "sha256": "c459c85d9fed338b0a229a68c9298dfe613a993454902d89a86c925e73727465"
+    },
+    {
+      "path": "scripts/sticky-numbers/browser-vite.mjs",
+      "bytes": 678,
+      "sha256": "65a2fa7dd8c2a64588988f91cc9003017bd3ffc615edf2b8c99a7ecef22ea444"
+    },
+    {
+      "path": "scripts/sticky-numbers/browser.html",
+      "bytes": 304,
+      "sha256": "7775c0870e48096460a25e74237ad459dd9899cc3127c930dad5d67c981bd018"
+    },
+    {
+      "path": "scripts/sticky-numbers/database-tests.mjs",
+      "bytes": 45208,
+      "sha256": "0566be13826c2fe0ca8881396d82381d9325fc3881f853459cacc702d7e6f256"
+    },
+    {
+      "path": "scripts/sticky-numbers/edge-tests.mjs",
+      "bytes": 7595,
+      "sha256": "8af3bc90093bb0a872a59b12f2dd4eb4bfe2e2bbb70d26a16e5e89a9f85a6811"
+    },
+    {
+      "path": "scripts/sticky-numbers/fixtures.sql",
+      "bytes": 4289,
+      "sha256": "593f1ebe4e534d9d5b4d521b427a866f4b3c8362aa310e07671e56d065c6e2f3"
+    },
+    {
+      "path": "scripts/sticky-numbers/performance.mjs",
+      "bytes": 8756,
+      "sha256": "b3e74c901ca3272826eeaf7d352f5f700e4b9419548405287692877d568b0d0d"
+    },
+    {
+      "path": "scripts/sticky-numbers/platform-bootstrap.sql",
+      "bytes": 4331,
+      "sha256": "ff493e36c3eda7c767ad454ad347bd6271c8b01d3432fae293ad5dda094b292a"
+    },
+    {
+      "path": "scripts/sticky-numbers/run-local.sh",
+      "bytes": 1166,
+      "sha256": "12033af4b3dc918e6659c2ee411c88997ba73a86799f3db8a6b7a3f1cf98207b"
+    },
+    {
+      "path": "scripts/sticky-numbers/run.mjs",
+      "bytes": 1413,
+      "sha256": "bba0115b4cae3e8682e45ec5552a2d7a45f8be2b19caad08a37a22da5523b0f4"
+    },
+    {
+      "path": "src/components/contacts/ChangeNumberModal.tsx",
+      "bytes": 4385,
+      "sha256": "ef96277240583a2761da7a7784fe55b333de869f112f1e64f5a71f250cd075a9"
+    },
+    {
+      "path": "src/components/contacts/ContactNumberControl.tsx",
+      "bytes": 2710,
+      "sha256": "4e5e6649f1483adb6a5a90cc1316dbc1a0198c2cd0d4830c8568b34be4dd1f62"
+    },
+    {
+      "path": "src/components/contacts/FullScreenContactView.tsx",
+      "bytes": 76753,
+      "sha256": "802e1e63e099be2f06fdd06f4177db9752b854803bbe897a5cf2af12f420d5d0"
+    },
+    {
+      "path": "src/components/contacts/__tests__/conversationDispositionColors.test.tsx",
+      "bytes": 12219,
+      "sha256": "034f23956caa3c2048c45931eaffbe3b400bcf6247ed231538cfc90a5b5b5b6a"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewAdditionalPolicies.test.tsx",
+      "bytes": 20060,
+      "sha256": "51fcadfd7684257f8a149f9ab27e6d9942e5be56e83241ce82caba97ca34b8e6"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewAssignee.test.tsx",
+      "bytes": 12966,
+      "sha256": "e3854071dc239fe3cab51631b6218177d7da7762808784e2bebcd622600d1857"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewClientLeadFields.test.tsx",
+      "bytes": 14254,
+      "sha256": "515b94e515fe8f6fa766ff20160b66395fbe71e84f77c1bb6450dc175b72da75"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewConversation.test.tsx",
+      "bytes": 37068,
+      "sha256": "b1fb762193d83d91e5f6b972f7cca9e27f7ef58b920ff75d6066a8cca39bc08e"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewFieldVisibility.test.tsx",
+      "bytes": 14203,
+      "sha256": "f49fa1b05ed09850c8fecc334b265e5207b8d5597cc8c7b879ecc1324e7994ff"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewQuickCall.test.tsx",
+      "bytes": 8548,
+      "sha256": "a2d45a12e89d049a9e88d67fbd5a7c3f2c8c1413565e66cd787678e5aa782212"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewSaveFailure.test.tsx",
+      "bytes": 17836,
+      "sha256": "14b80fe9a4c8ccd5468a8aca38d234f6c88491e76a3492a9c25eecc6dcd3cf98"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewSchedule.test.tsx",
+      "bytes": 21780,
+      "sha256": "cf7e451132fc03915f99553eb1783cac74ff840bf2c5bce6eaec4e94306619f6"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewScore.test.tsx",
+      "bytes": 7623,
+      "sha256": "16977065fcd191d4db206f4370e977d13499a9c83515d3acfbab5ff548c45b05"
+    },
+    {
+      "path": "src/components/contacts/__tests__/fullScreenContactViewStatusSave.test.tsx",
+      "bytes": 11713,
+      "sha256": "dfc04d55d19d561632f731c2511089bc0dd10c072c388701443c7dcdd961ce82"
+    },
+    {
+      "path": "src/components/contacts/__tests__/redundantDialogDescriptions.test.tsx",
+      "bytes": 10413,
+      "sha256": "35272f51d80d3969b0b7d9f48ad86bf1f45c69298e360c68d6df2183c77d24bf"
+    },
+    {
+      "path": "src/components/conversations/ConversationThread.tsx",
+      "bytes": 30568,
+      "sha256": "5656c93f8c7334c273ece5ec742d0caf869e4037f0a8a4715c428a2b78a6f763"
+    },
+    {
+      "path": "src/components/conversations/__tests__/conversationThreadPendingSms.test.tsx",
+      "bytes": 38569,
+      "sha256": "a80720e8fde1080490edf84982b1a10177f579d7c68a34c10e3385efd049085b"
+    },
+    {
+      "path": "src/components/dialer/ConversationHistory.tsx",
+      "bytes": 15830,
+      "sha256": "189dbebf9c7d57b9f0e0f07c716f1d2a41a638e4f2cc650faf98425d385ebb4d"
+    },
+    {
+      "path": "src/components/dialer/DialerSmsComposer.tsx",
+      "bytes": 3276,
+      "sha256": "f3089a810ea4113bcbda5410142cf265fdef16ff024e308ec48e340dd5f78e28"
+    },
+    {
+      "path": "src/components/layout/FloatingDialer.tsx",
+      "bytes": 62650,
+      "sha256": "27e78ee9800545a5902d8551fa54666c38edef55513b83bfe3f9a31a5bcc7c1d"
+    },
+    {
+      "path": "src/components/messaging/MessageComposePanel.tsx",
+      "bytes": 5570,
+      "sha256": "ef7bed10f6aa60acffeeed638eaa7be61874ff0c6d17ddd541d970aa09184ca4"
+    },
+    {
+      "path": "src/components/settings/DispositionsManager.tsx",
+      "bytes": 35831,
+      "sha256": "e16b546a8ce7e38d83787ad12eac768f0f07ce36e5bdb83eca51ddbcb0e03234"
+    },
+    {
+      "path": "src/components/settings/dispositions/dispositionSchema.ts",
+      "bytes": 3514,
+      "sha256": "3e5f0c8753aecfbf330c63103e4234d545c63d912139a9eb08ad5cd828b8d866"
+    },
+    {
+      "path": "src/contexts/TwilioContext.tsx",
+      "bytes": 105873,
+      "sha256": "7d86ca4d7191885194202eb3a6a49398b3820199f10dd3b8e8f10a2ac12aea6f"
+    },
+    {
+      "path": "src/contexts/__tests__/teamOpenRevealIntegration.test.tsx",
+      "bytes": 15779,
+      "sha256": "e6a0b6d413a0f83c56e24208006305c7e3a5ebdd79b8a1114a351ea4d4f3993f"
+    },
+    {
+      "path": "src/contexts/__tests__/twilioProviderLifecycle.test.tsx",
+      "bytes": 32941,
+      "sha256": "7b6e8310b91713e34a53fbe800a8838605ff755333f3f88f6aa92b8af3f31368"
+    },
+    {
+      "path": "src/hooks/useContactNumberAffinity.ts",
+      "bytes": 1549,
+      "sha256": "5c8056fdedddc94ea88349e1f48323f622bb355b6b9a54e1220e1c7b5022da63"
+    },
+    {
+      "path": "src/integrations/supabase/types.ts",
+      "bytes": 228332,
+      "sha256": "981ca0139525d660e0e069892cd8d9cac15bc8511a58d784f31233438c9d0859"
+    },
+    {
+      "path": "src/lib/__tests__/outboundPathPinned.test.ts",
+      "bytes": 3679,
+      "sha256": "848fba4d0e62c0d338b0d1258d7729ede9d21e83ce0ae5d28594e66f1cd17eff"
+    },
+    {
+      "path": "src/lib/number-affinity.ts",
+      "bytes": 4293,
+      "sha256": "4060ad84b52d07c7534483ecfb87dd979333e4fa7bd05645b560bb91b0d1308b"
+    },
+    {
+      "path": "src/lib/quick-call.ts",
+      "bytes": 3275,
+      "sha256": "f591a30fe186f9f8cd00fc49336b5f6573e3252c6eb73224bd3520fcfe2e25ee"
+    },
+    {
+      "path": "src/lib/sms-send/__tests__/stickyIntent.test.ts",
+      "bytes": 2332,
+      "sha256": "a64361b829dceb8fa9ef5e4713f074b7cd3ab8be90e08617a989c7bb3a7a9c2c"
+    },
+    {
+      "path": "src/lib/sms-send/pendingSmsStore.ts",
+      "bytes": 18303,
+      "sha256": "b7dccdfc30cda23565cb53640bed83de406c8d2bff861a23155f7c2b153228e9"
+    },
+    {
+      "path": "src/lib/sms-send/sendManualSms.ts",
+      "bytes": 9731,
+      "sha256": "23c3900ec95d9608e66c02881fbaab80ba20980b807d8c13be0117879340909c"
+    },
+    {
+      "path": "src/lib/supabase-dispositions.ts",
+      "bytes": 9196,
+      "sha256": "37aea89fcaaafb71ea3a97391e8415106945b15b74afb99d7117ceb36654f24c"
+    },
+    {
+      "path": "src/lib/types.ts",
+      "bytes": 10546,
+      "sha256": "ecd0cc86860b82bf59495b44bfa29e70a3903d4eebdee02369c75d73d7623611"
+    },
+    {
+      "path": "src/pages/Conversations.tsx",
+      "bytes": 17434,
+      "sha256": "6977edb394ecf4f54044b3b335a9bf6803db13ef5110806a44d9285ca60af748"
+    },
+    {
+      "path": "src/pages/DialerPage.tsx",
+      "bytes": 207904,
+      "sha256": "6ee8d9061174149be2e93edb306af9a3be51e54d7ec431457dacdb11b96157c0"
+    },
+    {
+      "path": "src/pages/__tests__/contactDeepLinkDuplicateParity.test.tsx",
+      "bytes": 22167,
+      "sha256": "954f1b3059fa1e69ae8b2741289c0f91b3bfd6cad5065b6ad421eb9ada21bf93"
+    },
+    {
+      "path": "src/pages/__tests__/contactDeepLinkQuickCall.test.tsx",
+      "bytes": 10511,
+      "sha256": "32970b80b9e3d58a62fd5d29f3409f59e9aa70ca8190f35333d37ca591024d7b"
+    },
+    {
+      "path": "src/pages/__tests__/contactDeepLinkSaveIntegrity.test.tsx",
+      "bytes": 28128,
+      "sha256": "1126892482fe71484782e93e7e156fc80455625d00bac877f230b6b1e53197e4"
+    },
+    {
+      "path": "src/pages/__tests__/contactsFullScreenDuplicateParity.test.tsx",
+      "bytes": 22769,
+      "sha256": "73569885e21ed9e2d22a5cd9565ba9ef4a3c9723f4dbdccba39115aa51597fab"
+    },
+    {
+      "path": "src/pages/__tests__/conversationsSendContract.test.tsx",
+      "bytes": 30939,
+      "sha256": "9bc3153bdf9e19219b81f05230535c2072863304573bd12749f53e0f67543579"
+    },
+    {
+      "path": "src/pages/__tests__/conversationsViewAs.test.tsx",
+      "bytes": 18276,
+      "sha256": "3a653b712b3c655e1ab157a4b6a73f4f9cb57eb44d891c16733641d3012f5e72"
+    },
+    {
+      "path": "src/pages/__tests__/dialerPageReportsV2Exceptions.test.ts",
+      "bytes": 3657,
+      "sha256": "e82f74f2db504fa961faec3a06a7a7ea4ac74cc3300ee59de7c4b66781bd1004"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/affinity.test.ts",
+      "bytes": 11944,
+      "sha256": "00ae7e9767b83335e420dd9a5c44de5806438cff7a3fbbe56f2fab636d55e4b7"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/affinity.ts",
+      "bytes": 1100,
+      "sha256": "fdb194bd98208dd0d83354e9130c5fbb85a9eb0f689d4411393cbfaa465f0f64"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/dispatch.ts",
+      "bytes": 11399,
+      "sha256": "007bf0639cf4344d885920d147bc6425d8516362607a4b5a33c541d12eb14e63"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/readiness.ts",
+      "bytes": 1611,
+      "sha256": "0421ea9edd18b477c7613efd05bca9e7f8b50432cd79777057f98ad475918dac"
+    },
+    {
+      "path": "supabase/functions/_shared/sms/sms_test.ts",
+      "bytes": 16628,
+      "sha256": "c2208441393bb7574104d596c6be2bb1cc3c2175b5ba3d7711478f2318315b87"
+    },
+    {
+      "path": "supabase/functions/sms-consent-worker/index.ts",
+      "bytes": 3924,
+      "sha256": "f943827e215fbb9d2f2e29f3406a820c1822e1ddaa8c9c0952e39dfdfe125404"
+    },
+    {
+      "path": "supabase/functions/twilio-sms-webhook/index.ts",
+      "bytes": 14988,
+      "sha256": "a6e20f06f8c2f7c1914fdb0dc512f6151fa2ddfdbfe22ed6ac096067a8500cb4"
+    },
+    {
+      "path": "supabase/functions/twilio-sms/index.ts",
+      "bytes": 13237,
+      "sha256": "82cd4b5e5a5e4b9c09f9a75202a23aea48babcd2de80333ffff0158c78df1cc4"
+    },
+    {
+      "path": "supabase/functions/twilio-voice-inbound/index.ts",
+      "bytes": 63736,
+      "sha256": "70511d7db9a65180bb90ec7413178d293346de3846fbec6c68906079a0493630"
+    },
+    {
+      "path": "supabase/functions/workflow-executor/index.ts",
+      "bytes": 32066,
+      "sha256": "ede638bfc6e80ec20335652987674b9faaba93b9e0ccf94d214b2d77589d1442"
+    },
+    {
+      "path": "supabase/migrations/20261002203426_inbound_recent_outbound_routing.sql",
+      "bytes": 56731,
+      "sha256": "348205ca4d8c860a04a68a23af840be35f2c2f57ad08d8f6a89262e86b429038"
+    },
+    {
+      "path": "supabase/migrations/20261113152433_dialer_nonretryable_conflicts.sql",
+      "bytes": 1690,
+      "sha256": "0d23eee29ef7820eeb27f9a0d034fc7a77b88908b18da7df9b5499ecc3f9c64e"
+    },
+    {
+      "path": "supabase/migrations/20261114003115_sticky_contact_numbers_foundation.sql",
+      "bytes": 18061,
+      "sha256": "3ab479c4553d5d0087a1ee0acd4e2baada84b5255726aeb6db3eda6f107e7d39"
+    },
+    {
+      "path": "supabase/migrations/20261114003337_sticky_contact_numbers_sms.sql",
+      "bytes": 25131,
+      "sha256": "d2466f068e04c03866bdc4fa55303ef71e812d27af700d7e73cd101b043d4908"
+    },
+    {
+      "path": "supabase/migrations/20261114003652_sticky_contact_numbers_voice.sql",
+      "bytes": 26348,
+      "sha256": "269266bc6eda4ac6cf0362c48bfb139b62b02f198e53104a8d699e411d67de58"
+    },
+    {
+      "path": "supabase/migrations/20261114004102_sticky_contact_numbers_reconciliation.sql",
+      "bytes": 18796,
+      "sha256": "9a6a6f670c7e18f74e0ab5c35604824699be238c67c9f6724736a4ff1e51cf64"
+    },
+    {
+      "path": "supabase/ops/sticky_numbers_guard_only.sql",
+      "bytes": 594,
+      "sha256": "22d8531a8d59f88f9dd2133d09e1410d8d41cb55ff8f9e0bb1b4b2a7125721e6"
+    },
+    {
+      "path": "supabase/ops/sticky_numbers_release_readback.sql",
+      "bytes": 1575,
+      "sha256": "9bbcd5649a56d753a762ef2b24fecf40a08ed7541fe80b6b77d0421f9eeb7625"
+    }
+  ],
+  "release_files": [
+    {
+      "path": "release/expected-postimages.json",
+      "bytes": 19717,
+      "sha256": "f0d11438152187f12daadf7400548c1be4f10cccf579511898b1d014718ce71e"
+    },
+    {
+      "path": "release/guard_only.sql",
+      "bytes": 594,
+      "sha256": "22d8531a8d59f88f9dd2133d09e1410d8d41cb55ff8f9e0bb1b4b2a7125721e6"
+    },
+    {
+      "path": "release/install.sql",
+      "bytes": 178462,
+      "sha256": "7dddbdc515012a144829f5e089dcadf9831b57fc8c941250c460d69a04414578"
+    },
+    {
+      "path": "release/readback.sql",
+      "bytes": 1575,
+      "sha256": "9bbcd5649a56d753a762ef2b24fecf40a08ed7541fe80b6b77d0421f9eeb7625"
+    }
+  ],
+  "source_file_manifest_sha256": "3c819a2ae0f6abbc80c50502fbf853e3c1a092a339b614b29889dbaa9c90cbd1",
+  "digest_format": "SHA-256 of UTF-8 sorted path + NUL + per-file lowercase SHA-256 + LF; source package digest is NOT a provider EZBR digest."
+}

@@ -1,3 +1,4 @@
+import { affinityGuard, isGuarded } from "../_shared/sms/affinity.ts";
 import { dispatch } from "../_shared/sms/dispatch.ts";
 import { policy, checked } from "../_shared/sms/consent.ts";
 import { contactScope, selectedSender } from "../_shared/sms/scope.ts";
@@ -458,9 +459,11 @@ async function actionSendSms(args: {
     return { status: "failed", output: { reason: "Contact has no phone" }, error: "Contact has no phone" };
   }
 
+  const sticky = isGuarded((await affinityGuard(supabase, execution.organization_id)).sms);
   const smsPolicy = await policy(supabase, execution.organization_id);
+  if (sticky && !smsPolicy?.enforced) throw new SmsError("SMS_POLICY", "Agency texting needs review.");
   if (smsPolicy?.enforced) {
-    const current = checked(await supabase.from("workflow_executions").select("created_at").eq("id",execution.id).eq("organization_id",execution.organization_id).single());
+    const current = checked(await supabase.from("workflow_executions").select("created_at").eq("id",execution.id).eq("organization_id",execution.organization_id).maybeSingle());
     if (!current || !contact || contact.organization_id !== execution.organization_id || !smsPolicy.active_from || Date.parse(current.created_at) < Date.parse(smsPolicy.active_from)) throw new SmsError("WORKFLOW_REVIEW", "Review and re-enroll this workflow after SMS activation.");
   }
   const bodyOverride = typeof cfg.body === "string" ? cfg.body : typeof cfg.body_override === "string" ? cfg.body_override : "";
