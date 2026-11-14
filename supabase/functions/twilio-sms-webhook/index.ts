@@ -336,6 +336,14 @@ Deno.serve(async (req) => {
       return new Response(EMPTY_TWIML, { status: 200, headers: twimlHeaders });
     }
 
+    // Signature and account resolution have already succeeded. Observe before inserting
+    // history so the first ordinary inbound text is not mistaken for unreconciled history.
+    const observed = await supabase.rpc("observe_contact_inbound_sms", {
+      p_org: organizationId, p_from: fromNumber, p_to: toNumber,
+      p_sid: messageSid, p_account: params.AccountSid, p_body: body,
+    });
+    if (observed.error) throw new Error("Inbound number observation requires retry");
+
     // ── Resolve contact (leads → clients → recruits) ──
     let contactId: string | null = null;
     let contactType: string | null = null;

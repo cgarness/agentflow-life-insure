@@ -79,6 +79,8 @@ vi.mock("@/integrations/supabase/client", () => {
     supabase: {
       from: (table: string) => makeBuilder(table),
       rpc: (name: string, args:unknown) => {
+        if(name === "authorize_contact_call") return Promise.resolve({ data: { enabled: false }, error: null });
+        if(name === "contact_number_modes") return Promise.resolve({ data: { voice: "off", sms: "off" }, error: null });
         if(name === "record_dialer_dispatch_failure") outbound.failures.push(args);
         if (name === "check_dialer_dnc") { outbound.events.push("verify"); return outbound.pending ?? Promise.resolve(outbound.result); }
         return Promise.resolve({ data: null, error: null });

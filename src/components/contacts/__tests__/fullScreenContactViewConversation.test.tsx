@@ -1,3 +1,5 @@
+// Existing behavior under an explicitly off-mode affinity dependency; enforcement is covered by native/Edge/browser suites.
+vi.mock("@/hooks/useContactNumberAffinity", () => ({ useContactNumberAffinity: () => ({ data: { voice_mode: "off", sms_mode: "off" }, canText: true, sender: null, override: null, readOnly: false, chooseOneText: vi.fn(), refresh: vi.fn(), refetch: vi.fn() }) }));
 /**
  * Conversation History (center column) — filters, channel visuals, inline endpoint
  * details, persisted email subject (2026-08-17 build).

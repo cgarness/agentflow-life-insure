@@ -53,7 +53,7 @@ vi.mock("@/integrations/supabase/client", () => {
   return {
     supabase: {
       from: (table: string) => makeBuilder(table),
-      rpc: (name: string) => Promise.resolve({ data: name === "check_dialer_dnc" ? { blocked: false, match: null } : null, error: null }),
+      rpc: (name: string) => Promise.resolve({ data: name === "authorize_contact_call" ? { enabled: false } : name === "contact_number_modes" ? { voice: "off", sms: "off" } : name === "check_dialer_dnc" ? { blocked: false, match: null } : null, error: null }),
       channel: () => channel,
       removeChannel: () => {},
       auth: {

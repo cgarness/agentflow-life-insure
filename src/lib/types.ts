@@ -308,6 +308,7 @@ export interface WinFeedItem {
 export type CampaignAction = 'none' | 'remove_from_queue' | 'remove_from_campaign';
 
 export interface Disposition {
+  affinityClass?: "unreviewed" | "excluded" | "duration" | "confirmed";
   id: string;
   name: string;
   color: string; // hex color

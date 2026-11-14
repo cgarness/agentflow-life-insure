@@ -24,6 +24,7 @@ interface HistoryItem {
 }
 
 interface ConversationHistoryProps {
+  smsComposer?: React.ReactNode;
   history: HistoryItem[];
   loadingHistory: boolean;
   formatDateTime: (date: Date) => string;
@@ -64,6 +65,7 @@ function renderHistoryIcon(type: string) {
 
 export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   history,
+  smsComposer,
   loadingHistory,
   formatDateTime,
   smsTab,
@@ -113,7 +115,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
             <MessageSquare className="w-4 h-4 text-primary" />
             <span className="font-semibold text-sm text-foreground">Conversation History</span>
           </div>
-          <div className="flex items-center gap-2 px-2 py-1 bg-background rounded-lg border border-border min-w-0 max-w-[min(100%,280px)]">
+          {!(smsTab === "sms" && smsComposer) && <div className="flex items-center gap-2 px-2 py-1 bg-background rounded-lg border border-border min-w-0 max-w-[min(100%,280px)]">
             <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider shrink-0">From:</span>
             {smsTab === "email" ? (
               <select
@@ -149,7 +151,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
                 ))}
               </select>
             )}
-          </div>
+          </div>}
         </div>
 
         {/* Scrollable feed — uses flex-col-reverse to anchor to bottom (chat style) */}
@@ -312,7 +314,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
         </div>
       </div>
 
-      <MessageComposePanel
+      {smsTab === "sms" && smsComposer ? smsComposer : <MessageComposePanel
         className="mt-3"
         channel={smsTab}
         onChannelChange={onSmsTabChange}
@@ -322,7 +324,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
         onSubjectChange={onSubjectChange}
         onOpenTemplates={onOpenTemplates}
         onSendMessage={onSendMessage}
-      />
+      />}
     </div>
   );
 };

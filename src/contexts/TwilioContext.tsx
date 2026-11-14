@@ -1,3 +1,4 @@
+import { authorizeContactCall, numberError, previewContactNumbers, type ContactNumberType } from "@/lib/number-affinity";
 import { checkDNC } from "@/utils/dncCheck";
 import { toE164Plus } from "@/utils/phoneUtils";
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -137,6 +138,7 @@ interface OrphanCall {
 
 /** Options for makeCall — pass contact/campaign metadata for single-point call record creation. */
 export interface MakeCallOptions {
+  oneCallNumberId?: string;
   /** Original page action must still own its user/org/campaign/contact after every preflight await. */
   isAttemptCurrent?: () => boolean;
   contactId?: string | null;
@@ -155,6 +157,7 @@ export interface MakeCallOptions {
 /** Optional campaign-level override for `getSmartCallerId` (falls back to org Phone Settings). */
 export type SmartCallerIdOptions = {
   localPresenceEnabled?: boolean;
+  contactType?: ContactNumberType;
 };
 
 export interface TwilioContextValue {
@@ -1621,15 +1624,30 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
+  const numberModesRef = useRef<{ org: string; expires: number; guarded: boolean } | null>(null);
   const getSmartCallerId = useCallback(
     async (
       contactPhone: string,
       contactId?: string | null,
       opts?: SmartCallerIdOptions,
     ): Promise<string> => {
-      const stamp = (e164: string) => {
-        if (e164) didLastUsedAtRef.current.set(e164, Date.now());
-      };
+      // Preview/selection is pure; usage is stamped only after device.connect().
+      let modes = numberModesRef.current;
+      if (!modes || modes.org !== organizationId || modes.expires < Date.now()) {
+        const result = await supabase.rpc("contact_number_modes");
+        if (result.error || !result.data || typeof result.data !== "object" || Array.isArray(result.data) || !("voice" in result.data)) throw numberError(result.error);
+        modes = { org: organizationId ?? "", expires: Date.now() + 15000, guarded: result.data.voice === "enforced" || result.data.voice === "guard_only" };
+        numberModesRef.current = modes;
+      }
+
+      if (modes.guarded && contactId && opts?.contactType) {
+        const view = await previewContactNumbers(contactId, opts.contactType);
+        const explicitPersonal = availableNumbers.find(n => n.phone_number === selectedCallerNumber && n.assignment_type === "personal" && n.assigned_to === authUserId);
+        if (!explicitPersonal && (view.voice.state !== "unassigned" || view.history === "needs_review" || view.sms.state === "established")) {
+          if (view.voice.readiness !== "ready" || view.voice.state === "needs_review" || view.history === "needs_review") throw new Error("This contact’s calling number needs review.");
+          return view.voice.number ?? "";
+        }
+      }
 
       // Manual override is honored ONLY if the user is still allowed to use that number
       // (Agency, or their own Personal). A stale/ineligible voice_manual_caller_id is cleared
@@ -1641,7 +1659,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           authUserId,
         );
         if (manualRow) {
-          stamp(selectedCallerNumber);
           return selectedCallerNumber;
         }
         console.warn("[caller-id] Clearing ineligible manual caller ID:", selectedCallerNumber);
@@ -1674,15 +1691,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           stickyMinDurationSec: CALLER_ID_STICKY_MIN_DURATION_SEC,
         },
         {
-          queryStickyCaller: queryStickyOutboundCaller,
+          queryStickyCaller: modes.guarded ? async () => null : queryStickyOutboundCaller,
           getStateByAreaCode,
         },
       );
 
-      stamp(chosen);
       return chosen;
     },
     [
+      organizationId,
       selectedCallerNumber,
       availableNumbers,
       authUserId,
@@ -2294,7 +2311,15 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // localStorage, stale UI state, and future UI bugs. On failure: no call row, no Twilio
       // call — the throw is caught below, which resets state and releases isDialingRef cleanly.
       const groupActive = callerIdCampaignGroupId != null;
-      const callerIdUsed = callerNumber || (groupActive ? "" : defaultCallerNumber);
+      let callerIdUsed = callerNumber || (groupActive ? "" : defaultCallerNumber);
+      const attemptId = crypto.randomUUID();
+      const callContactType = opts?.contactType || (opts?.campaignId ? "lead" : null);
+      const explicitPersonal = selectedCallerNumber === callerIdUsed ? availableNumbers.find(n => n.phone_number === callerIdUsed && n.assignment_type === "personal" && n.assigned_to === authUserId) : undefined;
+      const bound = await authorizeContactCall({ attemptId, contactId: isValidUUID(opts?.contactId) ? opts!.contactId! : null,
+        type: callContactType, phone: toE164(destinationNumber), candidate: callerIdUsed,
+        campaignId: opts?.campaignId, memberId: opts?.campaignLeadId, overrideId: opts?.oneCallNumberId ?? explicitPersonal?.id });
+      assertAttemptCurrent();
+      if (bound.enabled && bound.number) callerIdUsed = bound.number;
       const callerIdBlockMsg =
         "No eligible outbound caller ID is available for this campaign. Check Phone Number settings.";
       if (!callerIdUsed) {
@@ -2340,7 +2365,6 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       callStateRef.current = "dialing";
       setCallState("dialing");
       // A deliberate attempt owns one client UUID; an ambiguous insert response resolves this same row.
-      const attemptId = crypto.randomUUID();
       attemptedCallId = attemptId;
       // ── SINGLE CALL RECORD CREATION ──
       let { data: callRecord, error: callError } = await (supabase as any)
@@ -2360,7 +2384,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           // itself is fixed upstream at the contact-model boundary; this is the last guard.
           contact_name: sanitizeContactName(opts?.contactName) || null,
           contact_phone: destination,
-          contact_type: opts?.contactType || null,
+          contact_type: callContactType,
           status: 'ringing',
           direction: 'outbound',
           caller_id_used: callerIdUsed,
@@ -2412,6 +2436,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         orgId: organizationId as string,
       });
 
+      didLastUsedAtRef.current.set(callerIdUsed, Date.now());
       wireTwilioCall(call);
 
       void supabase
@@ -2465,7 +2490,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         mediaStreamRef.current = null;
       }
     }
-  }, [status, defaultCallerNumber, callerIdCampaignGroupId, availableNumbers, callerIdPool, authUserId, attachRemoteAudio, organizationId, profile?.id, wireTwilioCall]);
+  }, [status, selectedCallerNumber, defaultCallerNumber, callerIdCampaignGroupId, availableNumbers, callerIdPool, authUserId, attachRemoteAudio, organizationId, profile?.id, wireTwilioCall]);
 
 
   // Network resilience: Auto-reconnect if internet blips

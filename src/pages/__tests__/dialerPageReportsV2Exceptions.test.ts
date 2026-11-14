@@ -4,6 +4,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
+ * November 14: the separately authorized Sticky Numbers build intentionally changes TwilioContext.
+ * This hash pins that reviewed candidate; native admission, SDK lifecycle and outbound fragment
+ * tests continue to assert the underlying contracts. The Reports-only scope restriction below
+ * describes the earlier release, not a permanent ban on approved telephony changes.
  * Reports V2 telephony boundary (D3 §4 and §7, D4 §4, A-§7).
  * - TwilioContext is never edited by PKG-C or PKG-D. It is pinned to its bytes on origin/main 09ec29a4 (PR #515's
  *   re-entrancy and single-leg Voice.js changes; the integration branch carries main's file unchanged).
@@ -16,11 +20,11 @@ const ROOT = join(__dirname, "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
-const TWILIO_CONTEXT_MAIN = "4a567164f27bb8661918b93a2d7a1569f15ec96065158406f296612937ef356a";
+const TWILIO_CONTEXT_STICKY_REVIEWED = "7d86ca4d7191885194202eb3a6a49398b3820199f10dd3b8e8f10a2ac12aea6f";
 
 describe("Reports V2 telephony boundary", () => {
-  it("TwilioContext.tsx is byte-identical to main", () => {
-    expect(sha256(read("src/contexts/TwilioContext.tsx"))).toBe(TWILIO_CONTEXT_MAIN);
+  it("TwilioContext.tsx matches the reviewed isolated Sticky Numbers candidate", () => {
+    expect(sha256(read("src/contexts/TwilioContext.tsx"))).toBe(TWILIO_CONTEXT_STICKY_REVIEWED);
   });
 
   it("DialerPage carries exactly clause (a): sourceCallId={currentCallId} on the ConvertLeadModal mount", () => {

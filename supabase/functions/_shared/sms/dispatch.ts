@@ -1,3 +1,5 @@
+import { affinityGuard, cancelPrepared, isGuarded } from "./affinity.ts";
+import { authorizeSender } from "./readiness.ts";
 import type { Db } from "../a2p/types.ts";
 import { registeredSender } from "../a2p/sending.ts";
 import { checked, eligibility, policy, suppress } from "./consent.ts";
@@ -5,6 +7,8 @@ import { digest, phone, purpose, SmsError, UUID } from "./wire.ts";
 export interface Dispatch {
   /** Internal entry-point choice; never copied from a request body or workflow config. */
   manual?: boolean;
+  expectedSenderId?: string;
+  overrideSenderId?: string;
   verifyRecipient?: () => Promise<void>;
   org: string;
   key: string;
@@ -30,11 +34,11 @@ export async function dispatch(
   input: Dispatch,
   transport = fetch,
 ): Promise<Receipt | null> {
+  const guard = await affinityGuard(db, input.org);
+  const sticky = isGuarded(guard.sms);
   const p = await policy(db, input.org);
+  if (sticky && !p?.enforced) throw new SmsError("SMS_POLICY", "Agency texting needs review.", 503);
   if (!p?.enforced) return null;
-  if (!p.send_enabled) {
-    throw new SmsError("SMS_PAUSED", "Agency texting is not activated.");
-  }
   const manual = input.manual === true;
   if (
     manual && (
@@ -47,13 +51,37 @@ export async function dispatch(
   ) {
     throw new SmsError("SEND_SCOPE", "Reload the contact before sending.", 403);
   }
-  const to = phone(input.to),
-    from = phone(input.from),
-    category = manual ? "manual" : purpose(input.purpose);
+  const to = phone(input.to);
+  let from = phone(input.from);
+  const category = manual ? "manual" : purpose(input.purpose);
   if (
     !input.key || input.key.length > 160 || !input.body.trim() ||
     input.body.length > 1600
   ) throw new SmsError("SMS_INPUT", "Message or request ID is invalid.", 400);
+  if (sticky) {
+    // Inspect only an already-existing intent here. Never reserve a new automated
+    // send before its consent checks, and never hide a receipt behind new readiness.
+    const prior = checked(await db.from("sms_dispatches").select("request_key")
+      .eq("organization_id", input.org).eq("request_key", input.key).maybeSingle());
+    if (prior) {
+      await input.verifyRecipient?.();
+      if (input.actor) {
+        const actor = checked(await db.from("profiles").select("status,organization_id").eq("id", input.actor).maybeSingle());
+        if (actor?.status !== "Active" || actor.organization_id !== input.org) throw new SmsError("ACTOR", "Your account cannot access this message.", 403);
+      }
+      const replay = checked(await db.rpc("sms_prepare_bound_dispatch", {
+        p_org: input.org, p_key: input.key, p_phone: to, p_from: from, p_body: input.body, p_purpose: category,
+        p_hash: await digest(JSON.stringify([to, from, input.body, category, input.actor ?? null, input.contactId ?? null, input.contactType ?? null, input.confirmation?.id ?? null])),
+        p_evidence: input.confirmation?.evidence ?? [], p_actor: input.actor ?? null, p_contact: input.contactId ?? null,
+        p_type: input.contactType ?? null, p_confirmation: input.confirmation?.id ?? null,
+        p_expected: input.expectedSenderId ?? null, p_override: input.overrideSenderId ?? null,
+      }));
+      if (replay.state === "accepted") return {success:true,message_id:replay.message_id,provider_message_id:replay.provider_sid,status:replay.provider_status,replayed:true};
+      if (replay.state !== "prepared") throw new SmsError("SEND_REVIEW", "This send already has an attempt. Check its recorded status.");
+    }
+  }
+  if (!p.send_enabled) throw new SmsError("SMS_PAUSED", "Agency texting is not activated.");
+  if (!sticky) {
   const sender = checked(
     await db.from("phone_numbers").select("id,assignment_type").eq(
       "organization_id",
@@ -70,8 +98,9 @@ export async function dispatch(
       "Select one of the agency's approved texting numbers.",
     );
   }
-  const registered = await registeredSender(db, input.org, from, input.actor);
-  if (!registered) {
+  }
+  let registered = sticky ? null : await registeredSender(db, input.org, from, input.actor);
+  if (!sticky && !registered) {
     throw new SmsError(
       "A2P_NOT_READY",
       "Agency A2P registration is incomplete.",
@@ -112,7 +141,7 @@ export async function dispatch(
     ]),
   );
   const row = checked(
-    await db.rpc("sms_prepare_dispatch", {
+    await db.rpc(sticky ? "sms_prepare_bound_dispatch" : "sms_prepare_dispatch", {
       p_org: input.org,
       p_key: input.key,
       p_phone: to,
@@ -125,8 +154,10 @@ export async function dispatch(
       p_contact: input.contactId ?? null,
       p_type: input.contactType ?? null,
       p_confirmation: input.confirmation?.id ?? null,
+      ...(sticky ? { p_expected: input.expectedSenderId ?? null, p_override: input.overrideSenderId ?? null } : {}),
     }),
   );
+  if (row.blocked) throw new SmsError("NUMBER_REVIEW", "Call evidence is still being reconciled. Refresh before sending.");
   const receipt = (r: Record<string, string>, replayed: boolean): Receipt => ({
     success: true,
     message_id: r.message_id,
@@ -141,6 +172,8 @@ export async function dispatch(
       "This send already has an attempt. Check its status before trying again.",
     );
   }
+  try {
+  if (sticky) { from = phone(row.from_number); registered = await authorizeSender(db, input.org, input.key, row, input.actor); }
   // Automated consent stays purpose-specific. Manual sends make no consent claim.
   // Both paths retain the final serialized local suppression/DNC check.
   if (!manual) {
@@ -176,6 +209,11 @@ export async function dispatch(
       "This send is already being processed.",
     );
   }
+  } catch (error) {
+    if (sticky) await cancelPrepared(db, input.org, input.key);
+    throw error;
+  }
+  if (!registered) throw new SmsError("A2P_NOT_READY", "Texting setup needs review.");
   const finish = async (
     state: string,
     sid: string | null,
@@ -257,10 +295,9 @@ export async function dispatch(
     );
   }
   try {
-    return receipt(
-      await finish("accepted", payload.sid, payload.status),
-      false,
-    );
+    const saved = await finish("accepted", payload.sid, payload.status);
+    if (saved.state !== "accepted" || !saved.message_id) throw new SmsError("SEND_ACCEPTED_REVIEW", "Provider accepted this text; its history needs review. Do not resend.", 503);
+    return receipt(saved, false);
   } catch {
     // Preserve provider truth separately if message/history persistence failed. No automatic resend.
     await db.from("sms_dispatches").update({

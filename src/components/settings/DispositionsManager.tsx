@@ -47,6 +47,7 @@ interface FormState {
   campaignAction: CampaignAction;
   dncAutoAdd: boolean;
   countsAsContacted: boolean;
+  affinityClass: NonNullable<Disposition["affinityClass"]>;
   pipelineStageId: string;
 }
 
@@ -63,6 +64,7 @@ const emptyForm: FormState = {
   campaignAction: "none",
   dncAutoAdd: false,
   countsAsContacted: false,
+  affinityClass: "unreviewed",
   pipelineStageId: "",
 };
 
@@ -83,14 +85,14 @@ function isAppointmentSetDisposition(d: Pick<Disposition, "name">): boolean {
 
 const DispositionsManager: React.FC = () => {
   const { organizationId } = useOrganization();
-  const { user, profile } = useAuth();
+  const { user, profile, isImpersonating } = useAuth();
   // Local Admin/Super Admin computation — usePermissions().fullAccess is not yet
   // exposed (BUILD 3 wires the hook into components). Mirror the hook's own
   // definition exactly. Role-string comparison is case-insensitive per Build 2
   // approval to tolerate stale profile rows.
   const fullAccess =
-    profile?.is_super_admin === true ||
-    (profile?.role?.toLowerCase?.() ?? "") === "admin";
+    !isImpersonating && (profile?.is_super_admin === true ||
+    (profile?.role?.toLowerCase?.() ?? "") === "admin");
   const [dispositions, setDispositions] = useState<Disposition[]>([]);
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([]);
   const [automations, setAutomations] = useState<Pick<WorkflowRow, "id" | "name">[]>([]);
@@ -161,6 +163,7 @@ const DispositionsManager: React.FC = () => {
       campaignAction: d.campaignAction || "none",
       dncAutoAdd: d.dncAutoAdd || false,
       countsAsContacted: d.countsAsContacted || false,
+      affinityClass: d.affinityClass ?? "unreviewed",
       pipelineStageId: d.pipelineStageId || "",
     });
     setShowModal(true);
@@ -197,6 +200,7 @@ const DispositionsManager: React.FC = () => {
           campaignAction: normalized.campaignAction,
           dncAutoAdd: normalized.dncAutoAdd,
           countsAsContacted: normalized.countsAsContacted,
+          affinityClass: normalized.affinityClass,
           pipelineStageId: normalized.pipelineStageId,
         }, organizationId);
         toast({ title: "Disposition updated" });
@@ -229,6 +233,7 @@ const DispositionsManager: React.FC = () => {
           campaignAction: normalized.campaignAction,
           dncAutoAdd: normalized.dncAutoAdd,
           countsAsContacted: normalized.countsAsContacted,
+          affinityClass: normalized.affinityClass,
           pipelineStageId: normalized.pipelineStageId,
           order: dispositions.length + 1,
         }, organizationId);
@@ -755,6 +760,11 @@ const DispositionsManager: React.FC = () => {
               </div>
             </div>
 
+            <label className="grid gap-2 rounded-lg border p-3 text-sm">Contact number relationship
+              <select className="rounded-md border bg-background p-2" value={form.affinityClass} disabled={form.dncAutoAdd} onChange={e=>setForm(f=>({...f,affinityClass:e.target.value as FormState["affinityClass"]}))}>
+                <option value="unreviewed">Not reviewed — never establishes a number</option><option value="excluded">Exclude from number relationships</option><option value="duration">Human conversation — at least 45 verified seconds</option><option value="confirmed">Confirmed sale, callback or appointment</option>
+              </select><span className="text-xs text-muted-foreground">Review this outcome deliberately. Verified customer connection is required; voicemail and DNC never qualify.</span>
+            </label>
             {/* Counts as Contacted */}
             <div className="rounded-lg border p-3 space-y-2">
               <div className="flex items-center justify-between">

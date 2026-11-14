@@ -1,3 +1,5 @@
+// Existing behavior under an explicitly off-mode affinity dependency; enforcement is covered by native/Edge/browser suites.
+vi.mock("@/hooks/useContactNumberAffinity", () => ({ useContactNumberAffinity: () => ({ data: { voice_mode: "off", sms_mode: "off" }, canText: true, sender: null, override: null, readOnly: false, chooseOneText: vi.fn(), refresh: vi.fn(), refetch: vi.fn() }) }));
 /**
  * Conversations — instant manual SMS (2026-10-14), driven through the REAL page, thread, store and
  * sender with a fake transport. Realtime handlers are registered but never fired, as in production
