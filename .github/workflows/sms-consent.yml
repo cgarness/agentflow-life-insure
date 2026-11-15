@@ -101,6 +101,7 @@ jobs:
           python3 -m http.server 4189 --bind 127.0.0.1 --directory /tmp/cg-sms-responsiveness-dist &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
+          node scripts/tests/sms-responsiveness/verify-number-preview.mjs
           node scripts/tests/sms-responsiveness/measure.mjs
       - uses: actions/upload-artifact@v4
         if: always()
