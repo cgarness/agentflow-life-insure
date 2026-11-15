@@ -162,11 +162,36 @@ try {
     const trigger = page.getByRole("button", { name: "Agents: Me", exact: true });
     await openAgentsByKeyboard(page, trigger);
     await page.getByLabel("Search agents", { exact: true }).waitFor();
+    await page.getByRole("checkbox", { name: /Jordan Agent/ }).waitFor();
+    // Audit the loaded selector at its final rendered colors, not a fade-in frame.
+    // No animation is disabled and no accessibility rule is suppressed.
+    await page.waitForFunction(() => {
+      const dialog = document.querySelector('[role="dialog"][aria-label="Choose agents"]');
+      return dialog && !dialog.querySelector('[aria-busy="true"]')
+        && dialog.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running");
+    }, null, { timeout: 3000 });
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
     await page.addScriptTag({ content: axe });
     const violations = await page.evaluate(async () => (await window.axe.run(document.body, {
       runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"],
-    })).violations.map((v) => ({ id: v.id, count: v.nodes.length })));
+    })).violations.map((v) => ({ id: v.id, count: v.nodes.length,
+      nodes: v.nodes.map((node) => ({ target: node.target, html: node.html, failureSummary: node.failureSummary })) })));
     check("U15: open selector accessibility", violations.length === 0, violations);
+    const detectsLowContrast = await page.evaluate(async () => {
+      const label = document.querySelector('[role="dialog"][aria-label="Choose agents"] label span.block');
+      if (!label) throw new Error("Contrast negative control requires a rendered agent label");
+      const originalStyle = label.getAttribute("style");
+      try {
+        label.style.color = "rgb(35, 35, 35)";
+        label.style.backgroundColor = "rgb(34, 34, 34)";
+        const result = await window.axe.run(label, { runOnly: ["color-contrast"] });
+        return result.violations.some((violation) => violation.id === "color-contrast");
+      } finally {
+        if (originalStyle === null) label.removeAttribute("style");
+        else label.setAttribute("style", originalStyle);
+      }
+    });
+    check("U15: contrast gate detects injected low-contrast agent text", detectsLowContrast);
     const downline = page.getByRole("checkbox", { name: /Jordan Agent/ });
     for (let i = 0; i < 14 && !await downline.evaluate((node) => node === document.activeElement); i++) await page.keyboard.press("Tab");
     await page.keyboard.press("Space");

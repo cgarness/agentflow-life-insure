@@ -32,6 +32,8 @@ on:
       - 'scripts/reporting_fixture.py'
       - 'scripts/run_policy_commission_tests.sh'
       - 'scripts/tests/policy_commission/**'
+      - 'scripts/compare-typescript-logs.mjs'
+      - 'scripts/tests/compare-typescript-logs.test.mjs'
       - 'src/lib/commission/**'
       - 'src/lib/policySaleOutcome.ts'
       - 'src/lib/policySaleRecording.ts'
@@ -134,8 +136,8 @@ jobs:
           npx tsc -p tsconfig.app.json --noEmit > "$RUNNER_TEMP/head-types" 2>&1
           head_status=$?
           set -e
-          test "$base_status" = "$head_status"
-          diff -u "$RUNNER_TEMP/base-types" "$RUNNER_TEMP/head-types"
+          node --test scripts/tests/compare-typescript-logs.test.mjs
+          node scripts/compare-typescript-logs.mjs "$RUNNER_TEMP/base-types" "$RUNNER_TEMP/head-types" "$base_status" "$head_status"
       - name: Commission, commissions center, sale submission, contact and dialer handoff tests (synthetic data)
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321

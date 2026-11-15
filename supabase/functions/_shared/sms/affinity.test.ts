@@ -9,7 +9,7 @@ if(url!=="http://127.0.0.1:55475")throw Error("Loopback test gateway required");
 const db=createClient(url,Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,{auth:{persistSession:false,autoRefreshToken:false}});
 const actorDb=createClient(url,Deno.env.get("SUPABASE_ANON_KEY")!,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{Authorization:`Bearer ${Deno.env.get("STICKY_ACTOR_TOKEN")}`}}});
 const org="10000000-0000-4000-8000-000000000001",actor="20000000-0000-4000-8000-000000000002",contactId="30000000-0000-4000-8000-000000000001",number="40000000-0000-4000-8000-000000000001";
-const originalFetch=globalThis.fetch;let posts:{from:string;account:string;service:string;body:string}[]=[];let mode="accepted";
+const originalFetch=globalThis.fetch;const posts:{from:string;account:string;service:string;body:string}[]=[];let mode="accepted";
 const transport:typeof fetch=async(input,init)=>{
  const address=typeof input==="string"?input:input instanceof URL?input.href:input.url;
  if(address.startsWith(url+"/")){const r=await originalFetch(input,init);if(!r.ok)console.error("LOCAL HTTP",r.status,await r.clone().text());return r;}

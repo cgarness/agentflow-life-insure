@@ -75,7 +75,7 @@ jobs:
           PGURL: postgres://postgres:isolated-test-only@127.0.0.1:55446
         run: bash scripts/run_carrier_resource_links_tests.sh
   browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.56.1 does not support Ubuntu 26.04.
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
