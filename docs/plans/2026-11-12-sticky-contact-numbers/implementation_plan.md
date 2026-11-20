@@ -1,3 +1,21 @@
+## November 20, 2026 Pacific — agency sticky behavior enabled and verified
+
+Chris's “Let’s enable the sticky behavior” instruction was completed for Family First Life - Chris Garness only (`a0000000-0000-0000-0000-000000000001`). Both voice and SMS are enforced as of 11:01:17 AM Pacific. The other five organizations remain off, with no cross-organization affinity writes.
+
+One guarded transaction used the installed native functions: exact fingerprint/configuration checks, six settled disposition classifications, two fixed existing ClearPath allowlist routes, seven bounded dry-run/apply pages, and native completion-gated enforcement. Final result: 3,183 reconciled endpoints; two established SMS identities; 44 review; 3,137 unassigned. No historical voice identity, provider evidence, binding or completion marker was invented. All 22 agency numbers passed database readiness; provider handoff checks remain mandatory. No idle shadow period is claimed.
+
+Immediate and post-UI readbacks agree; messages/dispatches remain 76/18, call bindings/bound dispatches zero. Reloaded authenticated contact preview exposes Calls/Texts/Change/Ready; no Call/Send/Change/Save action was taken. Nineteen preview RPC POSTs returned HTTP 200. Advisors add no findings; one unused-index INFO resolved. Installed voice caps still block at cap; no current number was at cap. No live call/media/SMS-delivery or activation-turn console check is claimed.
+
+Exact documentation/receipt paths: root and focused `implementation_plan.md`, `WORK_LOG.md`, focused `release-approval.md`, new `production-activation-2026-11-20.md`, and `supabase/ops/sticky_numbers_activate_cg_financial_20261120.sql`. The applied operation is 25,396 bytes/SHA-256 `ba41c860604f745cb5c8be07d33ed9cf7396aac87979e360c33bf6262f07a8a1`; do not replay it. Runtime deployments, main and 386-migration history remain unchanged.
+
+Refresh browser tabs for normal use. Preserve unresolved histories for deliberate review and guard_only for protective rollback. No main merge, secondary project, number/provider change, real communication, schema edit, arbitrary sender reassignment, consent/suppression change or resend was performed. Earlier all-off installation sections below describe their historical checkpoint.
+
+---
+
+## Historical installation records
+
+All older all-off checkpoints below are preserved as history and are superseded only for Chris's agency by its authorized November 20 activation. The other five organizations remain off. These older records do not authorize repeating completed installation or activation operations.
+
 ## November 20, 2026 Pacific — primary installation verified; all sticky modes off
 
 Chris approved the managed-role amendment and continuation of the exact primary-only release. The corrected five-migration transaction succeeded on `jncvvsvckxhqgqvkppmj`; history is now 386 records/head `20261120060345`, with the prior 381-record history unchanged. All five recorded source hashes and 55 function/11 table/1 role postimages match. Supplemental role checks confirm the intended postgres membership, no retained private-schema CREATE, and no application-role scope membership or direct helper execution. All six organizations retain voice/SMS off; settings, assignments, enforcement, reconciliation, classifications and internal-alert allowlist remain empty.

@@ -1,3 +1,18 @@
+## November 20, 2026 Pacific — Sticky voice/SMS enabled for Chris's agency
+
+- Authority/outcome: Chris instructed “Let’s enable the sticky behavior.” One guarded native transaction activated both channels at 11:01:17 AM Pacific (`2026-11-20T19:01:17.442423+00:00`) for Family First Life - Chris Garness, organization `a0000000-0000-0000-0000-000000000001`. All other five organizations remain off; no other-org affinities were created.
+- Data: native dry run and seven bounded reconciliation pages agree on 3,183 endpoints: two established SMS identities, 44 needs-review, 3,137 unassigned. No historical voice identity or provider/binding proof was invented. All 22 agency numbers passed current database readiness checks. Applied the six settled disposition mappings and exactly two existing fixed ClearPath alert routes; intended-route/wrong-purpose/wrong-recipient checks pass without a send.
+- Verification: post-UI readback retains the same modes/states/counts, 76 messages, 18 dispatches, zero call bindings/bound dispatches. Authenticated contact screen shows Calls/Texts/Change/Ready after reload; no Call/Send/Change/Save action. Nineteen preview RPC POSTs returned HTTP 200. No activation-turn console or real-media/delivery check is claimed. Advisors show no new findings; one unused-index INFO resolved, baseline errors/warnings retained.
+- Files: root/focused implementation-plan prefixes, this newest-first log, focused release-approval prefix, new `production-activation-2026-11-20.md`, and applied operations receipt `supabase/ops/sticky_numbers_activate_cg_financial_20261120.sql` (25,396 bytes; SHA-256 `ba41c860604f745cb5c8be07d33ed9cf7396aac87979e360c33bf6262f07a8a1`). Runtime source and migration history unchanged: 386 records/head `20261120060345`; frontend `f49e55b` on READY primary deployment `dpl_56mpNPZEL3gNBBAqbHga3Es5Gq7f`; Edge 62/51/27/48/73, ClearPath 25.
+- Limits: direct off-to-enforced passed the installed native gate; no idle shadow pass claimed. Installed voice daily caps still block at cap; none was at cap before activation. Prior verification/mobile limitations remain.
+- Exclusions retained: no real communication, provider/number change, secondary work, main merge, runtime redeployment, schema change, consent/suppression change or resend. Prior all-off installation records below remain historical. Next: refresh normal-use tabs and resolve the 44 review endpoints deliberately; no automatic guessed sender. Protective rollback preserves identities with guard_only.
+
+---
+
+## Historical installation records
+
+All older all-off checkpoints below are preserved as history and are superseded only for Chris's agency by its authorized November 20 activation. The other five organizations remain off. These older records do not authorize repeating completed installation or activation operations.
+
 ## November 20, 2026 Pacific — Sticky Contact Numbers installed on primary; inactive
 
 - Status: the explicitly approved managed-role amendment and primary-only DB/Edge/frontend installation succeeded. Sticky voice/SMS remain off for all six organizations; no identity, disposition, reconciliation or internal-alert seed was run.

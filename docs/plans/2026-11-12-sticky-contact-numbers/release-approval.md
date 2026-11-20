@@ -1,3 +1,21 @@
+# Sticky Contact Numbers — enabled for Chris's agency
+
+Current status, November 20, 2026 Pacific: Chris's activation instruction was completed at **11:01:17 AM Pacific** for **Family First Life - Chris Garness** (`a0000000-0000-0000-0000-000000000001`). Both voice and SMS are **enforced**. All other five organizations remain off.
+
+Native reconciliation completed 3,183 endpoints: **two established SMS identities, 44 for review, 3,137 unassigned**. No historical voice relationship was invented. The six settled disposition classifications and two exact existing ClearPath alert routes were applied inside the guarded operation. All 22 agency numbers passed current database readiness checks. See [the activation closeout](production-activation-2026-11-20.md) for the applied SQL/hash, evidence, scope and limitations.
+
+Post-UI readback and nineteen successful authenticated preview RPC requests confirm the activation and read-only screen behavior. The contact screen now shows Calls/Texts/Change/Ready after reload; no Call/Send/Change/Save action or real communication was performed. Activation advisors add no findings; existing errors/warnings remain and one unused-index INFO resolved. Installed voice daily caps still block at cap; no pinned soft-cap bypass is claimed.
+
+The installed runtime is unchanged: 386 migrations/head `20261120060345`; Edge versions 62/51/27/48/73 and unchanged ClearPath 25; frontend `f49e55b770b97155fac46f3e5eeae949ad9f3047`, READY primary deployment `dpl_56mpNPZEL3gNBBAqbHga3Es5Gq7f` at `fflagent.com`. Main remains `2129fa8`, unmerged. No idle shadow period, real-media/delivery acceptance, activation-turn console check, secondary/provider work or runtime redeployment is claimed.
+
+Do not replay either the installation or activation operation. Preserve the 44 review endpoints until deliberate resolution. Supported protective rollback is guard_only, preserving identities and audit history.
+
+---
+
+## Historical installation and release records
+
+The text below is preserved as the reviewed installation record. Its all-off status and separate-activation gate describe the earlier checkpoint and are superseded for Chris's agency only by the successful activation above. No old command list authorizes repeating completed work.
+
 # Sticky Contact Numbers — primary installation completed; modes off
 
 Updated November 20, 2026 Pacific. Chris approved the three-statement managed-role correction and resumed the previously approved primary-only installation. The corrected transaction, five complete Edge packages and pinned frontend are installed and verified. **Do not replay the installer. Sticky voice and SMS remain off for every organization.**
