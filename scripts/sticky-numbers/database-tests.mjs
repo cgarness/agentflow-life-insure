@@ -4,11 +4,15 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 const url=process.env.STICKY_TEST_URL;
 if(!url||!['127.0.0.1','localhost','::1'].includes(new URL(url).hostname)||new URL(url).pathname!='/sticky_candidate')throw Error('Local candidate required');
+// These independent regression groups can also run against the original four migrations.
+// With no selection, retain all original groups and append the new coverage.
+const selectedGroup=process.env.STICKY_TEST_GROUP;
+if(selectedGroup&&!['edit-permissions','change-validation','hardening'].includes(selectedGroup))throw Error('Unknown STICKY_TEST_GROUP');
 const db=postgres(url,{max:110,onnotice:()=>{}});
 const org='10000000-0000-4000-8000-000000000001',agent='20000000-0000-4000-8000-000000000002',admin='20000000-0000-4000-8000-000000000001';
 const lead='30000000-0000-4000-8000-000000000001',number='40000000-0000-4000-8000-000000000001',alternate='40000000-0000-4000-8000-000000000002';
 const phone='+12025550101',from='+12025551111';const results=[];
-async function test(name,run){try{await run();results.push({name,status:'passed'});console.log('PASS',name);}catch(e){results.push({name,status:'failed',error:e.message,where:e.where});console.error('FAIL',name,e.message,e.where??'');throw e;}}
+async function test(name,run,group='original'){if(selectedGroup&&selectedGroup!==group&&!(selectedGroup==='hardening'&&group!=='original'))return;try{await run();results.push({name,status:'passed'});console.log('PASS',name);}catch(e){results.push({name,status:'failed',error:e.message,where:e.where});console.error('FAIL',name,e.message,e.where??'');throw e;}}
 async function actor(id,run,role='Agent') {return db.begin(async sql=>{await sql.unsafe('SET LOCAL ROLE authenticated');await sql`select set_config('request.jwt.claims',${JSON.stringify({sub:id,role:'authenticated',app_metadata:{organization_id:org,role}})},true)`;return run(sql);});}
 async function service(run){return db.begin(async sql=>{await sql.unsafe('SET LOCAL ROLE service_role');await sql`select set_config('request.jwt.claims','{"role":"service_role"}',true)`;return run(sql);});}
 async function prepare(key,overrides={}){const args={phone,from,body:'Synthetic text',contact:lead,expected:number,override:null,...overrides};return service(async sql=>(await sql`select public.sms_prepare_bound_dispatch(${org},${key},${args.phone},${args.from},${args.body},'manual','synthetic-hash',array[]::uuid[],${agent},${args.contact},'lead',null,${args.expected},${args.override}) as row`)[0].row);}
@@ -34,6 +38,191 @@ try{
  async function evidence(call,answered=true){const r=(await service(sql=>sql`select public.record_outbound_dial_evidence('AC00000000000000000000000000000001','AC00000000000000000000000000000001',${call.parent},${call.child},${answered?'completed':'no-answer'},${'client:'+call.identity},${call.c.phone},'AC00000000000000000000000000000001',${'client:'+call.identity},'AC00000000000000000000000000000001',${call.parent},${call.c.phone},${call.from},${answered?'completed':'no-answer'},now()) as v`))[0].v;assert.equal(r.recorded,true);}
  async function completed(call,classification=1,amd=null){await service(sql=>sql`update public.calls set status='completed',disposition_id=${'60000000-0000-4000-8000-'+String(classification).padStart(12,'0')},amd_result=${amd} where id=${call.id}`);}
  async function recover(c){return (await actor(agent,sql=>sql`select public.recover_contact_numbers(${c.id},'lead') as ok`))[0].ok;}
+
+ // Use the real Contacts permission table and authenticated role, never a helper stub.
+ const contactKinds=['lead','client','recruit'];
+ const editKey=type=>`contacts.${type}s.edit`;
+ const editValues=value=>Object.fromEntries(contactKinds.map(type=>[editKey(type),value]));
+ async function typedContact(type,owner,sharedPhone){
+  const c={id:randomUUID(),type,phone:sharedPhone??'+1202555'+String(next++).padStart(4,'0')};
+  if(type==='lead')await db`insert into public.leads(id,organization_id,first_name,last_name,phone,user_id,assigned_agent_id,status) values(${c.id},${org},'Synthetic','Permission lead',${c.phone},${owner},${owner},'New')`;
+  else if(type==='client')await db`insert into public.clients(id,organization_id,first_name,last_name,phone,assigned_agent_id) values(${c.id},${org},'Synthetic','Permission client',${c.phone},${owner})`;
+  else if(type==='recruit')await db`insert into public.recruits(id,organization_id,first_name,last_name,phone,assigned_agent_id) values(${c.id},${org},'Synthetic','Permission recruit',${c.phone},${owner})`;
+  else throw Error('Unknown synthetic contact type');
+  return c;
+ }
+ async function permissionRows(sql,role){
+  return (await sql`select coalesce(jsonb_agg(to_jsonb(r) order by r.id),'[]'::jsonb) as rows from public.role_permissions r where r.organization_id=${org} and r.role=${role}`)[0].rows;
+ }
+ async function withEditRole(role,run){
+  const peer='20000000-0000-4000-8000-000000000003';
+  const savedPermissions=await permissionRows(db,role);
+  const savedActor=(await db`select role from public.profiles where id=${agent}`)[0];
+  const savedPeer=(await db`select upline_id from public.profiles where id=${peer}`)[0];
+  const who={id:role==='Admin'?admin:agent,role,owner:role==='Team Leader'?peer:role==='Admin'?peer:agent};
+  const configure=async values=>{
+   if(values===null){await db`delete from public.role_permissions where organization_id=${org} and role=${role}`;return;}
+   // Contacts keys are flat within permissions.contacts in the actual baseline schema.
+   await db`insert into public.role_permissions(organization_id,role,permissions) values(${org},${role},${db.json({contacts:values})}) on conflict(organization_id,role) do update set permissions=excluded.permissions`;
+  };
+  try{
+   if(role==='Team Leader'){
+    await db`update public.profiles set role='Team Leader' where id=${agent}`;
+    await db`update public.profiles set upline_id=${agent} where id=${peer}`;
+   }
+   return await run(who,configure);
+  }finally{
+   // Restore complete rows, including their original timestamps, rather than leaving a
+   // changed permission fixture for later concurrency, reconciliation or role tests.
+   await db.begin(async sql=>{
+    await sql`delete from public.role_permissions where organization_id=${org} and role=${role}`;
+    if(savedPermissions.length)await sql`insert into public.role_permissions select * from jsonb_populate_recordset(null::public.role_permissions,${sql.json(savedPermissions)})`;
+    if(role==='Team Leader'){
+     await sql`update public.profiles set upline_id=${savedPeer.upline_id} where id=${peer}`;
+     await sql`update public.profiles set role=${savedActor.role} where id=${agent}`;
+    }
+   });
+   assert.deepEqual(await permissionRows(db,role),savedPermissions,'permission fixture must be restored exactly');
+  }
+ }
+ async function endpointSnapshot(c){
+  return (await db`select jsonb_build_object(
+   'assignments',(select coalesce(jsonb_agg(to_jsonb(a)),'[]'::jsonb) from private.contact_number_affinities a where a.organization_id=${org} and a.phone_e164=${c.phone}),
+   'events',(select coalesce(jsonb_agg(to_jsonb(e) order by e.id),'[]'::jsonb) from private.contact_number_events e where e.organization_id=${org} and e.phone_e164=${c.phone})
+  ) as snapshot`)[0].snapshot;
+ }
+ async function permissionValue(who,type){
+  const result=(await actor(who.id,sql=>sql`select current_user as database_role,auth.uid() as actor_id,public.has_contacts_permission(${editKey(type)}) as allowed`,who.role))[0];
+  assert.equal(result.database_role,'authenticated');assert.equal(result.actor_id,who.id);
+  return result.allowed;
+ }
+ async function readableContact(who,c){
+  const rows=await actor(who.id,sql=>{
+   if(c.type==='lead')return sql`select id from public.leads where id=${c.id}`;
+   if(c.type==='client')return sql`select id from public.clients where id=${c.id}`;
+   return sql`select id from public.recruits where id=${c.id}`;
+  },who.role);
+  assert.equal(rows.length,1,'contact remains readable through actual RLS');
+  const before=await endpointSnapshot(c);
+  const view=(await actor(who.id,sql=>sql`select public.preview_contact_numbers(${c.id},${c.type}) as v`,who.role))[0].v;
+  assert.ok(view.sms);assert.ok(view.voice);
+  assert.deepEqual(await endpointSnapshot(c),before,'preview must not create or mutate assignment/audit rows');
+ }
+ async function change(who,c,channel,target,generation,reason){
+  return actor(who.id,sql=>sql`select public.change_contact_number(${c.id},${c.type},${channel},${target},${generation},${reason}) as v`,who.role);
+ }
+ async function rejectedChange(who,c,{channel='both',target=alternate,reason='Permission regression',message='affinity_edit_permission',code='42501'}={}){
+  const before=await endpointSnapshot(c),generation=Number(before.assignments[0]?.generation??0);
+  await assert.rejects(change(who,c,channel,target,generation,reason),error=>error.code===code&&error.message===message);
+  assert.deepEqual(await endpointSnapshot(c),before,'refusal must preserve absence, assignment versions and every audit field');
+ }
+ for(const role of ['Agent','Team Leader'])for(const type of contactKinds){
+  await test(`D04 D07 ${role} can read ${type} but cannot change or reset when its edit permission is false`,()=>withEditRole(role,async(who,configure)=>{
+   await configure({...editValues(true),[editKey(type)]:false});
+   const c=await typedContact(type,who.owner);
+   assert.equal(await permissionValue(who,type),false);
+   await readableContact(who,c);
+   for(const channel of ['voice','sms','both']){
+    await rejectedChange(who,c,{channel});
+    await rejectedChange(who,c,{channel,target:null});
+   }
+   await change({id:admin,role:'Admin'},c,'both',number,0,'Admin establishes existing relationship');
+   await readableContact(who,c);
+   await rejectedChange(who,c);
+   await rejectedChange(who,c,{target:null});
+  }),'edit-permissions');
+ }
+ for(const role of ['Agent','Team Leader']){
+  await test(`D04 D12 ${role} needs every edit key for owned or visible mixed-type shared endpoints`,()=>withEditRole(role,async(who,configure)=>{
+   const first=await typedContact('lead',who.owner),contacts=[first];
+   for(const type of ['client','recruit'])contacts.push(await typedContact(type,who.owner,first.phone));
+   for(const established of [false,true]){
+    for(const deniedType of contactKinds){
+     await configure({...editValues(true),[editKey(deniedType)]:false});
+     for(const c of contacts){
+      await readableContact(who,c);
+      assert.equal(await permissionValue(who,c.type),c.type!==deniedType);
+      await rejectedChange(who,c,{message:c.type===deniedType?'affinity_edit_permission':'affinity_admin_resolution'});
+      await rejectedChange(who,c,{target:null,message:c.type===deniedType?'affinity_edit_permission':'affinity_admin_resolution'});
+     }
+    }
+    if(!established){
+     await configure(editValues(true));
+     await change(who,first,'both',alternate,0,'All shared contact types are editable');
+     const snapshot=await endpointSnapshot(first);
+     assert.equal(snapshot.assignments[0].generation,1);
+     assert.equal(snapshot.assignments[0].voice_version,1);
+     assert.equal(snapshot.assignments[0].sms_version,1);
+     assert.equal(snapshot.events.length,1);
+    }
+   }
+  }),'edit-permissions');
+  await test(`D04 ${role} retains real missing-row and missing-key Contacts edit defaults`,()=>withEditRole(role,async(who,configure)=>{
+   for(const permissions of [null,{}, {'contacts.leads.delete':false}]){
+    await configure(permissions);
+    for(const type of contactKinds){
+     assert.equal(await permissionValue(who,type),true);
+     const c=await typedContact(type,who.owner);
+     await readableContact(who,c);
+     await change(who,c,'both',alternate,0,'Existing default permission allows change');
+     const snapshot=await endpointSnapshot(c);
+     assert.equal(snapshot.assignments[0].voice_number_id,alternate);
+     assert.equal(snapshot.assignments[0].sms_number_id,alternate);
+     assert.equal(snapshot.assignments[0].generation,1);
+     assert.equal(snapshot.events.length,1);
+    }
+   }
+  }),'edit-permissions');
+ }
+ await test('D04 Admin keeps same-organization shared-endpoint authority with explicit role permission flags false',()=>withEditRole('Admin',async(who,configure)=>{
+  await configure(editValues(false));
+  const first=await typedContact('lead',who.owner),contacts=[first];
+  for(const type of ['client','recruit'])contacts.push(await typedContact(type,who.owner,first.phone));
+  for(const c of contacts){assert.equal(await permissionValue(who,c.type),true);await readableContact(who,c);}
+  await change(who,first,'both',alternate,0,'Administrator resolves shared endpoint');
+  const beforeReset=await endpointSnapshot(first);
+  assert.equal(beforeReset.assignments[0].generation,1);assert.equal(beforeReset.events.length,1);
+  await change(who,contacts[2],'both',null,1,'Administrator requests review');
+  const afterReset=await endpointSnapshot(first),pin=afterReset.assignments[0];
+  assert.equal(pin.generation,2);assert.equal(pin.voice_version,2);assert.equal(pin.sms_version,2);
+  assert.equal(pin.voice_state,'needs_review');assert.equal(pin.sms_state,'needs_review');
+  assert.equal(pin.voice_number_id,null);assert.equal(pin.sms_number_id,null);
+  assert.equal(afterReset.events.length,2);assert.equal(afterReset.events[1].kind,'reset_review');
+ }),'edit-permissions');
+ await test('D03 NULL, blank, short and oversized audit reasons refuse change/reset without assignment or audit mutations',()=>withEditRole('Agent',async(who,configure)=>{
+  await configure(editValues(true));
+  for(const type of contactKinds){
+   const c=await typedContact(type,who.owner);
+   for(const established of [false,true]){
+    for(const reason of [null,'','   ','\t\r\n','a','ab',' \tab \n','x'.repeat(201)])for(const target of [alternate,null]){
+     await rejectedChange(who,c,{target,reason,message:'affinity_change_invalid',code:'P0001'});
+    }
+    if(!established)await change(who,c,'both',number,0,'Valid founding reason');
+   }
+   await readableContact(who,c);
+  }
+ }),'change-validation');
+ await test('D03 NULL and invalid channels refuse change/reset before any version or audit mutation',()=>withEditRole('Agent',async(who,configure)=>{
+  await configure(editValues(true));
+  const c=await typedContact('lead',who.owner);
+  for(const established of [false,true]){
+   for(const channel of [null,'','text','VOICE',' voice '])for(const target of [alternate,null]){
+    await rejectedChange(who,c,{channel,target,message:'affinity_change_invalid',code:'P0001'});
+   }
+   if(!established)await change(who,c,'both',number,0,'Valid channel control');
+  }
+ }),'change-validation');
+ await test('D03 valid audit reason boundaries are normalized and recorded once per deliberate change',()=>withEditRole('Agent',async(who,configure)=>{
+  await configure(editValues(true));
+  const c=await typedContact('lead',who.owner);
+  await change(who,c,'voice',alternate,0,' \t yes \r\n');
+  await change(who,c,'sms',number,1,'x'.repeat(200));
+  const snapshot=await endpointSnapshot(c),pin=snapshot.assignments[0];
+  assert.equal(pin.generation,2);assert.equal(pin.voice_version,1);assert.equal(pin.sms_version,1);
+  assert.equal(snapshot.events.length,2);assert.equal(snapshot.events[0].details.reason,'yes');
+  assert.equal(snapshot.events[1].details.reason,'x'.repeat(200));
+ }),'change-validation');
+
  await test('E01 E17 concurrent first reservations use one authoritative sender',async()=>{const c=await contact();const ks=[`manual:${agent}:${randomUUID()}`,`manual:${agent}:${randomUUID()}`];const rows=await Promise.all(ks.map((k,i)=>prepare(k,{phone:c.phone,contact:c.id,body:'Distinct '+i,from:i?'+12025552222':from})));assert.equal(new Set(rows.map(d=>d.from_number)).size,1);assert.equal(new Set(rows.map(d=>d.request_key)).size,2);for(const k of ks)await service(sql=>sql`select public.sms_cancel_prepared_dispatch(${org},${k})`);});
  await test('E18 stale manual preview refuses materially changed sender',async()=>{const c=await contact();await assert.rejects(prepare(`manual:${agent}:${randomUUID()}`,{phone:c.phone,contact:c.id,expected:alternate}),/affinity_sender_changed/);assert.equal(await getPin(c),undefined);});
  await test('D02 E16 one-off is audited, blocks change until cancelled, and never pins',async()=>{const c=await contact();const k=`manual:${agent}:${randomUUID()}`;const r=await prepare(k,{phone:c.phone,contact:c.id,expected:alternate,override:alternate});assert.equal(r.from_number,'+12025552222');assert.equal((await getPin(c)).sms_state,'unassigned');await assert.rejects(actor(agent,sql=>sql`select public.change_contact_number(${c.id},'lead','sms',${number},0,'Test change')`),/affinity_send_unresolved/);await service(sql=>sql`select public.sms_cancel_prepared_dispatch(${org},${k})`);assert.equal((await service(sql=>sql`select public.sms_start_dispatch(${org},${k}) as v`))[0].v,false);});
