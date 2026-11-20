@@ -1,3 +1,4 @@
+import { affinityGuard, isGuarded } from "../_shared/sms/affinity.ts";
 import { parseRoomRoute } from "../_shared/inbounds-room.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { insertMissedCallNotifications } from "../_shared/notifications.ts";
@@ -295,6 +296,8 @@ async function sendAfterHoursSms(
   message: string
 ) {
   try {
+    const guard = await affinityGuard(supabase, organizationId);
+    if (isGuarded(guard.sms)) return; // Dormant purpose remains disabled after any sticky enforcement.
     await supabase.functions.invoke("twilio-sms", {
       body: {
         to: fromNumber,

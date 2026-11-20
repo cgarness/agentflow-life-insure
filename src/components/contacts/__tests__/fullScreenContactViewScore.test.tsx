@@ -1,3 +1,5 @@
+// Existing behavior under an explicitly off-mode affinity dependency; enforcement is covered by native/Edge/browser suites.
+vi.mock("@/hooks/useContactNumberAffinity", () => ({ useContactNumberAffinity: () => ({ data: { voice_mode: "off", sms_mode: "off" }, canText: true, sender: null, override: null, readOnly: false, chooseOneText: vi.fn(), refresh: vi.fn(), refetch: vi.fn() }) }));
 vi.mock("@/hooks/useSmsConsentStatus", () => ({ useSmsConsentStatus: () => ({ data: { enforced: false }, error: null, refetch: vi.fn() }) }));
 /**
  * Lead-score exposure fix (2026-08-06) — Lead Details must not show or edit the

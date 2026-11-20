@@ -1,0 +1,11 @@
+import {describe,it,expect} from 'vitest';
+import {createPendingSmsStore} from '../pendingSmsStore';
+import {manualSmsRequestBody} from '../sendManualSms';
+const org='10000000-0000-4000-8000-000000000001',actor='20000000-0000-4000-8000-000000000002',contact='30000000-0000-4000-8000-000000000001';
+const number='40000000-0000-4000-8000-000000000001',alternate='40000000-0000-4000-8000-000000000002';
+const base={organizationId:org,actorId:actor,viewerId:actor,contactId:contact,contactType:'lead' as const,to:'+12025550101',body:'Synthetic',senderPreference:'+12025551111',expectedSenderId:number,overrideSenderId:null};
+describe('sticky sender intent and immutable handoff',()=>{
+ it('never mutates the request snapshot when the UI changes sender',()=>{const store=createPendingSmsStore();store.bindAuthority({realUserId:actor,organizationId:org,impersonating:false});const input={...base};const result=store.begin(input);if(!('record'in result))throw Error(result.refusal);input.expectedSenderId=alternate;expect(manualSmsRequestBody(result.record.snapshot).expected_sender_id).toBe(number);});
+ it('reuses the immutable unresolved request after only a default change',()=>{const store=createPendingSmsStore();store.bindAuthority({realUserId:actor,organizationId:org,impersonating:false});const r=store.begin(base);if(!('record'in r))throw Error(r.refusal);store.settle(r.record.localId,r.record.attemptId,{state:'uncertain',reason:'transport',code:'TRANSPORT',message:'Synthetic timeout'});const retry=store.begin({...base,expectedSenderId:alternate,senderPreference:'+12025552222'});if(!('record'in retry))throw Error(retry.refusal);expect(retry.record.snapshot.requestId).toBe(r.record.snapshot.requestId);expect(retry.record.snapshot.expectedSenderId).toBe(number);});
+ it('does not turn an uncertain message into a fresh override attempt',()=>{const store=createPendingSmsStore();store.bindAuthority({realUserId:actor,organizationId:org,impersonating:false});const r=store.begin(base);if(!('record'in r))throw Error(r.refusal);store.settle(r.record.localId,r.record.attemptId,{state:'uncertain',reason:'transport',code:'TRANSPORT',message:'Synthetic timeout'});const one=store.begin({...base,expectedSenderId:alternate,overrideSenderId:alternate});expect(one).toMatchObject({ok:false,refusal:'duplicate_unresolved'});});
+});

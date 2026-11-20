@@ -32,6 +32,8 @@ export interface SmsSnapshot extends SmsIdentityScope {
   readonly body: string;
   /** The voice caller ID the agent had selected; the server resolves the real SMS sender. */
   readonly senderPreference: string | null;
+  readonly expectedSenderId?: string | null;
+  readonly overrideSenderId?: string | null;
   /** Display only (never part of the request identity): names the contact in an off-screen toast. */
   readonly contactLabel: string | null;
 }
@@ -91,6 +93,8 @@ export interface BeginInput extends SmsIdentityScope {
   to: string;
   body: string;
   senderPreference: string | null;
+  expectedSenderId?: string | null;
+  overrideSenderId?: string | null;
   contactLabel?: string | null;
 }
 
@@ -111,7 +115,7 @@ export function isUnresolved(record: PendingSmsRecord): boolean {
 
 /** The pre-existing SmsIntent identity, field for field: actor, org, type, contact, to, sender, body. */
 function intentPayload(s: BeginInput | SmsSnapshot): unknown[] {
-  return [s.actorId, s.organizationId, s.contactType, s.contactId, s.to, s.senderPreference ?? null, s.body];
+  return [s.actorId, s.organizationId, s.contactType, s.contactId, s.to, s.expectedSenderId === undefined ? (s.senderPreference ?? null) : ["sticky-v1", s.overrideSenderId ?? null], s.body];
 }
 
 export interface PendingSmsStoreOptions {
@@ -240,7 +244,7 @@ export function createPendingSmsStore(options: PendingSmsStoreOptions = {}) {
           (r.state === "uncertain" || r.uncertainty !== null) &&
           r.snapshot.to === input.to &&
           r.snapshot.body === input.body &&
-          r.snapshot.senderPreference !== input.senderPreference,
+          (r.snapshot.senderPreference !== input.senderPreference || (r.snapshot.overrideSenderId ?? null) !== (input.overrideSenderId ?? null)),
       );
       if (mayHaveSent) return { ok: false, refusal: "duplicate_unresolved" };
 
@@ -259,6 +263,8 @@ export function createPendingSmsStore(options: PendingSmsStoreOptions = {}) {
         to: input.to,
         body: input.body,
         senderPreference: input.senderPreference ?? null,
+        expectedSenderId: input.expectedSenderId,
+        overrideSenderId: input.overrideSenderId,
         contactLabel: input.contactLabel ?? null,
         requestId: intents.id(payload),
       });

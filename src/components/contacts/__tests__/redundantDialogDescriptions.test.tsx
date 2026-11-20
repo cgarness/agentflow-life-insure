@@ -1,3 +1,5 @@
+// Existing behavior under an explicitly off-mode affinity dependency; enforcement is covered by native/Edge/browser suites.
+vi.mock("@/hooks/useContactNumberAffinity", () => ({ useContactNumberAffinity: () => ({ data: { voice_mode: "off", sms_mode: "off" }, canText: true, sender: null, override: null, readOnly: false, chooseOneText: vi.fn(), refresh: vi.fn(), refetch: vi.fn() }) }));
 /**
  * Part B, PB-1: four dialogs drop a visible description that only restated the title, and opt out of
  * Radix's description wiring with `aria-describedby={undefined}` on that one Content.

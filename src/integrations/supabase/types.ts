@@ -3420,6 +3420,7 @@ export type Database = {
           callback_scheduler: boolean
           campaign_action: string
           color: string
+          affinity_class: string
           counts_as_contacted: boolean
           created_at: string
           dnc_auto_add: boolean
@@ -3444,6 +3445,7 @@ export type Database = {
           callback_scheduler?: boolean
           campaign_action?: string
           color?: string
+          affinity_class?: string
           counts_as_contacted?: boolean
           created_at?: string
           dnc_auto_add?: boolean
@@ -3468,6 +3470,7 @@ export type Database = {
           callback_scheduler?: boolean
           campaign_action?: string
           color?: string
+          affinity_class?: string
           counts_as_contacted?: boolean
           created_at?: string
           dnc_auto_add?: boolean
@@ -5948,6 +5951,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      contact_number_modes: { Args: Record<PropertyKey, never>; Returns: Json }
+      preview_contact_numbers: { Args: { p_contact: string; p_type: string; p_campaign?: string | null }; Returns: Json }
+      contact_number_options: { Args: { p_contact: string; p_type: string }; Returns: Json }
+      change_contact_number: { Args: { p_contact: string; p_type: string; p_channel: string; p_number: string | null; p_generation: number; p_reason: string }; Returns: Json }
+      recover_contact_numbers: { Args: { p_contact: string; p_type: string }; Returns: boolean }
+      authorize_contact_call: { Args: { p_call: string; p_contact: string | null; p_type: string | null; p_phone: string; p_candidate: string; p_campaign?: string | null; p_member?: string | null; p_override?: string | null; p_unsaved?: boolean }; Returns: Json }
+
       clear_dashboard_attention_item: {
         Args: {
           p_expected_occurrence_at: string

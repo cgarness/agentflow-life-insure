@@ -14,12 +14,13 @@ export interface MessageComposePanelProps {
   sendDisabled?: boolean;
   sendLoading?: boolean;
   className?: string;
+  smsOnly?: boolean;
 }
 
 /** Shared SMS/email composer: compact at rest, grows with text, bounded by the viewport. */
 export function MessageComposePanel({
   channel, onChannelChange, messageText, onMessageChange, subjectText, onSubjectChange,
-  onOpenTemplates, onSendMessage, sendDisabled, sendLoading, className,
+  onOpenTemplates, onSendMessage, sendDisabled, sendLoading, className, smsOnly = false,
 }: MessageComposePanelProps) {
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -78,7 +79,7 @@ export function MessageComposePanel({
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t px-3 py-3 sm:px-4">
         <div className="flex w-fit shrink-0 rounded-lg bg-muted p-0.5">
-          {(["sms", "email"] as const).map((tab) => (
+          {(smsOnly ? ["sms"] as const : ["sms", "email"] as const).map((tab) => (
             <button
               key={tab}
               type="button"

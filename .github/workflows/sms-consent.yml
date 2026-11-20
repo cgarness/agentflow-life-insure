@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   consent:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.56.1 does not support Ubuntu 26.04.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +101,7 @@ jobs:
           python3 -m http.server 4189 --bind 127.0.0.1 --directory /tmp/cg-sms-responsiveness-dist &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
+          node scripts/tests/sms-responsiveness/verify-number-preview.mjs
           node scripts/tests/sms-responsiveness/measure.mjs
       - uses: actions/upload-artifact@v4
         if: always()

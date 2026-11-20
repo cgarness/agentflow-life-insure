@@ -258,11 +258,13 @@ const FloatingDialer: React.FC = () => {
     return () => window.removeEventListener("toggle-floating-dialer", handler);
   }, []);
 
+  const oneCallNumberRef = useRef<{ id: string; contact: string; phone: string } | null>(null);
   // Listen for quick-call event from campaign leads or contact view
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail?.phone) {
+        oneCallNumberRef.current = detail.oneCallNumberId ? {id:detail.oneCallNumberId,contact:detail.contactId,phone:detail.phone}:null;
         const nameParts = (detail.name || "").split(" ");
         setSelectedContact({
           id: detail.contactId || "",
@@ -324,10 +326,10 @@ const FloatingDialer: React.FC = () => {
   // Resolve the "best" number to display when contact or override changes
   useEffect(() => {
     const resolve = async () => {
-      const smartId = await getSmartCallerId(selectedContact?.phone || searchTerm, selectedContact?.id);
+      const smartId = await getSmartCallerId(selectedContact?.phone || searchTerm, selectedContact?.id, { contactType: selectedContact?.type });
       setDisplayedFromNumber(smartId);
     };
-    resolve();
+    void resolve().catch(() => setDisplayedFromNumber(""));
   }, [selectedContact, searchTerm, selectedCallerNumber, getSmartCallerId]);
 
   // Fetch recent calls when Recent tab is selected.
@@ -566,9 +568,11 @@ const FloatingDialer: React.FC = () => {
       contactPhone: destinationNumber,
       contactType: selectedContact?.type || null,
       applyOutboundRingTimeout: false,
+      oneCallNumberId: oneCallNumberRef.current?.contact === selectedContact?.id && digitsOnly(oneCallNumberRef.current?.phone ?? "") === digitsOnly(destinationNumber) ? oneCallNumberRef.current?.id : undefined,
     };
     const callId = await twilioMakeCall(destinationNumber, callerNumber || undefined, opts);
     if (!callId) return;
+    oneCallNumberRef.current = null;
     setCallScope(dispositionConfig.scopeKey);
     setCurrentCallId(callId);
     setOnCall(true);
@@ -581,7 +585,7 @@ const FloatingDialer: React.FC = () => {
 
     let finalCallerId = selectedCallerNumber || "";
     if (!finalCallerId) {
-      finalCallerId = await getSmartCallerId(leadPhone, contactId ?? undefined);
+      finalCallerId = await getSmartCallerId(leadPhone, contactId ?? undefined, { contactType: selectedContact?.type });
     }
     if (!finalCallerId) {
       // Fallback must stay within automatic-eligible Agency numbers (Pass 2) — never a Personal

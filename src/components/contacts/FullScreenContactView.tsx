@@ -1,3 +1,5 @@
+import { useContactNumberAffinity } from "@/hooks/useContactNumberAffinity";
+import { ContactNumberControl } from "./ContactNumberControl";
 import { useScopedDraft } from "@/hooks/useScopedDraft";
 import { useComposerDraftSink, useMarkObserved, usePendingSmsRecords, useSmsScopeEvents } from "@/hooks/usePendingSms";
 import { manualSmsSender } from "@/lib/sms-send/manualSmsSender";
@@ -283,6 +285,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       ? { organizationId: profile.organization_id, actorId: user.id, viewerId: profile.id, contactType: type, contactId: contact.id }
       : null
   ), [contact?.id, user?.id, profile?.id, profile?.organization_id, isImpersonating, type]);
+  const contactNumbers = useContactNumberAffinity(contact?.id, type);
   const smsKey = smsScope ? smsScopeKey(smsScope) : null;
   const smsRecords = usePendingSmsRecords(smsKey);
   const smsInFlight = smsRecords.some((r) => r.state === "sending");
@@ -738,11 +741,14 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       toast.error(REFUSAL_MESSAGES.authority);
       return;
     }
+    if (!contactNumbers.canText) { toast.error("Review the contact’s texting number before sending."); return; }
     manualSmsSender.submit({
       ...smsScope,
       to: toE164Plus(contact.phone),
       body: composeText.trim(),
-      senderPreference: fromNumber.trim() ? toE164Plus(fromNumber) : null,
+      senderPreference: contactNumbers.sender?.number ?? (fromNumber.trim() ? toE164Plus(fromNumber) : null),
+      expectedSenderId: contactNumbers.sender?.id ?? null,
+      overrideSenderId: contactNumbers.override?.id ?? null,
       contactLabel: contactDisplayName(contact) || null,
       origin: {
         sinkId: smsDraft.sinkId,
@@ -1175,6 +1181,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               ) : null}
             />
 
+            <ContactNumberControl model={contactNumbers} phone={contact.phone} name={contactDisplayName(contact)} />
             <MessageComposePanel
               className="mt-3 shrink-0"
               channel={composeTab === "SMS" ? "sms" : "email"}
@@ -1187,7 +1194,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               onSendMessage={handleSendMessage}
               sendDisabled={
                 isImpersonating || !composeText.trim() ||
-                (composeTab === "SMS" && (smsInFlight || !contact.phone)) ||
+                (composeTab === "SMS" && (smsInFlight || !contact.phone || !contactNumbers.canText)) ||
                 (composeTab === "Email" && (messageSending || !contact.email || !selectedEmailConnectionId))
               }
               sendLoading={composeTab === "SMS" ? smsInFlight : messageSending}

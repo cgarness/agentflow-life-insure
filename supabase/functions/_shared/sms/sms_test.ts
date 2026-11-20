@@ -175,6 +175,7 @@ function fixture() {
       return q;
     },
     rpc: async (name: string, args: any) => {
+      if (name === "sticky_number_guard") return { data: { voice: "off", sms: "off" }, error: null };
       if (name === "sms_prepare_dispatch") {
         receipt ??= {
           state: "prepared",

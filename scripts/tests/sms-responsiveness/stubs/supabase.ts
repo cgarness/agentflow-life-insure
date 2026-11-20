@@ -12,6 +12,7 @@ export const FIXTURE = {
   contact: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   phone: "+15125550123",
   agencySender: "+15550002222",
+  agencyNumberId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   listMs: 250,
   rowReadMs: 80,
   receiptMs: 1_500,
@@ -82,6 +83,23 @@ function historyPage(args: Row) {
 }
 
 async function resolveQuery(table: string, filters: Row, single: boolean, args: Row) {
+  if (table === "rpc:preview_contact_numbers") {
+    // The real hook now requires the same scoped DTO as the backend; an empty
+    // array is not an off-mode response. This fixture never mutates an assignment.
+    const scenario = new URLSearchParams(location.search).get("affinity") ?? "ready";
+    if (args.p_contact !== FIXTURE.contact || args.p_type !== "lead" || scenario === "error") {
+      return { data: null, error: { message: "affinity_scope: synthetic unavailable preview" } };
+    }
+    const sender = {
+      id: FIXTURE.agencyNumberId, number: FIXTURE.agencySender, provisional: true,
+      state: "established", version: 1,
+      readiness: scenario === "blocked" ? "setup_required" : "ready",
+    };
+    return { data: {
+      voice_mode: "enforced", sms_mode: "enforced", generation: 1,
+      history: "reconciled", voice: { ...sender, readiness: "ready" }, sms: sender, reply: null,
+    }, error: null };
+  }
   if (table === "rpc:get_contact_conversation_page") {
     await sleep(historyMs);
     return { data: historyPage(args), error: null };
@@ -146,9 +164,14 @@ export const supabase = {
 
 /** The fake `twilio-sms`: one receipt after 1,500 ms, saving the row first (as the dispatcher does). */
 const realFetch = window.fetch.bind(window);
+let sendRequests = 0;
+(window as unknown as { __smsFixtureTransport: { requestCount: () => number } }).__smsFixtureTransport = {
+  requestCount: () => sendRequests,
+};
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   if (!url.includes("/functions/v1/twilio-sms")) return realFetch(input, init);
+  sendRequests += 1;
   probe()?.mark("requestStart");
   const body = JSON.parse(String(init?.body ?? "{}")) as Row;
   await sleep(FIXTURE.receiptMs);

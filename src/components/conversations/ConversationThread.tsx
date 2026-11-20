@@ -16,6 +16,8 @@ import { isCallsRowInboundDirection } from "@/lib/webrtcInboundCaller";
 import { format } from "date-fns";
 
 interface ConversationThreadProps {
+  numberControl?: React.ReactNode;
+  smsReady?: boolean;
   contactId: string;
   contactName: string;
   contactType: string;
@@ -92,6 +94,8 @@ const EMPTY_EXPANDED: Record<string, boolean> = {};
 
 const ConversationThread: React.FC<ConversationThreadProps> = ({
   contactId,
+  numberControl,
+  smsReady = true,
   contactName,
   contactType,
   templateMergeInput = { contact: null },
@@ -330,7 +334,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
     if (!messageText.trim() || readOnly) return;
     if (channel === "sms") {
       // Synchronous: the pending bubble renders from this same click, before anything is awaited.
-      if (!onSubmitSms || smsInFlight) return;
+      if (!onSubmitSms || smsInFlight || !smsReady) return;
       const started = onSubmitSms(messageText, {
         sinkId: smsDraft.sinkId,
         clear: () => {
@@ -581,6 +585,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
       {/* Composer Area — replaced by a notice, not merely disabled, when read-only. An unmounted
           composer cannot hold a draft that a later re-render could submit. */}
       <div className="p-6 pt-0 shrink-0 bg-background/80 backdrop-blur-sm z-20">
+        {!readOnly && numberControl}
         {readOnly ? (
           <div
             data-testid="thread-readonly-notice"
@@ -591,7 +596,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
           </div>
         ) : (
           <MessageComposePanel
-            sendDisabled={!messageText.trim() || (channel === "sms" && (!onSubmitSms || smsInFlight))}
+            sendDisabled={!messageText.trim() || (channel === "sms" && (!onSubmitSms || smsInFlight || !smsReady))}
             channel={channel}
             onChannelChange={setChannel}
             messageText={messageText}

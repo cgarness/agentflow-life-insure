@@ -21,7 +21,8 @@ describe("T28 — outbound makeCall call-row creation is pinned", () => {
     "contact_name: sanitizeContactName(opts?.contactName) || null,",
     // DNC admission binds the stored snapshot to the actual normalized destination.
     "contact_phone: destination,",
-    "contact_type: opts?.contactType || null,",
+    "contact_type: callContactType,",
+    "const callContactType = opts?.contactType || (opts?.campaignId ? \"lead\" : null);",
     "status: 'ringing',",
     "direction: 'outbound',",
     "caller_id_used: callerIdUsed,",

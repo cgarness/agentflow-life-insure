@@ -1,0 +1,70 @@
+{
+  "base": "2129fa8b195cee77ad75f614abe655facfad2725",
+  "recovery": "reconstructed, d070707 unavailable",
+  "historical_sources": {
+    "supabase/migrations/20261002203426_inbound_recent_outbound_routing.sql": {
+      "bytes": 56731,
+      "sha256": "348205ca4d8c860a04a68a23af840be35f2c2f57ad08d8f6a89262e86b429038"
+    },
+    "supabase/migrations/20261113152433_dialer_nonretryable_conflicts.sql": {
+      "bytes": 1690,
+      "sha256": "0d23eee29ef7820eeb27f9a0d034fc7a77b88908b18da7df9b5499ecc3f9c64e"
+    }
+  },
+  "deployed_packages": [
+    {
+      "slug": "twilio-sms",
+      "version": 61,
+      "verify_jwt": false,
+      "entrypoint_path": "/tmp/user_fn_jncvvsvckxhqgqvkppmj_7f4fba71-dd36-44aa-be64-ed226c51db85_61/source/supabase/functions/twilio-sms/index.ts",
+      "import_map": false,
+      "ezbr_sha256": "9998fc4abf1fb729d4886cec860be7971b65868a2b98d228525b85ba29a2965f"
+    },
+    {
+      "slug": "workflow-executor",
+      "version": 50,
+      "verify_jwt": false,
+      "entrypoint_path": "/tmp/user_fn_jncvvsvckxhqgqvkppmj_b38d21ee-77f6-46ce-8a51-c046a06c435b_50/source/supabase/functions/workflow-executor/index.ts",
+      "import_map": false,
+      "ezbr_sha256": "710c9f085acee7dbc774e23a7132739d440069f8d339dfbec3b8c39592343d5f"
+    },
+    {
+      "slug": "sms-consent-worker",
+      "version": 26,
+      "verify_jwt": false,
+      "entrypoint_path": "/tmp/user_fn_jncvvsvckxhqgqvkppmj_adda97c9-6c3b-4535-937b-02f2919fa94c_26/source/supabase/functions/sms-consent-worker/index.ts",
+      "import_map": false,
+      "ezbr_sha256": "3b80b17980775e8625a15757db2148feb9ed0c0175e6db34389eb9f9ecc35e44"
+    },
+    {
+      "slug": "twilio-sms-webhook",
+      "version": 47,
+      "verify_jwt": false,
+      "entrypoint_path": "/tmp/user_fn_jncvvsvckxhqgqvkppmj_c0d88d50-0b90-4acb-81a7-17a08efa2d07_23/source/supabase/functions/twilio-sms-webhook/index.ts",
+      "import_map": false,
+      "ezbr_sha256": "ef370d581b9d5fcdd120faacf68a7953166895bbe5f33fdd001122dacfb5a74f"
+    },
+    {
+      "slug": "twilio-voice-inbound",
+      "version": 72,
+      "verify_jwt": false,
+      "entrypoint_path": "/tmp/user_fn_jncvvsvckxhqgqvkppmj_5453fa38-8e88-4ee3-9451-af17ea62f253_72/source/twilio-voice-inbound/index.ts",
+      "import_map": false,
+      "ezbr_sha256": "31898663eb54ee707ca905064ddeea81cc0a96104a50940773237772f066d5b7"
+    },
+    {
+      "slug": "clearpath-lead-alert",
+      "version": 25,
+      "verify_jwt": false,
+      "entrypoint_path": "/tmp/user_fn_jncvvsvckxhqgqvkppmj_8d57dcf6-5cfa-4492-aa5d-35e943c0c993_25/source/supabase/functions/clearpath-lead-alert/index.ts",
+      "import_map": false,
+      "ezbr_sha256": "6d88feea6910dce56bb20cf3ca859e1da346c64257c22d44f697bf3731d44638"
+    }
+  ],
+  "baseline_comparison": {
+    "functions": 85,
+    "tables": 45,
+    "differences": 0
+  },
+  "evidence_files": {}
+}

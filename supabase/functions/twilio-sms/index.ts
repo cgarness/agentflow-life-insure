@@ -1,3 +1,5 @@
+import { affinityGuard, isGuarded } from "../_shared/sms/affinity.ts";
+import { describeSender } from "../_shared/sms/readiness.ts";
 import { dispatch } from "../_shared/sms/dispatch.ts";
 import { policy } from "../_shared/sms/consent.ts";
 import { contactScope } from "../_shared/sms/scope.ts";
@@ -137,6 +139,14 @@ Deno.serve(async (req) => {
         ? contactTypeRaw
         : undefined;
 
+    if (bodyJson.view_as === true) throw new SmsError("SEND_SCOPE", "View As is read-only.", 403);
+    const caller = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
+    if (bodyJson.action === "preview") {
+      await contactScope(caller, organizationId, contactId, contactType, toRaw || undefined);
+      const result = await describeSender(supabase, { org: organizationId, actor: user.id, contactId: contactId!, contactType: contactType! });
+      return jsonResponse(result, 200); // Early return even when a message body was supplied.
+    }
+    const guard = await affinityGuard(supabase, organizationId);
     if (!toRaw || !bodyText.trim()) {
       return jsonResponse(
         { success: false, error: "Missing required fields: to, body" },
@@ -146,14 +156,17 @@ Deno.serve(async (req) => {
 
     const to = toE164Plus(toRaw);
     const textingPolicy = await policy(supabase, organizationId);
+    if (isGuarded(guard.sms) && !textingPolicy?.enforced) throw new SmsError("SMS_POLICY", "Texting settings need review.", 503);
     if (textingPolicy?.enforced) {
       if (bodyJson.view_as === true || bodyJson.actor_id !== user.id || bodyJson.organization_id !== organizationId || typeof bodyJson.request_id !== "string" || !UUID.test(bodyJson.request_id)) throw new SmsError("SEND_SCOPE", "Reload your own account before sending.", 403);
-      const caller = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });
       await contactScope(caller, organizationId, contactId, contactType, to);
-      const from = await manualSender(supabase, textingPolicy, fromRaw);
+      const described = isGuarded(guard.sms) ? await describeSender(supabase, { org: organizationId, actor: user.id, contactId: contactId!, contactType: contactType!, overrideId: typeof bodyJson.override_sender_id === "string" && UUID.test(bodyJson.override_sender_id) ? bodyJson.override_sender_id : undefined }) : null;
+      const from = described?.sms?.number ?? await manualSender(supabase, textingPolicy, fromRaw);
+      const expectedSenderId = typeof bodyJson.expected_sender_id === "string" && UUID.test(bodyJson.expected_sender_id) ? bodyJson.expected_sender_id : undefined;
+      const overrideSenderId = typeof bodyJson.override_sender_id === "string" && UUID.test(bodyJson.override_sender_id) ? bodyJson.override_sender_id : undefined;
       // This authenticated endpoint sends human-composed messages. Browser purpose
       // flags cannot grant consent or select an automated/confirmation send path.
-      const result = await dispatch(supabase, { org: organizationId, key: `manual:${user.id}:${bodyJson.request_id}`, to, from, body: bodyText, verifyRecipient: async () => { await contactScope(caller, organizationId, contactId, contactType, to); }, manual: true, purpose: "manual", actor: user.id, contactId, contactType });
+      const result = await dispatch(supabase, { org: organizationId, key: `manual:${user.id}:${bodyJson.request_id}`, to, from, body: bodyText, verifyRecipient: async () => { await contactScope(caller, organizationId, contactId, contactType, to); }, manual: true, expectedSenderId, overrideSenderId, purpose: "manual", actor: user.id, contactId, contactType });
       if (!result) throw new SmsError("SMS_POLICY", "Texting settings changed. Please retry.", 503);
       return jsonResponse({ ...result }, 200);
     }

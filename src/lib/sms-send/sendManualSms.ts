@@ -30,6 +30,8 @@ export interface ManualSmsRequestBody {
   view_as: false;
   to: string;
   from?: string;
+  expected_sender_id?: string;
+  override_sender_id?: string;
   body: string;
   contact_id: string;
   contact_type: string;
@@ -89,6 +91,8 @@ export function manualSmsRequestBody(s: SmsSnapshot): ManualSmsRequestBody {
     view_as: false,
     to: s.to,
     ...(s.senderPreference ? { from: s.senderPreference } : {}),
+    ...(s.expectedSenderId ? { expected_sender_id: s.expectedSenderId } : {}),
+    ...(s.overrideSenderId ? { override_sender_id: s.overrideSenderId } : {}),
     body: s.body,
     contact_id: s.contactId,
     contact_type: s.contactType,

@@ -1,3 +1,4 @@
+import { DialerSmsComposer } from "@/components/dialer/DialerSmsComposer";
 import { bookingTimes } from "@/lib/appointmentPersistence";
 import { useDispositionPersistence } from "@/hooks/useDispositionPersistence";
 import { applyPersistedDisposition, verifyOutboundAdmission, type DispositionInput } from "@/lib/dialer-disposition";
@@ -1526,7 +1527,7 @@ export default function DialerPage() {
     let cancelled = false;
     const resolve = async () => {
       try {
-        const smartId = await getSmartCallerId(currentLead?.phone || "", currentLead?.lead_id || currentLead?.id || "", { localPresenceEnabled });
+        const smartId = await getSmartCallerId(currentLead?.phone || "", currentLead?.lead_id || currentLead?.id || "", { localPresenceEnabled, contactType: "lead" });
         if (!cancelled) setDisplayedFromNumber(smartId);
       } catch { if (!cancelled) setDisplayedFromNumber(""); }
     };
@@ -2374,7 +2375,7 @@ export default function DialerPage() {
     lastDialCampaignLeadIdRef.current = currentLead?.id ?? null;
     lastUsedCallerId.current = callerNumber;
     const opts: MakeCallOptions = {
-      contactId: contactId || null, campaignId: selectedCampaignId || null,
+      contactId: contactId || null, contactType: "lead", campaignId: selectedCampaignId || null,
       campaignLeadId: currentLead?.id || null,
       contactName: `${currentLead?.first_name || ''} ${currentLead?.last_name || ''}`.trim() || null,
       contactPhone: leadPhone, isAttemptCurrent: ownsAttempt,
@@ -2388,7 +2389,7 @@ export default function DialerPage() {
 
   const initiateCall = useCallback(async (leadPhone: string, contactId: string, ownsAttempt = captureVisit()) => {
     if (!user?.id) throw new Error("Sign in again before calling.");
-    const smartCallerId = await getSmartCallerId(leadPhone, contactId, { localPresenceEnabled });
+    const smartCallerId = await getSmartCallerId(leadPhone, contactId, { localPresenceEnabled, contactType: "lead" });
     if (!ownsAttempt()) return false;
     if (!smartCallerId) throw new Error("No eligible outbound caller ID is available for this campaign.");
     return proceedWithCall(leadPhone, smartCallerId, contactId, ownsAttempt);
@@ -4376,6 +4377,7 @@ export default function DialerPage() {
           selectedCallerNumber={selectedCallerNumber}
           availableNumbers={availableNumbers}
           currentUserId={user?.id ?? null}
+          smsComposer={<DialerSmsComposer key={currentLead?.lead_id || currentLead?.id || "none"} contactId={currentLead?.lead_id || undefined} phone={currentLead?.phone} name={[currentLead?.first_name,currentLead?.last_name].filter(Boolean).join(" ")} text={messageText} onChange={setMessageText} onTemplates={handleOpenTemplates} onRefresh={()=>{if(currentLead?.lead_id)void fetchHistory(currentLead.lead_id,{campaignLeadId:currentLead.id});}} savedIds={history.filter(h=>h.type==="sms").map(h=>h.id)} />}
           onSmsTabChange={handleSmsTabChange}
           onOpenTemplates={handleOpenTemplates}
           onSendMessage={handleSendMessage}

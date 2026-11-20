@@ -1,3 +1,4 @@
+import { affinityGuard } from "../_shared/sms/affinity.ts";
 import { database } from "../_shared/a2p/auth.ts";
 import { bridge, checked, policy } from "../_shared/sms/consent.ts";
 import { dispatch } from "../_shared/sms/dispatch.ts";
@@ -51,6 +52,7 @@ export async function handle(req: Request) {
     for (const j of jobs ?? []) {
       let state = "pending";
       try {
+        await affinityGuard(db, j.organization_id); // Missing/error state cannot authorize a legacy send.
         const p = await policy(db, j.organization_id);
         if (!p?.enforced) {
           throw new SmsError("SMS_PAUSED", "Agency not enrolled.");
