@@ -1,3 +1,27 @@
+# Sticky Contact Numbers — primary installation completed; modes off
+
+Updated November 20, 2026 Pacific. Chris approved the three-statement managed-role correction and resumed the previously approved primary-only installation. The corrected transaction, five complete Edge packages and pinned frontend are installed and verified. **Do not replay the installer. Sticky voice and SMS remain off for every organization.**
+
+| Installed component | Verified identity |
+|---|---|
+| Supabase | `jncvvsvckxhqgqvkppmj`; 386 migrations/head `20261120060345` |
+| Installer | SHA-256 `1d2d1a4d0a7872f6bc1e5c37e940fd37e8f4758c1ced56cda8df24017a9175b9`; all five exact histories, 55 functions/11 tables/one role match |
+| Edge | `twilio-sms` 62; `workflow-executor` 51; `sms-consent-worker` 27; `twilio-sms-webhook` 48; `twilio-voice-inbound` 73; all ACTIVE, `verify_jwt=false` |
+| Frontend | `f49e55b770b97155fac46f3e5eeae949ad9f3047` |
+| Primary production | `agentflow`, `dpl_56mpNPZEL3gNBBAqbHga3Es5Gq7f`, READY |
+| Domains | `fflagent.com`, `www.fflagent.com`; apex redirect retained |
+| Activation/seed | None; all six organizations' voice/SMS modes off |
+
+See [the November 20 installation record](production-installation-2026-11-20.md) for actual production readbacks, advisor explanations, package-bundling qualification and browser verification. The final 18:38:51 UTC readback again passes exact history/postimages, every mode off and empty seed scope; authenticated preview RPC logs show 17 POST and one OPTIONS request, all HTTP 200. Installation verification is complete. This does not claim pilot or real communication acceptance.
+
+The original November 19 rollback remains historical evidence. The new grant was explicitly approved before the successful attempt. Main is not merged and the secondary project remains outside scope. The future pilot needs its own exact organization/cohort, reconciliation dry run, reviewed disposition mapping, internal-alert allowlist and controlled-test scope. No seeding, activation, number/provider change or real communication is authorized by this record.
+
+---
+
+## Historical approved release packet — November 19
+
+The text below preserves the reviewed payload identities, approval wording, failed-attempt context and release procedure. Its statements about waiting for amendment approval or absent production installation describe the November 19 checkpoint, now superseded by the November 20 installation record above. Its command list is not an instruction to replay completed production work.
+
 # Sticky Contact Numbers — primary release: managed-role amendment
 
 Updated November 19, 2026 Pacific. This is the active release packet and supersedes the November 14 four-migration packet and its requirement to reconcile a second Vercel project. Earlier inspection records remain historical.

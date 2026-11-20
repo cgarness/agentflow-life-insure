@@ -1,3 +1,26 @@
+## November 20, 2026 Pacific — primary installation verified; all sticky modes off
+
+Chris approved the managed-role amendment and continuation of the exact primary-only release. The corrected five-migration transaction succeeded on `jncvvsvckxhqgqvkppmj`; history is now 386 records/head `20261120060345`, with the prior 381-record history unchanged. All five recorded source hashes and 55 function/11 table/1 role postimages match. Supplemental role checks confirm the intended postgres membership, no retained private-schema CREATE, and no application-role scope membership or direct helper execution. All six organizations retain voice/SMS off; settings, assignments, enforcement, reconciliation, classifications and internal-alert allowlist remain empty.
+
+The five complete Edge packages are deployed and read back: SMS 62, workflow 51, confirmation worker 27, SMS webhook 48, inbound voice 73; all ACTIVE and `verify_jwt=false`. Every executable local dependency matches the approved source. Inbound bundling omitted only one erased TypeScript type-only dependency, as independently checked. ClearPath remains unchanged at 25.
+
+Primary `agentflow` production deployment `dpl_56mpNPZEL3gNBBAqbHga3Es5Gq7f` is READY at frontend pin `f49e55b770b97155fac46f3e5eeae949ad9f3047`; both `fflagent.com` and `www.fflagent.com` point to it, with the apex redirect preserved. Authenticated contact preview passed, with no application console error and no call/text. The six observed browser-extension metadata errors are unrelated to the app.
+
+Production advisors show zero new ERROR. The six authenticated-definer warnings and eleven private-RLS informational findings match the approved design. Twelve performance warnings enumerate existing PUBLIC policy combinations for the new restricted role; no policy DDL changed. Ten feature indexes are newly unused while the feature is off. Existing findings remain disclosed. Full record: `docs/plans/2026-11-12-sticky-contact-numbers/production-installation-2026-11-20.md`.
+
+Final production checkpoint passed at 18:38:51 UTC (10:38 AM Pacific): exact history/postimages remain intact, all six organizations remain off, all eleven private feature tables are empty, and classification/bound-dispatch counts are zero. Authenticated preview logs show 17 POST and one OPTIONS request to `preview_contact_numbers`, all HTTP 200; the installed client uses this read-only RPC directly, not an Edge preview request. Production verification is complete; publish this documentation and the durable closeout. Preserve all original exclusions: no main merge, secondary-project work, seeding, activation, number/provider changes, or real calls/texts. Do not reinstall or replay the successful transaction. Pilot preparation and activation remain separate work requiring exact approval.
+
+## November 20, 2026 Pacific — approved managed-role installation resume
+
+Chris explicitly approved the three-statement role correction and resumption of the previously approved primary-only installation. Use the frozen amended installer SHA-256 `1d2d1a4d0a7872f6bc1e5c37e940fd37e8f4758c1ced56cda8df24017a9175b9` (191,807 bytes), five complete Edge packages, and frontend pin `f49e55b770b97155fac46f3e5eeae949ad9f3047`. Supabase target is `jncvvsvckxhqgqvkppmj`; Vercel is only `agentflow` / `fflagent.com`.
+
+Exact documentation files to touch: root `implementation_plan.md`; focused `docs/plans/2026-11-12-sticky-contact-numbers/implementation_plan.md`, `release-approval.md`, new `production-installation-2026-11-20.md`; `WORK_LOG.md`. Record raw receipts and parsed summaries in the current operation directory and a durable closeout. No runtime source edits are planned.
+
+Execute the documented ordered release: verify frozen payload hashes and current main/PR/primary domains; compare six database function preimages and six complete Edge preimages; capture migration-history digest, workload and security/performance/health advisors; run the approved five-migration transaction once with its 3s lock and 60s statement guards; require exact five history records, 55 function/11 table/1 role postimages, supplemental role permission checks, all modes off and no seed rows; compare advisor deltas. Then deploy and re-fetch each of the five pinned complete Edge packages in packet order. Deploy the exact approved frontend commit only to the primary, verify READY/source/domains and read-only behavior, and document the outcome.
+
+On ambiguous transport, inspect current state before retrying. Retain all original exclusions: no main merge, secondary inspection/change, seeding, activation, number/provider setting changes, or real calls/texts. Existing user authorization covers this entire sequence; do not ask again for a step already approved.
+
+
 ## November 19, 2026 Pacific — managed-production role correction after atomic rollback
 
 Additional exact verification/documentation paths: `scripts/sticky-numbers/managed-role-rehearsal.mjs` (new reproducible local-only production-role test), and `AGENT_RULES.md` (one managed-role rehearsal invariant). The release source manifest will include this test helper; no existing frontend or Edge source changes.
