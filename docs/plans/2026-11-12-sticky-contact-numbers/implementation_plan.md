@@ -1,3 +1,15 @@
+## November 20, 2026 Pacific — manual-dial hotfix installed
+
+Chris approved the exact Revision 2 packet. The one-function correction was applied to primary AGENTFLOW CRM as `20261120230232_sticky_unsaved_reconciled_call` at **3:02:32 PM Pacific**, advancing history to388 records. Both sticky channels remain enforced for Chris's agency; other organizations and the existing cap correction are unchanged.
+
+Manual numbers with no saved CRM contact can now use new/reconciled empty history or reuse an established voice/SMS identity. The original guard incorrectly demanded a contact for these states. Only the private scope predicate changes; saved/hidden-contact access, review/reservation, actor/org/campaign/lock, DNC/readiness, binding and telemetry protections remain. The full unsaved call -> confirmed callback/provider evidence -> pin recovery -> repeat admission lifecycle passes.
+
+Verified132 checks:38focused,66existing native,20cap,8migration/inverse/drift/data-preservation. Exact production SQL, nine function/security postimages, state constraints and unchanged setting fingerprints pass. Advisors add no findings. Native tests used managed PostgreSQL17.6 with synthetic fixtures and blocked external networking; no real call/text was placed. Root TypeScript and JS syntax pass; prior app/mobile limitations remain.
+
+Exact files: new migration and rollback with recorded version20261120230232; `scripts/sticky-numbers/manual-dial-tests.mjs`; [manual-dial hotfix closeout](manual-dial-hotfix-2026-11-20.md); this focused-plan prefix; newest-first `WORK_LOG.md`. Preserve all prior content. No runtime deployment or main merge is needed; source publication stays on draftPR531. The earlier local empty-history-only candidate was never deployed and is superseded. Agent retry remains the practical live confirmation.
+
+---
+
 ## November 20, 2026 Pacific — pinned voice cap correction installed
 
 Chris authorized: “Ok correct the cap behavior and then I will run tests.” The exact correction was applied to AGENTFLOW CRM (`jncvvsvckxhqgqvkppmj`) as migration `20261120193109_sticky_pinned_voice_cap` at **11:31:09 AM Pacific**. Both sticky channels remain enforced for Chris's agency; the other five organizations remain off. The primary frontend and Edge packages are unchanged.
