@@ -1,3 +1,7 @@
+## Managed-role release amendment — November 19, 2026 Pacific
+
+All existing acceptance IDs and pilot requirements remain unchanged. Revised installation now passes66native groups and7atomic/replay cases as actual nonsuperuser postgres; prior superuser installation proof alone was insufficient. Additional release assertions verify installer membership direction/options, no persistent schema CREATE, no client scope-role/direct-helper access and working nested wrappers. Original production attempt rolled back completely. Revised installer1d2d1a4d… requires its narrow amendment approval; activation and real communications remain held.
+
 # Sticky Contact Numbers — 88-case acceptance tracker
 
 Updated November 19,2026Pacific. Executable source `f49e55b770b97155fac46f3e5eeae949ad9f3047`. All 88 IDs and required descriptions are preserved. “Verified locally” means the listed isolated evidence, not live certification. C11 records the existing merge boundary; F11 retains all production gates. The original 70 descriptions and 18 additions remain authoritative.

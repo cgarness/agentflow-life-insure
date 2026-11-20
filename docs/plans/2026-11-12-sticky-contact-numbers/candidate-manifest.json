@@ -2,13 +2,13 @@
   "format": 2,
   "repository": "cgarness/agentflow-life-insure",
   "base_commit": "2129fa8b195cee77ad75f614abe655facfad2725",
-  "source_commit": "f49e55b770b97155fac46f3e5eeae949ad9f3047",
-  "status": "isolated implementation verified; draft PR publication authorized; production held",
+  "source_commit": "43028ca74e2271c85dc05f87c318fa27cda86aad",
+  "status": "isolated amendment verified; exact amended production approval required",
   "migrations": [
     {
       "path": "supabase/migrations/20261114003115_sticky_contact_numbers_foundation.sql",
-      "bytes": 18061,
-      "sha256": "3ab479c4553d5d0087a1ee0acd4e2baada84b5255726aeb6db3eda6f107e7d39",
+      "bytes": 18474,
+      "sha256": "3730a454e79acd793324ba1cc08e3a8a0d05f270b5b0af399f9842675937ed4c",
       "version": "20261114003115",
       "name": "sticky_contact_numbers_foundation"
     },
@@ -567,6 +567,11 @@
       "sha256": "593f1ebe4e534d9d5b4d521b427a866f4b3c8362aa310e07671e56d065c6e2f3"
     },
     {
+      "path": "scripts/sticky-numbers/managed-role-rehearsal.mjs",
+      "bytes": 11031,
+      "sha256": "269c48cde063ce1964a1a3b95daa707a31c4efa2c1d238ee7bd64b2e9086c9c5"
+    },
+    {
       "path": "scripts/sticky-numbers/performance.mjs",
       "bytes": 8756,
       "sha256": "b3e74c901ca3272826eeaf7d352f5f700e4b9419548405287692877d568b0d0d"
@@ -873,8 +878,8 @@
     },
     {
       "path": "supabase/migrations/20261114003115_sticky_contact_numbers_foundation.sql",
-      "bytes": 18061,
-      "sha256": "3ab479c4553d5d0087a1ee0acd4e2baada84b5255726aeb6db3eda6f107e7d39"
+      "bytes": 18474,
+      "sha256": "3730a454e79acd793324ba1cc08e3a8a0d05f270b5b0af399f9842675937ed4c"
     },
     {
       "path": "supabase/migrations/20261114003337_sticky_contact_numbers_sms.sql",
@@ -920,8 +925,8 @@
     },
     {
       "path": "release/install.sql",
-      "bytes": 190981,
-      "sha256": "8fc2e2f9822829e55496570d0c1ade708a969e3937e4de73f153ad0bbcf35bfc"
+      "bytes": 191807,
+      "sha256": "1d2d1a4d0a7872f6bc1e5c37e940fd37e8f4758c1ced56cda8df24017a9175b9"
     },
     {
       "path": "release/readback.sql",
@@ -929,10 +934,9 @@
       "sha256": "9bbcd5649a56d753a762ef2b24fecf40a08ed7541fe80b6b77d0421f9eeb7625"
     }
   ],
-  "source_file_manifest_sha256": "9514dfce7b8220cca5a716eb1753bfe93a759952218cb4ab470472e4330c353f",
+  "source_file_manifest_sha256": "d82bfc876b09032b77bcd42a5e8d2d5cd43b9133e29fc64cdffcae2de2452e6a",
   "digest_format": "SHA-256 of UTF-8 sorted path + NUL + per-file lowercase SHA-256 + LF; source package digest is NOT a provider EZBR digest.",
-  "source_parent": "dd3c9c418360a5977cb481902c4ee1a2b3d24be5",
-  "supersedes_install_sha256": "7dddbdc515012a144829f5e089dcadf9831b57fc8c941250c460d69a04414578",
+  "supersedes_install_sha256": "8fc2e2f9822829e55496570d0c1ade708a969e3937e4de73f153ad0bbcf35bfc",
   "production_targets": {
     "supabase_project": "jncvvsvckxhqgqvkppmj",
     "vercel_project": "agentflow",
@@ -944,7 +948,8 @@
     ],
     "frontend_source_sha": "f49e55b770b97155fac46f3e5eeae949ad9f3047"
   },
-  "verification": {
+  "supersedes_source_commit": "f49e55b770b97155fac46f3e5eeae949ad9f3047",
+  "historical_verification": {
     "native_postgres": "17.11",
     "baseline_functions": 85,
     "baseline_tables": 45,
@@ -965,5 +970,22 @@
     "application_typescript_exit": 2,
     "application_typescript_diagnostics": 78,
     "application_typescript_new_diagnostics": 0
+  },
+  "verification": {
+    "status": "complete",
+    "managed_role_summary": "verification/managed-role-summary.json",
+    "other_78_source_files_byte_identical": true,
+    "all_edge_packages_byte_identical": true,
+    "function_and_table_postimages_unchanged": true
+  },
+  "managed_role_amendment": {
+    "grant_direction": "agentflow_affinity_scope TO postgres",
+    "installer_membership_retained": true,
+    "scope_role_can_login": false,
+    "scope_role_bypassrls": false,
+    "scope_private_schema_create_retained": false,
+    "function_owners_or_acl_changed": false,
+    "original_attempt_evidence": "verification/failed-original-attempt",
+    "diff": "documentation/managed-role-foundation.diff"
   }
 }

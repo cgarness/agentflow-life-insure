@@ -1,8 +1,8 @@
-# Sticky Contact Numbers — primary AgentFlow release approval
+# Sticky Contact Numbers — primary release: managed-role amendment
 
 Updated November 19, 2026 Pacific. This is the active release packet and supersedes the November 14 four-migration packet and its requirement to reconcile a second Vercel project. Earlier inspection records remain historical.
 
-**Status: isolated implementation and release rehearsal complete; production execution is not authorized.** The existing draft PR is [#531](https://github.com/cgarness/agentflow-life-insure/pull/531). Executable source commit: `f49e55b770b97155fac46f3e5eeae949ad9f3047`, based on the recovered PR head `dd3c9c418360a5977cb481902c4ee1a2b3d24be5`; main remains `2129fa8b195cee77ad75f614abe655facfad2725`. Documentation commits may follow the executable commit. Require all 79 source-file hashes in `candidate-manifest.json` to match before release.
+**Status: the previously approved installation was attempted once and rolled back completely. The managed-role correction is verified; approval is required only for the amended installer and role grant.** The existing draft PR is [#531](https://github.com/cgarness/agentflow-life-insure/pull/531). Database and rehearsal source commit: `43028ca74e2271c85dc05f87c318fa27cda86aad`; the previously approved frontend stays at `f49e55b770b97155fac46f3e5eeae949ad9f3047`, based on the recovered PR head `dd3c9c418360a5977cb481902c4ee1a2b3d24be5`; main remains `2129fa8b195cee77ad75f614abe655facfad2725`. Documentation commits may follow the executable commit. Require all 80 source-file hashes in `candidate-manifest.json` to match before release.
 
 Chris directed this release to the primary **agentflow** project at **fflagent.com**. The secondary project is outside the scope and is not a prerequisite. Release directly to the primary by exact source SHA; no main merge is needed or included.
 
@@ -22,21 +22,29 @@ The initial enabled cohort, historical seed cohort, disposition seed, internal-a
 
 Phases 1–5 are implemented: persistent voice/SMS endpoint identities; database-bound sender selection; current send readiness; one-time and deliberate changes; native voice qualification/recovery; all three real messaging surfaces including the Dialer; reconciliation and protective rollback.
 
-The November 19 correction adds the existing type-specific Contacts edit permission to deliberate changes and every contact sharing a phone. It also rejects NULL/invalid channels and missing or invalid audit reasons. It replaces only two function definitions in a fifth migration. Existing owners, grants, security settings, contact RLS, four original migrations, frontend and Edge runtime source are unchanged. See `permission-hardening.md`.
+The November 19 correction adds the existing type-specific Contacts edit permission to deliberate changes and every contact sharing a phone. It also rejects NULL/invalid channels and missing or invalid audit reasons. It replaces only two function definitions in a fifth migration. Existing owners, grants, security settings, contact RLS, the four later migrations, frontend and Edge runtime source are unchanged. The never-applied foundation additionally has the three managed-role setup statements described below. See `permission-hardening.md`.
 
 Fresh production reads found 381 recorded migrations with head 20261113152433, no installed sticky objects, matching six original DB function preimages and six complete deployed function packages. The primary production site remains main 2129fa8 and its public bundle points to the expected Supabase project with the anon role. Agency number readiness is now 22/22 active numbers registered, pooled and selected by the SMS policy; the earlier registration-gap estimate is obsolete. This task made none of those number changes. Repeat drift/activity checks immediately before an approved installation.
+
+## Managed-role amendment and confirmed rollback
+
+The original approved five-migration installer (`8fc2e2f9822829e55496570d0c1ade708a969e3937e4de73f153ad0bbcf35bfc`) failed at the restricted helper ownership transfer with PostgreSQL42501 and rolled back. Production remains381 migrations/head20261113152433 with no sticky role or relations, and no Edge/frontend deployment occurred. Do not retry that installer.
+
+The foundation adds exactly three statements, matching the existing production commission operator/writer pattern: `GRANT agentflow_affinity_scope TO postgres`; temporarily grant `CREATE ON SCHEMA private` to the scope role around the existing OWNER transfer; then immediately revoke CREATE. Persistent database-administrator membership supports the sealed helper's runtime and migration management. No application-role membership, direct helper execution, persistent schema CREATE, LOGIN or BYPASSRLS is added to the restricted role. Function definitions, owners and final function/table ACLs are unchanged.
+
+Actual non-superuser postgres on PostgreSQL17.11 now reproduces the original failure and verifies the revised exact installer,55function/11table/1role postimages,5history source hashes,66native groups and7atomic/replay cases. The new80thsource file, `scripts/sticky-numbers/managed-role-rehearsal.mjs`, reproduces this check using literal loopback test connections only. See `production-installation-2026-11-19.md` for the complete attempt record and amendment.
 
 ## Frozen database package
 
 | Migration | Bytes | SHA-256 |
 |---|---:|---|
-| `20261114003115_sticky_contact_numbers_foundation.sql` | 18061 | `3ab479c4553d5d0087a1ee0acd4e2baada84b5255726aeb6db3eda6f107e7d39` |
+| `20261114003115_sticky_contact_numbers_foundation.sql` | 18474 | `3730a454e79acd793324ba1cc08e3a8a0d05f270b5b0af399f9842675937ed4c` |
 | `20261114003337_sticky_contact_numbers_sms.sql` | 25131 | `d2466f068e04c03866bdc4fa55303ef71e812d27af700d7e73cd101b043d4908` |
 | `20261114003652_sticky_contact_numbers_voice.sql` | 26348 | `269266bc6eda4ac6cf0362c48bfb139b62b02f198e53104a8d699e411d67de58` |
 | `20261114004102_sticky_contact_numbers_reconciliation.sql` | 18796 | `9a6a6f670c7e18f74e0ab5c35604824699be238c67c9f6724736a4ff1e51cf64` |
 | `20261120060345_sticky_contact_numbers_edit_permissions.sql` | 6052 | `2759c38fd691e2cba4be2b5ba084958dc70f987912ea9582ecb80f8779e996c5` |
 
-`release/install.sql`: **190,981 bytes**, SHA-256 **`8fc2e2f9822829e55496570d0c1ade708a969e3937e4de73f153ad0bbcf35bfc`**. This single transaction executes the five exact migration sources and records their exact version/name/source bytes once. It retains the original six live function guards, both fifth-migration function guards, duplicate-history refusal, a 3-second lock timeout and 60-second statement timeout. The complete original four-migration execution/history prefix is preserved.
+`release/install.sql`: **191,807 bytes**, SHA-256 **`1d2d1a4d0a7872f6bc1e5c37e940fd37e8f4758c1ced56cda8df24017a9175b9`**. This single transaction executes the five exact migration sources and records their exact version/name/source bytes once. It retains the original six live function guards, both fifth-migration function guards, duplicate-history refusal, a 3-second lock timeout and 60-second statement timeout. Only the foundation execution and exact recorded-source blocks differ from the preceding five-migration installer; all other transaction bytes are unchanged.
 
 **Superseded:** do not install the prior four-migration package with SHA-256 `7dddbdc515012a144829f5e089dcadf9831b57fc8c941250c460d69a04414578`; it lacks the permission correction.
 
@@ -83,8 +91,8 @@ Corrected `release/expected-postimages.json`: 19,717 bytes, SHA-256 `663c58170e0
 
 `release/guard_only.sql` SHA-256 `22d8531a8d59f88f9dd2133d09e1410d8d41cb55ff8f9e0bb1b4b2a7125721e6`. Once activation is separately approved, the approved affected organization's rollback can preserve identities/audit/unresolved sends while setting both channels to guard_only. It does not replay messages or restore default-number fallback. Before first activation, keep all modes off and diagnose any installation defect without creating relationships.
 
-## Exact approval wording
+## Exact amendment approval wording
 
-> Approve the off-by-default Sticky Contact Numbers installation on Supabase `jncvvsvckxhqgqvkppmj` using install.sql SHA-256 `8fc2e2f9822829e55496570d0c1ade708a969e3937e4de73f153ad0bbcf35bfc`, followed by the five complete Edge packages listed here and frontend source `f49e55b770b97155fac46f3e5eeae949ad9f3047` on the primary `agentflow` Vercel project only. Perform the drift, activity, readback and advisor checks in this packet. Keep all sticky modes off. This approval does not include main merge, another Vercel project, number/provider/policy changes, live historical or disposition/allowlist seeding, activation, or real calls/texts.
+> Approve the managed-role amendment: the three added statements in the never-applied foundation migration and revised five-migration installer SHA-256 `1d2d1a4d0a7872f6bc1e5c37e940fd37e8f4758c1ced56cda8df24017a9175b9`. Resume the previously approved primary-only installation after fresh drift/activity checks. Keep all sticky modes off and retain the original exclusions.
 
-No production approval has been inferred from the instruction to continue implementation. The user can review this exact package as the final installation approval; do not repeat the implementation or publication approval.
+Chris already approved the five unchanged Edge packages and pinned primary frontend. That authority persists. The additional request concerns only the concrete amended installer and database-administrator role membership. It does not authorize a main merge, secondary project work, seeding, activation, provider/number changes or real calls/texts. No revised production attempt has occurred.
