@@ -1,3 +1,17 @@
+## November 20, 2026 Pacific — pinned voice cap correction installed
+
+Chris authorized: “Ok correct the cap behavior and then I will run tests.” The exact correction was applied to AGENTFLOW CRM (`jncvvsvckxhqgqvkppmj`) as migration `20261120193109_sticky_pinned_voice_cap` at **11:31:09 AM Pacific**. Both sticky channels remain enforced for Chris's agency; the other five organizations remain off. The primary frontend and Edge packages are unchanged.
+
+An established voice pin, or established SMS pin when voice is unset, now remains usable at and above the operational daily call cap. The database preview, call authorization and final admission use one endpoint-scoped helper. Rotation, one-call overrides, reservations and review states retain their existing restrictions. Ownership, active-number status, Inbounds-only exclusion, campaign groups, DNC, contact access, binding generation and telemetry are preserved.
+
+Verified: six old defects reproduced; **20/20** focused actual-role cap checks; **66/66** existing native regression groups; **5/5** guarded migration/rollback/replay checks preserving exact content across 21 populated tables. PostgreSQL17.6 used the actual managed NOSUPERUSER postgres role. Root TypeScript5.8.3 and test-script syntax pass. The application TypeScript/mobile limitations in earlier records are not newly certified by this database-only change.
+
+Production: all nine expected function definitions/security metadata match; the recorded migration statement is byte-identical to the tested 13,897-byte SQL (SHA-256 `6e88a3472e554ff38c98daa254bea4744dac98a7be82c637b43b6182de2a1bd4`). History is 387 records/head `20261120193109`. Fresh before/after modes, assignments, audit and communication aggregates match. Advisors add no findings; existing 2 security ERROR findings remain, and one performance INFO resolved. No real call/text was initiated by this work. Chris owns the live call/text acceptance.
+
+See [the cap correction closeout](cap-correction-2026-11-20.md) for exact scope, tests, rollback and handoff. Prior statements that pinned numbers still block at cap describe the earlier installation and activation checkpoints; this correction supersedes that limitation. No main merge, secondary-project change, provider/number change, reseeding or arbitrary reassignment occurred.
+
+---
+
 # Sticky Contact Numbers — enabled for Chris's agency
 
 Current status, November 20, 2026 Pacific: Chris's activation instruction was completed at **11:01:17 AM Pacific** for **Family First Life - Chris Garness** (`a0000000-0000-0000-0000-000000000001`). Both voice and SMS are **enforced**. All other five organizations remain off.
