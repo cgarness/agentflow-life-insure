@@ -1,37 +1,44 @@
 {
-  "format": 1,
+  "format": 2,
   "repository": "cgarness/agentflow-life-insure",
   "base_commit": "2129fa8b195cee77ad75f614abe655facfad2725",
-  "source_commit": "a57ea11168fff51156b8d624b4966c10869d8dcd",
-  "status": "isolated verified candidate; publication and production held",
+  "source_commit": "f49e55b770b97155fac46f3e5eeae949ad9f3047",
+  "status": "isolated implementation verified; draft PR publication authorized; production held",
   "migrations": [
     {
       "path": "supabase/migrations/20261114003115_sticky_contact_numbers_foundation.sql",
-      "version": "20261114003115",
-      "name": "sticky_contact_numbers_foundation",
       "bytes": 18061,
-      "sha256": "3ab479c4553d5d0087a1ee0acd4e2baada84b5255726aeb6db3eda6f107e7d39"
+      "sha256": "3ab479c4553d5d0087a1ee0acd4e2baada84b5255726aeb6db3eda6f107e7d39",
+      "version": "20261114003115",
+      "name": "sticky_contact_numbers_foundation"
     },
     {
       "path": "supabase/migrations/20261114003337_sticky_contact_numbers_sms.sql",
-      "version": "20261114003337",
-      "name": "sticky_contact_numbers_sms",
       "bytes": 25131,
-      "sha256": "d2466f068e04c03866bdc4fa55303ef71e812d27af700d7e73cd101b043d4908"
+      "sha256": "d2466f068e04c03866bdc4fa55303ef71e812d27af700d7e73cd101b043d4908",
+      "version": "20261114003337",
+      "name": "sticky_contact_numbers_sms"
     },
     {
       "path": "supabase/migrations/20261114003652_sticky_contact_numbers_voice.sql",
-      "version": "20261114003652",
-      "name": "sticky_contact_numbers_voice",
       "bytes": 26348,
-      "sha256": "269266bc6eda4ac6cf0362c48bfb139b62b02f198e53104a8d699e411d67de58"
+      "sha256": "269266bc6eda4ac6cf0362c48bfb139b62b02f198e53104a8d699e411d67de58",
+      "version": "20261114003652",
+      "name": "sticky_contact_numbers_voice"
     },
     {
       "path": "supabase/migrations/20261114004102_sticky_contact_numbers_reconciliation.sql",
-      "version": "20261114004102",
-      "name": "sticky_contact_numbers_reconciliation",
       "bytes": 18796,
-      "sha256": "9a6a6f670c7e18f74e0ab5c35604824699be238c67c9f6724736a4ff1e51cf64"
+      "sha256": "9a6a6f670c7e18f74e0ab5c35604824699be238c67c9f6724736a4ff1e51cf64",
+      "version": "20261114004102",
+      "name": "sticky_contact_numbers_reconciliation"
+    },
+    {
+      "path": "supabase/migrations/20261120060345_sticky_contact_numbers_edit_permissions.sql",
+      "bytes": 6052,
+      "sha256": "2759c38fd691e2cba4be2b5ba084958dc70f987912ea9582ecb80f8779e996c5",
+      "version": "20261120060345",
+      "name": "sticky_contact_numbers_edit_permissions"
     }
   ],
   "edge_packages": [
@@ -546,8 +553,8 @@
     },
     {
       "path": "scripts/sticky-numbers/database-tests.mjs",
-      "bytes": 45208,
-      "sha256": "0566be13826c2fe0ca8881396d82381d9325fc3881f853459cacc702d7e6f256"
+      "bytes": 57606,
+      "sha256": "9e237a599337734e74cffd6fec608d7b8c671ab0104b96cd1d20fcd66456659c"
     },
     {
       "path": "scripts/sticky-numbers/edge-tests.mjs",
@@ -806,8 +813,8 @@
     },
     {
       "path": "supabase/functions/_shared/sms/affinity.test.ts",
-      "bytes": 11944,
-      "sha256": "00ae7e9767b83335e420dd9a5c44de5806438cff7a3fbbe56f2fab636d55e4b7"
+      "bytes": 11946,
+      "sha256": "4fae98f71f34b8af50f57314e89f9a242383aef61a4bfde10f837a5e9ca284c3"
     },
     {
       "path": "supabase/functions/_shared/sms/affinity.ts",
@@ -885,6 +892,11 @@
       "sha256": "9a6a6f670c7e18f74e0ab5c35604824699be238c67c9f6724736a4ff1e51cf64"
     },
     {
+      "path": "supabase/migrations/20261120060345_sticky_contact_numbers_edit_permissions.sql",
+      "bytes": 6052,
+      "sha256": "2759c38fd691e2cba4be2b5ba084958dc70f987912ea9582ecb80f8779e996c5"
+    },
+    {
       "path": "supabase/ops/sticky_numbers_guard_only.sql",
       "bytes": 594,
       "sha256": "22d8531a8d59f88f9dd2133d09e1410d8d41cb55ff8f9e0bb1b4b2a7125721e6"
@@ -899,7 +911,7 @@
     {
       "path": "release/expected-postimages.json",
       "bytes": 19717,
-      "sha256": "f0d11438152187f12daadf7400548c1be4f10cccf579511898b1d014718ce71e"
+      "sha256": "663c58170e02358f2dd82c8bd39460b2fc88674aad11961703e567528f504814"
     },
     {
       "path": "release/guard_only.sql",
@@ -908,8 +920,8 @@
     },
     {
       "path": "release/install.sql",
-      "bytes": 178462,
-      "sha256": "7dddbdc515012a144829f5e089dcadf9831b57fc8c941250c460d69a04414578"
+      "bytes": 190981,
+      "sha256": "8fc2e2f9822829e55496570d0c1ade708a969e3937e4de73f153ad0bbcf35bfc"
     },
     {
       "path": "release/readback.sql",
@@ -917,6 +929,41 @@
       "sha256": "9bbcd5649a56d753a762ef2b24fecf40a08ed7541fe80b6b77d0421f9eeb7625"
     }
   ],
-  "source_file_manifest_sha256": "3c819a2ae0f6abbc80c50502fbf853e3c1a092a339b614b29889dbaa9c90cbd1",
-  "digest_format": "SHA-256 of UTF-8 sorted path + NUL + per-file lowercase SHA-256 + LF; source package digest is NOT a provider EZBR digest."
+  "source_file_manifest_sha256": "9514dfce7b8220cca5a716eb1753bfe93a759952218cb4ab470472e4330c353f",
+  "digest_format": "SHA-256 of UTF-8 sorted path + NUL + per-file lowercase SHA-256 + LF; source package digest is NOT a provider EZBR digest.",
+  "source_parent": "dd3c9c418360a5977cb481902c4ee1a2b3d24be5",
+  "supersedes_install_sha256": "7dddbdc515012a144829f5e089dcadf9831b57fc8c941250c460d69a04414578",
+  "production_targets": {
+    "supabase_project": "jncvvsvckxhqgqvkppmj",
+    "vercel_project": "agentflow",
+    "vercel_project_id": "prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc",
+    "vercel_team_id": "team_iPboOWpwdIQRwdxmA5GJp5Rq",
+    "domains": [
+      "fflagent.com",
+      "www.fflagent.com"
+    ],
+    "frontend_source_sha": "f49e55b770b97155fac46f3e5eeae949ad9f3047"
+  },
+  "verification": {
+    "native_postgres": "17.11",
+    "baseline_functions": 85,
+    "baseline_tables": 45,
+    "baseline_catalog_differences": 0,
+    "native_test_groups": 66,
+    "added_native_test_groups": 14,
+    "old_candidate_regressions_reproduced": 2,
+    "release_rehearsal_cases": 7,
+    "postimage_functions": 55,
+    "postimage_tables": 11,
+    "postimage_roles": 1,
+    "changed_function_definitions": [
+      "private.affinity_all_editable",
+      "public.change_contact_number"
+    ],
+    "new_advisor_errors": 0,
+    "root_typescript_exit": 0,
+    "application_typescript_exit": 2,
+    "application_typescript_diagnostics": 78,
+    "application_typescript_new_diagnostics": 0
+  }
 }

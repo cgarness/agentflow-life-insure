@@ -1,3 +1,13 @@
+# November 19, 2026 Pacific — current correction and primary-only scope
+
+Executable source `f49e55b770b97155fac46f3e5eeae949ad9f3047` adds the fifth permission-correction migration and 14 actual-role regression groups. Both defects reproduce on the original four migrations; corrected native suite 66/66 passes. PostgreSQL 17.11 baseline 85 functions/45 tables matches. Five-migration installer rehearsal 7/7 passes; only 2 of 55 function definitions change, with 11 table catalogs, 1 role and all owners/grants/security metadata unchanged. Root TypeScript, scoped changed-test ESLint, Node syntax and whitespace pass. The application check retains exactly 78 base/previous-candidate diagnostics and no new ones.
+
+Fresh isolated advisor delta: 0 new ERROR, 6 authenticated-definer WARN, 11 private-RLS INFO and 12 unused-index INFO on a clean install. Existing 2 ERROR remain; no unrelated hardening is included. See [permission-hardening.md](permission-hardening.md) and the current [release packet](release-approval.md) for exact artifacts and limitations.
+
+Chris restricted the release to primary `agentflow` at fflagent.com. The secondary project is outside scope and is not a gate. PR #531 publication is already authorized; hosted checks are tracked on the final PR head. All production installation/deployment/activation remains separately held. The following November 14 evidence is retained as historical proof for unchanged feature paths; its publication and two-target gate language is superseded by this paragraph and the active packet.
+
+---
+
 # Sticky Contact Numbers — verified isolated candidate
 
 November 14, 2026. Source commit `a57ea11168fff51156b8d624b4966c10869d8dcd`; base `2129fa8b195cee77ad75f614abe655facfad2725`. Production and publication remain held.
