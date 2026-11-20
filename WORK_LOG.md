@@ -1,3 +1,13 @@
+## November 19, 2026 Pacific — Sticky installation rolled back; managed-role correction verified
+
+- Approved production attempt: primary only, five migrations/five Edge packages/pinned frontend, all modes off. Fresh source/primary/six DB/six complete Edge preflights passed. Installer was attempted once and PostgreSQL42501 refused the first restricted-owner transfer. Verified atomic rollback:381 migrations/head20261113152433, no sticky role or objects. No Edge/frontend deployment, seed, activation, main merge, secondary/provider change or real communications.
+- Cause: isolated superuser rehearsal missed production postgres NOSUPERUSER role-SET and target-schema-CREATE requirements.
+- Isolated correction: three statements in the never-applied foundation, matching existing commission operator/writer migrations: scope membership to postgres, temporary private CREATE around OWNER transfer, immediate CREATE revoke. No application grants, owner changes or RLS bypass. Four later migration sources and all frontend/Edge runtime bytes unchanged. Pinned frontend remainsf49e55b.
+- Verification: actual non-superuser postgres PostgreSQL17.11 reproduces old failure/rollback; corrected exact installer passes55function/11table/1role postimages, five history hashes,66 functional groups and7 atomic/replay cases. Scope has no final schema CREATE; clients have no scope membership/direct execution; postgres wrappers work. No ineffective-REVOKE warnings. Zero mode/enforcement/assignment/event rows.
+- Files: foundation migration; new local-only scripts/sticky-numbers/managed-role-rehearsal.mjs; AGENT_RULES managed-role invariant; root/focused plans; this log; focused production-installation/release-approval/verification/ACCEPTANCE_TRACKER/candidate-manifest. Original frozen release artifact remains preserved.
+- Revised installer:191807bytes SHA2561d2d1a4d0a7872f6bc1e5c37e940fd37e8f4758c1ced56cda8df24017a9175b9. Foundation:18474bytes SHA2563730a454e79acd793324ba1cc08e3a8a0d05f270b5b0af399f9842675937ed4c. Postimages unchanged.
+- Next: publish verified amendment on existing draftPR531 and request only the changed installer/role-grant approval; prior primary Edge/frontend approval persists. Do not retry old installer or treat this correction as production-installed.
+
 ## November 19, 2026 Pacific — Sticky Contact Numbers permission correction; primary-only release
 
 - Scope: Chris directed continuation on the primary `agentflow` project serving `fflagent.com`; the secondary Vercel project is outside this release and is not a gate. Existing implementation and draft-PR publication approval persist. Production installation, deployment, activation and main merge remain separately held.

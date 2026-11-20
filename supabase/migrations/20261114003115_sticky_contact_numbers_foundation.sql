@@ -2,6 +2,9 @@
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '60s';
 CREATE ROLE agentflow_affinity_scope NOLOGIN INHERIT NOBYPASSRLS;
+-- Managed Supabase postgres is not a superuser. Match the existing operator-role
+-- pattern so migrations and postgres-owned wrappers can manage/call this helper.
+GRANT agentflow_affinity_scope TO postgres;
 GRANT authenticated TO agentflow_affinity_scope;
 GRANT USAGE ON SCHEMA public,private,auth TO agentflow_affinity_scope;
 
@@ -105,7 +108,10 @@ BEGIN
  THEN RAISE EXCEPTION 'affinity_scope_changed' USING ERRCODE='42501';END IF;
  RETURN jsonb_build_object('organization_id',p_org,'actor_id',actor.id,'role',actor.role,'phone',private.affinity_phone(contact->>'phone'),'contact_id',p_id,'contact_type',p_type);
 END $$;
+-- PostgreSQL requires the new owner to have CREATE during an ownership transfer.
+GRANT CREATE ON SCHEMA private TO agentflow_affinity_scope;
 ALTER FUNCTION private.affinity_contact_scope(uuid,uuid,text,text) OWNER TO agentflow_affinity_scope;
+REVOKE CREATE ON SCHEMA private FROM agentflow_affinity_scope;
 GRANT EXECUTE ON FUNCTION private.affinity_phone(text),private.phone_digits_e164ish(text) TO agentflow_affinity_scope;
 CREATE FUNCTION private.affinity_assert_contact(p_org uuid,p_id uuid,p_type text,p_phone text DEFAULT NULL) RETURNS jsonb
 LANGUAGE plpgsql STABLE SET search_path='' AS $$

@@ -1,3 +1,25 @@
+## November 19, 2026 Pacific — managed-production role correction after atomic rollback
+
+Additional exact verification/documentation paths: `scripts/sticky-numbers/managed-role-rehearsal.mjs` (new reproducible local-only production-role test), and `AGENT_RULES.md` (one managed-role rehearsal invariant). The release source manifest will include this test helper; no existing frontend or Edge source changes.
+
+The approved installation was attempted once and rolled back on SQLSTATE 42501 at the first migration's ownership transfer. Production `postgres` is NOSUPERUSER/CREATEROLE/BYPASSRLS; the earlier isolated rehearsal used a superuser and missed the role SET and target-schema CREATE prerequisites. Readback confirms 381 migrations, head `20261113152433`, no sticky objects or role, and zero deployments. Do not retry the previous installer.
+
+Isolated correction scope: amend only the never-applied foundation migration `supabase/migrations/20261114003115_sticky_contact_numbers_foundation.sql`, adding the existing production-project pattern `GRANT agentflow_affinity_scope TO postgres` plus temporary `GRANT CREATE ON SCHEMA private TO agentflow_affinity_scope` immediately around the ownership transfer, then revoke schema CREATE. This grants no scope membership to an application role and preserves the restricted owner's NOLOGIN/NOBYPASSRLS and authenticated RLS inheritance. Persistent installer membership also permits the existing postgres-owned wrappers to invoke the sealed helper and future migrations to manage it; it matches the existing commission operator/writer migrations. Four later migration sources, all frontend/Edge runtime source and pinned frontend remain unchanged.
+
+Before any revised production attempt: reproduce the old failure with actual non-superuser postgres in isolated PostgreSQL17; test the complete revised five-migration installer and 66 native groups under that role; assert exact owner/function/table ACL postimages, role membership direction/options, no client membership, no final schema CREATE, all modes off and atomic rollback. Save a reproducible managed-role rehearsal and the new manifest/installer hashes. Update only the root/focused plans, WORK_LOG, focused release-approval/verification/ACCEPTANCE_TRACKER/candidate-manifest and production-installation record; add the managed-role test helper to the focused verification tools if required. Preserve the original approved artifact and failed-attempt evidence.
+
+The production grant and revised installer are not covered by the previous frozen-hash approval. Finish the concrete correction and verification, then request approval only for this amendment. Previously approved primary frontend/Edge targets, no main merge, no secondary project, no seeding/activation/communications remain unchanged.
+
+## November 19, 2026 Pacific — approved primary production installation
+
+Chris explicitly approved the exact November 19 release packet: five migrations on `jncvvsvckxhqgqvkppmj`, the five frozen complete Edge packages, and frontend source `f49e55b770b97155fac46f3e5eeae949ad9f3047` on primary `agentflow` / `fflagent.com`. All sticky modes stay off. Main merge, secondary project changes, seeding, activation, number/provider changes, and real communications remain outside approval.
+
+Exact executable payload: `install.sql` SHA-256 `8fc2e2f9822829e55496570d0c1ade708a969e3937e4de73f153ad0bbcf35bfc`; corrected postimages SHA-256 `663c58170e02358f2dd82c8bd39460b2fc88674aad11961703e567528f504814`. Source and packages are frozen; no implementation edits or new migrations are planned.
+
+Documentation files for this release: this root plan; focused `implementation_plan.md`, `release-approval.md`, new `production-installation-2026-11-19.md`; `WORK_LOG.md`. Scratch evidence and a durable installation closeout record the exact approval, preflight, API receipts, readbacks, advisor deltas, hashes and final source/domain identities.
+
+Execution: fresh repository/primary/domain, six DB preimage, migration-history, six complete Edge package and activity checks; capture security/performance/health advisors; execute the approved five-migration transaction once with retained 3s lock/60s statement limits; read back exact history/source hashes and 55-function/11-table/1-role metadata with zero settings/identity seeds; compare production advisors; deploy and retrieve each of the five complete Edge packages in approved order; deploy pinned frontend only to primary; verify READY/source/domain and read-only behavior; retain modes off and write newest-first Work Log. On ambiguous transport, read state before any retry. Stop on material drift or unsuccessful guard without changing the approved payload.
+
 ## November 19, 2026 Pacific — primary-only release follow-up and permission correction
 
 CLI-generated migration path: `supabase/migrations/20261120060345_sticky_contact_numbers_edit_permissions.sql` (Supabase CLI 3.2.0; local file creation only).
