@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict';
 import { launch, session, APP } from '../team-open-local/lib.mjs';
-import { settings, sql, agency, campaign, sender, email } from './fixture.mjs';
+import { settings, sql, agency, otherAgency, campaign, sender, email } from './fixture.mjs';
+import { visibility } from './release-visibility.mjs';
 
 const evidence = { sessions: [] };
 const browser = await launch();
 const button = (page, name) => page.getByRole('button', { name, exact: true });
 function rows(page) { return page.getByRole('list', { name:'Ordered steps' }).getByRole('listitem'); }
-async function login(n) {
+async function login(n, visible = true) {
   const {page} = await session(browser, n, email(n), settings.PASSWORD, evidence);
   page.setDefaultTimeout(20000);
   await page.goto(APP+'/automations',{waitUntil:'domcontentloaded',timeout:60000});
-  await button(page,'Create automation').waitFor();
+  if (visible) await button(page,'Create automation').waitFor();
+  else await page.getByText('Automations are unavailable for this session.',{exact:true}).waitFor();
   return page;
 }
 async function start(page, name, trigger) {
@@ -33,10 +35,43 @@ function evidenceCount() {
   return sql(`select concat_ws(',',(select count(*) from private.automation_runs where organization_id='${agency}'),
     (select count(*) from private.automation_messages where organization_id='${agency}'))`);
 }
+function assertEmptyAgency() {
+  const scoped = `where organization_id='${agency}'`;
+  const counts = sql(`select row_to_json(a) from (select
+    (select count(*) from public.workflows ${scoped}) as definitions,
+    (select count(*) from public.workflows ${scoped} and status='active') as active,
+    (select count(*) from public.workflow_versions ${scoped}) as versions,
+    (select count(*) from public.workflow_executions ${scoped}) as legacy_runs,
+    (select count(*) from public.workflow_execution_steps s join public.workflow_executions e
+       on e.id=s.execution_id where e.organization_id='${agency}') as legacy_steps,
+    (select count(*) from private.automation_runs ${scoped}) as runs,
+    (select count(*) from private.automation_steps ${scoped}) as steps,
+    (select count(*) from private.automation_intents ${scoped}) as intents,
+    (select count(*) from private.automation_messages ${scoped}) as messages,
+    (select count(*) from public.messages ${scoped} and automation_message_id is not null) as sms_history,
+    (select count(*) from public.contact_emails ${scoped} and automation_message_id is not null) as email_history) a`);
+  for (const [metric,count] of Object.entries(JSON.parse(counts))) assert.equal(count,0,metric);
+}
 try {
   const first = await login('one');
   await first.getByText('Your agency has no automations yet.').waitFor();
   assert.equal(await button(first,'Create automation').count(),1);
+  assert.equal(sql(`select count(*) from private.automation_release_controls where enrollment_enabled or dispatch_enabled`),'0');
+  const hidden = await login('other',false);
+  assert.equal(await button(hidden,'Create automation').count(),0);
+  assertEmptyAgency();
+  await button(first,'Create automation').click();
+  await button(first,'Choose trigger').waitFor();
+  assert.equal(await first.getByLabel('Automation name').inputValue(),'');
+  assert.equal(await rows(first).count(),0);
+  await button(first,'Back to automations').click();
+  await first.getByText('Your agency has no automations yet.').waitFor();
+  assertEmptyAgency();
+  console.log('PASS fresh pilot author opened and abandoned the blank canvas. Both controls off, second agency hidden, zero workflows, activations, versions, runs, steps, intents and messages.');
+
+  // Enable the separate synthetic authoring and execution scenarios after the pilot check.
+  visibility(otherAgency,'show');
+  sql(`update private.automation_release_controls set enrollment_enabled=true where organization_id='${agency}'`);
   await start(first,'One UI action','New lead created');
   await add(first,0,'Send email');
   await first.getByLabel('Subject', {exact:true}).fill('First subject');

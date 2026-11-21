@@ -3,8 +3,6 @@ import { visibility } from './release-visibility.mjs';
 if (sql("show cron.launch_active_jobs") !== 'off') throw Error('Fixture requires disabled jobs');
 sql(`insert into organizations(id,name,slug) values ('${agency}','Automation UI A','automation-ui-a'),('${otherAgency}','Automation UI B','automation-ui-b');`);
 visibility(agency,'show');
-visibility(otherAgency,'show');
-sql(`update private.automation_release_controls set enrollment_enabled=true where organization_id in ('${agency}','${otherAgency}')`);
 for (const n of ['one','two','other']) {
   const org = n === 'other' ? otherAgency : agency;
   const res = await fetch(settings.API_URL+'/auth/v1/admin/users', {

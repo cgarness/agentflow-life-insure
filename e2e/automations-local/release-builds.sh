@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=${1:?temporary build directory required}
 [[ -d $out && ! -e $out/legacy-src && ! -e $out/candidate-dist ]]
-base=7914faefc750aaf38d3659a71d9a01b3298f9107
+base=b1a1d31f4330c750af73b2817f40b5234ab96ad1
 anon=$(node -pe 'require(process.env.AUTOMATIONS_LOCAL_SETTINGS).ANON_KEY')
 mkdir "$out/legacy-src"
 git archive "$base" | tar -x -C "$out/legacy-src"
