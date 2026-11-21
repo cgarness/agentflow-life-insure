@@ -26,7 +26,7 @@ async function add(page, index, type) {
 async function publish(page) {
   await button(page,'Review & publish').click();
   await button(page,'Publish').click();
-  await page.getByText(/Published\. New qualifying events/).waitFor();
+  await page.getByRole('region',{name:'Workflow status',exact:true}).getByText('Version published.',{exact:true}).waitFor();
   return new URL(page.url()).searchParams.get('workflow');
 }
 function evidenceCount() {

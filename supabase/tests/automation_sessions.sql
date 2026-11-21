@@ -22,10 +22,15 @@ from generate_series(10, 13) as n
 on conflict (id) do update set organization_id = excluded.organization_id, role = excluded.role,
   is_super_admin = excluded.is_super_admin, status = excluded.status;
 
-insert into auth.sessions (id, user_id) values
-  (pg_temp.fixture_uuid(20), pg_temp.fixture_uuid(10)),
-  (pg_temp.fixture_uuid(21), pg_temp.fixture_uuid(10)),
-  (pg_temp.fixture_uuid(22), pg_temp.fixture_uuid(11));
+-- Simulate the completed first visibility cutover for this rollback-only SQL suite.
+update private.automation_session_cutover set visibility_cutover_at=installed_at where visibility_cutover_at is null;
+insert into auth.sessions (id, user_id, created_at) values
+  (pg_temp.fixture_uuid(20), pg_temp.fixture_uuid(10),clock_timestamp()),
+  (pg_temp.fixture_uuid(21), pg_temp.fixture_uuid(10),clock_timestamp()),
+  (pg_temp.fixture_uuid(22), pg_temp.fixture_uuid(11),clock_timestamp()),
+  (pg_temp.fixture_uuid(23), pg_temp.fixture_uuid(10),(select visibility_cutover_at from private.automation_session_cutover)),
+  (pg_temp.fixture_uuid(24), pg_temp.fixture_uuid(10),null),
+  (pg_temp.fixture_uuid(25), pg_temp.fixture_uuid(11),now()-interval '1 day');
 
 -- Changing these GUCs here represents separate requests after gateway JWT verification.
 create function pg_temp.signed_request(actor integer, session_number integer) returns void language sql as $$
@@ -126,6 +131,32 @@ begin
   perform pg_temp.must_refuse('select public.automation_session_context()');
 end
 $$;
+reset role;
+
+-- The same pre-install login cannot create a server mode by refreshing its JWT, clearing
+-- browser state, or directly asking for a normal-mode revision. The gate also covers a
+-- pre-cutover login whose real role is no longer Super Admin.
+set local role authenticated;
+do $$
+declare
+  n integer;
+  reason text;
+begin
+  foreach n in array array[23,24] loop
+    perform pg_temp.signed_request(10,n);
+    begin
+      perform public.automation_session_context();
+      raise exception 'Old Super Admin session obtained a revision';
+    exception when insufficient_privilege then
+      get stacked diagnostics reason=pg_exception_hint;
+      if reason is distinct from 'automation_session_reauth' then raise; end if;
+    end;
+    perform pg_temp.must_refuse('select public.automation_session_transition(1,null)');
+    perform pg_temp.must_refuse('select pg_temp.save_draft(40,0,1)');
+  end loop;
+  perform pg_temp.signed_request(11,25);
+  perform pg_temp.must_refuse('select public.automation_session_context()');
+end $$;
 reset role;
 
 -- Supabase can expire or delete a session before its JWT has expired.

@@ -26,7 +26,11 @@ docker exec "$db" sh -eu -c '
 for migration in supabase/migrations/202611210{75959,80000,80100,80200}_*.sql; do
   docker cp "$migration" "$db:$dest/migrations/"
 done
+docker cp supabase/tests/fixtures "$db:$dest/tests/"
 docker cp supabase/tests/automation_upgrade.sql "$db:$dest/tests/"
 "${pg[@]}" psql -X -q -U postgres -d "$legacy" -v ON_ERROR_STOP=1 -f "$dest/tests/automation_upgrade.sql"
 "${pg[@]}" psql -X -q -U postgres -d "$legacy" -v ON_ERROR_STOP=1 -f - < supabase/tests/automation_authoring.sql
 echo 'Populated legacy graph, IDs, folders and history survived the complete feature upgrade.'
+# The legacy fixture has no candidate runtime events or runs. Reuse this isolated clone for actual lead intake.
+"${pg[@]}" psql -Xq -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE $legacy RENAME TO automation_release_channel_test"
+"${pg[@]}" psql -Xq -U postgres -d automation_release_channel_test -v ON_ERROR_STOP=1 -f - <supabase/tests/automation_intake_eligibility.sql

@@ -1,5 +1,6 @@
 -- Disposable SQL integration test. Provider and worker time are simulated at their boundaries.
 begin;
+update private.automation_session_cutover set visibility_cutover_at=installed_at where visibility_cutover_at is null;
 create function pg_temp.runtime_id(n integer) returns uuid language sql immutable as $$
   select ('dade0000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
 $$;
@@ -142,7 +143,7 @@ select pg_temp.require_result(public.automation_process_events(25)=0,'recovered 
 insert into public.campaign_leads(id,campaign_id,lead_id,organization_id) values
  (pg_temp.runtime_id(28),pg_temp.runtime_id(9),pg_temp.runtime_id(27),pg_temp.runtime_id(1));
 select pg_temp.require_result(public.automation_process_events(25)=1,'overlapping workflows enroll independently');
-insert into auth.sessions(id,user_id) values(pg_temp.runtime_id(29),pg_temp.runtime_id(3));
+insert into auth.sessions(id,user_id,created_at) values(pg_temp.runtime_id(29),pg_temp.runtime_id(3),clock_timestamp());
 select set_config('request.jwt.claim.sub',pg_temp.runtime_id(3)::text,true);
 select set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',pg_temp.runtime_id(3),
   'session_id',pg_temp.runtime_id(29),'app_metadata',jsonb_build_object('organization_id',pg_temp.runtime_id(1)))::text,true);

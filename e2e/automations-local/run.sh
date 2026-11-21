@@ -3,6 +3,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 umask 077
+mode=${1:-builder}
+case "$mode" in
+  builder|release) [[ $# -le 1 ]] ;;
+  release-full) [[ $# -eq 2 && -d "$2" ]] || { echo 'A verified schema-only archive directory is required.' >&2; exit 2; } ;;
+  *) echo 'Choose builder, release, or release-full ARCHIVE_DIRECTORY.' >&2; exit 2 ;;
+esac
 dir=$(mktemp -d)
 prefix="af-auto-test-$$"
 network="$prefix-net"
@@ -30,11 +36,19 @@ start() {
   docker run --detach --name "$name" --network "$network" --label agentflow-test=automations "$@" >/dev/null
   created+=("$name")
 }
-start "$db" -e POSTGRES_PASSWORD "${LOCAL_POSTGRES_IMAGE:-supabase/postgres:17.6.1.085}" postgres -D /etc/postgresql -c cron.launch_active_jobs=off
+postgres_image=supabase/postgres:17.6.1.085
+auth_image=supabase/gotrue:v2.177.0
+if [[ $mode == release-full ]]; then postgres_image=supabase/postgres:17.6.1.063; fi
+start "$db" -e POSTGRES_PASSWORD "${LOCAL_POSTGRES_IMAGE:-$postgres_image}" postgres -D /etc/postgresql -c cron.launch_active_jobs=off
 for _ in {1..90}; do
   if docker exec -e PGPASSWORD "$db" psql -h 127.0.0.1 -U supabase_admin -d postgres -Atqc 'select 1' >/dev/null 2>&1; then break; fi
   sleep 1
 done
+if [[ $mode == release-full ]]; then
+  bash e2e/automations-local/restore-full.sh "$2"
+  bash e2e/automations-local/verify-canonical.sh "$2"
+  auth_image=$(bash e2e/automations-local/restore-auth-state.sh prepare "$2")
+fi
 docker exec -i -e PGPASSWORD "$db" psql -Xq -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
 \getenv pw PGPASSWORD
 ALTER ROLE postgres PASSWORD :'pw';
@@ -49,18 +63,11 @@ start "$auth" -e GOTRUE_DB_DATABASE_URL -e GOTRUE_JWT_SECRET -e GOTRUE_DB_DRIVER
   -e GOTRUE_API_HOST=0.0.0.0 -e PORT=9999 -e GOTRUE_JWT_ADMIN_ROLES=service_role \
   -e GOTRUE_JWT_DEFAULT_GROUP_NAME=authenticated -e GOTRUE_JWT_AUD=authenticated \
   -e GOTRUE_EXTERNAL_EMAIL_ENABLED=true -e GOTRUE_MAILER_AUTOCONFIRM=true -e GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_ENABLED=true \
-  -e GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_URI=pg-functions://postgres/public/custom_access_token_hook supabase/gotrue:v2.177.0
+  -e GOTRUE_HOOK_CUSTOM_ACCESS_TOKEN_URI=pg-functions://postgres/public/custom_access_token_hook "$auth_image"
 start "$rest" -e PGRST_DB_URI -e PGRST_JWT_SECRET -e PGRST_DB_ANON_ROLE=anon -e PGRST_DB_SCHEMAS=public postgrest/postgrest:v13.0.4
 LOCAL_AUTH_CONTAINER="$auth" LOCAL_REST_CONTAINER="$rest" node e2e/automations-local/gateway.mjs &
 processes+=("$!")
 curl --retry 30 --retry-all-errors --retry-delay 1 --fail --silent http://127.0.0.1:54340/auth/v1/health >/dev/null
-bash e2e/automations-local/upgrade.sh prerequisites
-bash e2e/automations-local/legacy-upgrade.sh
-bash e2e/automations-local/upgrade.sh feature
-for file in supabase/tests/automation_{sessions,authoring,runtime,messages,backlog}.sql; do
-  docker exec -i -e PGPASSWORD "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < "$file"
-done
-python3 e2e/automations-local/concurrency.py
 node --input-type=module <<'JS'
 import {writeFileSync} from 'node:fs';
 import {randomBytes,createHmac} from 'node:crypto';
@@ -74,6 +81,37 @@ writeFileSync(process.env.AUTOMATIONS_LOCAL_SETTINGS, JSON.stringify({
   PASSWORD:randomBytes(24).toString('base64url'),DB_CONTAINER:process.env.AUTOMATIONS_DB_CONTAINER,
 }),{mode:0o600});
 JS
+if [[ $mode != release-full ]]; then
+  echo 'Scoped historical prerequisite fixture (33 migrations).'
+  bash e2e/automations-local/upgrade.sh prerequisites
+else
+  bash e2e/automations-local/restore-auth-state.sh verify "$2"
+  # Booting the native Auth service must also preserve the independently attested schema.
+  docker exec -i -e PGPASSWORD "$db" psql -XqAt -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f - \
+    <e2e/automations-local/schema-fingerprint.sql >"$dir/after-auth.json"
+  python3 - "$2/source-fingerprint.json" "$dir/after-auth.json" <<'PYTHON'
+import json, sys
+if json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])):
+    raise SystemExit('Full-schema fingerprint changed after local Auth startup')
+PYTHON
+fi
+if [[ $mode == release || $mode == release-full ]]; then
+  if [[ $mode == release ]]; then bash e2e/automations-local/legacy-upgrade.sh; fi
+  bash e2e/automations-local/release-builds.sh "$dir"
+  export AUTOMATION_TEST_ACCOUNT_SUFFIX=b1 AUTOMATION_IMPORT_MAP="$PWD/e2e/automations-local/import-map.json"
+  "${DENO_BIN:-deno}" cache --node-modules-dir=manual --no-lock --import-map="$AUTOMATION_IMPORT_MAP" e2e/automations-local/worker.ts
+  node e2e/automations-local/release-cutover.mjs "$dir"
+  for file in supabase/tests/automation_{messages,legacy_dispatch}.sql; do
+    docker exec -i -e PGPASSWORD "$db" psql -Xq -U postgres -d postgres -v ON_ERROR_STOP=1 -f - <"$file"
+  done
+  exit
+fi
+bash e2e/automations-local/legacy-upgrade.sh
+bash e2e/automations-local/upgrade.sh feature
+for file in supabase/tests/automation_{sessions,authoring,runtime,messages,backlog,legacy_dispatch}.sql; do
+  docker exec -i -e PGPASSWORD "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < "$file"
+done
+python3 e2e/automations-local/concurrency.py
 node e2e/automations-local/bootstrap.mjs
 anon=$(node -pe 'require(process.env.AUTOMATIONS_LOCAL_SETTINGS).ANON_KEY')
 env -i PATH="$PATH" NO_PROXY='*' VITE_SUPABASE_ANON_KEY="$anon" VITE_SUPABASE_URL=http://127.0.0.1:54340 \

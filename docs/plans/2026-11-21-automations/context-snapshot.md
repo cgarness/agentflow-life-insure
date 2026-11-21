@@ -1,5 +1,7 @@
 # Automations builder · isolated release candidate
 
+This snapshot records the earlier isolated candidate at `624ea7cc4566e1a65fb48eac2ae10bd5dbeb7df6`. For the current migration checksums, deployment order, cutover and release decisions, see the [builder-only release packet](builder-only-release.md) and [live execution decision](live-execution-decision.md).
+
 ## Candidate and release boundary
 
 Feature branch `feat/self-service-automations` stacks on `prereq/sticky-numbers-baseline-20261113` at `1536db4d957f256b5706d948545409cac2e1cfe1`. Its application source matches the deployed phone-setup frontend at `7914faefc750aaf38d3659a71d9a01b3298f9107`. The first feature commit, `c814dc81`, only prepends the approved plan. Resolve the exact candidate with `git rev-parse HEAD` in this checkout.

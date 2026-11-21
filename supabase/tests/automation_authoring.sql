@@ -1,5 +1,6 @@
 -- Isolated synthetic organization. Every definition and version rolls back.
 BEGIN;
+UPDATE private.automation_session_cutover SET visibility_cutover_at=installed_at WHERE visibility_cutover_at IS NULL;
 CREATE FUNCTION pg_temp.aid(n integer) RETURNS uuid LANGUAGE sql IMMUTABLE AS $$
   SELECT ('aee00000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid
 $$;
@@ -18,7 +19,7 @@ INSERT INTO public.profiles (id,organization_id,role,status,email)
   SELECT pg_temp.aid(n),pg_temp.aid(CASE WHEN n=12 THEN 2 ELSE 1 END),CASE WHEN n=11 THEN 'Agent' ELSE 'Admin' END,
     'Active','fixture-'||n||'@example.invalid' FROM generate_series(10,12)n
   ON CONFLICT(id) DO UPDATE SET organization_id=excluded.organization_id,role=excluded.role,status='Active';
-INSERT INTO auth.sessions(id,user_id) SELECT pg_temp.aid(n+10),pg_temp.aid(n) FROM generate_series(10,12)n;
+INSERT INTO auth.sessions(id,user_id,created_at) SELECT pg_temp.aid(n+10),pg_temp.aid(n),clock_timestamp() FROM generate_series(10,12)n;
 CREATE FUNCTION pg_temp.session(actor integer) RETURNS bigint LANGUAGE plpgsql AS $$
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',pg_temp.aid(actor)::text,true);
@@ -43,26 +44,48 @@ INSERT INTO public.workflow_folders(id,organization_id,name) VALUES (pg_temp.aid
 SET LOCAL ROLE authenticated;
 DO $$
 DECLARE s bigint:=pg_temp.session(10); doc uuid:=pg_temp.aid(80); copy jsonb:=pg_temp.sms_graph('Hi {{first_name}}');
-  invalid jsonb; issues jsonb; version_one uuid; version_two uuid; f jsonb;
+  invalid jsonb; issues jsonb; version_one uuid; version_two uuid; f jsonb; confirmed jsonb; bad_controls jsonb;
+  switches jsonb:='{"enrollment_enabled":false,"dispatch_enabled":false}';
 BEGIN
   PERFORM pg_temp.require(public.automation_list(0,NULL)='[]','new agency empty');
   PERFORM pg_temp.require(public.automation_access() @> '{"can_author":true}','admin author access');
   PERFORM public.save_automation_draft(doc,'','{"format":1,"nodes":[],"edges":[],"settings":{"reentry":"once","stop_on_reply":false}}',0,s);
   PERFORM pg_temp.require(jsonb_array_length(public.validate_automation_draft(doc))>=2,'incomplete draft saved with validation');
-  PERFORM pg_temp.denied(format('select public.publish_automation(%L,1,%s)',doc,s));
+  PERFORM pg_temp.denied(format('select public.publish_automation(%L,1,%s,%L)',doc,s,switches));
   PERFORM public.save_automation_draft(doc,'Independent SMS',copy,1,s);
   PERFORM pg_temp.require(public.validate_automation_draft(doc)='[]','single action without delay valid');
   PERFORM pg_temp.denied(format('select public.save_automation_draft(%L,''Stale'',%L,1,%s)',doc,copy,s));
-  version_one:=(public.publish_automation(doc,2,s)->>'version_id')::uuid;
-  PERFORM pg_temp.denied(format('select public.publish_automation(%L,2,%s)',doc,s));
+  PERFORM pg_temp.require(public.automation_access(doc) @> jsonb_build_object('release_controls',switches,'workflow',
+    jsonb_build_object('id',doc,'status','draft','revision',2,'trigger_type',NULL)),'review reads scoped controls and draft status');
+  -- Omission must not resolve to a permissive overload, even for an authorized caller with a valid draft.
+  BEGIN
+    EXECUTE 'select public.publish_automation($1,$2,$3)' USING doc,2::bigint,s;
+    RAISE EXCEPTION 'Publish without reviewed controls unexpectedly succeeded';
+  EXCEPTION WHEN undefined_function THEN NULL;
+  END;
+  FOREACH bad_controls IN ARRAY ARRAY[NULL::jsonb, '{"enrollment_enabled":false}'::jsonb,
+    jsonb_set(switches,'{dispatch_enabled}','true')] LOOP
+    BEGIN
+      PERFORM public.publish_automation(doc,2,s,bad_controls);
+      RAISE EXCEPTION 'Unreviewed controls unexpectedly published';
+    EXCEPTION WHEN SQLSTATE 'PT409' THEN NULL;
+    END;
+  END LOOP;
+  PERFORM pg_temp.require(NOT EXISTS(SELECT FROM public.workflow_versions WHERE workflow_id=doc),'mismatched review created no version');
+  confirmed:=public.publish_automation(doc,2,s,switches);
+  PERFORM pg_temp.require(confirmed @> jsonb_build_object('release_controls',switches,'status','active','trigger_type','lead_created',
+    'revision',3),'publish confirms effective switches and workflow');
+  version_one:=(confirmed->>'version_id')::uuid;
+  PERFORM pg_temp.denied(format('select public.publish_automation(%L,2,%s,%L)',doc,s,switches));
   PERFORM public.save_automation_draft(doc,'Edited copy',pg_temp.sms_graph('Next'),3,s);
   PERFORM pg_temp.require((SELECT graph=copy AND name='Independent SMS' FROM public.workflow_versions WHERE id=version_one),'version frozen after edit');
   PERFORM pg_temp.require((SELECT name='Independent SMS' AND status='active' FROM public.workflows WHERE id=doc),'draft inert');
   PERFORM public.automation_lifecycle(doc,'pause',s);
-  version_two:=(public.publish_automation(doc,5,s)->>'version_id')::uuid;
+  version_two:=(public.publish_automation(doc,5,s,switches)->>'version_id')::uuid;
   PERFORM pg_temp.require(version_two<>version_one AND (SELECT status='paused' FROM public.workflows WHERE id=doc),'publishing a paused edit preserves pause');
   PERFORM public.automation_lifecycle(doc,'resume',s);
-  PERFORM pg_temp.require(public.automation_list(0,NULL)#>>'{0,trigger_type}'='lead_created','list summarises authored trigger');
+  PERFORM pg_temp.require(public.automation_list(0,NULL)#>>'{0,trigger_type}'='lead_created' AND
+    public.automation_list(0,NULL)#>'{0,release_controls}'=switches,'list confirms pinned trigger and switch settings');
   PERFORM pg_temp.require((SELECT trigger_type='lead_created' FROM public.workflows WHERE id=doc),'intake catalog sees published lead trigger');
 
   invalid:=jsonb_set(copy,'{edges,0,target}',to_jsonb(pg_temp.aid(99)));
@@ -91,11 +114,13 @@ BEGIN
   PERFORM pg_temp.denied('delete from public.workflow_folders where true');
 
   s:=pg_temp.session(11);
-  PERFORM pg_temp.require(public.automation_access() @> '{"can_author":false}','default agent denied management');
+  PERFORM pg_temp.require(public.automation_access(doc) @> '{"can_author":false}' AND
+    NOT public.automation_access(doc) ?| ARRAY['workflow','release_controls'],'agent cannot read management controls or workflow');
   PERFORM pg_temp.denied(format('select public.save_automation_draft(%L,''Agent'',%L,0,%s)',pg_temp.aid(82),copy,s));
   s:=pg_temp.session(12);
-  PERFORM pg_temp.require(public.automation_list(0,NULL)='[]' AND NOT EXISTS(SELECT FROM public.workflows WHERE id=doc),'foreign agency denied reads');
-  PERFORM pg_temp.denied(format('select public.publish_automation(%L,8,%s)',doc,s));
+  PERFORM pg_temp.require(public.automation_list(0,NULL)='[]' AND NOT EXISTS(SELECT FROM public.workflows WHERE id=doc)
+    AND NOT public.automation_access(doc) ? 'workflow','foreign agency denied workflow status and graph');
+  PERFORM pg_temp.denied(format('select public.publish_automation(%L,8,%s,%L)',doc,s,switches));
 END $$;
 RESET ROLE;
 
@@ -155,11 +180,12 @@ $$;
 SET LOCAL ROLE authenticated;
 DO $$
 DECLARE adm bigint:=pg_temp.session(10); delegate bigint; copies jsonb;
+  switches jsonb:=public.automation_access()->'release_controls';
 BEGIN
   PERFORM public.save_automation_draft(pg_temp.aid(92),'Visible',pg_temp.campaign_graph(90),0,adm);
-  PERFORM public.publish_automation(pg_temp.aid(92),1,adm);
+  PERFORM public.publish_automation(pg_temp.aid(92),1,adm,switches);
   PERFORM public.save_automation_draft(pg_temp.aid(93),'Hidden',pg_temp.campaign_graph(91),0,adm);
-  PERFORM public.publish_automation(pg_temp.aid(93),1,adm);
+  PERFORM public.publish_automation(pg_temp.aid(93),1,adm,switches);
   PERFORM public.automation_folder('create',pg_temp.aid(94),'{"name":"Scoped folder"}',adm);
   PERFORM public.automation_folder('move',pg_temp.aid(94),jsonb_build_object('workflow_id',pg_temp.aid(93)),adm);
   delegate:=pg_temp.session(11);
@@ -174,7 +200,7 @@ BEGIN
      NOT copies @> jsonb_build_array(jsonb_build_object('id',pg_temp.aid(93))),'only managed campaign shared to delegate');
   PERFORM pg_temp.require(NOT EXISTS (SELECT FROM public.workflows WHERE id=pg_temp.aid(93)),'direct graph SELECT enforce audience');
   PERFORM pg_temp.denied(format('select public.save_automation_draft(pg_temp.aid(93),%L,pg_temp.campaign_graph(90),2,%s)','Attempted takeover',delegate));
-  PERFORM pg_temp.denied(format('select public.publish_automation(pg_temp.aid(93),2,%s)',delegate));
+  PERFORM pg_temp.denied(format('select public.publish_automation(pg_temp.aid(93),2,%s,%L)',delegate,switches));
   PERFORM pg_temp.denied(format('select public.automation_lifecycle(pg_temp.aid(93),%L,%s)','pause',delegate));
   PERFORM pg_temp.denied(format('select public.automation_folder(%L,pg_temp.aid(94),%L,%s)','delete','{}',delegate));
   PERFORM public.save_automation_draft(pg_temp.aid(92),'Accessible shared draft',pg_temp.campaign_graph(90),2,delegate);
@@ -186,7 +212,7 @@ UPDATE public.workflows SET trigger_type='lead_created',status='active' WHERE id
 SET LOCAL ROLE authenticated;
 SELECT pg_temp.session(10);
 SELECT public.save_automation_draft(pg_temp.aid(1100),'Lead header',pg_temp.sms_graph('fixture'),0,pg_temp.session(10));
-SELECT public.publish_automation(pg_temp.aid(1100),1,pg_temp.session(10));
+SELECT public.publish_automation(pg_temp.aid(1100),1,pg_temp.session(10),public.automation_access()->'release_controls');
 RESET ROLE;
 SET LOCAL ROLE service_role;
 SELECT pg_temp.require(ARRAY(SELECT id FROM public.get_active_workflows_for_trigger(pg_temp.aid(1),'lead_created',NULL))

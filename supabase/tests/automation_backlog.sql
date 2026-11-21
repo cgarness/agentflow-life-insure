@@ -1,5 +1,6 @@
 -- Disposable synthetic acceptance only. Roll back source rows, event receipts and all work.
 begin;
+update private.automation_session_cutover set visibility_cutover_at=installed_at where visibility_cutover_at is null;
 set local statement_timeout='60s';
 
 do $$
@@ -71,7 +72,7 @@ begin
   if claimed<>200 or exists(select 1 from private.automation_intents where organization_id=agency and status<>'prepared') then
     raise exception 'Unexpected synthetic dispatch or dropped claim'; end if;
   elapsed:=clock_timestamp()-enrolled_at;
-  insert into auth.sessions(id,user_id) values(session_id,actor);
+  insert into auth.sessions(id,user_id,created_at) values(session_id,actor,clock_timestamp());
   perform set_config('request.jwt.claim.sub',actor::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',actor,
     'session_id',session_id,'app_metadata',jsonb_build_object('organization_id',agency))::text,true);

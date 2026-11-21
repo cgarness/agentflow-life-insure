@@ -5,6 +5,7 @@ import subprocess
 import time
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 
 container = os.environ["AUTOMATIONS_DB_CONTAINER"]
 def docker(*args):
@@ -96,21 +97,28 @@ try:
       insert into auth.users(id,email) values ('{actor}','{actor}@example.invalid'),('{target}','{target}@example.invalid');
       update public.profiles set organization_id='{org}',role='Super Admin',is_super_admin=true,status='Active' where id='{actor}';
       update public.profiles set organization_id='{org}',role='Agent',status='Active' where id='{target}';
-      insert into auth.sessions(id,user_id) values ('{session}','{actor}'),('{independent}','{actor}');
-      insert into private.automation_release_controls(organization_id,builder_visible,enrollment_enabled) values('{org}',true,true);
+      commit;""")
+    visibility = Path(__file__).resolve().parents[2] / "supabase/ops/automations_builder_visibility.sql"
+    subprocess.run(psql + ["-v", f"agency_id={org}", "-v", "action=show"], input=visibility.read_text(),
+                   text=True, stdout=subprocess.DEVNULL, check=True, timeout=25)
+    query(f"""begin;
+      insert into auth.sessions(id,user_id,created_at) values ('{session}','{actor}',clock_timestamp()),('{independent}','{actor}',clock_timestamp());
+      update private.automation_release_controls set enrollment_enabled=true where organization_id='{org}';
       commit;""")
     own = int(authenticated(session, "select automation_session_context()->>'revision'"))
     other = int(authenticated(independent, "select automation_session_context()->>'revision'"))
 
     editor = str(uuid.uuid4())
     authenticated(session, f"select public.save_automation_draft('{workflow}','Synthetic valid graph','{graph}',0,{own});")
+    controls = authenticated(session, f"select public.automation_access('{workflow}')->'release_controls'")
+    assert json.loads(controls) == {"enrollment_enabled": True, "dispatch_enabled": False}
     worker_name = "automation-race-" + session
     with hold(identity(session) + f"select automation_session_transition({own},'{target}');"):
         # A different login remains immediately writable while the real actor's first session changes.
         authenticated(independent, save(other, 0, str(uuid.uuid4())))
         waiter = subprocess.Popen(psql, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         waiter.stdin.write(f"begin; set local application_name='{worker_name}'; set local statement_timeout='12s';\n"
-                           + identity(session) + f"select public.publish_automation('{workflow}',1,{own}); commit;\n")
+                           + identity(session) + f"select public.publish_automation('{workflow}',1,{own},'{controls}'); commit;\n")
         waiter.stdin.close()
         wait_for_blocked(worker_name)
     assert waiter.wait(timeout=15) != 0 and "Automations write denied" in waiter.stderr.read()
@@ -119,7 +127,7 @@ try:
     normal = int(authenticated(session, f"select automation_session_transition({active},null)->>'revision'"))
     authenticated(session, save(normal, 0, editor))
 
-    authenticated(session, f"select public.publish_automation('{workflow}',1,{normal});")
+    authenticated(session, f"select public.publish_automation('{workflow}',1,{normal},'{controls}');")
     query(f"insert into public.leads(id,organization_id) values ('{lead}','{org}');")
     with hold("select public.automation_process_events(25);"):
         assert query("select public.automation_process_events(25);") == "0"
