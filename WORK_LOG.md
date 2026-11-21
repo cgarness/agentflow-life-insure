@@ -1,3 +1,29 @@
+## November 21, 2026 — Contact From number names released on fflagent.com
+
+Chris approved the primary AgentFlow frontend release of `b1a1d31f4330c750af73b2817f40b5234ab96ad1` from PR #535. Vercel marked deployment `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU` ready at 12:57 PM Pacific. Both `fflagent.com` and `www.fflagent.com` resolved to this deployment. The live contacts page and its JavaScript bundle `/assets/index-CkKQiRdM.js` returned HTTP 200.
+
+On a signed-in test contact, the From dropdown contained 22 choices. **Denver, CO** appeared next to its formatted phone number. Opening and closing the list kept the same sender. Choosing Denver opened the confirmation with that same phone number and the permanent-assignment checkbox clear. Cancel restored the original selection. Verification ended there without placing a call, sending a text or saving an assignment.
+
+All eight GitHub Actions workflows passed on the released commit. The two runtime files were `src/components/contacts/FullScreenContactView.tsx` and `src/components/contacts/ContactFromNumberControl.tsx`. This release required only a frontend deployment. This closeout updates `WORK_LOG.md` and `implementation_plan.md`. The primary release and live verification are complete. The previous primary deployment was `dpl_Ces2SKbmdQrjHJ3XyYwopGZebt7U`.
+
+---
+
+## November 21, 2026 — Restore saved names in the contact From dropdown (review candidate)
+
+Chris reported that the sticky-number selector hid names such as Denver, CO. The contact screen already requested friendly names, but the sticky path rendered only the formatted phone number. A read-only count confirmed all 22 active numbers in Chris's agency had saved names. The page now shows the agency's label beside the formatted number in the selected value and the list. Blank or unmatched names fall back to the formatted sender number.
+
+The existing phone inventory read now includes row ID and organization. The selector uses a matching agency row ID and normalized number for display. Its underlying option values and eligible choices still come from the contact-number model. The inventory is scoped to the contact, actor, viewer and organization, including empty responses. The native control has more room for the name. The legacy dropdown continues to use phone numbers as its option values.
+
+Verification covered both selection modes, blank and missing names, equal digits on a different row, a saved number absent from the options, late inventory across agency switches, and call and SMS sender identity. Three label assertions failed on the previous implementation. The corrected candidate passed 302 tests across 20 files. All 298 corresponding tests passed on the base. Root TypeScript, scoped ESLint, the Vite build and the whitespace check passed. The separate application type-check produced the same 78 existing diagnostics on base and candidate.
+
+Four Chromium scenarios passed with synthetic inventory. The full contact screen showed the complete label on light and dark desktop layouts and in legacy mode. The isolated selector also fit at 390 pixels. Keyboard selection, cancellation and temporary confirmation preserved the expected number. The browser recorded zero external requests and zero page errors.
+
+The first PR run exposed two expectations that predated the live selector. The SMS browser fixture now supplies a synthetic labeled inventory row and eligible option. Its ready-contact assertion verifies that the correct labeled ID is selected, Send is actionable and no request is dispatched. The Conversations readiness assertion and both negative controls remain in the same test. The dialer byte-hash check now pins the approved primary `553f89d` source. Live, PR base and label candidate all have the same `TwilioContext.tsx` blob `be0964b2753b03cd3985ce58f7d50aadcd93ccf0`. The 23 contact integration tests and four dialer-boundary tests passed together after this test-only update.
+
+The two runtime files are `src/components/contacts/FullScreenContactView.tsx` and `src/components/contacts/ContactFromNumberControl.tsx`. Verification changes are in `src/components/contacts/__tests__/fullScreenContactViewFromNumber.test.tsx`, `scripts/tests/sms-responsiveness/stubs/supabase.ts`, `scripts/tests/sms-responsiveness/verify-number-preview.mjs` and `src/pages/__tests__/dialerPageReportsV2Exceptions.test.ts`. Documentation changed in `implementation_plan.md` and this log. The candidate is based on `f459ae7` on the PR #531 branch. The primary frontend release awaits Chris's approval. This change requires no migrations.
+
+---
+
 ## November 21, 2026 — Simplified contact FROM released on primary AgentFlow
 
 Chris approved exact frontend commit `553f89d3a647770a6c722e4ae4ba89b15b2a3b09`. Primary production deployment `dpl_Ces2SKbmdQrjHJ3XyYwopGZebt7U` became READY at **10:53:12 AM Pacific** with no alias error; both `fflagent.com` and `www.fflagent.com` point to it. The connected Git build used the approved source and existing primary configuration. Complete source/tree preflight preserved all backend, dependency, configuration, workflow and automatic number setup files. Main remains unmerged.

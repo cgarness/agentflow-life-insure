@@ -22,7 +22,13 @@ try {
       await page.locator('textarea[placeholder="Type SMS message…"]').fill("Synthetic readiness control");
       const send = page.locator('button[title="Send SMS"]');
       if (scenario === "ready") {
-        await page.getByText("Ready · checked again when sending", { exact: true }).first().waitFor();
+        if (surface === "contact") {
+          const from = page.getByRole("combobox", { name: "From number", exact: true });
+          await from.getByRole("option", { name: "Denver, CO - (555) 000-2222", exact: true, selected: true }).waitFor({ state: "attached" });
+          assert.equal(await from.inputValue(), "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+        } else {
+          await page.getByText("Ready · checked again when sending", { exact: true }).first().waitFor();
+        }
         await send.click({ trial: true, timeout: 3000 });
         assert.equal(await send.isEnabled(), true, `${surface}: valid preview enables ordinary send`);
       } else {

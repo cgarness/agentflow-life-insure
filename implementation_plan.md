@@ -1,3 +1,18 @@
+## November 21, 2026 — Contact From number names are live
+
+Chris approved release of `b1a1d31f4330c750af73b2817f40b5234ab96ad1` to the primary frontend. Both AgentFlow production domains now point to Vercel deployment `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`. A signed-in check verified the Denver, CO name beside its phone number, the matching number in the confirmation and the original selection after Cancel. All eight GitHub Actions workflows passed on the released source. The release and verification are complete. [Work log](WORK_LOG.md)
+
+## November 21, 2026 — Restore names in the contact From dropdown
+
+Chris approved the frontend correction. At the start of the fix, the primary site ran `553f89d`. The review branch started from `f459ae7`, its documentation-only successor on PR #531.
+
+1. In `src/components/contacts/FullScreenContactView.tsx`, include each phone number's row ID and organization in the existing inventory read. Scope the display data to the current viewer and contact so an empty result or late response cannot show a previous agency's labels.
+2. In `src/components/contacts/ContactFromNumberControl.tsx`, show the saved name and formatted number in each eligible option and the selected value. An unnamed or unmatched row uses the formatted sender number. Keep option membership, IDs, confirmation, assignment and sender behavior authoritative in the existing contact-number model.
+3. Extend `src/components/contacts/__tests__/fullScreenContactViewFromNumber.test.tsx` to cover named and unnamed numbers, selection, eligibility and delayed data across agency changes. Verify the existing call and SMS paths with synthetic fixtures.
+4. Run the scoped Vitest suite, `npx tsc --noEmit`, the application type-check against the base, scoped ESLint, and the Vite build. Record results newest first in `WORK_LOG.md` and submit the frontend change for review. These two documentation files and the three paths above are the intended changes. Production release requires separate approval.
+
+Hosted verification of the first candidate exposed two expectations from before the approved contact-selector release. Update the synthetic inventory in `scripts/tests/sms-responsiveness/stubs/supabase.ts` and the ready-contact check in `scripts/tests/sms-responsiveness/verify-number-preview.mjs`. Verify the selected label, its ID, Send actionability and zero dispatch. Update only the expected released byte hash and its description in `src/pages/__tests__/dialerPageReportsV2Exceptions.test.ts` after comparing the live, base and candidate dialer source. Re-run the checks on the review branch. The two application files listed above contain all runtime edits.
+
 ## November 21, 2026 — Contact FROM dropdown simplification is live
 
 Chris approved the exact primary-only frontend release of `553f89d3a647770a6c722e4ae4ba89b15b2a3b09`. It became READY at **10:53:12 AM Pacific** as `dpl_Ces2SKbmdQrjHJ3XyYwopGZebt7U`; both fflagent.com domains resolve to this source. Assigned Number is the saved default without a phone icon, channel caption or separate Change control. The header FROM controls calls and texts, with a compact alternate-number confirmation and optional permanent assignment checkbox. The signed-in live contact screen, confirmation and cancellation were verified without communication or assignment mutation. See [the focused plan](docs/plans/2026-11-21-contact-from-dropdown/implementation_plan.md) and [production release record](docs/plans/2026-11-21-contact-from-dropdown/production-release.md).

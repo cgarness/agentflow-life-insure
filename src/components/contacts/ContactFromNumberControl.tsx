@@ -1,15 +1,16 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { formatPhoneNumber } from "@/utils/phoneUtils";
+import { formatPhoneNumber, normalizePhoneNumber } from "@/utils/phoneUtils";
 import { readinessLabels } from "@/lib/number-affinity";
 import { contactAssignment } from "@/lib/contact-from-number";
 import type { useContactFromNumber } from "@/hooks/useContactFromNumber";
 
 type Model = ReturnType<typeof useContactFromNumber>;
+export type FromNumberLabel = { agencyNumberId?: string; number: string; label: string };
 type Props = { model: Model; legacyNumber: string; onLegacyChange: (number: string) => void;
-  legacyOptions: { number: string; label: string }[] };
+  legacyOptions: FromNumberLabel[] };
 
 function NumberConfirmation({ model, onClosed }: { model: Model; onClosed: () => void }) {
   const [assign, setAssign] = useState(false);
@@ -50,17 +51,23 @@ export function ContactFromNumberControl({ model, legacyNumber, legacyOptions, o
   const selectedId = model.sender?.id ?? "";
   const choices = model.enabled ? model.options : [];
   const missing = !!selectedId && !choices.some(row => row.id === selectedId);
+  const inventoryById = useMemo(() => new Map(legacyOptions.map(row => [row.agencyNumberId, row])), [legacyOptions]);
+  function stickyLabel(id: string, number: string) {
+    const row = inventoryById.get(id);
+    return row && normalizePhoneNumber(row.number) === normalizePhoneNumber(number)
+      ? row.label : formatPhoneNumber(number);
+  }
   return <div className="min-w-0">
     <label className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-accent/30 px-2 py-1">
       <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">From:</span>
       <select ref={trigger} aria-label="From number" disabled={model.disabled}
         value={model.enabled ? selectedId : legacyNumber}
         onChange={event => model.enabled ? model.select(event.target.value) : onLegacyChange(event.target.value)}
-        className="min-w-0 max-w-48 cursor-pointer border-none bg-transparent text-xs font-semibold text-foreground outline-none focus:ring-0">
+        className="min-w-0 max-w-64 cursor-pointer border-none bg-transparent text-xs font-semibold text-foreground outline-none focus:ring-0">
         {model.enabled ? <>
           {!selectedId && <option value="">{model.sender?.number ? `${formatPhoneNumber(model.sender.number)} · Unavailable` : "Choose a number"}</option>}
-          {missing && <option value={selectedId}>{formatPhoneNumber(model.sender?.number ?? "")}</option>}
-          {choices.filter(row => row.id).map(row => <option key={row.id!} value={row.id!}>{formatPhoneNumber(row.number ?? "")}</option>)}
+          {missing && <option value={selectedId}>{stickyLabel(selectedId, model.sender?.number ?? "")}</option>}
+          {choices.filter(row => row.id).map(row => <option key={row.id!} value={row.id!}>{stickyLabel(row.id!, row.number ?? "")}</option>)}
         </> : legacyOptions.length ? legacyOptions.map(row => <option key={row.number} value={row.number}>{row.label}</option>) :
           <option value="">{model.disabled ? "Checking numbers…" : "No numbers available"}</option>}
       </select>
