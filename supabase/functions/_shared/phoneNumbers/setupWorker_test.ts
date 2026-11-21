@@ -1,3 +1,5 @@
+import { database } from "../a2p/registrationTestDb.ts";
+import { activeTrustAdmin, manualTrustScope } from "./manualTrustScope.ts";
 import { setupTrust } from "./setupTrust.ts";
 import { runNumberSetup } from "./setupWorker.ts";
 import type { SetupJob } from "./setupTypes.ts";
@@ -305,3 +307,34 @@ Deno.test("both jobs wait without provider traffic while either agency or teleph
     }
   }
 });
+
+Deno.test("manual Trust setup requires active administrators and resolves only legacy active numbers from the buying agency", async () => {
+  equal(activeTrustAdmin({role:"Admin",status:"Active"}),true);
+  equal(activeTrustAdmin({role:"Super Admin",status:"Active"}),true);
+  equal(activeTrustAdmin({role:"Admin",status:"Inactive"}),false);
+  equal(activeTrustAdmin({role:"Agent",status:"Active"}),false);
+  const legacy=sid("PN","a"), managed=sid("PN","b"), foreign=sid("PN","c"), released=sid("PN","d");
+  const numbers=[{id:"a",organization_id:"A",twilio_sid:legacy,phone_number:"+12025550121",status:"active"},
+    {id:"b",organization_id:"A",twilio_sid:managed,phone_number:"+12025550122",status:"active"},
+    {id:"c",organization_id:"B",twilio_sid:foreign,phone_number:"+12025550123",status:"active"},
+    {id:"d",organization_id:"A",twilio_sid:released,phone_number:"+12025550124",status:"released"}];
+  const seed=database({phone_numbers:numbers}), resolved: string[] = [];
+  const client={...seed,rpc: async (_name:string, args:{p_org:string;p_number:string})=>{
+    equal(args.p_org,"A"); resolved.push(args.p_number);
+    return {data:{managed:args.p_number===numbers[1].phone_number,owned:true},error:null};
+  }};
+  const result=await manualTrustScope(client,"A",[legacy,managed,foreign,released,legacy]);
+  equal(result.legacy.length,1);
+  equal(result.legacy[0].id,"a");
+  equal(result.excluded.length,3);
+  equal(result.excluded[0].error?.includes("Phone Numbers"),true);
+  equal(result.excluded[1].error,result.excluded[2].error);
+  equal(resolved.length,2);
+  await assertRejectsManual(() => manualTrustScope(client,"A",["invalid"]));
+  await assertRejectsManual(() => manualTrustScope({...client,rpc:()=>({data:null,error:true})},"A",[legacy]));
+});
+
+async function assertRejectsManual(run:()=>Promise<unknown>) {
+  try {await run();} catch {return;}
+  throw new Error("Expected manual preflight to fail closed");
+}

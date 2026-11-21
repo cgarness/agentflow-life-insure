@@ -258,7 +258,9 @@ export const TrustHubRegistrationPanel: React.FC<Props> = ({
       if (error) throw error;
       if (data?.error) { toast.error(data.error); return; }
       const okCount = (data?.results ?? []).filter((r) => r.ok).length;
-      toast.success(okCount ? `Linked ${okCount} number(s) to Trust Hub.` : "No numbers were linked.");
+      if (okCount) toast.success(`Linked ${okCount} number(s) to Trust Hub.`);
+      const messages = new Set(data?.results?.filter((r) => !r.ok && r.error).map((r) => r.error));
+      for (const message of messages) toast.message(message);
       await onRefresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Assignment failed");

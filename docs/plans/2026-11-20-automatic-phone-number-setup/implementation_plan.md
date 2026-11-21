@@ -18,7 +18,21 @@ After an admin confirms a purchase, AgentFlow should link the number to the agen
 - Signed registration can arrive before or after the provider membership snapshot. Honor both orders and append a newly eligible agency sender once to the enabled consent policy. Preserve an admin's subsequent removal and the existing consent and opt-out checks.
 - Use the verified brand, Twilio account and Messaging Service to identify the tenant's US texting campaign. Twilio uses the same US compliance resource identifier within each Messaging Service. [Twilio resource reference](https://www.twilio.com/docs/messaging/api/usapptoperson-resource)
 
-## Verification and release
+## Verification
+
+The review branch is based on sticky-number PR #531 at `99ca1eb0588b89870c65c8c2d348e239e876f59e`. It includes that branch's phone and SMS behavior in the tested source.
+
+| Check | Result |
+|---|---|
+| PostgreSQL 17.6 | 131 existing purchase assertions and 63 new setup assertions passed. Separate workers claimed independent tasks. Two SMS tasks in the same agency serialized. The 12 existing contention scenarios passed. |
+| Sticky-number compatibility | All 66 existing database regressions passed with the new schema and activation installed on a synthetic database. |
+| Phone UI | A real Chromium browser at 1440 and 390 pixels verified purchase confirmation, lost-response recovery, status polling through SMS ready and clearing stale status after an agency switch. The fixture recorded zero external requests. |
+| Sender behavior | Simulated provider and database responses exercised four live dispatch implementations across 32 cases, including pending registration, suspension and absent or disabled sending policy. |
+| Existing dispatch and routing | Five integration suites passed on real localhost PostgREST 12.2.3 and PostgreSQL 17.6 with synthetic provider traffic. Exact sender ownership, consent, replay and confirmation dispatch were exercised on the combined schema. |
+
+Historical shared-account Trust Hub profiles can be linked manually only if their agency ownership can be verified from a server-recorded profile or the agency's Twilio brand. An ambiguous historical profile requires support review. Existing numbers already linked are outside the new-purchase queue.
+
+## Release checklist
 
 Run the existing number-purchase, voice-routing and consent regression checks alongside the new SQL, worker and UI tests. The database fixture uses disposable PostgreSQL and synthetic tenants. Provider tests simulate configuration, signed events and transient failures. Exact run results belong in the implementation record.
 
@@ -28,4 +42,4 @@ Run the existing number-purchase, voice-routing and consent regression checks al
 4. Release the reviewed frontend against those contracts. Enable capture only once the exact backend and frontend are verified and Chris approves production activation.
 5. Validate using the next authorized purchase, or a separately approved controlled test. Verify agency ownership, a single receipt, signed registration, pool membership, policy selection and the visible status. Real purchases and customer texts require explicit authorization.
 
-To pause rollout, stop enrollment of additional purchases first. Retain existing receipts and keep the send guards in place for numbers already enrolled. Re-read provider state before resuming an uncertain operation.
+To pause rollout, stop enrollment of additional purchases first. Retain existing receipts and keep the send guards in place for numbers already enrolled. Re-read provider state before resuming an uncertain operation. Once multiple valid agencies store the shared compliance identifier, restoring the former global uniqueness constraint would conflict with valid registrations. Preserve their agency-scoped registrations during recovery.

@@ -5,6 +5,8 @@ import { loadOutboundTwilioCreds } from "../twilioOutboundCreds.ts";
 import { ACCOUNT_SID, NUMBER_SID } from "./contracts.ts";
 import type { SetupJob, SetupOutcome } from "./setupTypes.ts";
 
+type TrustNumber = Pick<SetupJob, "organization_id" | "phone_number_id" | "phone_number" | "phone_sid" | "account_sid">;
+
 const BU = /^BU[0-9a-f]{32}$/i;
 const BN = /^BN[0-9a-f]{32}$/i;
 const review = (code: string): SetupOutcome => ({ state: "review", code });
@@ -14,7 +16,7 @@ const waiting = (code: string): SetupOutcome => ({
   retrySeconds: 900,
 });
 
-async function profileForAgency(db: Db, job: SetupJob): Promise<string | null> {
+async function profileForAgency(db: Db, job: TrustNumber): Promise<string | null> {
   const row = checked(
     await db.from("phone_settings").select("trust_hub_profile_sid")
       .eq("organization_id", job.organization_id).maybeSingle(),
@@ -24,7 +26,7 @@ async function profileForAgency(db: Db, job: SetupJob): Promise<string | null> {
 
 async function proveProfileBinding(
   db: Db,
-  job: SetupJob,
+  job: TrustNumber,
   profile: string,
   t: TwilioA2p,
 ): Promise<SetupOutcome | null> {
@@ -90,14 +92,20 @@ export async function setupTrust(
   const profile = await profileForAgency(db, job);
   if (!profile) return waiting("WAITING_TRUST_PROFILE");
   if (!BU.test(profile)) return review("TRUST_PROFILE_UNVERIFIED");
-  const t = new TwilioA2p(master.creds, request, signal);
+  return await assignVerifiedTrustNumber(db, job, profile, new TwilioA2p(master.creds, request, signal), true);
+}
+
+export async function assignVerifiedTrustNumber(
+  db: Db, job: TrustNumber, profile: string, t: TwilioA2p, sharedAccount: boolean,
+): Promise<SetupOutcome> {
+  if (!BU.test(profile) || !NUMBER_SID.test(job.phone_sid) || t.creds.accountSid !== job.account_sid) return review("TRUST_PROFILE_CONFLICT");
   const profileUrl =
     `https://trusthub.twilio.com/v1/CustomerProfiles/${profile}`;
   const numberUrl =
     `https://api.twilio.com/2010-04-01/Accounts/${job.account_sid}/IncomingPhoneNumbers/${job.phone_sid}.json`;
   let customer, number;
   try {
-    const proofFailure = await proveProfileBinding(db, job, profile, t);
+    const proofFailure = sharedAccount ? await proveProfileBinding(db, job, profile, t) : null;
     if (proofFailure) return proofFailure;
     [customer, number] = await Promise.all([
       t.call(profileUrl),
