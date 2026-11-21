@@ -22,8 +22,11 @@ type Handlers = {
 };
 
 const ring = vi.hoisted(() => ({ calls: [] as unknown[] }));
+const toastErrors = vi.hoisted(() => [] as string[]);
 const outbound = vi.hoisted(() => ({
   current:true, caller:"+15550001111", failures: [] as unknown[],
+  expectedCaller: undefined as string | undefined,
+  authorization: { enabled: false } as { enabled: boolean; number?: string }, authorizations: [] as unknown[],
   insertMode: "ok" as "ok" | "ambiguous" | "failed", afterInsert: null as null | (() => void),
   recoveredIds: [] as unknown[],
   events: [] as string[], inserts: [] as unknown[], result: { data: { blocked: false, match: null }, error: null } as { data: unknown; error: unknown },
@@ -79,7 +82,7 @@ vi.mock("@/integrations/supabase/client", () => {
     supabase: {
       from: (table: string) => makeBuilder(table),
       rpc: (name: string, args:unknown) => {
-        if(name === "authorize_contact_call") return Promise.resolve({ data: { enabled: false }, error: null });
+        if(name === "authorize_contact_call") { outbound.authorizations.push(args); return Promise.resolve({ data: outbound.authorization, error: null }); }
         if(name === "contact_number_modes") return Promise.resolve({ data: { voice: "off", sms: "off" }, error: null });
         if(name === "record_dialer_dispatch_failure") outbound.failures.push(args);
         if (name === "check_dialer_dnc") { outbound.events.push("verify"); return outbound.pending ?? Promise.resolve(outbound.result); }
@@ -119,7 +122,7 @@ vi.mock("@/lib/ringtoneOutputs", () => ({
   applyRingtoneOutputs: vi.fn(async (device: unknown) => { ring.calls.push(device); return { supported: true, applied: ["default"] }; }),
 }));
 vi.mock("sonner", () => ({
-  toast: Object.assign(() => {}, { error: () => {}, success: () => {}, info: () => {}, message: () => {} }),
+  toast: Object.assign(() => {}, { error: (message: string) => { toastErrors.push(message); }, success: () => {}, info: () => {}, message: () => {} }),
 }));
 
 import { TwilioProvider, useTwilio } from "@/contexts/TwilioContext";
@@ -132,7 +135,7 @@ const Probe: React.FC = () => {
       <span data-testid="callState">{t.callState}</span>
       <span data-testid="errorMessage">{t.errorMessage}</span>
       <button onClick={() => void t.answerIncomingCall()}>answer</button>
-      <button onClick={() => void t.makeCall("+15550002222", outbound.caller, {isAttemptCurrent:()=>outbound.current})}>dial</button>
+      <button onClick={() => void t.makeCall("+15550002222", outbound.caller, {isAttemptCurrent:()=>outbound.current, expectedCallerNumber:outbound.expectedCaller})}>dial</button>
     </div>
   );
 };
@@ -199,8 +202,10 @@ const callState = () => screen.getByTestId("callState").textContent;
 const settle = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 beforeEach(() => {
+  toastErrors.length = 0;
   outbound.events = []; outbound.inserts = []; outbound.pending = null;
   outbound.current=true;outbound.failures=[];outbound.caller="+15550001111";
+  outbound.expectedCaller=undefined;outbound.authorization={enabled:false};outbound.authorizations=[];
   outbound.insertMode="ok";outbound.afterInsert=null;outbound.recoveredIds=[];
   outbound.result = { data: { blocked: false, match: null }, error: null };
   ring.calls = [];
@@ -230,6 +235,36 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("TwilioProvider — Device lifecycle wiring (behavioral)", () => {
+  it("refuses a changed bound FROM before call insertion or provider connect, then releases the dial guard", async () => {
+    outbound.expectedCaller = "+15550003333";
+    outbound.caller = "+15550003333";
+    outbound.authorization = { enabled: true, number: "+15550001111" };
+    voice.dialFactory = fakeOutboundCall;
+    mount(); await waitFor(() => expect(voice.inits).toHaveLength(1)); await registerLatest();
+    await act(async () => screen.getByText("dial").click());
+    expect(outbound.authorizations).toHaveLength(1);
+    expect(outbound.authorizations[0]).toMatchObject({ p_override: null });
+    expect(outbound.events).toEqual([]);
+    expect(outbound.inserts).toEqual([]);
+    expect(toastErrors).toContain("The FROM number changed. Review it before calling.");
+    expect(callState()).toBe("idle");
+    outbound.expectedCaller = "+15550001111";
+    outbound.caller = "+15550001111";
+    await act(async () => screen.getByText("dial").click());
+    expect(outbound.events).toEqual(["verify", "insert", "connect"]);
+  });
+
+  it("accepts the same normalized bound FROM without marking the ordinary call as an override", async () => {
+    outbound.expectedCaller = "(555) 000-1111";
+    outbound.authorization = { enabled: true, number: "+15550001111" };
+    voice.dialFactory = fakeOutboundCall;
+    mount(); await waitFor(() => expect(voice.inits).toHaveLength(1)); await registerLatest();
+    await act(async () => screen.getByText("dial").click());
+    expect(outbound.authorizations[0]).toMatchObject({ p_override: null });
+    expect(outbound.events).toEqual(["verify", "insert", "connect"]);
+    expect(outbound.inserts[0]).toMatchObject({ caller_id_used: "+15550001111" });
+  });
+
   it.each([
     { data: { blocked: true, match: { id: "dnc", phone_number: "+15550002222", reason: null } }, error: null },
     { data: null, error: { message: "database offline" } },

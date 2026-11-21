@@ -139,6 +139,8 @@ interface OrphanCall {
 /** Options for makeCall — pass contact/campaign metadata for single-point call record creation. */
 export interface MakeCallOptions {
   oneCallNumberId?: string;
+  /** Contact-local FROM shown before this action; a changed server binding must refuse. */
+  expectedCallerNumber?: string;
   /** Original page action must still own its user/org/campaign/contact after every preflight await. */
   isAttemptCurrent?: () => boolean;
   contactId?: string | null;
@@ -2320,6 +2322,10 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         campaignId: opts?.campaignId, memberId: opts?.campaignLeadId, overrideId: opts?.oneCallNumberId ?? explicitPersonal?.id });
       assertAttemptCurrent();
       if (bound.enabled && bound.number) callerIdUsed = bound.number;
+      if (opts?.expectedCallerNumber !== undefined &&
+        (!normalizePhoneNumber(opts.expectedCallerNumber) || normalizePhoneNumber(callerIdUsed) !== normalizePhoneNumber(opts.expectedCallerNumber))) {
+        throw new Error("The FROM number changed. Review it before calling.");
+      }
       const callerIdBlockMsg =
         "No eligible outbound caller ID is available for this campaign. Check Phone Number settings.";
       if (!callerIdUsed) {

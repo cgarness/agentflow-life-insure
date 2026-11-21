@@ -41,6 +41,10 @@ export interface QuickCallDetail {
   /** Optional caller-ID override, when a surface has already chosen one. */
   fromNumber?: string;
   oneCallNumberId?: string;
+  /** Contact-local displayed FROM. Presence must never update the global caller preference. */
+  expectedCallerNumber?: string;
+  /** The originating contact visit and its captured selection must still own this action. */
+  isSelectionCurrent?: () => boolean;
 }
 
 /** True when `phone` carries at least one digit — the listener's minimum bar. */
@@ -65,6 +69,8 @@ export function dispatchQuickCall(detail: QuickCallDetail): boolean {
     type: detail.type,
     ...(detail.fromNumber ? { fromNumber: detail.fromNumber } : {}),
     ...(detail.oneCallNumberId ? { oneCallNumberId: detail.oneCallNumberId } : {}),
+    ...(detail.expectedCallerNumber !== undefined ? { expectedCallerNumber: detail.expectedCallerNumber } : {}),
+    ...(detail.isSelectionCurrent ? { isSelectionCurrent: detail.isSelectionCurrent } : {}),
   };
 
   window.dispatchEvent(new CustomEvent(QUICK_CALL_EVENT, { detail: payload }));

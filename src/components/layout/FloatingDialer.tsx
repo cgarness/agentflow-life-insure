@@ -12,6 +12,8 @@ import { isConvertedDisposition } from "@/lib/report-utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useFloatingDialerDispositions } from "@/hooks/useFloatingDialerDispositions";
+import { useQuickCallNumberSelection, type QuickCallNumberAttempt } from "@/hooks/useQuickCallNumberSelection";
+import type { QuickCallDetail } from "@/lib/quick-call";
 import { saveCall } from "@/lib/dialer-api";
 import ConvertLeadModal from "@/components/contacts/ConvertLeadModal";
 import RecordPolicyModal from "@/components/contacts/RecordPolicyModal";
@@ -114,7 +116,7 @@ function sanitizeIlikeFragment(s: string): string {
 
 const FloatingDialer: React.FC = () => {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user, profile, realProfile, isImpersonating } = useAuth();
   const { organizationId } = useOrganization();
   const dispositionConfig = useFloatingDialerDispositions(organizationId, user?.id ?? null);
   const { dispositions, pipelineStages: pipelineStagesForConversion } = dispositionConfig;
@@ -191,6 +193,13 @@ const FloatingDialer: React.FC = () => {
   const [searchLoading, setSearchLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedContact, setSelectedContact] = useState<ContactResult | null>(null);
+  const { selection: quickSelection, capture: captureQuickSelection, captureAttempt: captureQuickAttempt, clear: clearQuickSelection } = useQuickCallNumberSelection({
+    actorId: user?.id ?? null,
+    organizationId: realProfile?.organization_id ?? organizationId,
+    isImpersonating: !!isImpersonating,
+    contact: selectedContact,
+    open,
+  });
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- Open animation ---
@@ -262,9 +271,12 @@ const FloatingDialer: React.FC = () => {
   // Listen for quick-call event from campaign leads or contact view
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
+      const detail = (e as CustomEvent<QuickCallDetail>).detail;
       if (detail?.phone) {
-        oneCallNumberRef.current = detail.oneCallNumberId ? {id:detail.oneCallNumberId,contact:detail.contactId,phone:detail.phone}:null;
+        if (detail.expectedCallerNumber !== undefined) {
+          if (!captureQuickSelection(detail)) return;
+        } else clearQuickSelection();
+        oneCallNumberRef.current = detail.expectedCallerNumber === undefined && detail.oneCallNumberId ? {id:detail.oneCallNumberId,contact:detail.contactId,phone:detail.phone}:null;
         const nameParts = (detail.name || "").split(" ");
         setSelectedContact({
           id: detail.contactId || "",
@@ -273,7 +285,7 @@ const FloatingDialer: React.FC = () => {
           phone: detail.phone,
           type: detail.type || "lead",
         });
-        if (detail.fromNumber) {
+        if (detail.expectedCallerNumber === undefined && detail.fromNumber) {
           setSelectedCallerNumber(detail.fromNumber);
         }
         setSearchTerm(detail.name || detail.phone);
@@ -285,7 +297,7 @@ const FloatingDialer: React.FC = () => {
     };
     window.addEventListener("quick-call", handler);
     return () => window.removeEventListener("quick-call", handler);
-  }, []);
+  }, [captureQuickSelection, clearQuickSelection, setSelectedCallerNumber]);
 
   // Call timer
   useEffect(() => {
@@ -325,12 +337,18 @@ const FloatingDialer: React.FC = () => {
 
   // Resolve the "best" number to display when contact or override changes
   useEffect(() => {
+    if (quickSelection) {
+      setDisplayedFromNumber(quickSelection.expectedCallerNumber);
+      return;
+    }
+    let cancelled = false;
     const resolve = async () => {
       const smartId = await getSmartCallerId(selectedContact?.phone || searchTerm, selectedContact?.id, { contactType: selectedContact?.type });
-      setDisplayedFromNumber(smartId);
+      if (!cancelled) setDisplayedFromNumber(smartId);
     };
-    void resolve().catch(() => setDisplayedFromNumber(""));
-  }, [selectedContact, searchTerm, selectedCallerNumber, getSmartCallerId]);
+    void resolve().catch(() => { if (!cancelled) setDisplayedFromNumber(""); });
+    return () => { cancelled = true; };
+  }, [selectedContact, searchTerm, selectedCallerNumber, getSmartCallerId, quickSelection]);
 
   // Fetch recent calls when Recent tab is selected.
   // R8: the calls row is authoritative — linked rows (contact_id) resolve their CRM name BY ID from
@@ -559,8 +577,9 @@ const FloatingDialer: React.FC = () => {
     return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   };
 
-  const proceedWithCall = async (destinationNumber: string, callerNumber: string, contactId?: string | null) => {
+  const proceedWithCall = async (destinationNumber: string, callerNumber: string, contactId?: string | null, selection?: QuickCallNumberAttempt | null) => {
     if (!twilioIsReady || showDisposition || dispositionSavingRef.current) return;
+    if (selection && !selection.isAttemptCurrent()) { toast.error("The FROM number changed. Review it before calling."); return; }
     lastUsedCallerId.current = callerNumber;
     const opts: MakeCallOptions = {
       contactId: contactId || selectedContact?.id || null,
@@ -568,7 +587,9 @@ const FloatingDialer: React.FC = () => {
       contactPhone: destinationNumber,
       contactType: selectedContact?.type || null,
       applyOutboundRingTimeout: false,
-      oneCallNumberId: oneCallNumberRef.current?.contact === selectedContact?.id && digitsOnly(oneCallNumberRef.current?.phone ?? "") === digitsOnly(destinationNumber) ? oneCallNumberRef.current?.id : undefined,
+      oneCallNumberId: selection ? selection.oneCallNumberId : oneCallNumberRef.current?.contact === selectedContact?.id && digitsOnly(oneCallNumberRef.current?.phone ?? "") === digitsOnly(destinationNumber) ? oneCallNumberRef.current?.id : undefined,
+      expectedCallerNumber: selection?.expectedCallerNumber,
+      isAttemptCurrent: selection?.isAttemptCurrent,
     };
     const callId = await twilioMakeCall(destinationNumber, callerNumber || undefined, opts);
     if (!callId) return;
@@ -583,7 +604,9 @@ const FloatingDialer: React.FC = () => {
     const leadPhone = dialedNumber.trim() || destinationNumber;
     if (!leadPhone) return;
 
-    let finalCallerId = selectedCallerNumber || "";
+    const selection = captureQuickAttempt(destinationNumber, contactId ?? selectedContact?.id);
+    if (quickSelection && (!selection || !selection.isAttemptCurrent())) { toast.error("The FROM number changed. Review it before calling."); return; }
+    let finalCallerId = selection?.expectedCallerNumber ?? selectedCallerNumber ?? "";
     if (!finalCallerId) {
       finalCallerId = await getSmartCallerId(leadPhone, contactId ?? undefined, { contactType: selectedContact?.type });
     }
@@ -596,11 +619,11 @@ const FloatingDialer: React.FC = () => {
 
     // Consolidated call creation: TwilioContext.makeCall handles call record creation.
     if (!contactId) {
-      void proceedWithCall(destinationNumber, finalCallerId);
+      void proceedWithCall(destinationNumber, finalCallerId, contactId, selection);
       return;
     }
 
-    if (!selectedCallerNumber) {
+    if (!selectedCallerNumber && !selection) {
       try {
         const { data } = await supabase
           .from("calls")
@@ -631,7 +654,7 @@ const FloatingDialer: React.FC = () => {
       }
     }
 
-    void proceedWithCall(destinationNumber, finalCallerId, contactId);
+    void proceedWithCall(destinationNumber, finalCallerId, contactId, selection);
   };
 
   const handleCallFromContact = () => {
@@ -1232,16 +1255,18 @@ const FloatingDialer: React.FC = () => {
                       <div className="flex flex-col flex-1">
                         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight mb-0.5">Calling From</span>
                         <select 
-                          value={selectedCallerNumber}
-                          onChange={(e) => setSelectedCallerNumber(e.target.value)}
+                          aria-label="Calling from"
+                          value={quickSelection?.expectedCallerNumber ?? selectedCallerNumber}
+                          disabled={!!quickSelection}
+                          onChange={(e) => { if (!quickSelection) setSelectedCallerNumber(e.target.value); }}
                           className="bg-transparent border-none text-xs font-bold focus:ring-0 p-0 h-auto cursor-pointer w-full text-foreground leading-tight"
                         >
-                          <option value="">AI Local Presence</option>
+                          {quickSelection ? <option value={quickSelection.expectedCallerNumber}>{quickSelection.expectedCallerNumber}</option> : <><option value="">AI Local Presence</option>
                           {filterManualCallerIdOptions(availableNumbers || [], user?.id).map(n => (
                             <option key={n.phone_number} value={n.phone_number}>
                               {n.friendly_name ? `${n.friendly_name} - ` : ''}{n.phone_number}
                             </option>
-                          ))}
+                          ))}</>}
                         </select>
                       </div>
                     </div>

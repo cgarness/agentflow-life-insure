@@ -1,5 +1,7 @@
 import { useContactNumberAffinity } from "@/hooks/useContactNumberAffinity";
 import { ContactNumberControl } from "./ContactNumberControl";
+import { useContactFromNumber } from "@/hooks/useContactFromNumber";
+import { ContactFromNumberControl } from "./ContactFromNumberControl";
 import { useScopedDraft } from "@/hooks/useScopedDraft";
 import { useComposerDraftSink, useMarkObserved, usePendingSmsRecords, useSmsScopeEvents } from "@/hooks/usePendingSms";
 import { manualSmsSender } from "@/lib/sms-send/manualSmsSender";
@@ -285,7 +287,9 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       ? { organizationId: profile.organization_id, actorId: user.id, viewerId: profile.id, contactType: type, contactId: contact.id }
       : null
   ), [contact?.id, user?.id, profile?.id, profile?.organization_id, isImpersonating, type]);
-  const contactNumbers = useContactNumberAffinity(contact?.id, type);
+  const contactNumbers = useContactNumberAffinity(contact?.id, type, undefined, contact?.phone);
+  const contactFrom = useContactFromNumber({ model: contactNumbers, phone: contact?.phone,
+    canAssign: canEditContact, legacyNumber: fromNumber });
   const smsKey = smsScope ? smsScopeKey(smsScope) : null;
   const smsRecords = usePendingSmsRecords(smsKey);
   const smsInFlight = smsRecords.some((r) => r.state === "sending");
@@ -741,14 +745,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       toast.error(REFUSAL_MESSAGES.authority);
       return;
     }
-    if (!contactNumbers.canText) { toast.error("Review the contact’s texting number before sending."); return; }
+    if (!contactFrom.canText) { toast.error("Review the FROM number before sending."); return; }
     manualSmsSender.submit({
       ...smsScope,
       to: toE164Plus(contact.phone),
       body: composeText.trim(),
-      senderPreference: contactNumbers.sender?.number ?? (fromNumber.trim() ? toE164Plus(fromNumber) : null),
-      expectedSenderId: contactNumbers.sender?.id ?? null,
-      overrideSenderId: contactNumbers.override?.id ?? null,
+      ...contactFrom.smsSelection,
       contactLabel: contactDisplayName(contact) || null,
       origin: {
         sinkId: smsDraft.sinkId,
@@ -923,22 +925,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
         {/* MIDDLE SECTION - Phone Selector */}
         <div className="flex-1 flex justify-end px-4 overflow-hidden">
-          <div className="flex items-center gap-2 bg-accent/30 px-2 py-1 rounded-lg border border-border">
-             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">From:</span>
-             <select 
-               value={fromNumber}
-               onChange={(e) => setFromNumber(e.target.value)}
-               className="bg-transparent border-none text-xs font-semibold focus:ring-0 cursor-pointer text-foreground max-w-[130px] truncate outline-none"
-             >
-               {availableNumbers.length === 0 ? (
-                 <option value="">No numbers available</option>
-               ) : (
-                 availableNumbers.map(n => (
-                   <option key={n.number} value={n.number}>{n.label}</option>
-                 ))
-               )}
-             </select>
-          </div>
+          <ContactFromNumberControl model={contactFrom} legacyNumber={fromNumber}
+            legacyOptions={availableNumbers} onLegacyChange={setFromNumber} />
         </div>
 
         {/* RIGHT SECTION - aligned with Right Column */}
@@ -948,18 +936,21 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               <TooltipTrigger asChild>
                 <Button 
                   className="h-10 px-4 flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all font-semibold"
+                  disabled={!contactFrom.canCall}
                   onClick={() => {
                     // Canonical dispatcher + canonical name resolution. The old inline
                     // CustomEvent interpolated `contact.firstName`/`lastName` directly, so a
                     // raw (unmapped) row produced the literal "undefined undefined" that was
                     // snapshotted into calls.contact_name.
                     //
+                    const selection = contactFrom.captureCallSelection();
+                    if (!selection) { toast.error("Review the FROM number before calling."); return; }
                     dispatchQuickCall({
                       contactId: contact.id,
                       name: contactDisplayName(contact),
                       phone: contact.phone,
                       type,
-                      ...(fromNumber ? { fromNumber } : {}),
+                      ...selection,
                     });
                   }}
                 >
@@ -1133,7 +1124,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                     })}
 
                 </div>
-                <ContactNumberControl variant="details" model={contactNumbers} phone={contact.phone} name={contactDisplayName(contact)} />
+                <ContactNumberControl variant="details" model={contactNumbers} assignedPreview={contactFrom.preview} />
               </div>
               )}
               
@@ -1193,7 +1184,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               onSendMessage={handleSendMessage}
               sendDisabled={
                 isImpersonating || !composeText.trim() ||
-                (composeTab === "SMS" && (smsInFlight || !contact.phone || !contactNumbers.canText)) ||
+                (composeTab === "SMS" && (smsInFlight || !contact.phone || !contactFrom.canText)) ||
                 (composeTab === "Email" && (messageSending || !contact.email || !selectedEmailConnectionId))
               }
               sendLoading={composeTab === "SMS" ? smsInFlight : messageSending}

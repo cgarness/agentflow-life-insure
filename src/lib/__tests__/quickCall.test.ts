@@ -74,6 +74,20 @@ describe("quick-call canonical contract", () => {
     dispatchQuickCall({ ...VALID, fromNumber: "5559998888" });
     expect(received[1].detail.fromNumber).toBe("5559998888");
   });
+
+  it("preserves a displayed contact-local caller and its visit guard without inventing an override", () => {
+    const isSelectionCurrent = vi.fn(() => true);
+    dispatchQuickCall({ ...VALID, fromNumber: "+15559998888", expectedCallerNumber: "+15559998888", isSelectionCurrent });
+    expect(received[0].detail.expectedCallerNumber).toBe("+15559998888");
+    expect(received[0].detail.isSelectionCurrent).toBe(isSelectionCurrent);
+    expect(received[0].detail).not.toHaveProperty("oneCallNumberId");
+    expect(isSelectionCurrent).not.toHaveBeenCalled();
+  });
+
+  it("carries an explicit temporary number ID separately from the displayed caller", () => {
+    dispatchQuickCall({ ...VALID, expectedCallerNumber: "+15559998888", oneCallNumberId: "number-id" });
+    expect(received[0].detail).toMatchObject({ expectedCallerNumber: "+15559998888", oneCallNumberId: "number-id" });
+  });
 });
 
 describe("quick-call refuses to report a call it cannot start", () => {
