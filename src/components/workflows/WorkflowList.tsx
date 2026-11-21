@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { readReleaseControls, workflowEffects } from "@/lib/automation-release";
 import { Plus, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { automationApi } from "@/lib/automation-api";
@@ -54,6 +55,7 @@ export default function WorkflowList({org, session, scope, campaign, onCreate, o
       <li className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4" key={row.id}>
         <div><button className="text-left font-semibold hover:underline" onClick={() => onOpenWorkflow(row.id)}>{row.name}</button>
           <p className="text-sm text-muted-foreground">{block(row.trigger_type ?? "")?.label ?? row.trigger_type?.replace(/_/g," ") ?? "Choose trigger"} · {row.status}</p>
+          {!row.is_legacy && <p className="text-sm">{workflowEffects(row.status,row.trigger_type,readReleaseControls(row.release_controls))}</p>}
           <p className="text-xs text-muted-foreground">{row.last_activity_at ? "Last activity " + new Date(row.last_activity_at).toLocaleString() : "No activity yet"}</p>
         </div>
         {!!folders.data?.length && <label className="text-xs">Folder<select className={selectStyle} value={row.folder_id ?? ""}

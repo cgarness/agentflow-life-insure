@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { automationApi, type DraftRecord, type Option, type Issue } from "@/lib/automation-api";
 import { emptyGraph, graphBlock, validateGraph, type AutomationGraph } from "../../../supabase/functions/_shared/automations/graph";
+import { readReleaseControls, sameReleaseControls, type ReleaseControls } from "@/lib/automation-release";
+import AutomationReleaseStatus from "./AutomationReleaseStatus";
 import WorkflowCanvas from "./WorkflowCanvas";
 import OrderedWorkflowSteps from "./OrderedWorkflowSteps";
 import AutomationBlockPanel, { selectStyle } from "./AutomationBlockPanel";
@@ -26,7 +29,13 @@ export default function AutomationEditor({record, session, scope, onBack, onSave
   const [revision, setRevision] = useState(record?.automation_revision ?? 0);
   const [name, setName] = useState(record?.automation_draft_name ?? record?.name ?? "");
   const [graph, setGraph] = useState<AutomationGraph>(() => record?.automation_graph ?? emptyGraph());
-  const [status, setStatus] = useState(record?.status ?? "draft");
+  const cache = useQueryClient();
+  const statusKey = ["automation-status",scope,id];
+  const live = useQuery({queryKey:statusKey, queryFn:() => automationApi.status(id), enabled:revision > 0,
+    retry:false, refetchOnWindowFocus:"always"});
+  const snapshot = live.isError ? null : live.data;
+  const status = snapshot?.status;
+  const [reviewed, setReviewed] = useState<ReleaseControls | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("edit");
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -45,7 +54,7 @@ export default function AutomationEditor({record, session, scope, onBack, onSave
       inlineIssues.push(issue);
     }
   }
-  const readOnly = status === "archived" || graph.format !== 1 || graph.nodes.some(n => !graphBlock(n));
+  const readOnly = (revision > 0 && (!status || status === "archived")) || graph.format !== 1 || graph.nodes.some(n => !graphBlock(n));
   const edit = (next: AutomationGraph) => {
     if (readOnly || pending.current) return;
     setGraph(next); setDirty(true); setNotice(""); setIssues([]); setMode("edit");
@@ -71,26 +80,35 @@ export default function AutomationEditor({record, session, scope, onBack, onSave
   const review = () => act(async () => {
     if (localIssues.length) { setIssues(localIssues); setMode("edit"); setNotice("Resolve the highlighted blocks before publishing."); return; }
     await save();
-    const [errors, matches] = await Promise.all([automationApi.validate(id), automationApi.overlap(id)]);
+    const [errors, matches, latest] = await Promise.all([automationApi.validate(id), automationApi.overlap(id), live.refetch()]);
+    setReviewed(latest.isSuccess ? latest.data.controls : null);
     setIssues(errors); setOverlap(matches); setMode("review");
   });
+  const revisionMatches = snapshot?.revision === revision;
+  const reviewMatches = sameReleaseControls(reviewed,snapshot?.controls ?? null);
   const publish = () => act(async () => {
-    if (dirty || mode !== "review" || issues.length || readOnly) return;
-    const result = await automationApi.publish(id,revision,session);
-    setRevision(result.revision); setStatus(status === "paused" ? "paused" : "active");
-    setNotice(status === "paused" ? "Published. This automation is paused." : "Published. New qualifying events can enter this version."); setMode("edit");
+    if (dirty || mode !== "review" || issues.length || readOnly || !reviewed || !reviewMatches || !revisionMatches) return;
+    try {
+      const result = await automationApi.publish(id,revision,session,reviewed);
+      const controls = readReleaseControls(result.release_controls);
+      cache.setQueryData(statusKey,{id,status:result.status,revision:result.revision,trigger_type:result.trigger_type,controls});
+      setRevision(result.revision); setMode("edit"); setNotice("Version published.");
+      void live.refetch();
+    } catch (error) {
+      setReviewed(null); await live.refetch(); throw error;
+    }
   });
   const lifecycle = (op: "pause" | "resume" | "archive") => act(async () => {
     if (op === "archive" && !window.confirm("Archive this automation and cancel its future steps?")) return;
     await automationApi.lifecycle(id,op,session);
     setRevision(current => current + 1);
-    setStatus(op === "archive" ? "archived" : op === "pause" ? "paused" : "active");
+    await live.refetch();
     setMode("edit"); setNotice("Automation updated.");
   });
   return <section className="space-y-4">
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="outline" disabled={busy} onClick={onBack}>Back to automations</Button>
-      <span className="rounded-full bg-muted px-3 py-1 text-xs capitalize">{revision === 0 ? "Unsaved" : status}</span>
+      <span className="rounded-full bg-muted px-3 py-1 text-xs capitalize">{revision === 0 ? "Unsaved" : status ?? (live.isPending ? "Checking status…" : "Status unavailable")}</span>
       {dirty && revision > 0 && <span className="text-xs">Unsaved draft changes</span>}
     </div>
     <fieldset disabled={busy} className="min-w-0 space-y-4">
@@ -107,12 +125,14 @@ export default function AutomationEditor({record, session, scope, onBack, onSave
         {revision > 0 && <Button variant="outline" onClick={() => setMode("activity")}>Activity</Button>}
         {status === "active" && <Button variant="outline" onClick={() => lifecycle("pause")}>Pause</Button>}
         {status === "paused" && <Button variant="outline" onClick={() => lifecycle("resume")}>Resume</Button>}
-        {revision > 0 && status !== "archived" && <Button variant="ghost" onClick={() => lifecycle("archive")}>Archive</Button>}
+        {revision > 0 && status && status !== "archived" && <Button variant="ghost" onClick={() => lifecycle("archive")}>Archive</Button>}
       </div>
-      {notice && <p role="status" className="rounded-lg border p-3 text-sm">{notice}</p>}
+      {notice && notice !== "Version published." && <p role="status" className="rounded-lg border p-3 text-sm">{notice}</p>}
+      {revision > 0 && mode !== "review" && <AutomationReleaseStatus published={notice === "Version published."} controls={snapshot?.controls ?? null}
+        status={snapshot?.status} trigger={snapshot?.trigger_type ?? null} onRefresh={() => { void live.refetch(); }}/>}
       {mode === "activity" && <AutomationActivity workflowId={id}/>}
       {mode === "edit" && <fieldset disabled={readOnly} className="space-y-4">
-        {readOnly && <p>This saved graph is read-only.</p>}
+        {readOnly && status && <p>This saved graph is read-only.</p>}
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
           <div className="min-w-0 space-y-3">
             {!!graph.nodes.length && <WorkflowCanvas graph={graph} onSelect={select} selected={selected} onInsert={(parent, branch, type) => {
@@ -136,7 +156,16 @@ export default function AutomationEditor({record, session, scope, onBack, onSave
       </fieldset>}
       {(mode === "preview" || mode === "review") && <AutomationReview graph={graph} scope={scope} mode={mode} overlaps={overlap}
         issues={mode === "review" ? issues : localIssues} onFix={select}/>}
-      {mode === "review" && <Button disabled={!!issues.length || dirty || readOnly} onClick={publish}>Publish</Button>}
+      {mode === "review" && <>
+        <AutomationReleaseStatus review onRefresh={() => { void live.refetch(); }} controls={snapshot?.controls ?? null}
+          status={snapshot ? snapshot.status === "draft" ? "active" : snapshot.status : undefined}
+          trigger={graph.nodes.find(n => graphBlock(n)?.category === "trigger")?.type ?? null}/>
+        {snapshot && !revisionMatches && <p role="status">The saved draft changed. Reopen the editor to review the current version.</p>}
+        {!reviewMatches &&
+          <p role="status">Review the current agency settings before publishing.</p>}
+        <Button disabled={!!issues.length || dirty || readOnly || !reviewMatches || !revisionMatches}
+          onClick={publish}>Publish</Button>
+      </>}
     </fieldset>
   </section>;
 }

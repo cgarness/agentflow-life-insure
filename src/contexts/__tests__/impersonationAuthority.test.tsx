@@ -61,7 +61,7 @@ const dbState = vi.hoisted(() => ({
   /** Full filter set of each `profiles` query, so the org predicate can be asserted. */
   profileQueries: [] as { id?: string; organization_id?: string }[],
   sessionUserId: null as string | null,
-  sessionRpc: vi.fn<(name: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: null | { code: string; message: string } }>>(),
+  sessionRpc: vi.fn<(name: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: null | { code: string; message: string; hint?: string } }>>(),
   profileError: null as string | null,
   /** When set, the `profiles` read THROWS (a transport failure) rather than returning `{ error }`. */
   profileThrow: null as string | null,
@@ -159,7 +159,7 @@ let lastStartResult: unknown = undefined;
 let lastEffectiveProfile: Record<string, unknown> | null = null;
 
 const Probe: React.FC = () => {
-  const { profile, realProfile, isImpersonating, startImpersonation, stopImpersonation, automationSessionRevision, logout } = useAuth();
+  const { profile, realProfile, isImpersonating, startImpersonation, stopImpersonation, automationSessionRevision, automationSignInRequired, logout } = useAuth();
   const { viewer } = useEffectiveViewer();
   lastStart = startImpersonation as unknown as (p: unknown) => unknown;
   lastStop = stopImpersonation;
@@ -172,6 +172,7 @@ const Probe: React.FC = () => {
       <span data-testid="effective-org">{profile?.organization_id ?? "none"}</span>
       <span data-testid="real-role">{realProfile?.role ?? "none"}</span>
       <span data-testid="automation-revision">{automationSessionRevision ?? "none"}</span>
+      <span data-testid="automation-sign-in">{String(automationSignInRequired)}</span>
       <span data-testid="real-org">{realProfile?.organization_id ?? "none"}</span>
       <span data-testid="impersonating">{String(isImpersonating)}</span>
       <span data-testid="org-wide">{String(isOrganizationWideViewer(viewer))}</span>
@@ -949,6 +950,20 @@ describe("server-owned View As session", () => {
     await act(async () => { expect(await lastStart!(TARGET_ID)).toBe(false); });
     expect(screen.getByTestId("automation-revision").textContent).toBe("none");
     expect(screen.getByTestId("impersonating").textContent).toBe("false");
+  });
+
+  it("keeps a pre-upgrade CRM View As read-only in Automations until a new sign-in", async () => {
+    installServerSession(null);
+    dbState.sessionRpc.mockResolvedValue({ data: null, error: { code: "42501", message: "Sign in again to use Automations after the upgrade.", hint: "automation_session_reauth" } });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID));
+    expect(screen.getByTestId("automation-sign-in").textContent).toBe("true");
+    expect(screen.getByTestId("automation-revision").textContent).toBe("none");
+    act(() => { window.dispatchEvent(new Event("focus")); });
+    await waitFor(() => expect(dbState.sessionRpc.mock.calls.length).toBeGreaterThan(1));
+    expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID);
+    expect(dbState.sessionRpc.mock.calls.every(([name]) => name === "automation_session_context")).toBe(true);
   });
 
   it("keeps the target active when the server refuses an exit", async () => {

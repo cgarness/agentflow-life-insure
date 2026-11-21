@@ -51,8 +51,8 @@ export default function AutomationBlockPanel({node, onChange, scope}: Props) {
         {sources.items.map(name => <option key={name}>{name}</option>)}
       </select></label>
       {sources.hasNextPage && <Button variant="link" disabled={sources.isFetchingNextPage} onClick={() => sources.fetchNextPage()}>Load more sources</Button>}
-      <p className="text-muted-foreground">{editor === "lead" ? "New leads enter when their creation is committed." :
-        "Leads enter when they are newly added to a selected campaign."}</p>
+      <p className="text-muted-foreground">{editor === "lead" ? "Matches a lead when its creation is committed." :
+        "Matches a new membership when a lead is added to the selected campaign scope."}</p>
     </>}
     {editor === "emailCondition" && <p>At this step, contacts with an email take the Yes path. Contacts without one take the No path. Empty paths end here.</p>}
     {editor === "wait" && <div className="flex flex-wrap gap-2">

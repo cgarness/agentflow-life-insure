@@ -23,7 +23,7 @@ function sessionKey(token: string | undefined) {
 export function useAutomationSession(actor: string | null, accessToken: string | undefined, watchMode = false) {
   const token = sessionKey(accessToken);
   const [context, setContext] = useState<ServerSession | null>(null);
-  const [legacy, setLegacy] = useState(false);
+  const [fallback, setFallback] = useState<"preinstall" | "reauth" | null>(null);
   const legacyToken = useRef<string | undefined>(undefined);
   const installed = useRef(false);
   const latest = useRef<ServerSession | null>(null);
@@ -39,7 +39,7 @@ export function useAutomationSession(actor: string | null, accessToken: string |
     legacyToken.current = undefined;
     latest.current = next;
     setContext(next);
-    setLegacy(false);
+    setFallback(null);
     return true;
   }, [actor]);
 
@@ -50,10 +50,12 @@ export function useAutomationSession(actor: string | null, accessToken: string |
       const { data, error } = await supabase.rpc("automation_session_context");
       if (generation.current !== current || identity.current !== token) return;
       if (error) {
-        // An application running before the isolated migration retains the original CRM View As.
-        if (error.code === "PGRST202" && !installed.current) {
+        const reauth = error.code === "42501" && error.hint === "automation_session_reauth";
+        // An existing CRM tab retains its locally verified View As and receives no Automations revision.
+        if (reauth || (error.code === "PGRST202" && !installed.current)) {
+          if (reauth) installed.current = true;
           legacyToken.current = token;
-          setLegacy(true);
+          setFallback(reauth ? "reauth" : "preinstall");
           latest.current = null;
           setContext(null);
           return;
@@ -66,14 +68,14 @@ export function useAutomationSession(actor: string | null, accessToken: string |
         legacyToken.current = undefined;
         latest.current = null;
         setContext(null);
-        setLegacy(false);
+        setFallback(null);
       }
     }
   }, [actor, token, accept]);
 
   useEffect(() => {
     setContext(null);
-    setLegacy(false);
+    setFallback(null);
     legacyToken.current = undefined;
     latest.current = null;
     void refresh();
@@ -118,5 +120,5 @@ export function useAutomationSession(actor: string | null, accessToken: string |
     }
   }, [actor, token, accept, refresh]);
 
-  return { context, legacy, transition };
+  return { context, legacy: fallback !== null, signInRequired: fallback === "reauth", transition };
 }

@@ -1,4 +1,13 @@
 -- Trusted Automations session state. CRM writes outside Automations do not consult this table.
+CREATE TABLE private.automation_session_cutover (
+  singleton boolean PRIMARY KEY CHECK (singleton),
+  installed_at timestamptz NOT NULL,
+  visibility_cutover_at timestamptz
+);
+ALTER TABLE private.automation_session_cutover ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.automation_session_cutover FROM PUBLIC, anon, authenticated, service_role;
+INSERT INTO private.automation_session_cutover (singleton,installed_at) VALUES (true,clock_timestamp());
+
 CREATE SEQUENCE private.automation_session_revision;
 REVOKE ALL ON SEQUENCE private.automation_session_revision FROM PUBLIC, anon, authenticated;
 
@@ -15,12 +24,20 @@ CREATE FUNCTION private.automation_session_id() RETURNS uuid
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
 DECLARE
   sid uuid := nullif(auth.jwt()->>'session_id','')::uuid;
+  session_started_at timestamptz;
 BEGIN
-  IF sid IS NULL OR NOT EXISTS (
-    SELECT 1 FROM auth.sessions s WHERE s.id = sid AND s.user_id = auth.uid()
-      AND (s.not_after IS NULL OR s.not_after > now())
-  ) THEN
+  SELECT s.created_at INTO session_started_at FROM auth.sessions s
+    WHERE s.id=sid AND s.user_id=auth.uid() AND (s.not_after IS NULL OR s.not_after>now());
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'A current signed-in session is required' USING ERRCODE='42501';
+  END IF;
+  -- A current role cannot tell us whether an earlier tab entered local-only View As.
+  -- A new login after visibility cutover starts in a server-verifiable mode. Refreshing
+  -- the old JWT keeps the same session. Other CRM features do not use this guard.
+  IF NOT EXISTS (SELECT 1 FROM private.automation_session_cutover c
+                  WHERE c.singleton AND session_started_at>c.visibility_cutover_at) THEN
+    RAISE EXCEPTION 'Sign in again to use Automations after the upgrade.'
+      USING ERRCODE='42501', HINT='automation_session_reauth';
   END IF;
   RETURN sid;
 END $$;

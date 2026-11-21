@@ -49,8 +49,9 @@ function Builder({org, session, scope}: Props) {
 }
 
 export default function WorkflowBuilder() {
-  const {user, profile, isImpersonating, automationSessionRevision: session} = useAuth();
+  const {user, profile, isImpersonating, automationSignInRequired, automationSessionRevision: session} = useAuth();
   const access = useAutomationAccess();
+  if (automationSignInRequired) return <p role="status">Sign in again to use Automations after the upgrade.</p>;
   if (access.isLoading) return <p role="status">Checking automation access…</p>;
   if (!access.data?.visible || session == null || !user || !profile?.organization_id)
     return <p role="status">Automations are unavailable for this session.</p>;

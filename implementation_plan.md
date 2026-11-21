@@ -1,3 +1,9 @@
+## November 21, 2026 — Automations release preparation · PR #534
+
+Chris requested isolated release preparation on `624ea7cc4566e1a65fb48eac2ae10bd5dbeb7df6`. Report actual enrollment and dispatch controls in the authoring UI and verify all four combinations. Rehearse the exact four candidate migrations, populated workflow preservation, old signed-in sessions, zero installation side effects and a data-preserving visibility rollback. Compare the rehearsal baseline with the current production catalog and record any missing native source explicitly. Prepare separate builder-only and execution decisions. Trace the scheduler and verified channel inputs from intake to handoff, including expiry and refresh.
+
+The builder remains blank. Visibility is targeted per agency while both execution controls are off. The release packet records the exact artifacts and prerequisites for a subsequent approval. All writes in this phase belong to the isolated fixture, feature branch and draft PR.
+
 ## November 21, 2026 — Self-service Automations builder
 
 Chris approved isolated Milestones 1–4 on 1536db4d957f256b5706d948545409cac2e1cfe1, stacked on prereq/sticky-numbers-baseline-20261113. #APPROVE_RLS_CHANGE applies to isolated authoring and tests. Production migrations, permission changes, merges, deployments, scheduling, enrollment and live sends require separate approval.

@@ -57,6 +57,7 @@ interface AuthContextType {
   isLoading: boolean;
   isBuildingOrganization: boolean;
   automationSessionRevision: number | null;
+  automationSignInRequired: boolean;
   impersonatedUser: Profile | null;
   isImpersonating: boolean;
   login: (email: string, password: string) => Promise<SupabaseUser>;
@@ -824,6 +825,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       profile: impersonatedUser || profile, 
       realProfile: profile,
       automationSessionRevision: automation.context?.actor_id === user?.id ? automation.context?.revision ?? null : null,
+      automationSignInRequired: automation.signInRequired,
       impersonatedUser,
       isImpersonating: !!impersonatedUser,
       session, isAuthenticated: !!session, isLoading, isBuildingOrganization,

@@ -99,13 +99,6 @@ REVOKE ALL ON FUNCTION private.automation_can_author(uuid), private.automation_b
 GRANT EXECUTE ON FUNCTION private.automation_can_author(uuid), private.automation_builder_visible(uuid)
   TO authenticated;
 
-CREATE FUNCTION public.automation_access()
-RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
-  SELECT jsonb_build_object('visible', v.visible, 'can_author',v.visible AND private.automation_can_author(v.org))
-  FROM (SELECT p.organization_id AS org, private.automation_builder_visible(p.organization_id) AS visible
-        FROM public.profiles p WHERE p.id=private.automation_viewer_id() AND lower(p.status)='active') v
-$$;
-
 CREATE FUNCTION private.automation_require_author(p_session_revision bigint)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE org uuid := public.get_org_id();
@@ -154,6 +147,28 @@ $$;
 REVOKE ALL ON FUNCTION private.automation_graph_in_scope(uuid,jsonb), private.automation_workflow_access(uuid,uuid)
   FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION private.automation_workflow_access(uuid,uuid), private.automation_graph_in_scope(uuid,jsonb) TO authenticated;
+
+-- Report switches from the same agency as the verified viewer. A management read may
+-- include the pinned trigger, even while a different trigger is being edited.
+CREATE FUNCTION public.automation_access(p_workflow_id uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  WITH agency AS (
+    SELECT p.organization_id AS org, coalesce(c.builder_visible,false) AS visible,
+      coalesce(c.builder_visible,false) AND private.automation_can_author(p.organization_id) AS author,
+      c.enrollment_enabled,c.dispatch_enabled
+    FROM public.profiles p LEFT JOIN private.automation_release_controls c ON c.organization_id=p.organization_id
+    WHERE p.id=private.automation_viewer_id() AND lower(p.status)='active'
+  )
+  SELECT jsonb_build_object('visible',a.visible,'can_author',a.author) ||
+    CASE WHEN a.author THEN jsonb_build_object('release_controls',jsonb_build_object(
+      'enrollment_enabled',a.enrollment_enabled,'dispatch_enabled',a.dispatch_enabled)) ELSE '{}' END ||
+    CASE WHEN w.id IS NOT NULL THEN jsonb_build_object('workflow',jsonb_build_object(
+      'id',w.id,'status',w.status,'revision',w.automation_revision,
+      'trigger_type',private.automation_trigger(v.graph)->>'type')) ELSE '{}' END
+  FROM agency a LEFT JOIN public.workflows w ON a.author AND w.organization_id=a.org AND w.id=p_workflow_id
+    AND w.automation_graph IS NOT NULL AND private.automation_workflow_access(a.org,w.id)
+  LEFT JOIN public.workflow_versions v ON (v.organization_id,v.workflow_id,v.id)=(a.org,w.id,w.automation_version_id)
+$$;
 
 CREATE FUNCTION private.automation_history_contact_visible(p_org uuid,p_contact uuid,p_type text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
@@ -425,10 +440,10 @@ BEGIN
   RETURN (SELECT coalesce(jsonb_agg(to_jsonb(i)),'[]') FROM private.automation_graph_issues(w.organization_id,w.automation_draft_name,w.automation_graph) i);
 END $$;
 
-CREATE FUNCTION public.publish_automation(p_workflow_id uuid,p_expected_revision bigint,p_session_revision bigint)
+CREATE FUNCTION public.publish_automation(p_workflow_id uuid,p_expected_revision bigint,p_session_revision bigint,p_expected_controls jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE org uuid:=private.automation_require_author(p_session_revision); w public.workflows;
-  version_id uuid; boundary timestamptz; issues jsonb;
+  version_id uuid; boundary timestamptz; issues jsonb; controls jsonb;
 BEGIN
   -- Commit-order serialization with event capture's shared lock; concurrent intakes remain compatible.
   PERFORM pg_advisory_xact_lock(hashtextextended('automation-activation:'||org::text,0));
@@ -437,11 +452,21 @@ BEGIN
     RAISE EXCEPTION 'Automation unavailable' USING ERRCODE='42501';
   END IF;
   IF w.automation_revision IS DISTINCT FROM p_expected_revision THEN RAISE EXCEPTION 'Draft changed; reopen the editor' USING ERRCODE='40001'; END IF;
+  -- Publish under the exact switch state reviewed by the author. An operator changing a
+  -- switch waits for this transaction (or commits first and invalidates the review).
+  SELECT jsonb_build_object('enrollment_enabled',enrollment_enabled,'dispatch_enabled',dispatch_enabled)
+    INTO controls FROM private.automation_release_controls WHERE organization_id=org AND builder_visible FOR SHARE;
+  IF controls IS NULL THEN RAISE EXCEPTION 'Agency controls unavailable' USING ERRCODE='42501'; END IF;
+  IF p_expected_controls IS DISTINCT FROM controls THEN
+    -- A changed review requires an author decision. A serialization failure lets PostgREST retry it.
+    RAISE EXCEPTION 'Agency controls changed. Review the current settings before publishing.' USING ERRCODE='PT409';
+  END IF;
   SELECT jsonb_agg(to_jsonb(i)) INTO issues FROM private.automation_graph_issues(org,w.automation_draft_name,w.automation_graph) i;
   IF issues IS NOT NULL THEN RAISE EXCEPTION 'Fix the indicated blocks before publishing' USING ERRCODE='22023', DETAIL=issues::text; END IF;
   IF EXISTS (SELECT 1 FROM public.workflow_versions v WHERE (v.organization_id,v.workflow_id,v.id)=(org,w.id,w.automation_version_id)
       AND v.name=w.automation_draft_name AND v.graph=w.automation_graph AND v.published_by=auth.uid()) THEN
-    RETURN jsonb_build_object('id',w.id,'version_id',w.automation_version_id,'revision',w.automation_revision);
+    RETURN jsonb_build_object('id',w.id,'version_id',w.automation_version_id,'revision',w.automation_revision,
+      'status',w.status,'trigger_type',private.automation_trigger(w.automation_graph)->>'type','release_controls',controls);
   END IF;
   boundary:=clock_timestamp();
   INSERT INTO public.workflow_versions(organization_id,workflow_id,revision,name,graph,published_at,published_by)
@@ -456,7 +481,9 @@ BEGIN
     -- Legacy Sheets warnings read the header. The legacy evaluator explicitly excludes versioned graphs.
     trigger_type=CASE WHEN private.automation_trigger(w.automation_graph)->>'type'='lead_created' THEN 'lead_created' ELSE 'manual' END
     WHERE organization_id=org AND id=w.id;
-  RETURN jsonb_build_object('id',w.id,'version_id',version_id,'revision',w.automation_revision+1);
+  RETURN jsonb_build_object('id',w.id,'version_id',version_id,'revision',w.automation_revision+1,
+    'status',CASE WHEN w.status='paused' THEN 'paused' ELSE 'active' END,
+    'trigger_type',private.automation_trigger(w.automation_graph)->>'type','release_controls',controls);
 END $$;
 
 CREATE FUNCTION public.automation_lifecycle(p_workflow_id uuid,p_operation text,p_session_revision bigint)
@@ -556,8 +583,9 @@ BEGIN
   SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY q.updated_at DESC,q.id),'[]') INTO result FROM (
     SELECT w.id,w.name,w.status,w.updated_at,CASE WHEN w.automation_graph IS NULL THEN w.trigger_type ELSE w.start_node->>'type' END AS trigger_type,
       w.folder_id,w.automation_revision,w.automation_version_id,w.automation_graph IS NULL AS is_legacy,
+      jsonb_build_object('enrollment_enabled',c.enrollment_enabled,'dispatch_enabled',c.dispatch_enabled) AS release_controls,
       greatest(legacy.started_at, activity.updated_at) AS last_activity_at
-    FROM page w
+    FROM page w JOIN private.automation_release_controls c ON c.organization_id=w.organization_id
     LEFT JOIN LATERAL (SELECT e.started_at FROM public.workflow_executions e WHERE e.organization_id=org AND e.workflow_id=w.id
       AND private.automation_history_contact_visible(org,e.contact_id,e.contact_type) ORDER BY e.started_at DESC LIMIT 1) legacy ON true
     LEFT JOIN LATERAL (SELECT r.updated_at FROM private.automation_runs r WHERE r.organization_id=org AND r.workflow_id=w.id
@@ -566,13 +594,13 @@ BEGIN
   RETURN result;
 END $$;
 
-REVOKE ALL ON FUNCTION public.automation_access(),public.automation_campaign_options(text,uuid),public.automation_sources(text),
-  public.save_automation_draft(uuid,text,jsonb,bigint,bigint),public.publish_automation(uuid,bigint,bigint),
+REVOKE ALL ON FUNCTION public.automation_access(uuid),public.automation_campaign_options(text,uuid),public.automation_sources(text),
+  public.save_automation_draft(uuid,text,jsonb,bigint,bigint),public.publish_automation(uuid,bigint,bigint,jsonb),
   public.validate_automation_draft(uuid),public.automation_overlap(uuid),public.automation_list(integer,uuid),
   public.automation_lifecycle(uuid,text,bigint),public.automation_folder(text,uuid,jsonb,bigint)
   FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.automation_access(),public.automation_campaign_options(text,uuid),public.automation_sources(text),
-  public.save_automation_draft(uuid,text,jsonb,bigint,bigint),public.publish_automation(uuid,bigint,bigint),
+GRANT EXECUTE ON FUNCTION public.automation_access(uuid),public.automation_campaign_options(text,uuid),public.automation_sources(text),
+  public.save_automation_draft(uuid,text,jsonb,bigint,bigint),public.publish_automation(uuid,bigint,bigint,jsonb),
   public.validate_automation_draft(uuid),public.automation_overlap(uuid),public.automation_list(integer,uuid),
   public.automation_lifecycle(uuid,text,bigint),public.automation_folder(text,uuid,jsonb,bigint)
   TO authenticated;

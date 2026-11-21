@@ -5963,7 +5963,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      automation_access: { Args: Record<PropertyKey, never>; Returns: Json }
+      automation_access: { Args: { p_workflow_id?: string }; Returns: Json }
       automation_channel_options: { Args: { p_search?: string; p_offset?: number; p_sender_id?: string; p_template_id?: string; p_type?: string }; Returns: Json }
       automation_campaign_options: { Args: { p_after?: string; p_selected?: string }; Returns: Json }
       automation_sources: { Args: { p_after?: string }; Returns: Json }
@@ -5971,7 +5971,7 @@ export type Database = {
       save_automation_draft: { Args: { p_workflow_id: string; p_name: string; p_graph: Json; p_expected_revision: number; p_session_revision: number }; Returns: Json }
       validate_automation_draft: { Args: { p_workflow_id: string }; Returns: Json }
       automation_overlap: { Args: { p_workflow_id: string }; Returns: Json }
-      publish_automation: { Args: { p_workflow_id: string; p_expected_revision: number; p_session_revision: number }; Returns: Json }
+      publish_automation: { Args: { p_expected_controls: Json; p_workflow_id: string; p_expected_revision: number; p_session_revision: number }; Returns: Json }
       automation_lifecycle: { Args: { p_workflow_id: string; p_operation: string; p_session_revision: number }; Returns: undefined }
       automation_folder: { Args: { p_operation: string; p_folder_id: string | null; p_values: Json; p_session_revision: number }; Returns: Json }
       automation_stop_run: { Args: { p_run: string; p_session_revision: number }; Returns: undefined }

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import type { AutomationGraph } from "../../supabase/functions/_shared/automations/graph";
+import { readReleaseControls, type ReleaseControls } from "./automation-release";
 import type { WorkflowStatus } from "./workflow-types";
 
 type AutomationRpc = Extract<keyof Database["public"]["Functions"], `automation_${string}` | "publish_automation" | "save_automation_draft" | "validate_automation_draft">;
@@ -20,6 +21,7 @@ export interface Summary {
   folder_id: string | null;
   last_activity_at: string | null;
   is_legacy: boolean;
+  release_controls: ReleaseControls;
 }
 
 export interface DraftRecord {
@@ -35,7 +37,27 @@ export interface DraftRecord {
 export interface Issue { node_id?: string; message: string }
 export interface Option { id: string; name: string }
 
+export interface WorkflowSnapshot {
+  id: string;
+  status: WorkflowStatus;
+  revision: number;
+  trigger_type: string | null;
+}
+interface Access {
+  visible: boolean;
+  can_author: boolean;
+  release_controls?: ReleaseControls;
+  workflow?: WorkflowSnapshot;
+}
+
 export const automationApi = {
+  async status(id: string) {
+    const result = await rpc<Access | null>("automation_access", {p_workflow_id:id});
+    const workflow = result?.workflow;
+    if (!result?.can_author || !workflow || workflow.id !== id ||
+      !["active","draft","paused","archived"].includes(workflow.status)) throw new Error("Workflow status unavailable.");
+    return {...workflow, controls:readReleaseControls(result.release_controls)};
+  },
   list: (offset: number, campaign: string | null) =>
     rpc<Summary[]>("automation_list", { p_offset: offset, p_campaign_id: campaign }),
   async load(id: string, organizationId: string): Promise<DraftRecord> {
@@ -53,9 +75,9 @@ export const automationApi = {
     }),
   validate: (id: string) => rpc<Issue[]>("validate_automation_draft", { p_workflow_id: id }),
   overlap: (id: string) => rpc<Option[]>("automation_overlap", { p_workflow_id: id }),
-  publish: (id: string, revision: number, session: number) =>
-    rpc<{revision: number; version_id: string}>("publish_automation", {
-      p_workflow_id: id, p_expected_revision: revision, p_session_revision: session,
+  publish: (id: string, revision: number, session: number, expected: ReleaseControls) =>
+    rpc<WorkflowSnapshot & {version_id: string; release_controls?: ReleaseControls}>("publish_automation", {
+      p_workflow_id: id, p_expected_revision: revision, p_session_revision: session, p_expected_controls:expected,
     }),
   lifecycle: (id: string, op: "pause" | "resume" | "archive", session: number) =>
     rpc("automation_lifecycle", { p_workflow_id: id, p_operation: op, p_session_revision: session }),
@@ -71,7 +93,7 @@ export function useAutomationAccess() {
   const { user, profile, automationSessionRevision, isImpersonating } = useAuth();
   return useQuery({
     queryKey: ["automation-access", user?.id, profile?.id, profile?.organization_id, automationSessionRevision, isImpersonating],
-    queryFn: () => rpc<{visible: boolean; can_author: boolean}>("automation_access"),
+    queryFn: () => rpc<Access>("automation_access"),
     enabled: Boolean(user && profile?.organization_id && automationSessionRevision != null),
     retry: false,
   });
