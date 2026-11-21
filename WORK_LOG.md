@@ -1,3 +1,17 @@
+## November 21, 2026 — Restore saved names in the contact From dropdown (review candidate)
+
+Chris reported that the sticky-number selector hid names such as Denver, CO. The contact screen already requested friendly names, but the sticky path rendered only the formatted phone number. A read-only count confirmed all 22 active numbers in Chris's agency had saved names. The page now shows the agency's label beside the formatted number in the selected value and the list. Blank or unmatched names fall back to the formatted sender number.
+
+The existing phone inventory read now includes row ID and organization. The selector uses a matching agency row ID and normalized number for display. Its underlying option values and eligible choices still come from the contact-number model. The inventory is scoped to the contact, actor, viewer and organization, including empty responses. The native control has more room for the name. The legacy dropdown continues to use phone numbers as its option values.
+
+Verification covered both selection modes, blank and missing names, equal digits on a different row, a saved number absent from the options, late inventory across agency switches, and call and SMS sender identity. Three label assertions failed on the previous implementation. The corrected candidate passed 302 tests across 20 files. All 298 corresponding tests passed on the base. Root TypeScript, scoped ESLint, the Vite build and the whitespace check passed. The separate application type-check produced the same 78 existing diagnostics on base and candidate.
+
+Four Chromium scenarios passed with synthetic inventory. The full contact screen showed the complete label on light and dark desktop layouts and in legacy mode. The isolated selector also fit at 390 pixels. Keyboard selection, cancellation and temporary confirmation preserved the expected number. The browser recorded zero external requests and zero page errors.
+
+Changes are in `src/components/contacts/FullScreenContactView.tsx`, `src/components/contacts/ContactFromNumberControl.tsx`, `src/components/contacts/__tests__/fullScreenContactViewFromNumber.test.tsx`, `implementation_plan.md` and this log. The candidate is based on `f459ae7` on the PR #531 branch. Migrations and production deployments are outside this frontend correction. The primary frontend release awaits Chris's approval.
+
+---
+
 ## November 21, 2026 — Simplified contact FROM released on primary AgentFlow
 
 Chris approved exact frontend commit `553f89d3a647770a6c722e4ae4ba89b15b2a3b09`. Primary production deployment `dpl_Ces2SKbmdQrjHJ3XyYwopGZebt7U` became READY at **10:53:12 AM Pacific** with no alias error; both `fflagent.com` and `www.fflagent.com` point to it. The connected Git build used the approved source and existing primary configuration. Complete source/tree preflight preserved all backend, dependency, configuration, workflow and automatic number setup files. Main remains unmerged.

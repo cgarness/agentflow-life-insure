@@ -1,3 +1,12 @@
+## November 21, 2026 — Restore names in the contact From dropdown
+
+Chris approved the frontend correction. The primary site runs `553f89d`. The review branch starts from `f459ae7`, its documentation-only successor on PR #531.
+
+1. In `src/components/contacts/FullScreenContactView.tsx`, include each phone number's row ID and organization in the existing inventory read. Scope the display data to the current viewer and contact so an empty result or late response cannot show a previous agency's labels.
+2. In `src/components/contacts/ContactFromNumberControl.tsx`, show the saved name and formatted number in each eligible option and the selected value. An unnamed or unmatched row uses the formatted sender number. Keep option membership, IDs, confirmation, assignment and sender behavior authoritative in the existing contact-number model.
+3. Extend `src/components/contacts/__tests__/fullScreenContactViewFromNumber.test.tsx` to cover named and unnamed numbers, selection, eligibility and delayed data across agency changes. Verify the existing call and SMS paths with synthetic fixtures.
+4. Run the scoped Vitest suite, `npx tsc --noEmit`, the application type-check against the base, scoped ESLint, and the Vite build. Record results newest first in `WORK_LOG.md` and submit the frontend change for review. These two documentation files and the three paths above are the intended changes. Production release requires separate approval.
+
 ## November 21, 2026 — Contact FROM dropdown simplification is live
 
 Chris approved the exact primary-only frontend release of `553f89d3a647770a6c722e4ae4ba89b15b2a3b09`. It became READY at **10:53:12 AM Pacific** as `dpl_Ces2SKbmdQrjHJ3XyYwopGZebt7U`; both fflagent.com domains resolve to this source. Assigned Number is the saved default without a phone icon, channel caption or separate Change control. The header FROM controls calls and texts, with a compact alternate-number confirmation and optional permanent assignment checkbox. The signed-in live contact screen, confirmation and cancellation were verified without communication or assignment mutation. See [the focused plan](docs/plans/2026-11-21-contact-from-dropdown/implementation_plan.md) and [production release record](docs/plans/2026-11-21-contact-from-dropdown/production-release.md).

@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   saved: null as ContactNumberAffinity | null,
   rpc: [] as { name: string; args: Row }[], posts: [] as Row[], messages: [] as Row[], errors: [] as string[],
   options: [] as Row[], changeError: null as string | null,
+  inventory: [] as Row[], readInventory: null as null | (() => Promise<Row[]>),
   previewReply: null as null | ((args: Row) => Promise<RpcResult>),
   changeReply: null as null | ((args: Row) => Promise<RpcResult>),
 }));
@@ -31,18 +32,29 @@ function affinity(id = A, number = N_A): ContactNumberAffinity {
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 
+function inventoryNumber(id: string, phone_number: string, friendly_name: string | null, organization_id: string | null = h.org) {
+  return { id, phone_number, friendly_name, organization_id, is_default: id === A };
+}
+
 function query(table: string) {
   const filters: Row = {};
+  let columns = "*";
   const resolve = (single = false): RpcResult => {
     if (table === "messages") {
       const matches = h.messages.filter(row => Object.entries(filters).every(([key, value]) => row[key] === value));
       return { data: single ? matches[0] ?? null : matches, error: null };
     }
-    if (table === "phone_numbers") return { data: h.options.map((option, index) => ({ ...option, phone_number: option.number, is_default: index === 0, status: "active", number_type: "agency", organization_id: h.org })), error: null };
     return { data: single ? null : [], error: null };
   };
-  const api: Row = { then: (done: (v: RpcResult) => unknown) => Promise.resolve(resolve()).then(done) };
-  for (const method of ["select", "in", "or", "not", "order", "limit", "gte", "lt", "neq", "is"]) api[method] = () => api;
+  const read = async (): Promise<RpcResult> => {
+    if (table !== "phone_numbers") return resolve();
+    const rows = h.readInventory ? await h.readInventory() : h.inventory;
+    const keys = columns.split(",").map(key => key.trim());
+    return { data: columns === "*" ? rows : rows.map(row => Object.fromEntries(keys.map(key => [key, row[key]]))), error: null };
+  };
+  const api: Row = { then: (done: (v: RpcResult) => unknown) => read().then(done) };
+  for (const method of ["in", "or", "not", "order", "limit", "gte", "lt", "neq", "is"]) api[method] = () => api;
+  api.select = (projection = "*") => { columns = projection; return api; };
   api.eq = (key: string, value: unknown) => { filters[key] = value; return api; };
   api.single = api.maybeSingle = () => Promise.resolve(resolve(true));
   return api;
@@ -102,6 +114,8 @@ beforeEach(() => {
   h.actor = "00000000-0000-4000-8000-000000000001"; h.org = "11111111-1111-4111-8111-111111111111"; h.impersonating = false;
   h.saved = affinity(); h.rpc = []; h.posts = []; h.messages = []; h.errors = []; h.previewReply = null; h.changeReply = null; h.changeError = null;
   h.options = [{ id: A, number: N_A, readiness: "ready", voice_readiness: "ready", provisional: true }, { id: B, number: N_B, readiness: "ready", voice_readiness: "ready", provisional: true }];
+  h.readInventory = null;
+  h.inventory = [inventoryNumber(A, N_A.slice(1), "Denver, CO"), inventoryNumber(B, N_B, "Phoenix, AZ")];
   pendingSmsStore.reset(); calls = []; window.addEventListener(QUICK_CALL_EVENT, captureCall);
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } });
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
@@ -157,6 +171,8 @@ describe("Full contact shared FROM", () => {
 
   it("uses the saved shared number for both explicit actions without a confirmation or automatic action", async () => {
     mount(); await loaded();
+    await waitFor(() => expect(picker().selectedOptions[0]).toHaveTextContent("Denver, CO - (555) 000-2222"));
+    expect(within(picker()).getByRole("option", { name: "Phoenix, AZ - (555) 000-3333" })).toHaveValue(B);
     const details = screen.getByLabelText("Contact numbers");
     expect(details).toHaveTextContent("Assigned Number"); expect(details).not.toHaveTextContent("Calls & texts");
     expect(within(details).queryByRole("button", { name: "Change" })).toBeNull(); expect(details.querySelector("svg")).toBeNull();
@@ -171,6 +187,7 @@ describe("Full contact shared FROM", () => {
 
   it("confirms one temporary choice, then calls and texts repeatedly from that exact number without changing the saved identity", async () => {
     mount(); await loaded(); await confirmTemporary();
+    expect(picker().selectedOptions[0]).toHaveTextContent("Phoenix, AZ - (555) 000-3333");
     expect(calls).toHaveLength(0); expect(h.posts).toHaveLength(0); expect(mutations()).toHaveLength(0);
     expect(screen.getByLabelText("Contact numbers")).toHaveTextContent("(555) 000-2222");
     for (let index = 0; index < 2; index++) {
@@ -181,6 +198,64 @@ describe("Full contact shared FROM", () => {
     for (const payload of h.posts) expect(payload).toMatchObject({ expected_sender_id: B, override_sender_id: B });
     expect(h.messages.every(message => message.from_number === N_B)).toBe(true);
     expect(mutations()).toHaveLength(0); expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("only labels eligible rows by agency and ID, with formatted numbers for blank or unmatched names", async () => {
+    h.inventory = [
+      inventoryNumber("dddddddd-dddd-4ddd-8ddd-dddddddddddd", N_A, "Another row with the same digits"),
+      inventoryNumber(A, N_A, "Shared inventory name", null),
+      inventoryNumber(B, N_B, "   "),
+    ];
+    mount(); await loaded();
+    await waitFor(() => expect(Array.from(picker().options).map(option => [option.value, option.textContent])).toEqual([
+      [A, "(555) 000-2222"], [B, "(555) 000-3333"],
+    ]));
+  });
+
+  it("labels a saved number that is missing from the options without offering extra inventory rows", async () => {
+    h.options = h.options.filter(row => row.id === B);
+    h.inventory.push(inventoryNumber("dddddddd-dddd-4ddd-8ddd-dddddddddddd", "+15550004444", "Inventory only"));
+    mount();
+    await waitFor(() => expect(picker().selectedOptions[0]).toHaveTextContent("Denver, CO - (555) 000-2222"));
+    expect(picker()).toHaveValue(A);
+    expect(within(picker()).getByRole("option", { name: "Phoenix, AZ - (555) 000-3333" })).toHaveValue(B);
+    expect(picker()).not.toHaveTextContent("Inventory only");
+  });
+
+  it("keeps phone numbers as option values when sticky selection is off", async () => {
+    h.saved = { ...affinity(), voice_mode: "off", sms_mode: "off" };
+    mount();
+    const alternate = await within(picker()).findByRole("option", { name: "Phoenix, AZ - (555) 000-3333" });
+    expect(alternate).toHaveValue(N_B);
+    expect(picker().selectedOptions[0]).toHaveTextContent("Denver, CO - (555) 000-2222");
+    fireEvent.change(picker(), { target: { value: N_B } });
+    expect(picker()).toHaveValue(N_B);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mutations()).toHaveLength(0);
+  });
+
+  it("clears old names while another agency loads and ignores its late inventory after the next switch", async () => {
+    const mounted = mount();
+    await waitFor(() => expect(picker().selectedOptions[0]).toHaveTextContent("Denver, CO"));
+    const delayed = deferred<Row[]>();
+    h.org = "22222222-2222-4222-8222-222222222222";
+    const delayedRow = inventoryNumber(A, N_A, "Previous agency");
+    const readDelayed = vi.fn(() => delayed.promise);
+    h.readInventory = readDelayed;
+    mounted.rerender(view());
+    expect(picker()).not.toHaveTextContent("Denver, CO");
+    await waitFor(() => expect(readDelayed).toHaveBeenCalled());
+    await loaded();
+    expect(picker().selectedOptions[0].textContent).toBe("(555) 000-2222");
+
+    h.org = "33333333-3333-4333-8333-333333333333";
+    h.readInventory = null;
+    h.inventory = [inventoryNumber(A, N_A, "Current agency")];
+    mounted.rerender(view());
+    await waitFor(() => expect(picker().selectedOptions[0]).toHaveTextContent("Current agency - (555) 000-2222"));
+    await act(async () => delayed.resolve([delayedRow]));
+    expect(picker()).not.toHaveTextContent("Previous agency");
+    expect(picker().selectedOptions[0]).toHaveTextContent("Current agency - (555) 000-2222");
   });
 
   it("preserves an in-flight and then uncertain SMS identity when FROM changes, without sending the same body again", async () => {

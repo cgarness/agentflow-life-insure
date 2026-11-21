@@ -1,7 +1,7 @@
 import { useContactNumberAffinity } from "@/hooks/useContactNumberAffinity";
 import { ContactNumberControl } from "./ContactNumberControl";
 import { useContactFromNumber } from "@/hooks/useContactFromNumber";
-import { ContactFromNumberControl } from "./ContactFromNumberControl";
+import { ContactFromNumberControl, type FromNumberLabel } from "./ContactFromNumberControl";
 import { useScopedDraft } from "@/hooks/useScopedDraft";
 import { useComposerDraftSink, useMarkObserved, usePendingSmsRecords, useSmsScopeEvents } from "@/hooks/usePendingSms";
 import { manualSmsSender } from "@/lib/sms-send/manualSmsSender";
@@ -250,7 +250,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
     contactId: contact?.id, currentAssigneeId: contact?.assignedAgentId, organizationId, viewer, selfId: profile?.id,
   });
   const [coreLoading, setCoreLoading] = useState(true);
-  const [availableNumbers, setAvailableNumbers] = useState<{ number: string; label: string }[]>([]);
+  const [numberInventory, setNumberInventory] = useState<{ scope: string; options: FromNumberLabel[] } | null>(null);
   const [fromNumber, setFromNumber] = useState<string>("");
   const AGENT_NAME = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "";
   // No "u1" fallback: when the profile isn't loaded, agent id is null and mutating actions are blocked.
@@ -421,7 +421,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       const phoneP = organizationId
         ? supabase
             .from("phone_numbers")
-            .select("phone_number, friendly_name, is_default")
+            .select("id, organization_id, phone_number, friendly_name, is_default")
             .or(`organization_id.eq.${organizationId},organization_id.is.null`)
             .in("status", ["active", "Active"])
         : Promise.resolve({ data: null });
@@ -516,14 +516,20 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         setCampaigns([]);
       }
 
-      const phoneData = phoneRes.data;
-      if (phoneData?.length) {
-        setAvailableNumbers(
-          phoneData.map((p) => ({
-            number: p.phone_number,
-            label: p.friendly_name ? `${p.friendly_name} - ${formatPhoneNumber(p.phone_number)}` : formatPhoneNumber(p.phone_number),
-          }))
-        );
+      const phoneData = phoneRes.data ?? [];
+      setNumberInventory({
+        scope: fieldScope,
+        options: phoneData.map(row => {
+          const number = formatPhoneNumber(row.phone_number);
+          const name = row.friendly_name?.trim();
+          return {
+            agencyNumberId: row.organization_id === organizationId ? row.id : undefined,
+            number: row.phone_number,
+            label: name ? `${name} - ${number}` : number,
+          };
+        }),
+      });
+      if (phoneData.length) {
         const lastCall = lastCallRes.data;
         if (lastCall?.caller_id_used) setFromNumber(lastCall.caller_id_used);
         else setFromNumber(phoneData.find((p) => p.is_default)?.phone_number || phoneData[0]?.phone_number || "");
@@ -926,7 +932,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         {/* MIDDLE SECTION - Phone Selector */}
         <div className="flex-1 flex justify-end px-4 overflow-hidden">
           <ContactFromNumberControl model={contactFrom} legacyNumber={fromNumber}
-            legacyOptions={availableNumbers} onLegacyChange={setFromNumber} />
+            legacyOptions={numberInventory?.scope === fieldScope ? numberInventory.options : []} onLegacyChange={setFromNumber} />
         </div>
 
         {/* RIGHT SECTION - aligned with Right Column */}
