@@ -1,6 +1,6 @@
-## November 21, 2026 — Assigned Number in contact details
+## November 21, 2026 — Assigned Number in contact details is live
 
-Chris requested the compact Assigned Number field in the left contact details and removal of the Calls / Texts strip above the full-contact composer. The presentation-only scope and exact file list are recorded in [the focused plan](docs/plans/2026-11-21-assigned-number-ui/implementation_plan.md). Use verified PR #531 head `1536db4d957f256b5706d948545409cac2e1cfe1`, whose runtime matches the currently deployed automatic-number-setup release. Preserve the shared sender model, temporary choices and send guards. Implementation and isolated verification are authorized; the pinned primary-only frontend release remains separate. No backend, main merge or secondary-project change is included.
+Chris approved the primary-only frontend release of `eaf83fa9fb946bec94a3f6c646ae8aaeb17fd68b`. It became READY at 9:35:23 AM Pacific as `dpl_5J1GgpEXDLdY1n4Pu3qQy2G2HNf4`; both fflagent.com domains resolve to this exact source. Assigned Number is in the left contact details and the Calls / Texts strip above the full-contact composer is removed. The authenticated production contact view was verified read-only. The shared sender model, temporary choices, send guards and automatic number setup are preserved. See [the focused plan](docs/plans/2026-11-21-assigned-number-ui/implementation_plan.md) and [production closeout](docs/plans/2026-11-21-assigned-number-ui/production-release.md). No backend, main merge or secondary-project operation was performed. This update needs no further release approval.
 
 ## November 20, 2026 — Automatic agency phone number setup
 

@@ -1,3 +1,15 @@
+## November 21, 2026 — Assigned Number UI released on primary AgentFlow
+
+Chris approved exact frontend commit `eaf83fa9fb946bec94a3f6c646ae8aaeb17fd68b`. At 9:35:23 AM Pacific, primary deployment `dpl_5J1GgpEXDLdY1n4Pu3qQy2G2HNf4` became READY; both `fflagent.com` and `www.fflagent.com` resolve to it with no alias error. It was built from the connected Git repository using the existing production configuration. The prior primary deployment was `dpl_Ew8mAsZojSs5MbbTAJd8etB1okCE` at `7914faefc750aaf38d3659a71d9a01b3298f9107`. Fresh complete-tree comparison found only the two approved TSX presentation changes and four documentation changes, preserving automatic phone setup and every other runtime file.
+
+The signed-in production contact screen was inspected read-only: Assigned Number and Change appear in left details, the existing synthetic contact displays Not assigned, and the old Calls / Texts strip above the composer is absent. The served HTML and JavaScript returned HTTP 200; the actual bundle contains Assigned Number, This text only, the details mount and retained automatic setup markers. Vercel source-file retrieval returned 404, so source identity is established by the verified Git tree/blobs and deployment SHA, with independent served-asset evidence. No deployed-source byte comparison is claimed. The production build passed with its existing chunk-size warning.
+
+Verification before release: root TypeScript, scoped lint, 51 existing full-contact tests, Vite build and 23 isolated browser checks passed. Application TypeScript retains the same 78 diagnostics as the exact base, byte for byte. Whole-contact mobile clipping remains an inherited limitation; the new field and Change dialog fit 375 px in isolated checks. No new broad regression or mobile acceptance claim is made.
+
+Runtime files: `src/components/contacts/ContactNumberControl.tsx` and `src/components/contacts/FullScreenContactView.tsx`. This closeout changes only root/focused implementation plans, this Work Log and `docs/plans/2026-11-21-assigned-number-ui/production-release.md`. No Supabase operation, migration, Edge deployment, mode/assignment/number/provider change, real call/text, main merge or secondary-project operation occurred. No rollback was needed. PR #531 remains draft and unmerged. Next: Chris can refresh the contact screen to see the new layout; no release blocker remains for this UI change.
+
+---
+
 ## November 21, 2026 — Assigned Number moved into contact details (candidate)
 
 Chris requested an Assigned Number field in the left contact details with emphasis similar to Assigned Agent, and removal of the Calls / Texts strip above the full-contact message composer. The field now uses a muted full-width treatment, formatted number and the existing Change action. Matching voice/text assignments appear once; differing channels retain separate values. Unassigned, pending and review states stay explicit, unavailable assigned numbers stay visible, and a one-text choice remains labeled This text only with Clear.

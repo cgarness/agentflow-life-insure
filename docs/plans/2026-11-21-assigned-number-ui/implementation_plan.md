@@ -1,5 +1,7 @@
 # Assigned Number in contact details
 
+**Current status: released to the primary frontend on November 21, 2026 at 9:35:23 AM Pacific.** Chris approved exact source `eaf83fa9fb946bec94a3f6c646ae8aaeb17fd68b`; production deployment `dpl_5J1GgpEXDLdY1n4Pu3qQy2G2HNf4` is READY on both fflagent.com domains. The authenticated contact layout and delivered assets passed readback. Earlier approval-gate paragraphs below describe the pre-release sequence; that gate is now closed. See [the production release record](production-release.md).
+
 ## Scope and authorization
 
 Chris requested an Assigned Number field in the left contact details, with emphasis similar to Assigned Agent, and removal of the Calls / Texts strip above the composer. This authorizes the presentation change and isolated verification. Production frontend release remains a separate exact approval; no backend operation is part of this work.
@@ -45,3 +47,9 @@ The real number field and settled Change dialog fit a 375 px container in both t
 Publish only the six listed source/documentation files to the existing draft branch using an expected-head lease. No production release, main merge, secondary project change, provider change or real call/text is performed by this task. Production deployment requires Chris's exact approval under the project's Vercel rule; deploy the published candidate by exact Git SHA directly to `agentflow` / `fflagent.com`, preserving the currently released automatic-number-setup code, without a main merge. This UI change needs no migration, Edge deployment, mode change, seed or provider operation. Build from source through the primary project's configured environment; the locally generated bundles use synthetic verification settings and are not production artifacts.
 
 Before an approved release, recheck the primary deployment and exact candidate diff. The currently verified production baseline is `dpl_Ew8mAsZojSs5MbbTAJd8etB1okCE`, source `7914faefc750aaf38d3659a71d9a01b3298f9107`. Do not overwrite a later unrelated production release. A failed frontend readback should restore that verified pre-release primary deployment under the release's conditional rollback scope.
+
+## November 21 release approval
+
+Chris replied APPROVED to the exact primary-only frontend release of `eaf83fa9fb946bec94a3f6c646ae8aaeb17fd68b`. Fresh preflight confirms the primary still serves `dpl_Ew8mAsZojSs5MbbTAJd8etB1okCE` at `7914faef`; the reviewed candidate changes only the two TSX presentation files plus documentation. Deploy from the connected Git repository with the exact SHA and existing production configuration. Verify source identity, build, both domain mappings and the live contact layout using read-only actions. Conditional recovery is the verified prior primary deployment if the new frontend fails readback.
+
+Release documentation file list before edits: this focused plan, root `implementation_plan.md`, newest-first `WORK_LOG.md`, and `docs/plans/2026-11-21-assigned-number-ui/production-release.md`. Publish documentation only after the release; do not change the approved runtime bytes, merge main, touch the secondary project, mutate Supabase/settings/provider data, or send a real communication. Supabase advisors are unnecessary for this frontend-only release because no backend change occurs.
