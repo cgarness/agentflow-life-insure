@@ -1,3 +1,4 @@
+import { database } from "./registrationTestDb.ts";
 import assert from "node:assert/strict";
 import { A2pError, type Account, brandReady, campaignReady, configReady, type Registration } from "./types.ts";
 import { inquirySession, TwilioA2p } from "./provider.ts";
@@ -65,85 +66,6 @@ const approved = () =>
     messaging_service_sid: sid("MG"),
     last_synced_at: new Date().toISOString(),
   });
-// Query-double tests exercise handler boundaries. Real privileges and transactions run in SQL.
-function database(seed: Record<string, any[]> = {}) {
-  const rows = structuredClone(seed), calls: any[] = [];
-  return {
-    rows,
-    calls,
-    auth: { getUser: () => Promise.resolve({ data: { user: { id: "admin" } }, error: null }) },
-    rpc: async (name: string, args: unknown) => {
-      calls.push({ name, args });
-      return { data: true, error: null };
-    },
-    from(table: string) {
-      let action = "select", values: any, single = false, ignore = false;
-      const filters: ((r: any) => boolean)[] = [];
-      const q: any = {
-        select: () => q,
-        eq: (k: string, v: unknown) => {
-          filters.push((r) => r[k] === v);
-          return q;
-        },
-        in: (k: string, values: unknown[]) => {
-          filters.push((r) => values.includes(r[k]));
-          return q;
-        },
-        is: (k: string, v: unknown) => {
-          filters.push((r) => (r[k] ?? null) === v);
-          return q;
-        },
-        or: () => q,
-        lt: (k: string, v: number) => {
-          filters.push((r) => r[k] < v);
-          return q;
-        },
-        order: () => q,
-        limit: () => q,
-        update: (v: any) => {
-          action = "update";
-          values = v;
-          return q;
-        },
-        insert: (v: any) => {
-          action = "insert";
-          values = v;
-          return q;
-        },
-        upsert: (v: any, o: any) => {
-          action = "insert";
-          values = v;
-          ignore = o.ignoreDuplicates;
-          return q;
-        },
-        maybeSingle: () => {
-          single = true;
-          return q;
-        },
-        then: (resolve: any, reject: any) =>
-          Promise.resolve().then(() => {
-            calls.push({ table, action, values });
-            const all = rows[table] ?? (rows[table] = []);
-            let selected = all.filter((r) => filters.every((f) => f(r)));
-            if (action === "insert") {
-              if (table === "a2p_registrations" && all.some((r) => r.organization_id === values.organization_id)) {
-                return { data: null, error: { code: "23505" } };
-              }
-              if (!ignore || !all.some((r) => r.phone_number_id === values.phone_number_id)) {
-                all.push({ ...values, version: values.version ?? 1 });
-              }
-              selected = [all.at(-1)];
-            }
-            if (action === "update") {
-              for (const row of selected) Object.assign(row, values);
-            }
-            return { data: structuredClone(single ? selected[0] ?? null : selected), error: null };
-          }).then(resolve, reject),
-      };
-      return q;
-    },
-  };
-}
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
 const creds = { accountSid: account.account_sid, authToken: "test-token-only" };
 const rejectCode = (promise: Promise<unknown>, code: string) =>
@@ -414,6 +336,43 @@ Deno.test("SMS gate preserves staged orgs and blocks unapproved, stale, test, fo
   await rejectCode(registeredSender(database(seed), "org", "+14155551234", "admin"), "SENDER_NOT_ALLOWED");
   await rejectCode(registeredSender(database(seed), "org", "+14155551234", "other"), "NUMBER_NOT_REGISTERED");
 });
+Deno.test("a managed purchase cannot fall through legacy sending, including cross-agency and formatted senders", async () => {
+  const own = database({}, { managed: true, owned: true, agency_active: true, policy_enforced: true, policy_enabled: true, policy_selected: true, account_sid: account.account_sid, phone_sid: sid("PN"), phone_number_id: "p1" });
+  await rejectCode(registeredSender(own, "org", "+1 (415) 555-1234"), "A2P_NOT_READY");
+  assert.deepEqual(own.calls.find((entry) => entry.name === "phone_number_setup_managed").args, {
+    p_org: "org", p_number: "+14155551234",
+  });
+  await rejectCode(registeredSender(database({}, { managed: true, owned: false }), "other", "+14155551234"), "SENDER_NOT_ALLOWED");
+  await rejectCode(registeredSender(database({}, null), "org", "+14155551234"), "DATABASE_ERROR");
+});
+
+Deno.test("new purchases require an active agency policy, continued selection, and consent-aware dispatch", async () => {
+  const seed = {
+    a2p_accounts: [account],
+    a2p_registrations: [{...approved(), campaign_sid: sid("QE")}],
+    phone_numbers: [{organization_id:"org", id:"phone", phone_number:"+14155551234", twilio_sid:sid("PN"), status:"active", assignment_type:"agency"}],
+    a2p_numbers: [{organization_id:"org", phone_number_id:"phone", phone_sid:sid("PN"), messaging_service_sid:sid("MG"),
+      status:"registered", pool_member:true, checked_at:new Date().toISOString(), event_at:new Date().toISOString()}],
+  };
+  const purchase = { managed:true, owned:true, agency_active:true, account_sid:account.account_sid, phone_sid:sid("PN"),
+    phone_number_id:"phone", policy_enforced:true, policy_enabled:true, policy_selected:true };
+  for (const [patch, code] of [
+    [{policy_enforced:undefined}, "SMS_PAUSED"],
+    [{policy_enforced:false}, "SMS_PAUSED"],
+    [{policy_enabled:false}, "SMS_PAUSED"],
+    [{policy_selected:false}, "SENDER_NOT_SELECTED"],
+  ] as const) {
+    await rejectCode(registeredSender(database(seed, {...purchase, ...patch}), "org", "+14155551234"), code);
+  }
+  await rejectCode(registeredSender(database(seed, purchase), "org", "+14155551234", "admin", "legacy-direct"), "SMS_POLICY");
+  assert.equal(await registeredSender(database(), "org", "+14155551234", "admin", "legacy-direct"), null);
+});
+
+Deno.test("legacy workflows use only the eligible sender and stop when the agency has none", async () => {
+  assert.equal(await registeredWorkflowNumber(database({}, { managed: false }, "+14155551234"), "org"), "+14155551234");
+  await rejectCode(registeredWorkflowNumber(database(), "org"), "SENDER_NOT_ALLOWED");
+});
+
 Deno.test("provider refresh rejects a foreign campaign without committing any status", async () => {
   const r = approved(), db = database({ a2p_registrations: [r] });
   const t = new TwilioA2p(

@@ -57,7 +57,7 @@ export function NumberPurchaseReview({ purchase }: { purchase: ReturnType<typeof
           {Number.isFinite(expires) && pricesReady && <p className="text-[11px] text-muted-foreground">Prices valid until {new Date(expires).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.</p>}
         </div>
       )}
-      {completed ? <p role="status" className="text-sm">Your numbers are ready in Phone Numbers. Use “Use for Inbounds” there to dedicate an eligible number to the Inbounds room.</p> : (
+      {completed ? <p role="status" className="text-sm">Purchase complete. Setup continues automatically. You can check its progress in Phone Numbers.</p> : (
         <div className="space-y-2">
           {pending && (
             <Button type="button" className="w-full" variant="outline" disabled={!!busy} onClick={() => void purchase.checkStatus()}>

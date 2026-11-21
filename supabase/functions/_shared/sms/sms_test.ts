@@ -93,7 +93,7 @@ Deno.test("confirmation wording follows exact enrolled purposes", () => {
   assert.throws(() => confirmationBody("Other", ["marketing"]));
 });
 // Query double only for Edge boundary. SQL harness exercises real transactions, constraints and privileges.
-function fixture() {
+function fixture(managed = false) {
   const rows: Record<string, any[]> = {
     sms_agency_policies: [structuredClone(p)],
     phone_numbers: [{
@@ -110,10 +110,13 @@ function fixture() {
       account_scope: "master",
       enabled: true,
       sms_enforced: true,
+      resources_reconciled_at: new Date().toISOString(),
     }],
     a2p_registrations: [{
       organization_id: org,
       account_sid: sid("AC"),
+      brand_sid: sid("BN"),
+      campaign_sid: sid("QE"),
       brand_status: "APPROVED",
       identity_status: "VERIFIED",
       campaign_status: "VERIFIED",
@@ -176,6 +179,14 @@ function fixture() {
     },
     rpc: async (name: string, args: any) => {
       if (name === "sticky_number_guard") return { data: { voice: "off", sms: "off" }, error: null };
+      if (name === "phone_number_setup_managed") {
+        return { data: managed ? {
+          managed: true, owned: true, agency_active: true, account_sid: sid("AC"), phone_sid: sid("PN"), phone_number_id: num,
+          policy_enforced: rows.sms_agency_policies[0]?.enforced === true,
+          policy_enabled: rows.sms_agency_policies[0]?.send_enabled === true,
+          policy_selected: rows.sms_agency_policies[0]?.selected_phone_ids.includes(num) === true,
+        } : { managed: false }, error: null };
+      }
       if (name === "sms_prepare_dispatch") {
         receipt ??= {
           state: "prepared",
@@ -252,6 +263,7 @@ function fixture() {
       account_sid: sid("AC"),
       service_sid: sid("MG"),
       capabilities: { sms: true },
+      phone_number: "+19095550100",
     });
   };
   return {
@@ -335,6 +347,40 @@ const manualInput = {
   purpose: undefined,
   verifyRecipient: async () => {},
 };
+for (const [entry, request] of [["manual", manualInput], ["workflow", input]] as const) {
+  Deno.test(`${entry} sends from a new purchase only after exact registration, and respects later removal`, async () => {
+    const f = fixture(true), original = globalThis.fetch;
+    globalThis.fetch = f.transport;
+    try {
+      const state = f.rows.a2p_numbers[0];
+      state.checked_at = new Date().toISOString();
+      for (const patch of [
+        { status: "pending_registration", event_at: new Date().toISOString(), pool_member: true },
+        { status: "registered", event_at: null, pool_member: true },
+        { status: "registered", event_at: new Date().toISOString(), pool_member: false },
+      ]) {
+        Object.assign(state, patch);
+        await assert.rejects(dispatch(f.db, request, f.transport), { code: "NUMBER_NOT_REGISTERED" });
+      }
+      state.pool_member = true;
+      f.rows.phone_numbers[0].inbounds_only = true;
+      await assert.rejects(dispatch(f.db, request, f.transport), { code: "SENDER_NOT_ALLOWED" });
+      f.rows.phone_numbers[0].inbounds_only = false;
+      f.rows.phone_numbers[0].twilio_sid = "PN" + "2".repeat(32);
+      await assert.rejects(dispatch(f.db, request, f.transport), { code: "SENDER_NOT_ALLOWED" });
+      f.rows.phone_numbers[0].twilio_sid = sid("PN");
+      assert.equal(f.posts(), 0);
+      assert.equal(f.receipt(), null);
+      assert.ok(await dispatch(f.db, request, f.transport));
+      assert.equal(f.posts(), 1);
+      f.rows.sms_agency_policies[0].selected_phone_ids = [];
+      await assert.rejects(dispatch(f.db, request, f.transport), { code: "SENDER_NOT_SELECTED" });
+      assert.equal(f.posts(), 1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+}
 for (const mode of ["no-consent", "consent-unavailable"]) {
   Deno.test(`manual dispatch works with ${mode}, records no grant and sends once`, async () => {
     const f = fixture(), original = globalThis.fetch;

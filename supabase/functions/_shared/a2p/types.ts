@@ -40,7 +40,7 @@ export type Registration = {
 };
 export type Credentials = { accountSid: string; authToken: string };
 export class A2pError extends Error {
-  constructor(public code: string, message: string, public status = 400, public uncertain = false) {
+  constructor(public code: string, message: string, public status = 400, public uncertain = false, public providerCode?: number) {
     super(message);
   }
 }

@@ -1,6 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { loadSubaccountCreds } from "../_shared/twilioSubaccountCreds.ts";
 
+import { activeTrustAdmin, manualTrustScope } from "../_shared/phoneNumbers/manualTrustScope.ts";
+import { assignVerifiedTrustNumber } from "../_shared/phoneNumbers/setupTrust.ts";
+import { TwilioA2p } from "../_shared/a2p/provider.ts";
+import { A2pError } from "../_shared/a2p/types.ts";
+
 const FN = "[twilio-trust-hub]";
 const US_A2P_POLICY_SID = "RNdfbf3fae0e1107f8aded0e7cead80bf5";
 
@@ -215,7 +220,7 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceKey);
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("organization_id, role, is_super_admin")
+    .select("organization_id, role, status")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -225,10 +230,6 @@ Deno.serve(async (req) => {
   }
 
   const orgId = profile.organization_id as string;
-  const role = String((profile as { role?: string }).role ?? "");
-  const isSuper = (profile as { is_super_admin?: boolean }).is_super_admin === true;
-  const canManage = isSuper || role === "Admin" || role === "Super Admin";
-
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -236,7 +237,13 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
-  const action = String(body.action ?? "").trim();
+  const action = String(body?.action ?? "").trim();
+  if (action === "register" || action === "assign-numbers") {
+    if (!activeTrustAdmin(profile)) return jsonResponse({error:"An active agency administrator is required."},403);
+    const agency = await supabase.from("organizations").select("status").eq("id",orgId).maybeSingle();
+    if (agency.error) return jsonResponse({error:"Could not verify agency status."},503);
+    if (agency.data?.status !== "active") return jsonResponse({error:"Agency telephony is unavailable."},403);
+  }
 
   const { data: settingsRow, error: settingsError } = await supabase
     .from("phone_settings")
@@ -286,29 +293,42 @@ Deno.serve(async (req) => {
   }
 
   if (action === "register" || action === "assign-numbers") {
-    if (!canManage) {
-      return jsonResponse({
-        error: "Only organization Admins (or Super Admins) can register with Trust Hub or assign phone numbers.",
-      }, 403);
-    }
     if (!accountSid || !authToken) {
       return jsonResponse({ error: "Twilio credentials not configured in Phone Settings." }, 400);
     }
   }
 
   if (action === "assign-numbers") {
+    let scope;
+    try {
+      scope = await manualTrustScope(supabase, orgId, body.twilio_sids);
+    } catch (error) {
+      return jsonResponse({
+        error: error instanceof A2pError ? error.message : "Could not verify the selected numbers.",
+      }, error instanceof A2pError ? error.status : 503);
+    }
+    const results = scope.excluded;
+    if (!scope.legacy.length) return jsonResponse({ results }, 200);
     const profileSid = String(settingsRow?.trust_hub_profile_sid ?? "").trim();
     if (!profileSid) {
       return jsonResponse({ error: "No Trust Hub customer profile on file. Register first." }, 400);
     }
     const profUrl = `https://trusthub.twilio.com/v1/CustomerProfiles/${encodeURIComponent(profileSid)}`;
-    let pr = await twilioTrustHubJson<{ status?: string }>(accountSid, authToken, profUrl, { method: "GET" }, "assign-numbers GET CustomerProfile");
-    
+    let pr = await twilioTrustHubJson<{ status?: string }>(
+      accountSid,
+      authToken,
+      profUrl,
+      { method: "GET" },
+      "assign-numbers GET CustomerProfile",
+    );
+
     let activeAccountSid = accountSid;
     let activeAuthToken = authToken;
 
     if (!pr.ok && pr.status === 404 && masterAccountSid && masterAuthToken) {
-      pr = await twilioTrustHubJson<{ status?: string }>(masterAccountSid, masterAuthToken, profUrl, { method: "GET" }, "assign-numbers GET CustomerProfile Master fallback");
+      pr = await twilioTrustHubJson<{ status?: string }>(masterAccountSid, masterAuthToken, profUrl, {
+        method: "GET",
+      }, "assign-numbers GET CustomerProfile Master fallback");
       if (pr.ok) {
         activeAccountSid = masterAccountSid;
         activeAuthToken = masterAuthToken;
@@ -324,45 +344,54 @@ Deno.serve(async (req) => {
       }, 400);
     }
 
-    const rawSids = body.twilio_sids;
-    const twilioSids = Array.isArray(rawSids)
-      ? rawSids.map((s) => String(s).trim()).filter(Boolean)
-      : [];
-    if (twilioSids.length === 0) {
-      return jsonResponse({ error: "twilio_sids must be a non-empty array of Twilio Phone Number SIDs (PN…)." }, 400);
-    }
-
-    const results: { twilio_sid: string; ok: boolean; error?: string }[] = [];
-
-    for (const pnSid of twilioSids) {
-      const assignUrl =
-        `https://trusthub.twilio.com/v1/CustomerProfiles/${encodeURIComponent(profileSid)}/ChannelEndpointAssignments`;
-      const ar = await postForm(activeAccountSid, activeAuthToken, assignUrl, {
-        ChannelEndpointType: "phone-number",
-        ChannelEndpointSid: pnSid,
-      }, `assign-numbers attach ${pnSid}`);
-      if (!ar.ok) {
-        const msg = twilioMessage(ar.err);
-        if (isAlreadyAssigned(msg)) {
-          results.push({ twilio_sid: pnSid, ok: true });
-        } else {
-          results.push({ twilio_sid: pnSid, ok: false, error: msg });
+    const t = new TwilioA2p({ accountSid: activeAccountSid, authToken: activeAuthToken });
+    for (const n of scope.legacy) {
+      try {
+        const outcome = await assignVerifiedTrustNumber(
+          supabase,
+          {
+            organization_id: orgId,
+            account_sid: activeAccountSid,
+            phone_number: n.phone_number,
+            phone_number_id: n.id,
+            phone_sid: n.twilio_sid,
+          },
+          profileSid,
+          t,
+          activeAccountSid === masterAccountSid,
+        );
+        if (outcome.state !== "complete") {
+          results.push({
+            twilio_sid: n.twilio_sid,
+            ok: false,
+            error:
+              "Could not verify this number’s assignment to your agency’s Trust Hub profile. Review Phone Numbers or contact support.",
+          });
           continue;
         }
-      } else {
-        results.push({ twilio_sid: pnSid, ok: true });
-      }
-
-      const { error: upErr } = await supabase
-        .from("phone_numbers")
-        .update({ trust_hub_status: "approved" })
-        .eq("organization_id", orgId)
-        .eq("twilio_sid", pnSid);
-      if (upErr) {
-        console.error(`${FN} assign-numbers DB update`, upErr.message);
+        const saved = await supabase.from("phone_numbers").update({ trust_hub_status: "approved" })
+          .eq("organization_id", orgId).eq("id", n.id).eq("twilio_sid", n.twilio_sid).eq(
+            "phone_number",
+            n.phone_number,
+          )
+          .in("status", ["active", "Active"]).select("id").maybeSingle();
+        results.push(
+          saved.error || !saved.data
+            ? {
+              twilio_sid: n.twilio_sid,
+              ok: false,
+              error: "The verified assignment could not be saved. Refresh before retrying.",
+            }
+            : { twilio_sid: n.twilio_sid, ok: true },
+        );
+      } catch {
+        results.push({
+          twilio_sid: n.twilio_sid,
+          ok: false,
+          error: "Could not confirm the assignment. Refresh before retrying.",
+        });
       }
     }
-
     return jsonResponse({ results, profile_sid: profileSid }, 200);
   }
 
@@ -451,6 +480,17 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Trust Hub Step A: missing profile SID in Twilio response." }, 502);
       }
       await persistDraft({ customer_profile_sid: customerProfileSid });
+
+      // Only the Twilio creation response can establish an automatic setup binding.
+      // Resumed draft SIDs and agency-editable settings are never accepted as proof.
+      if (/^BU[0-9a-f]{32}$/i.test(customerProfileSid) && cr.data.account_sid === accountSid) {
+        const { error: pinError } = await supabase.from("phone_number_setup_profiles").insert({
+          organization_id: orgId,
+          account_sid: accountSid,
+          profile_sid: customerProfileSid,
+        });
+        if (pinError) console.error(`${FN} Could not record automatic setup profile ownership.`);
+      }
     }
 
     const businessIndustry = String(b.business_industry ?? "INSURANCE").trim();

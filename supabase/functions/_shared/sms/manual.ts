@@ -34,7 +34,7 @@ export async function manualSender(
   }
   const numbers = checked(
     await db.from("phone_numbers").select("id,phone_number,is_default")
-      .eq("organization_id", p.organization_id).eq("assignment_type", "agency")
+      .eq("organization_id", p.organization_id).eq("assignment_type", "agency").eq("inbounds_only", false)
       .in("status", ["active", "Active"]).in("id", ids)
       .order("is_default", { ascending: false }).order("id"),
   ) as { id: string; phone_number: string; is_default: boolean }[];

@@ -66,7 +66,7 @@ try {
   assert.equal((await actions()).filter((action) => action === 'purchase').length, 0, 'Review is not billable');
   await page.screenshot({ path: path.join(screenshots, 'desktop-review.png'), fullPage: true });
   await confirm.focus(); await page.keyboard.press('Space');
-  await page.getByText('Your numbers are ready in Phone Numbers.', { exact: false }).waitFor();
+  await page.getByText('Setup continues automatically.', { exact: false }).waitFor();
   assert.equal((await actions()).filter((action) => action === 'purchase').length, 3);
   assert.equal(await page.evaluate(() => window.phoneFixtureEvents.some((event) => event.name === 'twilio-buy-number' && 'phone_number' in event.body)), false);
   await page.keyboard.press('Escape');
@@ -91,7 +91,7 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Confirm purchase', exact: true }).isDisabled(), true);
   await page.screenshot({ path: path.join(screenshots, 'mobile-needs-review.png'), fullPage: true });
   await page.getByRole('button', { name: 'Check purchase status', exact: true }).click();
-  await page.getByText('Your numbers are ready in Phone Numbers.', { exact: false }).waitFor();
+  await page.getByText('Setup continues automatically.', { exact: false }).waitFor();
   assert.deepEqual((await actions()).filter((a) => ['purchase', 'status'].includes(a)), ['purchase', 'status', 'status']);
 
   for (const query of ['agent=true', 'viewAs=true']) {
@@ -105,6 +105,23 @@ try {
   await page.getByRole('button', { name: 'Search available numbers' }).click();
   await page.getByText('Phone-number purchasing has changed. Refresh the page before continuing.', { exact: true }).waitFor();
   assert.deepEqual(await actions(), ['search'], 'An old backend never enables purchase');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('http://127.0.0.1:4177/?scenario=setup');
+    const phoneRow = page.getByRole('row').filter({ hasText: 'Agency line' });
+    await phoneRow.getByText('Voice active', { exact: true }).waitFor();
+    await phoneRow.getByText('SMS registering', { exact: true }).waitFor();
+    assert.equal(await phoneRow.getByText('SMS ready', { exact: true }).count(), 0);
+    await page.evaluate(() => { window.numberSetupFixture.ready = true; });
+    // The production list polls the mock status RPC and updates while the admin stays on this page.
+    await phoneRow.getByText('SMS ready', { exact: true }).waitFor({ timeout: 25000 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'The numbers table scrolls inside its container');
+    await page.screenshot({ path: path.join(screenshots, `setup-ready-${width}.png`), fullPage: true });
+    await page.getByRole('button', { name: 'Switch fixture agency' }).click();
+    await phoneRow.getByText('SMS ready', { exact: true }).waitFor({ state: 'detached' });
+    assert.equal(await page.getByRole('button', { name: 'Purchase number' }).count(), 0);
+    assert.equal(await page.evaluate(() => new Set(window.numberSetupFixture.queries).size), 1);
+  }
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
-  console.log('PASS: actual Local/Toll-Free dialog, 800 order, mixed cart, exact prices, keyboard confirmation, mobile layout, timeout status-only recovery, Admin/View As and version skew. Zero external requests.');
+  console.log('PASS: actual Local/Toll-Free dialog, 800 order, mixed cart, exact prices, keyboard confirmation, mobile layout, timeout status-only recovery, Admin/View As, version skew, and desktop/mobile per-number SMS readiness polling and agency switching. Zero external requests.');
 } finally { await browser.close(); server.kill(); }

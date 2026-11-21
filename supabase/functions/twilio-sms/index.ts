@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const registered = await registeredSender(supabase, organizationId, from, user.id);
+    const registered = await registeredSender(supabase, organizationId, from, user.id, "legacy-direct");
     let accountSid = registered?.accountSid ?? "";
     let authToken = registered?.authToken ?? "";
     if (!registered) {

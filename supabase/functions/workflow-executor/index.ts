@@ -504,7 +504,7 @@ async function actionSendSms(args: {
     return { status: "failed", output: { reason: "No active phone number for org" }, error: "No active sender" };
   }
 
-  const registered = await registeredSender(supabase, execution.organization_id, toE164(from));
+  const registered = await registeredSender(supabase, execution.organization_id, toE164(from), undefined, "legacy-direct");
   const creds = registered ? { ok: true as const, creds: registered } : await loadSubaccountCreds(supabase, execution.organization_id);
   if (!creds.ok) {
     return { status: "failed", output: { reason: creds.error, code: creds.code }, error: creds.error };

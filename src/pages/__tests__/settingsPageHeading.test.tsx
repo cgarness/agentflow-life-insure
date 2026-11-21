@@ -13,7 +13,7 @@
  * and the phone controller are stubbed.
  */
 import React from "react";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -207,6 +207,20 @@ describe("Phone System has no duplicate inner heading (B6-42)", () => {
     expect(headings).toHaveLength(1);
     expect(headings[0].tagName).toBe("H1");
     expect(screen.getByRole("tab", { name: "Call Monitoring" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps Phone Numbers selected when refreshing after purchase and follows a new entry route", () => {
+    const view = render(<PhoneSystem />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Phone Numbers" }), { button: 0 });
+    expect(screen.getByRole("tab", { name: "Phone Numbers" })).toHaveAttribute("aria-selected", "true");
+    h.phoneLoading = true;
+    view.rerender(<PhoneSystem />);
+    expect(screen.queryByRole("tablist")).toBeNull();
+    h.phoneLoading = false;
+    view.rerender(<PhoneSystem />);
+    expect(screen.getByRole("tab", { name: "Phone Numbers" })).toHaveAttribute("aria-selected", "true");
+    view.rerender(<PhoneSystem defaultTab="inbound-routing" />);
+    expect(screen.getByRole("tab", { name: "Inbound Routing" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("loading: no inner \"Phone System\" heading", () => {

@@ -47,6 +47,7 @@ export class TwilioA2p {
           }. Refresh status or contact support.`,
         response.status >= 500 ? 503 : 400,
         method !== "GET" && response.status >= 500,
+        typeof data?.code === "number" ? data.code : undefined,
       );
     }
     if (!data || typeof data !== "object") {
@@ -81,8 +82,11 @@ export class TwilioA2p {
     const n = await this.call(
       `https://api.twilio.com/2010-04-01/Accounts/${this.creds.accountSid}/IncomingPhoneNumbers/${sid}.json`,
     );
-    if (n.account_sid !== this.creds.accountSid || n.sid !== sid || n.capabilities?.sms !== true) {
-      throw new A2pError("NUMBER_ACCOUNT", "Number is not an SMS-capable number in the registration account.");
+    if (n.account_sid !== this.creds.accountSid || n.sid !== sid) {
+      throw new A2pError("NUMBER_ACCOUNT", "Number ownership does not match the registration account.");
+    }
+    if (n.capabilities?.sms !== true) {
+      throw new A2pError("NUMBER_NO_SMS", "This number does not support SMS.");
     }
     return n;
   }

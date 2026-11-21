@@ -1,6 +1,7 @@
 import type { Db } from "../a2p/types.ts";
 import { checked, type Policy } from "./consent.ts";
 import { phone, SmsError, UUID } from "./wire.ts";
+import { manualSender } from "./manual.ts";
 export async function contactScope(
   caller: Db,
   org: string,
@@ -34,23 +35,5 @@ export async function contactScope(
   return contact;
 }
 export async function selectedSender(db: Db, p: Policy): Promise<string> {
-  const n = checked(
-    await db.from("phone_numbers").select("phone_number").eq(
-      "organization_id",
-      p.organization_id,
-    )
-      .eq("assignment_type", "agency").in("status", ["active", "Active"]).in(
-        "id",
-        p.selected_phone_ids,
-      )
-      .order("is_default", { ascending: false }).order("id").limit(1)
-      .maybeSingle(),
-  );
-  if (!n) {
-    throw new SmsError(
-      "SENDER_NOT_SELECTED",
-      "No selected agency texting number is available.",
-    );
-  }
-  return n.phone_number;
+  return await manualSender(db, p, "");
 }

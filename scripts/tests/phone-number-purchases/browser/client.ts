@@ -1,6 +1,10 @@
 // Synthetic provider boundary only. The actual dialog, hook and response validators run unchanged.
 type Body = Record<string, string>;
-declare global { interface Window { phoneFixtureEvents: { name: string; body: Body }[] } }
+declare global { interface Window {
+  phoneFixtureEvents: { name: string; body: Body }[];
+  numberSetupFixture: { ready: boolean; queries: string[] };
+} }
+window.numberSetupFixture = { ready: false, queries: [] };
 window.phoneFixtureEvents = [];
 let statusChecks = 0;
 const scenario = new URLSearchParams(location.search).get("scenario");
@@ -10,7 +14,16 @@ const numbers = [
   { phone_number: "+12135550100", number_type: "local", friendly_name: "(213) 555-0100", locality: "Los Angeles", region: "CA", postal_code: "90001", country: "US", monthly_price: "1.15", currency: "USD" },
 ];
 const reply = (value: object) => ({ data: { protocol_version: 1, ...value }, error: null });
-export const supabase = { functions: { async invoke(name: string, { body }: { body: Body }) {
+export const supabase = {
+  async rpc(name: string, args: { p_org: string; p_numbers: string[] }) {
+    if (name !== "phone_number_setup_status") throw new Error("Unexpected setup request");
+    window.numberSetupFixture.queries.push(args.p_org);
+    return { data: args.p_numbers.map(phone_number_id => ({
+      phone_number_id, can_retry: false, trust_state: "linked", trust_code: null,
+      sms_state: window.numberSetupFixture.ready ? "ready" : "registering", sms_code: null,
+    })), error: null };
+  },
+  functions: { async invoke(name: string, { body }: { body: Body }) {
   window.phoneFixtureEvents.push({ name, body: structuredClone(body) });
   await new Promise((resolve) => setTimeout(resolve, 30));
   if (name === "twilio-search-numbers" && body.action === "search") {

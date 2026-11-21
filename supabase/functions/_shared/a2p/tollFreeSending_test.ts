@@ -14,7 +14,11 @@ function database(rows: Record<string, unknown>) {
   const reads: string[] = [];
   return {
     reads,
-    rpc() { throw new Error("A blocked sender must never prepare or claim a message."); },
+    async rpc(name: string) {
+      if (name === "sticky_number_guard") return { data: { sms: "off", voice: "off" }, error: null };
+      if (name === "phone_number_setup_managed") return { data: { managed: false }, error: null };
+      throw new Error("A blocked sender must never prepare or claim a message.");
+    },
     from(table: string) {
       reads.push(table);
       const q = {
