@@ -1,6 +1,7 @@
 // workflow-resume-paused
 // ---------------------------------------------------------------------------
-// Cron-triggered Edge Function (every 5 min). Resumes workflow executions
+// Internal worker entry point; production caller and cadence require independent verification.
+// The legacy path resumes workflow executions
 // whose latest wait-node step has reached its resume_at time.
 //
 // Strategy:
@@ -10,7 +11,9 @@
 //      wait node's outgoing edge target, flip execution back to 'running',
 //      mark the wait step 'completed', then call workflow-executor.
 
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sweepAutomationWork } from "../_shared/automations/runtime.ts";
+import { dispatchChannel } from "../_shared/automations/channel.ts";
 import { checkWorkflowSecret, corsHeaders, jsonResponse } from "../_shared/workflowAuth.ts";
 
 const FN = "[workflow-resume-paused]";
@@ -31,6 +34,16 @@ Deno.serve(async (req) => {
   }
   const supabase = createClient(supabaseUrl, serviceKey);
 
+  // The existing internal scheduler entry point services version-pinned work and legacy waits.
+  // Failure in either path leaves the other available.
+  let automation;
+  try {
+    automation = await sweepAutomationWork(supabase, dispatchChannel);
+  } catch {
+    console.error(FN, "Automation sweep failed");
+    automation = { error: "Automation sweep failed" };
+  }
+
   const { data: paused, error } = await supabase
     .from("workflow_executions")
     .select("id, workflow_id, organization_id, current_node_id")
@@ -48,56 +61,55 @@ Deno.serve(async (req) => {
   for (const exec of paused ?? []) {
     if (!exec.current_node_id) continue;
     try {
-      const { data: step } = await supabase
+      const { data: step, error: stepError } = await supabase
         .from("workflow_execution_steps")
         .select("id, output_data")
+        .eq("organization_id", exec.organization_id)
         .eq("execution_id", exec.id)
         .eq("node_id", exec.current_node_id)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      if (stepError) throw stepError;
       const resumeAtStr = (step?.output_data as Record<string, unknown> | null | undefined)?.resume_at;
       if (!resumeAtStr || typeof resumeAtStr !== "string") continue;
       const resumeAtMs = Date.parse(resumeAtStr);
       if (Number.isNaN(resumeAtMs) || resumeAtMs > nowMs) continue;
 
       // Find the wait node's outgoing edge (single, no condition_branch).
-      const { data: nextEdge } = await supabase
+      const { data: nextEdge, error: edgeError } = await supabase
         .from("workflow_edges")
         .select("target_node_id")
+        .eq("organization_id", exec.organization_id)
         .eq("workflow_id", exec.workflow_id)
         .eq("source_node_id", exec.current_node_id)
         .is("condition_branch", null)
         .limit(1)
         .maybeSingle();
+      if (edgeError) throw edgeError;
       const nextNodeId = nextEdge?.target_node_id ?? null;
 
-      // Mark wait step completed
-      if (step?.id) {
-        await supabase
-          .from("workflow_execution_steps")
-          .update({ status: "completed", completed_at: new Date().toISOString() })
-          .eq("id", step.id);
-      }
+      // Only the winner of the legacy paused -> next transition may invoke the legacy executor.
+      const completedAt = new Date().toISOString();
+      const transition = nextNodeId
+        ? { status: "running", current_node_id: nextNodeId }
+        : { status: "completed", current_node_id: null, completed_at: completedAt };
+      const { data: advanced, error: transitionError } = await supabase.from("workflow_executions")
+        .update(transition)
+        .eq("organization_id", exec.organization_id).eq("id", exec.id)
+        .eq("status", "paused").eq("current_node_id", exec.current_node_id)
+        .select("id").maybeSingle();
+      if (transitionError) throw transitionError;
+      if (!advanced) continue;
 
+      const { error: historyError } = await supabase.from("workflow_execution_steps")
+        .update({ status: "completed", completed_at: completedAt })
+        .eq("organization_id", exec.organization_id).eq("id", step!.id);
+      if (historyError) console.error(FN, "Legacy wait history update needs repair", exec.id);
       if (!nextNodeId) {
-        // No node after wait → execution is complete.
-        await supabase
-          .from("workflow_executions")
-          .update({
-            status: "completed",
-            current_node_id: null,
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", exec.id);
-        resumed += 1;
+        resumed++;
         continue;
       }
-
-      await supabase
-        .from("workflow_executions")
-        .update({ status: "running", current_node_id: nextNodeId })
-        .eq("id", exec.id);
 
       // Fire-and-forget executor.
       fetch(executorUrl, {
@@ -117,5 +129,6 @@ Deno.serve(async (req) => {
     }
   }
 
-  return jsonResponse({ success: true, resumed });
+  const ok = !("error" in automation) && automation.failed_claims === 0 && automation.failed_stages.length === 0;
+  return jsonResponse({ success: ok, resumed, automation }, ok ? 200 : 503);
 });

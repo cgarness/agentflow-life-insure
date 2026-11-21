@@ -5884,6 +5884,10 @@ export type Database = {
       }
       workflows: {
         Row: {
+          automation_graph: Json | null
+          automation_draft_name: string | null
+          automation_version_id: string | null
+          automation_revision: number
           created_at: string
           created_by: string | null
           description: string | null
@@ -5897,6 +5901,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          automation_graph?: Json | null
+          automation_draft_name?: string | null
+          automation_version_id?: string | null
+          automation_revision?: number
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -5910,6 +5918,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          automation_graph?: Json | null
+          automation_draft_name?: string | null
+          automation_version_id?: string | null
+          automation_revision?: number
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -5951,6 +5963,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      automation_access: { Args: Record<PropertyKey, never>; Returns: Json }
+      automation_channel_options: { Args: { p_search?: string; p_offset?: number; p_sender_id?: string; p_template_id?: string; p_type?: string }; Returns: Json }
+      automation_campaign_options: { Args: { p_after?: string; p_selected?: string }; Returns: Json }
+      automation_sources: { Args: { p_after?: string }; Returns: Json }
+      automation_list: { Args: { p_offset?: number; p_campaign_id?: string | null }; Returns: Json }
+      save_automation_draft: { Args: { p_workflow_id: string; p_name: string; p_graph: Json; p_expected_revision: number; p_session_revision: number }; Returns: Json }
+      validate_automation_draft: { Args: { p_workflow_id: string }; Returns: Json }
+      automation_overlap: { Args: { p_workflow_id: string }; Returns: Json }
+      publish_automation: { Args: { p_workflow_id: string; p_expected_revision: number; p_session_revision: number }; Returns: Json }
+      automation_lifecycle: { Args: { p_workflow_id: string; p_operation: string; p_session_revision: number }; Returns: undefined }
+      automation_folder: { Args: { p_operation: string; p_folder_id: string | null; p_values: Json; p_session_revision: number }; Returns: Json }
+      automation_stop_run: { Args: { p_run: string; p_session_revision: number }; Returns: undefined }
+      automation_activity: { Args: { p_session_revision: number; p_viewer_id: string; p_workflow?: string | null; p_contact?: string | null; p_type?: string | null; p_before_at?: string | null; p_before_run?: string | null }; Returns: Json }
+      automation_session_context: { Args: Record<PropertyKey, never>; Returns: Json }
+      automation_session_transition: { Args: { p_expected_revision: number; p_target_id: string | null }; Returns: Json }
       contact_number_modes: { Args: Record<PropertyKey, never>; Returns: Json }
       preview_contact_numbers: { Args: { p_contact: string; p_type: string; p_campaign?: string | null }; Returns: Json }
       contact_number_options: { Args: { p_contact: string; p_type: string }; Returns: Json }

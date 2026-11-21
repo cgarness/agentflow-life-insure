@@ -11,6 +11,8 @@ import {
 } from "@/lib/impersonationProfile";
 import type { StoredImpersonationPointer } from "@/lib/impersonationProfile";
 
+import { useAutomationSession } from "@/hooks/useAutomationSession";
+
 export interface Profile {
   id: string;
   first_name: string;
@@ -54,6 +56,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isBuildingOrganization: boolean;
+  automationSessionRevision: number | null;
   impersonatedUser: Profile | null;
   isImpersonating: boolean;
   login: (email: string, password: string) => Promise<SupabaseUser>;
@@ -156,6 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [],
   );
   const [session, setSession] = useState<Session | null>(null);
+  const automation = useAutomationSession(session?.user.id ?? null, session?.access_token, profile?.is_super_admin === true);
   const [isLoading, setIsLoading] = useState(true);
   const [isBuildingOrganization, setIsBuildingOrganization] = useState(false);
 
@@ -343,6 +347,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => subscription.unsubscribe();
   }, [fetchProfile, adoptSessionIdentity]);
 
+  // Re-read the target through the normal tenant-scoped profile lookup after a server mode change.
+  useEffect(() => {
+    const ctx = automation.context;
+    if (!ctx || ctx.actor_id !== sessionUserIdRef.current) return;
+    if (!ctx.target_id) {
+      setPendingImpersonation(null);
+      setImpersonatedUser(null);
+    } else if (ctx.target_id !== impersonatedUser?.id) {
+      setPendingImpersonation({ ownerProfileId: ctx.actor_id, targetProfileId: ctx.target_id });
+    }
+  }, [automation.context, impersonatedUser?.id]);
+
   // ── Impersonation authority ───────────────────────────────────────────────────────────────────
   //
   // Restoring a "View As" is an AUTHORITY decision and must be re-proved on every load. Three
@@ -364,6 +380,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // profile. A demotion or an organization move therefore cannot be outlived by stale storage.
   useEffect(() => {
     if (!pendingImpersonation) return;
+    if (!automation.legacy && (!automation.context || automation.context.target_id !== pendingImpersonation.targetProfileId)) return;
     // Wait for the real profile; `null` here means "not loaded yet", not "not authorized".
     if (!profile) return;
 
@@ -467,7 +484,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })();
 
     return () => { cancelled = true; };
-  }, [pendingImpersonation, profile]);
+  }, [pendingImpersonation, profile, automation.legacy, automation.context]);
 
   /**
    * A live impersonation is revoked when the TRUSTED REAL PROFILE STATE refreshes to a row that no
@@ -771,23 +788,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return refuse("the target is the signed-in account itself.");
     }
 
+    if (!await automation.transition(resolved.id)) return refuse("the server declined the session transition.");
+    if (authorityGenRef.current !== genAtStart || sessionUserIdRef.current !== sessionAtStart) return false;
     setImpersonatedUser(resolved);
     // Persisted only AFTER the server row validated, and only the two identifiers. Role and
     // organization are re-derived from the server on reload; the OWNER half records whose intent
     // this is, so no other account that later signs in on this browser can pick it up.
     writeStoredImpersonationTarget(profile.id, resolved.id);
     return true;
-  }, [profile]);
+  }, [profile, automation.transition]);
 
-  const stopImpersonation = useCallback(() => {
+  const stopImpersonation = useCallback(async () => {
     // Newer intent: anything still in flight must not be able to re-establish what this ends.
     authorityGenRef.current += 1;
+    if (!await automation.transition(null)) return;
     setImpersonatedUser(null);
     setPendingImpersonation(null);
     clearStoredImpersonation();
     // Return to Agencies (super-admin) dashboard
     window.location.href = "/super-admin";
-  }, []);
+  }, [automation.transition]);
 
   if (isBuildingOrganization) {
     return (
@@ -803,6 +823,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user, 
       profile: impersonatedUser || profile, 
       realProfile: profile,
+      automationSessionRevision: automation.context?.actor_id === user?.id ? automation.context?.revision ?? null : null,
       impersonatedUser,
       isImpersonating: !!impersonatedUser,
       session, isAuthenticated: !!session, isLoading, isBuildingOrganization,

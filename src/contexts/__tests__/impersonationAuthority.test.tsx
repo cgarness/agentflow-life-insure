@@ -38,6 +38,7 @@ const ORG = "11111111-1111-4111-8111-111111111111";
 const OTHER_ORG = "22222222-2222-4222-8222-222222222222";
 const AGENT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SUPER_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const SESSION_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const TARGET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const OTHER_SUPER_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
@@ -60,6 +61,7 @@ const dbState = vi.hoisted(() => ({
   /** Full filter set of each `profiles` query, so the org predicate can be asserted. */
   profileQueries: [] as { id?: string; organization_id?: string }[],
   sessionUserId: null as string | null,
+  sessionRpc: vi.fn<(name: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: null | { code: string; message: string } }>>(),
   profileError: null as string | null,
   /** When set, the `profiles` read THROWS (a transport failure) rather than returning `{ error }`. */
   profileThrow: null as string | null,
@@ -118,7 +120,7 @@ vi.mock("@/integrations/supabase/client", () => {
     const row = dbState.profiles.find((r) => r.id === dbState.sessionUserId) as ProfileRow | undefined;
     return {
       // Claims are kept consistent with the profile row so the token-refresh loop stays idle.
-      access_token: "test-token",
+      access_token: `fixture.${btoa(JSON.stringify({ sub: dbState.sessionUserId, session_id: SESSION_ID }))}.fixture`,
       user: {
         id: dbState.sessionUserId,
         app_metadata: { organization_id: row?.organization_id, role: row?.role },
@@ -129,6 +131,7 @@ vi.mock("@/integrations/supabase/client", () => {
   return {
     supabase: {
       from: (t: string) => makeBuilder(t),
+      rpc: dbState.sessionRpc,
       auth: {
         onAuthStateChange: (cb: (event: string, session: unknown) => void | Promise<void>) => {
           dbState.authCallback = cb;
@@ -149,15 +152,17 @@ import { IMPERSONATION_STORAGE_KEY } from "@/lib/impersonationProfile";
 
 /** Renders the values every scoping surface actually consumes. */
 let lastStart: ((p: unknown) => unknown) | null = null;
+let lastStop: (() => unknown) | null = null;
 let lastLogout: (() => Promise<void>) | null = null;
 let lastStartResult: unknown = undefined;
 /** The whole effective profile, so field-level loss through re-validation is observable. */
 let lastEffectiveProfile: Record<string, unknown> | null = null;
 
 const Probe: React.FC = () => {
-  const { profile, realProfile, isImpersonating, startImpersonation, logout } = useAuth();
+  const { profile, realProfile, isImpersonating, startImpersonation, stopImpersonation, automationSessionRevision, logout } = useAuth();
   const { viewer } = useEffectiveViewer();
   lastStart = startImpersonation as unknown as (p: unknown) => unknown;
+  lastStop = stopImpersonation;
   lastLogout = logout;
   lastEffectiveProfile = (profile ?? null) as Record<string, unknown> | null;
   return (
@@ -166,6 +171,7 @@ const Probe: React.FC = () => {
       <span data-testid="effective-id">{profile?.id ?? "none"}</span>
       <span data-testid="effective-org">{profile?.organization_id ?? "none"}</span>
       <span data-testid="real-role">{realProfile?.role ?? "none"}</span>
+      <span data-testid="automation-revision">{automationSessionRevision ?? "none"}</span>
       <span data-testid="real-org">{realProfile?.organization_id ?? "none"}</span>
       <span data-testid="impersonating">{String(isImpersonating)}</span>
       <span data-testid="org-wide">{String(isOrganizationWideViewer(viewer))}</span>
@@ -222,6 +228,9 @@ beforeEach(() => {
   dbState.profileError = null;
   dbState.profileThrow = null;
   dbState.sessionUserId = null;
+  dbState.sessionRpc.mockReset().mockResolvedValue({
+    data: null, error: { code: "PGRST202", message: "Session RPC is absent on this fixture" },
+  });
   dbState.holdTargetLookup = false;
   dbState.releaseTargetLookup = null;
   dbState.authCallback = null;
@@ -862,5 +871,97 @@ describe("direct activation derives target authority from the SERVER, never the 
     expect(lastStartResult).toBe(false);
     // A refused activation must leave nothing behind for the restore path to pick up on reload.
     expect(storageState.raw).toBeNull();
+  });
+});
+
+describe("server-owned View As session", () => {
+  function installServerSession(initialTarget: string | null, initialRevision = 101) {
+    let target = initialTarget;
+    let revision = initialRevision;
+    const snapshot = () => ({
+      actor_id: SUPER_ID, session_id: SESSION_ID, target_id: target, revision,
+    });
+    dbState.sessionUserId = SUPER_ID;
+    dbState.profiles = [superRow(), targetRow()];
+    dbState.sessionRpc.mockImplementation(async (name, args) => {
+      if (name === "automation_session_context") return { data: snapshot(), error: null };
+      if (name !== "automation_session_transition") throw new Error("Unexpected session RPC: " + name);
+      if (args?.p_expected_revision !== revision) {
+        return { data: null, error: { code: "40001", message: "Session mode changed" } };
+      }
+      target = args.p_target_id as string | null;
+      revision += 1;
+      return { data: snapshot(), error: null };
+    });
+    return (newTarget: string | null) => {
+      target = newTarget;
+      revision += 1;
+    };
+  }
+
+  it("restores the active server target when local storage has no pointer", async () => {
+    installServerSession(TARGET_ID);
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID));
+    expect(screen.getByTestId("impersonating").textContent).toBe("true");
+    expect(screen.getByTestId("real-role").textContent).toBe("Super Admin");
+    expect(dbState.sessionRpc.mock.calls.filter(([name]) => name === "automation_session_transition")).toEqual([]);
+  });
+
+  it("confirms enter and exit with the revision observed in that session", async () => {
+    installServerSession(null);
+    renderAuth();
+    await waitFor(() => expect(dbState.sessionRpc).toHaveBeenCalledWith("automation_session_context"));
+    await act(async () => { expect(await lastStart!(TARGET_ID)).toBe(true); });
+    await waitFor(() => expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID));
+    await act(async () => { await lastStop!(); });
+    await waitFor(() => expect(screen.getByTestId("effective-id").textContent).toBe(SUPER_ID));
+    expect(dbState.sessionRpc.mock.calls.filter(([name]) => name === "automation_session_transition")).toEqual([
+      ["automation_session_transition", { p_expected_revision: 101, p_target_id: TARGET_ID }],
+      ["automation_session_transition", { p_expected_revision: 102, p_target_id: null }],
+    ]);
+  });
+
+  it("refreshes both tabs that share one session even when their local pointers disagree", async () => {
+    const changeInOtherTab = installServerSession(null);
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("automation-revision").textContent).toBe("101"));
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+
+    changeInOtherTab(TARGET_ID);
+    act(() => { window.dispatchEvent(new StorageEvent("storage", { key: "agentflow.automation.session-change" })); });
+    await waitFor(() => expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID));
+    expect(screen.getByTestId("automation-revision").textContent).toBe("102");
+
+    changeInOtherTab(null);
+    act(() => { window.dispatchEvent(new Event("focus")); });
+    await waitFor(() => expect(screen.getByTestId("effective-id").textContent).toBe(SUPER_ID));
+    expect(screen.getByTestId("automation-revision").textContent).toBe("103");
+  });
+
+  it("withholds the revision and refuses View As when the installed RPC is unavailable", async () => {
+    installServerSession(null);
+    dbState.sessionRpc.mockResolvedValue({ data: null, error: { code: "42501", message: "Context unavailable" } });
+    storageState.raw = v2(SUPER_ID, TARGET_ID);
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("real-role").textContent).toBe("Super Admin"));
+    await act(async () => { expect(await lastStart!(TARGET_ID)).toBe(false); });
+    expect(screen.getByTestId("automation-revision").textContent).toBe("none");
+    expect(screen.getByTestId("impersonating").textContent).toBe("false");
+  });
+
+  it("keeps the target active when the server refuses an exit", async () => {
+    installServerSession(TARGET_ID);
+    renderAuth();
+    await waitFor(() => expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID));
+    const handler = dbState.sessionRpc.getMockImplementation()!;
+    dbState.sessionRpc.mockImplementation((name, args) =>
+      name === "automation_session_transition"
+        ? Promise.resolve({ data: null, error: { code: "42501", message: "Exit denied" } })
+        : handler(name, args));
+    await act(async () => { await lastStop!(); });
+    expect(screen.getByTestId("impersonating").textContent).toBe("true");
+    expect(screen.getByTestId("effective-id").textContent).toBe(TARGET_ID);
   });
 });

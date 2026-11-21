@@ -20,7 +20,7 @@
  *
  * ## Phase A scope, deliberately small
  *
- * Supported: Conversations, and the Contacts page limited to its Import History and Agents tabs.
+ * Supported: Conversations, scoped Automations Activity, and the Import History and Agents tabs in Contacts.
  * Everything else — Dashboard, Reports, Dialer, Calendar, Campaigns, Settings, the contact
  * deep-link pages, the CSV import page, and every route added after this was written — is
  * withheld pending a separate audit. That is a product decision, not a claim that those pages are
@@ -53,7 +53,7 @@ export type ViewAsSupportedContactTab = (typeof VIEW_AS_SUPPORTED_CONTACT_TABS)[
  * match would let `/contacts/import` and `/contacts/anything-added-later` through on the strength
  * of `/contacts`.
  */
-const SUPPORTED_PATHNAMES: readonly string[] = ["/conversations", "/contacts"];
+const SUPPORTED_PATHNAMES: readonly string[] = ["/conversations", "/contacts", "/automations"];
 
 /**
  * Sidebar labels that stay visible while impersonating. Kept separate from the pathnames because
@@ -61,7 +61,7 @@ const SUPPORTED_PATHNAMES: readonly string[] = ["/conversations", "/contacts"];
  * route: the route guard is what actually enforces this, the sidebar just stops advertising a
  * destination that would refuse.
  */
-const SUPPORTED_NAV_LABELS: readonly string[] = ["Contacts", "Conversations"];
+const SUPPORTED_NAV_LABELS: readonly string[] = ["Contacts", "Conversations", "Automations"];
 
 /**
  * Where a successful activation lands.

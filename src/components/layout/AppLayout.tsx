@@ -1,5 +1,5 @@
 import React from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import { cn } from "@/lib/utils";
@@ -32,6 +32,10 @@ const AppLayout: React.FC = () => {
    * this is true `<Outlet />` is never rendered, so the route element is never constructed and its
    * effects never run. A guard inside the page could only unmount it after its queries had fired.
    */
+  if (isImpersonating && location.pathname.toLowerCase().replace(/\/$/,"") === "/settings" &&
+    new URLSearchParams(location.search).get("section") === "automation") {
+    return <Navigate replace to="/automations"/>;
+  }
   const viewAsBlocked = isImpersonating && !isViewAsSupportedPath(location.pathname);
 
   return (

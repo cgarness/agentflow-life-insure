@@ -132,6 +132,8 @@ vi.mock("@/integrations/supabase/client", () => {
   return {
     supabase: {
       from: (t: string) => makeBuilder(t),
+      // Exercise legacy CRM identity behavior during the pre-migration rollout.
+      rpc: async () => ({ data: null, error: { code: "PGRST202" } }),
       auth: {
         onAuthStateChange: (cb: (e: string, s: unknown) => void | Promise<void>) => {
           dbState.authCallback = cb;

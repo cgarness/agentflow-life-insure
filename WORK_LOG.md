@@ -1,3 +1,9 @@
+## November 21, 2026 — Self-service Automations · isolated review candidate
+
+Chris approved isolated Milestones 1–4, including scoped migration and RLS testing. The feature branch starts at `1536db4d957f256b5706d948545409cac2e1cfe1`. Its first commit prepends the approved plan. The builder uses the existing workflow IDs and canvas, a local blank graph, explicit draft saves, versioned publication, organization-scoped event intake and a worker-only ledger. Server-owned View As sessions fence Automations writes and bind activity reads to the effective viewer. Four candidate migrations are local. The release packet records verification, rollout controls, prerequisites, outstanding operational checks and data-preserving rollback.
+
+The candidate installs zero presets and ships all three release controls disabled. Production catalog inspection preceded this build. External scheduling remains unconfirmed. No live customer communication, production SQL, Edge deployment, Vercel release or merge was part of this work. See `docs/plans/2026-11-21-automations/context-snapshot.md` for the review evidence.
+
 ## November 20, 2026 — Automatic setup for purchased agency numbers is live
 
 At 8:55 PM Pacific, AgentFlow enabled background Trust Hub linking and eligible SMS registration for new agency number purchases. PR #532 passed all eight GitHub Actions workflows. Its approved candidate `7914faefc750aaf38d3659a71d9a01b3298f9107` and the release-branch merge `c862233d949deaa2a4888d4654f136e42df693d4` have identical file contents.

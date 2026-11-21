@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "feat/self-service-automations": false
+    }
+  },
   "rewrites": [
     {
       "source": "/(.*)",

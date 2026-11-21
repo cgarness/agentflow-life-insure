@@ -7,6 +7,7 @@ import {
   FolderOpen, Loader2, ShieldCheck, AlertTriangle
 } from "lucide-react";
 import {
+  AUTOMATION_FEATURE,
   DEFAULT_CARRIERS_PAGE,
   DEFAULT_SETTINGS_SECTIONS,
   normalizeCarriersPagePermission,
@@ -161,7 +162,13 @@ const defaultFeatures: FeatureCategory[] = [
       { name: "Add Resources", description: "Upload new training materials", agent: false, teamLeader: false },
     ],
   },
+  AUTOMATION_FEATURE,
 ];
+
+function withAutomationFeature(features: FeatureCategory[]) {
+  return features.some(row => row.category === AUTOMATION_FEATURE.category)
+    ? features : [...features, deepClone(AUTOMATION_FEATURE)];
+}
 
 const defaultDataAccess: DataAccessItem[] = [
   { label: "Leads & Contacts", description: "Which contact records can this role view and interact with?", agent: "own", teamLeader: "team" },
@@ -456,7 +463,7 @@ const Permissions: React.FC = () => {
           const mergedPages = Array.isArray(perms.p)
             ? mergePagesWithIcons(perms.p as { name: string; agent?: boolean; teamLeader?: boolean }[])
             : defaultPages.map((p) => ({ ...p }));
-          const mergedFeatures = Array.isArray(perms.f) ? (perms.f as FeatureCategory[]) : deepClone(defaultFeatures);
+          const mergedFeatures = Array.isArray(perms.f) ? withAutomationFeature(perms.f as FeatureCategory[]) : deepClone(defaultFeatures);
           const mergedData = Array.isArray(perms.d) ? (perms.d as DataAccessItem[]) : deepClone(defaultDataAccess);
           const mergedCommission = Array.isArray(perms.c) ? (perms.c as CommissionPerm[]) : deepClone(defaultCommission);
           const mergedSettings = mergeSettingsSections(perms.s as SettingsSectionPermission[]);
@@ -474,7 +481,7 @@ const Permissions: React.FC = () => {
           const mergedPages = Array.isArray(perms.p)
             ? mergePagesWithIcons(perms.p as { name: string; agent?: boolean; teamLeader?: boolean }[])
             : defaultPages.map((p) => ({ ...p }));
-          const mergedFeatures = Array.isArray(perms.f) ? (perms.f as FeatureCategory[]) : deepClone(defaultFeatures);
+          const mergedFeatures = Array.isArray(perms.f) ? withAutomationFeature(perms.f as FeatureCategory[]) : deepClone(defaultFeatures);
           const mergedData = Array.isArray(perms.d) ? (perms.d as DataAccessItem[]) : deepClone(defaultDataAccess);
           const mergedCommission = Array.isArray(perms.c) ? (perms.c as CommissionPerm[]) : deepClone(defaultCommission);
           const mergedSettings = mergeSettingsSections(perms.s as SettingsSectionPermission[]);
@@ -520,7 +527,7 @@ const Permissions: React.FC = () => {
           if (activeRole === "agent") {
             const s = JSON.parse(savedAgent);
             setAgentPages(Array.isArray(s.p) ? mergePagesWithIcons(s.p) : defaultPages.map((p) => ({ ...p })));
-            setAgentFeatures(s.f ?? deepClone(defaultFeatures));
+            setAgentFeatures(withAutomationFeature(s.f ?? deepClone(defaultFeatures)));
             setAgentData(s.d ?? deepClone(defaultDataAccess));
             setAgentCommission(s.c ?? deepClone(defaultCommission));
             setAgentSettings(s.s ?? DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row })));
@@ -528,7 +535,7 @@ const Permissions: React.FC = () => {
           } else {
             const s = JSON.parse(savedTl);
             setTlPages(Array.isArray(s.p) ? mergePagesWithIcons(s.p) : defaultPages.map((p) => ({ ...p })));
-            setTlFeatures(s.f ?? deepClone(defaultFeatures));
+            setTlFeatures(withAutomationFeature(s.f ?? deepClone(defaultFeatures)));
             setTlData(s.d ?? deepClone(defaultDataAccess));
             setTlCommission(s.c ?? deepClone(defaultCommission));
             setTlSettings(s.s ?? DEFAULT_SETTINGS_SECTIONS.map((row) => ({ ...row })));

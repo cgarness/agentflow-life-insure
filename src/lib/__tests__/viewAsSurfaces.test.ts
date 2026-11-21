@@ -22,9 +22,11 @@ import {
 } from "@/lib/viewAsSurfaces";
 
 describe("the View As route allow-list", () => {
-  it("admits exactly the two audited surfaces", () => {
+  it("admits the audited surfaces", () => {
     expect(isViewAsSupportedPath("/conversations")).toBe(true);
     expect(isViewAsSupportedPath("/contacts")).toBe(true);
+    expect(isViewAsSupportedPath("/automations")).toBe(true);
+    expect(isViewAsSupportedPath("/automations/new")).toBe(false);
   });
 
   it("refuses every other application route", () => {
@@ -89,8 +91,9 @@ describe("the View As Contacts tab allow-list", () => {
 });
 
 describe("the View As navigation allow-list", () => {
-  it("admits only the two supported destinations", () => {
+  it("admits the supported destinations", () => {
     expect(isViewAsSupportedNavLabel("Contacts")).toBe(true);
+    expect(isViewAsSupportedNavLabel("Automations")).toBe(true);
     expect(isViewAsSupportedNavLabel("Conversations")).toBe(true);
   });
 
