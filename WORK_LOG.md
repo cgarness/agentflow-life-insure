@@ -1,3 +1,7 @@
+## November 20, 2026 — Standing design reference for CRM builds
+
+Saved the AgentFlow v1 written standard and visual palette under `docs/design/`. Root `AGENTS.md` directs coding agents to the standard for signed-in CRM interface work, `CLAUDE.md` imports those instructions, and the existing component standards in `AGENT_RULES.md` link to the same document. Verified the instruction paths and three-page visual reference. Scope is repository documentation.
+
 ## November 12, 2026 — Team Commissions bounded request budgets approved; verification in progress
 
 Chris approved proceeding after the 40-second proposal and the clarification that the stress case is one agency with 1,000 sellers and 50,000 policies. Only three new readers receive the approved 40-second setting: Overview, Installments and Policy List. Breakdown retains 20 seconds; existing My APIs, helpers, role/database settings, RLS and authorization remain unchanged. Broader multi-agency concurrency work is deferred, not verified. Production migration, merge and deployment remain unauthorized.
