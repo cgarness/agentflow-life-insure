@@ -325,7 +325,7 @@ describe("View As stays closed for this route", () => {
     const surfaces = read("lib/viewAsSurfaces.ts");
     expect(surfaces).not.toContain("/agent-profile");
     expect(surfaces).toContain(
-      'const SUPPORTED_PATHNAMES: readonly string[] = ["/conversations", "/contacts"]',
+      'const SUPPORTED_PATHNAMES: readonly string[] = ["/conversations", "/contacts", "/automations"]',
     );
   });
 

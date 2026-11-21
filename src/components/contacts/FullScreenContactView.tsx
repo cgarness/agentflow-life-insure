@@ -12,6 +12,8 @@ import { ContactLocalTime } from "@/components/shared/ContactLocalTime";
 import { LeadStatus, ContactNote, PipelineStage } from "@/lib/types";
 import { notesSupabaseApi } from "@/lib/supabase-notes";
 import { useContactHistory } from "@/hooks/useContactHistory";
+import { AutomationAccessGate } from "@/components/workflows/AutomationAccessGate";
+import { AutomationActivity } from "@/components/workflows/AutomationActivity";
 import { ContactActivityTimeline } from "./activity/ContactActivityTimeline";
 import { pipelineSupabaseApi, customFieldsSupabaseApi, leadSourcesSupabaseApi } from "@/lib/supabase-settings";
 import { computeMissingRequired, type RequiredContactType } from "@/lib/contactRequiredFields";
@@ -1240,7 +1242,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
           <div className="flex-1 overflow-y-auto w-full">
             {/* ACTIVITY TAB */}
             {rightTab === "Activity" && (
-              <ContactActivityTimeline {...history.activity} onLoadEarlier={history.loadActivity} onRefresh={history.refresh} />
+              <>
+                <ContactActivityTimeline {...history.activity} onLoadEarlier={history.loadActivity} onRefresh={history.refresh} />
+                <AutomationAccessGate><AutomationActivity contactId={contact.id} contactType={type} /></AutomationAccessGate>
+              </>
             )}
             
             {/* NOTES TAB */}

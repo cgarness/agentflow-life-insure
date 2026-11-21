@@ -170,23 +170,26 @@ export const workflowEdgeApi = {
 };
 
 export const workflowExecutionApi = {
-  async listForWorkflow(workflowId: string, limit = 50): Promise<WorkflowExecutionRow[]> {
+  async listForWorkflow(workflowId: string, orgId: string, limit = 50): Promise<WorkflowExecutionRow[]> {
     const { data, error } = await sb
       .from("workflow_executions")
       .select("*")
       .eq("workflow_id", workflowId)
+      .eq("organization_id", orgId)
       .order("started_at", { ascending: false })
       .limit(limit);
     if (error) throw error;
     return (data ?? []) as WorkflowExecutionRow[];
   },
 
-  async listSteps(executionId: string): Promise<WorkflowExecutionStepRow[]> {
+  async listSteps(executionId: string, orgId: string, offset = 0): Promise<WorkflowExecutionStepRow[]> {
     const { data, error } = await sb
       .from("workflow_execution_steps")
       .select("*")
       .eq("execution_id", executionId)
-      .order("started_at", { ascending: true });
+      .eq("organization_id", orgId)
+      .order("started_at", { ascending: true }).order("id")
+      .range(offset, offset + 99);
     if (error) throw error;
     return (data ?? []) as WorkflowExecutionStepRow[];
   },

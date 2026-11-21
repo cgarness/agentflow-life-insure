@@ -169,6 +169,7 @@ verify_jwt = false
 
 [functions.workflow-resume-paused]
 verify_jwt = false
+import_map = "./functions/workflow-resume-paused/deno.json"
 
 [functions.workflow-time-based-trigger]
 verify_jwt = false
@@ -268,4 +269,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.google-sheets-push-maintenance]
+verify_jwt = false
+
+# Signed Twilio/Resend callbacks and per-message one-click unsubscribe tokens.
+[functions.automation-provider-receipt]
 verify_jwt = false

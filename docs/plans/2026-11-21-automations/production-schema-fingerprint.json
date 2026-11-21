@@ -1,0 +1,147 @@
+[
+  {
+    "kind": "acls",
+    "objects": 20,
+    "sha256": "16602bd083eff793ca8677e0d6a3650b1d87b9e5438a1aee92fb46043e72542e"
+  },
+  {
+    "kind": "columns",
+    "objects": 3035,
+    "sha256": "9540500ca80c294f43b3d34bd7e2f1651126dbe0b0183a9332e8c75d5e9e76a0"
+  },
+  {
+    "kind": "comments",
+    "objects": 220,
+    "sha256": "7b647ebe77f300774fd837d8284e033b20a229c4acdbdcede11825ba48b8012f"
+  },
+  {
+    "kind": "constraints",
+    "objects": 1149,
+    "sha256": "96d28ffd647fb031a94e0252069c8d4adbc3db50df391626ca85fbf1c50deafe"
+  },
+  {
+    "kind": "database",
+    "objects": 1,
+    "sha256": "1a0439e251f0030fff604a22693e1de8c8b2dc4d5d8d38f80527a88e5ed3f76d"
+  },
+  {
+    "kind": "database_role_settings",
+    "objects": 9,
+    "sha256": "dd213bf250b859f44ae0e417212d555f846185d7a2eca24fd0ee085d93285451"
+  },
+  {
+    "kind": "default_privileges",
+    "objects": 27,
+    "sha256": "31c7f30e0cab6edf3beffd335bbba919e87418ee698c80f1f5cbadbb63844676"
+  },
+  {
+    "kind": "enums",
+    "objects": 50,
+    "sha256": "ca788d77badcf4081a88d0292539a4d39b3f32608b925970c071538a76733c7b"
+  },
+  {
+    "kind": "events",
+    "objects": 6,
+    "sha256": "d0ad34fc92f92fba8289cacd9b6b5c60a63ecf746e98c6069feb388dc5376d1e"
+  },
+  {
+    "kind": "extension_members",
+    "objects": 307,
+    "sha256": "6b5177ccbff357bf6e913c360a90ca4570be79becc25d5d4217217c6254ba5b2"
+  },
+  {
+    "kind": "extensions",
+    "objects": 10,
+    "sha256": "0472611c627b9668e7f13508a9705da35d6c08bf239d18d9646908b2d9b2289a"
+  },
+  {
+    "kind": "functions",
+    "objects": 945,
+    "sha256": "e8c51a5d72e6efcc3627718004fb91ef4cb5ba1fbd114198c422cad5d739d696"
+  },
+  {
+    "kind": "indexes",
+    "objects": 809,
+    "sha256": "133191fcd0b6aea39ee5a35e58951f7473c3cd5990c6a61089d07f34d1fdead1"
+  },
+  {
+    "kind": "inheritance",
+    "objects": 21,
+    "sha256": "8f2ac4b073bda403665f740ee1201dffe3bdac67c490d836744500d7ba83a6c7"
+  },
+  {
+    "kind": "languages",
+    "objects": 4,
+    "sha256": "f2b97c3f81f42c2dd61fce454f368934b5aaa9681c5c0b481ddac6498b4fa82d"
+  },
+  {
+    "kind": "memberships",
+    "objects": 29,
+    "sha256": "26b26ef2599e7f990f9881e21014043cb025b876efe3f0c0e22381b848a24e9e"
+  },
+  {
+    "kind": "namespaces",
+    "objects": 19,
+    "sha256": "482e6be74272a6871df27b0c6dfd746959264783b5e825c67f05dcc3460fd00b"
+  },
+  {
+    "kind": "opclasses",
+    "objects": 6,
+    "sha256": "1f87dc5fc5779b6f3fdf19043249f4dfe938bbce491dbf257a3856b29aca583f"
+  },
+  {
+    "kind": "operators",
+    "objects": 59,
+    "sha256": "717038a176761b50dcad2ece12b61811e9523c27e21857dd76a0031da2ef7a87"
+  },
+  {
+    "kind": "policies",
+    "objects": 391,
+    "sha256": "32e0a1e624bebf557b14eb5d51a3a6375b5238ac431dae3573ca17086d207d4f"
+  },
+  {
+    "kind": "publication_tables",
+    "objects": 16,
+    "sha256": "b612f02433110a09ca62039dba9b893f21744294329bcd0d54d1851ad0348080"
+  },
+  {
+    "kind": "publications",
+    "objects": 2,
+    "sha256": "051595b829e9d2f5a91a8530859d106cbd8dbeef1e587952aab32bbf15b29884"
+  },
+  {
+    "kind": "relations",
+    "objects": 1081,
+    "sha256": "58b081d1b09fb299ba736471220493b94cd53204c3e61a73fa6c0b2161b1e18a"
+  },
+  {
+    "kind": "roles",
+    "objects": 35,
+    "sha256": "52791d7609f727ad31fc791b31aa4df9b2b25ed36678076f5e315e95feee78b6"
+  },
+  {
+    "kind": "rules",
+    "objects": 4,
+    "sha256": "544ed19ac4cee6d36f0091af71b1a6ea188be6e076a13d9fcd68bda4d666f34e"
+  },
+  {
+    "kind": "sequences",
+    "objects": 12,
+    "sha256": "9a2ec2b3850320dd46b38d8cbad755dcfb343b0172c2d93eafaadf46f925b0ff"
+  },
+  {
+    "kind": "triggers",
+    "objects": 209,
+    "sha256": "0ab0c816326738cd1f34e88fb8f0b94695f9d9f75ce6637bc70a594304cf3bb2"
+  },
+  {
+    "kind": "types",
+    "objects": 558,
+    "sha256": "feec48eb52c24aa28daefc0e8aa5fc99fa6cc5d6f4e8f1d5c1eacc056a257939"
+  },
+  {
+    "kind": "views",
+    "objects": 4,
+    "sha256": "f78e10e39946a78d58190cf4e79ba549992e54c792677f8fb6aa2bfbb1c03813"
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "project_ref": "jncvvsvckxhqgqvkppmj",
+  "database": "postgres",
+  "observed_at": "2026-11-21T07:52:15Z",
+  "version_count": 84,
+  "versions_sha256": "d82ee2c062ac0b3dd65235df4976c9cd10b55c2e3d7534dd3a4227d133a534d9",
+  "gotrue_version": "v2.198.0",
+  "image_index_digest": "sha256:ba8c0c82c574756c835c696df2a2c698020cc408a42034013d3712e34de7964d"
+}

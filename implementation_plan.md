@@ -1,3 +1,26 @@
+## November 21, 2026 — Automations release preparation · PR #534
+
+Chris requested isolated release preparation on `624ea7cc4566e1a65fb48eac2ae10bd5dbeb7df6`. Report actual enrollment and dispatch controls in the authoring UI and verify all four combinations. Rehearse the exact four candidate migrations, populated workflow preservation, old signed-in sessions, zero installation side effects and a data-preserving visibility rollback. Compare the rehearsal baseline with the current production catalog and record any missing native source explicitly. Prepare separate builder-only and execution decisions. Trace the scheduler and verified channel inputs from intake to handoff, including expiry and refresh.
+
+The builder remains blank. Visibility is targeted per agency while both execution controls are off. The release packet records the exact artifacts and prerequisites for a subsequent approval. All writes in this phase belong to the isolated fixture, feature branch and draft PR.
+
+## November 21, 2026 — Self-service Automations builder
+
+Chris approved isolated Milestones 1–4 on 1536db4d957f256b5706d948545409cac2e1cfe1, stacked on prereq/sticky-numbers-baseline-20261113. #APPROVE_RLS_CHANGE applies to isolated authoring and tests. Production migrations, permission changes, merges, deployments, scheduling, enrollment and live sends require separate approval.
+
+1. Authoring — Promote the existing builder and retain Settings compatibility. One Create automation action opens an unsaved blank canvas. Register configurable lead-created and campaign-membership triggers, filters, SMS, email and positive waits. Offer Contact has email only after both exits and error holds pass. Reuse stable IDs and preserve unknown legacy graph content. Support insert, reorder, mobile, keyboard, draft revisions, synthetic preview, error links and publish review.
+2. Execution — Publish immutable versions atomically. Use organization-scoped committed intake, typed contacts, author-selected re-entry and stop rules, dedupe, bounded indexed claims, durable waits, stable intents and independent release controls. Pause, resume, archive and manual stop retain history. Failures in dispatch permit the CRM write to commit.
+3. Messaging — Share rendering across preview and handoff. Authorize audience, template, destination, purpose, consent, suppression, limits, send window and sender immediately before dispatch. Use protected sticky SMS, owned email identities, verified reply correlation and freshness. Reconcile uncertain receipts and repair Conversations history without a second provider request.
+4. Verification — Use isolated synthetic contacts/providers and real signed-in paths for two different UI-authored graphs, including a single action without a wait. Exercise legacy upgrade, conditional paths, cross-tenant authorization, stale edits, independent and shared sessions, restart, retries, stop races, theme/mobile and CRM/dialer regressions. Deliver a stacked draft PR, exact candidate, evidence, limitations and rollback.
+
+Server-owned View As uses the verified session and real actor. Serialize mode transitions and Automations mutations, require a revision and check authority inside the transaction. Close direct table, folder and RPC write paths. Worker history is private. Changes to write authority are limited to Automations.
+
+Production reconciliation found zero definitions, runs and steps. Four workflow functions use internal secret auth with verify_jwt=false. The SMS webhook has mixed-source dependencies. Preserve deployed packages. Fourteen active cron jobs had no resolved workflow endpoint reference. External invocation remains unconfirmed. Establish one owner before a separately approved activation. Installation seeds zero workflows, enrollments and sends.
+
+First edit is this prepend. Scope includes existing workflow UI and client files, AuthContext and tests, session-aware authoring, versioned graph registry, runtime, channel eligibility, receipts, scoped activity, migrations 20261121080000/080100/080200 and isolated SQL, Edge and browser verification. Check root and app TypeScript, build, focused regression suites and report actual results. Roll back visibility, enrollment and handoffs while retaining customer definitions, version pins, receipts and repair work.
+
+Hosted verification on #534 identified one additional test configuration change. Pin the browser job in `.github/workflows/google-sheets.yml` to Ubuntu 24.04 so the repository’s Playwright 1.56.1 can install Chromium and exercise the Sheets intake path against the candidate. The first hosted run stopped during installation on Ubuntu 26.04. The phone and UV jobs already use this runner for the same browser.
+
 ## November 20, 2026 — Automatic agency phone number setup
 
 Chris authorized planning and the isolated build. Inspected main `2129fa8b195cee77ad75f614abe655facfad2725`. The reviewable feature is stacked on the sticky-number branch at `99ca1eb0588b89870c65c8c2d348e239e876f59e` to preserve the active production architecture. The goal is one number purchase with server-side setup that survives closing the page. The production release, live purchases and messages require separate approval.

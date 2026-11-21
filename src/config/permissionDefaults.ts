@@ -149,7 +149,14 @@ export function mergeSettingsSections(
   });
 }
 
-// Default features (8 categories, 30 features)
+// Default features for role-based delegation.
+
+export const AUTOMATION_FEATURE: FeatureCategory = {
+  category: "Automations",
+  features: [
+    { name: "Manage Automations", description: "Author automations for campaigns this role can manage", agent: false, teamLeader: false },
+  ],
+};
 
 export const DEFAULT_FEATURES: FeatureCategory[] = [
   {
@@ -222,6 +229,7 @@ export const DEFAULT_FEATURES: FeatureCategory[] = [
       { name: "Add Resources", description: "Upload new training materials", agent: false, teamLeader: false },
     ],
   },
+  AUTOMATION_FEATURE,
 ];
 
 // Default data access (4 scopes)

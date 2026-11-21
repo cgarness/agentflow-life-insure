@@ -9,7 +9,8 @@ import type { NodeSpec } from "../lib/insertNode";
 
 export interface AddButtonEdgeData {
   edgeRowId: string;
-  onPick: (edgeRowId: string, spec: NodeSpec) => void;
+  menu?: React.ReactNode;
+  onPick?: (edgeRowId: string, spec: NodeSpec) => void;
   branchLabel?: "Yes" | "No";
   [key: string]: unknown;
 }
@@ -61,12 +62,13 @@ const AddButtonEdge: React.FC<EdgeProps> = (props) => {
                 {d.branchLabel}
               </span>
             )}
-            {d && (
+            {d?.menu}
+            {d?.onPick && (
               <div className="transition-opacity duration-200">
                 <NodePickerPopover
                   open={open}
                   onOpenChange={setOpen}
-                  onPick={(spec) => d.onPick(d.edgeRowId, spec)}
+                  onPick={(spec) => d.onPick?.(d.edgeRowId, spec)}
                   trigger={
                     <button
                       type="button"

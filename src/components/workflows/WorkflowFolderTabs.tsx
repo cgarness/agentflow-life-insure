@@ -4,7 +4,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/hooks/use-toast";
-import { workflowFolderApi } from "@/lib/supabase-workflow-folders";
+import { automationApi } from "@/lib/automation-api";
 import type { WorkflowFolderRow, WorkflowRow } from "@/lib/workflow-types";
 import NewFolderModal from "./NewFolderModal";
 
@@ -13,15 +13,15 @@ export const UNFILED_TAB = "__unfiled__";
 
 interface Props {
   folders: WorkflowFolderRow[];
-  workflows: WorkflowRow[];
-  organizationId: string;
+  workflows: Pick<WorkflowRow,"folder_id">[];
+  session: number;
   activeFolderId: string;
   onActiveChange: (id: string) => void;
   onFoldersChanged: () => void;
 }
 
 const WorkflowFolderTabs: React.FC<Props> = ({
-  folders, workflows, organizationId, activeFolderId, onActiveChange, onFoldersChanged,
+  folders, workflows, session, activeFolderId, onActiveChange, onFoldersChanged,
 }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<WorkflowFolderRow | null>(null);
@@ -34,10 +34,10 @@ const WorkflowFolderTabs: React.FC<Props> = ({
 
   const handleSubmit = async (input: { name: string; color: string }) => {
     if (editing) {
-      await workflowFolderApi.update(editing.id, input);
+      await automationApi.folder("update", editing.id, input, session);
       toast({ title: "Folder updated" });
     } else {
-      await workflowFolderApi.create({ ...input, organization_id: organizationId });
+      await automationApi.folder("create", null, input, session);
       toast({ title: "Folder created" });
     }
     onFoldersChanged();
@@ -46,7 +46,7 @@ const WorkflowFolderTabs: React.FC<Props> = ({
   const handleDelete = async (folder: WorkflowFolderRow) => {
     if (!window.confirm(`Delete folder "${folder.name}"? Workflows will be moved to Unfiled.`)) return;
     try {
-      await workflowFolderApi.delete(folder.id);
+      await automationApi.folder("delete", folder.id, {}, session);
       toast({ title: "Folder deleted" });
       if (activeFolderId === folder.id) onActiveChange(ALL_TAB);
       onFoldersChanged();
