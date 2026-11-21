@@ -1,3 +1,13 @@
+## November 21, 2026 — Automations pilot candidate corrected for the live contact and dialer release
+
+Draft PR #534 now includes the named From production frontend at `b1a1d31f4330c750af73b2817f40b5234ab96ad1` and its documentation closeout. Proposed frontend `666387b06236281a1e61b1d0fc765284bc63cd99` preserves the live phone paths. The contact screen adds its gated Automation Activity section. All four feature migrations and both operator files retain the original reviewed hashes.
+
+A fresh authorized user in the isolated pilot saw one Create automation action, opened an unnamed, empty canvas and left via Back. The second agency was hidden. Both execution switches were off globally and all eleven database counts were zero before and after. Both the native builder and cutover runs passed, including server-enforced View As, stable legacy graph history, synthetic authoring/receipts and hide rollback. Root TypeScript and Vite passed, with the same 78 app TypeScript diagnostics on base and candidate. The full Vitest run retained one known voicemail-retention assertion failure after native subprocess reruns. The focused phone and CRM suites passed. All 15 GitHub Actions workflows and their 33 jobs passed on the proposed immutable frontend; Supabase Preview was skipped.
+
+Chris waived the complete-schema rehearsal gap solely for the builder-only pilot at `a0000000-0000-0000-0000-000000000001`. Read-only production preflight found zero workflows, active workflows, legacy runs and legacy steps and none of the four candidate migrations. The approval package names the primary frontend predecessor, verified artifacts, proposed Pacific window, installation-wide Settings/grants effect and hide procedure. Live execution remains gated. Production deployment, migration receipts, agency visibility and live signed-in verification remain pending explicit approval and a protected primary-project staging identity.
+
+[Builder-only release packet](docs/plans/2026-11-21-automations/builder-only-release.md) · [Context snapshot](docs/plans/2026-11-21-automations/context-snapshot.md)
+
 ## November 21, 2026 — Contact From number names released on fflagent.com
 
 Chris approved the primary AgentFlow frontend release of `b1a1d31f4330c750af73b2817f40b5234ab96ad1` from PR #535. Vercel marked deployment `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU` ready at 12:57 PM Pacific. Both `fflagent.com` and `www.fflagent.com` resolved to this deployment. The live contacts page and its JavaScript bundle `/assets/index-CkKQiRdM.js` returned HTTP 200.
