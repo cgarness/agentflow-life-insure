@@ -1,3 +1,15 @@
+## November 21, 2026 — Assigned Number moved into contact details (candidate)
+
+Chris requested an Assigned Number field in the left contact details with emphasis similar to Assigned Agent, and removal of the Calls / Texts strip above the full-contact message composer. The field now uses a muted full-width treatment, formatted number and the existing Change action. Matching voice/text assignments appear once; differing channels retain separate values. Unassigned, pending and review states stay explicit, unavailable assigned numbers stay visible, and a one-text choice remains labeled This text only with Clear.
+
+The source is based on PR #531 head `1536db4d957f256b5706d948545409cac2e1cfe1`, whose runtime exactly matches production `7914faefc750aaf38d3659a71d9a01b3298f9107`; automatic number setup is preserved. Only ContactNumberControl and the placement in FullScreenContactView change at runtime. The same parent affinity hook, Change dialog, send guards, pending store and call callbacks remain. Conversations and the main Dialer retain their existing presentation. An independent review caught that unresolved previews can contain cross-channel candidates; the field no longer presents those as saved assignments, and the rule is documented.
+
+Files: `src/components/contacts/ContactNumberControl.tsx`, `src/components/contacts/FullScreenContactView.tsx`, root and focused implementation plans, `AGENT_RULES.md`, this log. Final root TypeScript, scoped lint, 51 existing full-contact tests and production build pass. App TypeScript matches all 78 inherited diagnostics exactly. All 23 isolated browser checks pass with zero page errors, covering light/dark desktop placement, number states, temporary choices, Change and focus restoration; two are base desktop comparisons. The real field and settled Change dialog fit 375 px in both themes. The full contact screen's inherited three-column phone-width clipping remains on base and candidate and is not passed mobile acceptance. No backend source, dependency or lockfile changes. The disposable browser sandbox and local test server are stopped.
+
+Migrations/deployments: none. No main merge, secondary-project work, provider change or real call/text. The primary-only frontend release remains a separate exact approval. Next: publish only these six paths to the existing draft branch with expected-head protection and provide the release pin. Build production from the exact source using primary project settings; local bundles contain synthetic verification configuration. See `docs/plans/2026-11-21-assigned-number-ui/implementation_plan.md`.
+
+---
+
 ## November 20, 2026 — Automatic setup for purchased agency numbers is live
 
 At 8:55 PM Pacific, AgentFlow enabled background Trust Hub linking and eligible SMS registration for new agency number purchases. PR #532 passed all eight GitHub Actions workflows. Its approved candidate `7914faefc750aaf38d3659a71d9a01b3298f9107` and the release-branch merge `c862233d949deaa2a4888d4654f136e42df693d4` have identical file contents.

@@ -1,3 +1,7 @@
+## November 21, 2026 — Assigned Number in contact details
+
+Chris requested the compact Assigned Number field in the left contact details and removal of the Calls / Texts strip above the full-contact composer. The presentation-only scope and exact file list are recorded in [the focused plan](docs/plans/2026-11-21-assigned-number-ui/implementation_plan.md). Use verified PR #531 head `1536db4d957f256b5706d948545409cac2e1cfe1`, whose runtime matches the currently deployed automatic-number-setup release. Preserve the shared sender model, temporary choices and send guards. Implementation and isolated verification are authorized; the pinned primary-only frontend release remains separate. No backend, main merge or secondary-project change is included.
+
 ## November 20, 2026 — Automatic agency phone number setup
 
 Chris authorized planning and the isolated build. Inspected main `2129fa8b195cee77ad75f614abe655facfad2725`. The reviewable feature is stacked on the sticky-number branch at `99ca1eb0588b89870c65c8c2d348e239e876f59e` to preserve the active production architecture. The goal is one number purchase with server-side setup that survives closing the page. The production release, live purchases and messages require separate approval.

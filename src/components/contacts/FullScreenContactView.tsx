@@ -1133,7 +1133,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
                     })}
 
                 </div>
-
+                <ContactNumberControl variant="details" model={contactNumbers} phone={contact.phone} name={contactDisplayName(contact)} />
               </div>
               )}
               
@@ -1181,7 +1181,6 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
               ) : null}
             />
 
-            <ContactNumberControl model={contactNumbers} phone={contact.phone} name={contactDisplayName(contact)} />
             <MessageComposePanel
               className="mt-3 shrink-0"
               channel={composeTab === "SMS" ? "sms" : "email"}
