@@ -1,6 +1,20 @@
 # Contact FROM dropdown simplification
 
-Status: implementation and isolated verification complete; exact candidate publication/readback and primary frontend release approval follow. See [verification](verification.md) for 235 passing tests, ten grouped browser scenarios, source review, inherited limitations and the exact release boundary.
+## Approved primary frontend release — November 21, 2026
+
+Chris replied “approved” to the exact release request for `553f89d3a647770a6c722e4ae4ba89b15b2a3b09`. Deploy that immutable Git source/tree `f2a3a48160c56423369e057620736ee1fd84b780` to primary project `agentflow` (`prj_vUIiwhdXPw4H9uxRZ1zTf28KIXbc`, team `team_iPboOWpwdIQRwdxmA5GJp5Rq`) with its existing production configuration. Keep Supabase, sticky modes, number/provider configuration and the secondary project unchanged; do not merge main or initiate real communication.
+
+Release sequence: fresh complete-tree/source and primary-target drift checks; create one production deployment from the approved Git pin; read build events and READY/source/alias results; read served assets and inspect the authenticated contact screen without Call, Send or assignment mutation; record outcome and any limitations. Do not redeploy the local synthetic bundle. Retained recovery target is primary deployment `dpl_5J1GgpEXDLdY1n4Pu3qQy2G2HNf4` at `eaf83fa9fb946bec94a3f6c646ae8aaeb17fd68b`.
+
+Exact documentation-only closeout file list, before edits: root `implementation_plan.md`; this focused `implementation_plan.md`; `WORK_LOG.md`; new `docs/plans/2026-11-21-contact-from-dropdown/production-release.md`. Publish closeout after readback on the existing draft branch with expected-head protection. Runtime source stays pinned to the approved commit. No backend commands or migrations are part of this release.
+
+## Release outcome
+
+Released at **10:53:12 AM Pacific on November 21, 2026** as primary production deployment `dpl_Ces2SKbmdQrjHJ3XyYwopGZebt7U`, READY with the exact approved source. Both custom domains resolve to it. Served HTML and the emitted `index-gu6ID7rJ.js` return HTTP 200. The authenticated contact view shows the simplified saved field and active FROM; alternate confirmation opens with an unchecked assignment checkbox, and Cancel preserves the original selection. No real call, text or assignment submission occurred. The release made no backend, mode, provider, main or secondary-project change. See [production release](production-release.md). Closeout documentation is published separately from the immutable running source; no rollback or further approval is needed.
+
+## Candidate verification
+
+Status: implementation, exact candidate publication/readback, isolated verification and the explicitly approved primary frontend release are complete. See [verification](verification.md) for 235 passing tests, ten grouped browser scenarios, source review, inherited limitations and the original release boundary; the release outcome above supersedes that candidate-stage approval status.
 
 ## Approval and baseline
 
