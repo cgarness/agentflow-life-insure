@@ -1,3 +1,25 @@
+## November 20, 2026 — Automatic setup for purchased agency numbers is live
+
+At 8:55 PM Pacific, AgentFlow enabled background Trust Hub linking and eligible SMS registration for new agency number purchases. PR #532 passed all eight GitHub Actions workflows. Its approved candidate `7914faefc750aaf38d3659a71d9a01b3298f9107` and the release-branch merge `c862233d949deaa2a4888d4654f136e42df693d4` have identical file contents.
+
+Production recorded the following migrations. The SHA-256 of each recorded SQL statement matched the approved source. The database contained 391 migration records after activation. When reconciling migration history, use these mappings and skip reapplying the SQL.
+
+| Source migration | Hosted version | Approved SHA-256 |
+|---|---|---|
+| `20261121040200_phone_number_setup` | `20261121045201` | `bd40985108364270fc8763c0dd5ab0d2632b69097fdc43870e6fbe69b472055f` |
+| `20261121040202_phone_number_setup_sms_intent` | `20261121045212` | `b38b37010f130c8c954739d855c5cf79b76d460b1637956c1617856feaceafc3` |
+| `20261121040203_enable_phone_number_setup` | `20261121045526` | `d3b0f68f007ea90d1aa2426a93ee5d15c5ba18c2a1fcf6f7e85f627391a1e817` |
+
+All seven Edge Functions reported ACTIVE with their prior gateway JWT settings. The deployed versions were `twilio-sms` v63, `workflow-executor` v52, `sms-consent-worker` v28, `clearpath-lead-alert` v26, `a2p-registration` v26, `twilio-trust-hub` v61 and `a2p-reconcile` v26. Readback verified all 95 executable modules. The provider removed a type-only module from two bundles. At 8:54 PM Pacific, the regular reconciliation job returned HTTP 200 with zero setup jobs processed or retried. At 8:56:01 PM Pacific, after activation, the scheduled run again returned HTTP 200 with zero failures and zero jobs processed, retrying or superseded.
+
+Vercel production deployment `dpl_Ew8mAsZojSs5MbbTAJd8etB1okCE` reported READY at the approved candidate. Both `www.fflagent.com` and `fflagent.com` pointed to it. The production Settings shell and JavaScript returned HTTP 200, and the deployed bundle contained the setup status, retry and SMS-ready UI. The production frontend is ahead of `main`. Future production deployments from `main` must carry both this release and its sticky-number prerequisites.
+
+At cutover the new-purchase trigger was enabled (`O`), the queue held zero jobs, and existing numbers received no backfill. CG Financial's brand was approved and its campaign verified. All 22 active numbers remained registered, in the sender pool and selected for texting. Security advisors added two informational notices for RLS with no policy and two warnings for scoped functions callable by signed-in users. Direct client table access was absent, and the error count did not increase.
+
+The next legitimate purchase provides the first live end-to-end check of agency ownership, automatic linking, registration and the final SMS status. Release verification used read-only production checks and did not purchase a number or send a text. This closeout changes only `WORK_LOG.md`.
+
+---
+
 ## November 20, 2026 — Automatic setup for agency phone numbers (review branch)
 
 The first hosted phone check passed its database, Edge, TypeScript and build stages. Its Playwright install stopped before browser launch because the new default Ubuntu 26.04 image is unsupported by the pinned Playwright 1.56.1. The browser job now uses Ubuntu 24.04, matching the existing UV browser job. The same desktop/mobile checks passed locally on Chromium.
