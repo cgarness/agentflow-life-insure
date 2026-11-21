@@ -5,17 +5,21 @@ export const senderSchema = z.object({ id: z.string().uuid().nullable(), number:
 export const affinitySchema = z.object({ voice_mode: mode, sms_mode: mode, generation: z.number(), history: z.enum(["new", "reconciled", "needs_review"]), voice: senderSchema, sms: senderSchema, reply: senderSchema.nullable().optional() });
 export type ContactNumberAffinity = z.infer<typeof affinitySchema>;
 export type SenderChoice = z.infer<typeof senderSchema>;
+export const contactNumberOptionSchema = senderSchema.extend({ voice_readiness: z.string() });
+export type ContactNumberOption = z.infer<typeof contactNumberOptionSchema>;
 export type ContactNumberType = "lead" | "client" | "recruit";
 export const readinessLabels: Record<string, string> = {
  ready: "Ready · checked again when sending", agency_approval_required: "Agency approval required", texting_paused: "Texting paused",
  setup_required: "Texting setup required", setting_up_texting: "Setting up texting", setup_needs_attention: "Texting setup needs attention",
  unavailable: "Number unavailable", group_conflict: "Outside this campaign’s number group", daily_limit: "Daily call limit reached",
+ needs_review: "Number history needs review",
 };
 export function numberError(error: unknown): Error {
  const message = error && typeof error === "object" && "message" in error ? String(error.message) : "";
  const cases: [string,string][] = [
   ["affinity_send_unresolved", "An earlier text is still unresolved. Check its status before changing numbers."],
   ["affinity_admin_resolution", "An administrator needs to resolve this shared number."],
+  ["affinity_edit_permission", "You do not have permission to change this contact’s assigned number."],
   ["affinity_history_review", "This contact’s number history needs review."],
   ["affinity_sender_changed", "The sender changed. Refresh and review before sending."],
   ["affinity_sender_un", "This number is unavailable. Review its setup or choose an explicit alternate."],
@@ -32,7 +36,7 @@ export async function previewContactNumbers(id: string, type: ContactNumberType,
 }
 export async function contactNumberOptions(id: string,type: ContactNumberType) {
  const { data,error }=await supabase.rpc("contact_number_options",{p_contact:id,p_type:type});
- if(error)throw numberError(error);return z.array(senderSchema.extend({voice_readiness:z.string()})).parse(data);
+ if(error)throw numberError(error);return z.array(contactNumberOptionSchema).parse(data);
 }
 export async function changeContactNumber(id:string,type:ContactNumberType,channel:string,number:string|null,generation:number,reason:string) {
  const {data,error}=await supabase.rpc("change_contact_number",{p_contact:id,p_type:type,p_channel:channel,p_number:number,p_generation:generation,p_reason:reason});

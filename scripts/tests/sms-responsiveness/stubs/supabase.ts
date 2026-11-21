@@ -83,6 +83,22 @@ function historyPage(args: Row) {
 }
 
 async function resolveQuery(table: string, filters: Row, single: boolean, args: Row) {
+  if (table === "phone_numbers") {
+    return { data: [{
+      id: FIXTURE.agencyNumberId, organization_id: FIXTURE.org, phone_number: FIXTURE.agencySender.slice(1),
+      friendly_name: "Denver, CO", is_default: true,
+    }], error: null };
+  }
+  if (table === "rpc:contact_number_options") {
+    if (args.p_contact !== FIXTURE.contact || args.p_type !== "lead") {
+      return { data: null, error: { message: "affinity_scope: synthetic contact out of scope" } };
+    }
+    const blocked = new URLSearchParams(location.search).get("affinity") === "blocked";
+    return { data: [{
+      id: FIXTURE.agencyNumberId, number: FIXTURE.agencySender, provisional: true,
+      readiness: blocked ? "setup_required" : "ready", voice_readiness: "ready",
+    }], error: null };
+  }
   if (table === "rpc:preview_contact_numbers") {
     // The real hook now requires the same scoped DTO as the backend; an empty
     // array is not an off-mode response. This fixture never mutates an assignment.
