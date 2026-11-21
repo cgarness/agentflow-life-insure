@@ -13,6 +13,8 @@ Production reconciliation found zero definitions, runs and steps. Four workflow 
 
 First edit is this prepend. Scope includes existing workflow UI and client files, AuthContext and tests, session-aware authoring, versioned graph registry, runtime, channel eligibility, receipts, scoped activity, migrations 20261121080000/080100/080200 and isolated SQL, Edge and browser verification. Check root and app TypeScript, build, focused regression suites and report actual results. Roll back visibility, enrollment and handoffs while retaining customer definitions, version pins, receipts and repair work.
 
+Hosted verification on #534 identified one additional test configuration change. Pin the browser job in `.github/workflows/google-sheets.yml` to Ubuntu 24.04 so the repository’s Playwright 1.56.1 can install Chromium and exercise the Sheets intake path against the candidate. The first hosted run stopped during installation on Ubuntu 26.04. The phone and UV jobs already use this runner for the same browser.
+
 ## November 20, 2026 — Automatic agency phone number setup
 
 Chris authorized planning and the isolated build. Inspected main `2129fa8b195cee77ad75f614abe655facfad2725`. The reviewable feature is stacked on the sticky-number branch at `99ca1eb0588b89870c65c8c2d348e239e876f59e` to preserve the active production architecture. The goal is one number purchase with server-side setup that survives closing the page. The production release, live purchases and messages require separate approval.

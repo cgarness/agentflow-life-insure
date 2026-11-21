@@ -46,6 +46,8 @@ Chris approved isolated implementation and testing. Production release requires 
 
 The candidate package manifests are `workflow-resume-paused.sha256` and `automation-provider-receipt.sha256` beside this packet. They cover the entry points, transitive local modules including type imports, and the worker import map. From the repo root, use `sha256sum -c docs/plans/2026-11-21-automations/workflow-resume-paused.sha256` and `sha256sum -c docs/plans/2026-11-21-automations/automation-provider-receipt.sha256`. At release, compare the live provider-resolved dependencies and gateway settings with the exact packages submitted for approval.
 
+The implementation and local acceptance evidence are recorded at `58cf20b7e5b2e1cd99d3a29676f5225c3447ef2b`. A subsequent verification commit pins the Sheets browser runner to Ubuntu 24.04 after Playwright 1.56.1 failed to install on Ubuntu 26.04. The PR head identifies the exact candidate for review and its hosted check results. [Draft PR #534](https://github.com/cgarness/agentflow-life-insure/pull/534)
+
 ## Proposed production sequence
 
 1. Reconcile main, #531, #532, #533, #429 and the actual production deployment again. Do not replay the three phone-release migrations under their repository timestamps. Inventory other callers of the legacy workflow readers and dispatcher. Verify release clients understand server-owned View As before exposing authoring. Coordinate existing open CRM sessions during cutover, since an older client cannot communicate its local View As state to the new server.

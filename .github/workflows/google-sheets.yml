@@ -165,7 +165,7 @@ jobs:
       - run: npm run build
   ui:
     name: Browser flow (mocked Supabase host + fake Picker)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Supported by the pinned Playwright 1.56.1 browser installation.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
