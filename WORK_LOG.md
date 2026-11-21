@@ -1,3 +1,13 @@
+## November 21, 2026 — Contact From number names released on fflagent.com
+
+Chris approved the primary AgentFlow frontend release of `b1a1d31f4330c750af73b2817f40b5234ab96ad1` from PR #535. Vercel marked deployment `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU` ready at 12:57 PM Pacific. Both `fflagent.com` and `www.fflagent.com` resolved to this deployment. The live contacts page and its JavaScript bundle `/assets/index-CkKQiRdM.js` returned HTTP 200.
+
+On a signed-in test contact, the From dropdown contained 22 choices. **Denver, CO** appeared next to its formatted phone number. Opening and closing the list kept the same sender. Choosing Denver opened the confirmation with that same phone number and the permanent-assignment checkbox clear. Cancel restored the original selection. Verification ended there without placing a call, sending a text or saving an assignment.
+
+All eight GitHub Actions workflows passed on the released commit. The two runtime files were `src/components/contacts/FullScreenContactView.tsx` and `src/components/contacts/ContactFromNumberControl.tsx`. This release required only a frontend deployment. This closeout updates `WORK_LOG.md` and `implementation_plan.md`. The primary release and live verification are complete. The previous primary deployment was `dpl_Ces2SKbmdQrjHJ3XyYwopGZebt7U`.
+
+---
+
 ## November 21, 2026 — Restore saved names in the contact From dropdown (review candidate)
 
 Chris reported that the sticky-number selector hid names such as Denver, CO. The contact screen already requested friendly names, but the sticky path rendered only the formatted phone number. A read-only count confirmed all 22 active numbers in Chris's agency had saved names. The page now shows the agency's label beside the formatted number in the selected value and the list. Blank or unmatched names fall back to the formatted sender number.

@@ -1,6 +1,10 @@
+## November 21, 2026 — Contact From number names are live
+
+Chris approved release of `b1a1d31f4330c750af73b2817f40b5234ab96ad1` to the primary frontend. Both AgentFlow production domains now point to Vercel deployment `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`. A signed-in check verified the Denver, CO name beside its phone number, the matching number in the confirmation and the original selection after Cancel. All eight GitHub Actions workflows passed on the released source. The release and verification are complete. [Work log](WORK_LOG.md)
+
 ## November 21, 2026 — Restore names in the contact From dropdown
 
-Chris approved the frontend correction. The primary site runs `553f89d`. The review branch starts from `f459ae7`, its documentation-only successor on PR #531.
+Chris approved the frontend correction. At the start of the fix, the primary site ran `553f89d`. The review branch started from `f459ae7`, its documentation-only successor on PR #531.
 
 1. In `src/components/contacts/FullScreenContactView.tsx`, include each phone number's row ID and organization in the existing inventory read. Scope the display data to the current viewer and contact so an empty result or late response cannot show a previous agency's labels.
 2. In `src/components/contacts/ContactFromNumberControl.tsx`, show the saved name and formatted number in each eligible option and the selected value. An unnamed or unmatched row uses the formatted sender number. Keep option membership, IDs, confirmation, assignment and sender behavior authoritative in the existing contact-number model.
