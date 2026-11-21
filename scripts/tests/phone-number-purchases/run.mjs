@@ -81,7 +81,60 @@ try {
   const [{ n: assertionCount }] = await q('select count(*)::int as n from public.phone_purchase_test_results');
   console.log(`PASS: ${assertionCount} SQL assertions`);
   console.log('PASS: purchase SQL authorization, quote binding, replay, ownership, receipts, atomic recovery, ACL/RLS/search_path and real Inbounds/outbound guards');
+  // Compose the feature with the real purchase, A2P event and agency policy contracts.
+  // The rest of the consent subsystem requires the full DNC/Vault fixture and is tested separately.
+  await db.exec(`
+    ALTER TABLE public.organizations ADD status text DEFAULT 'active';
+    ALTER TABLE public.profiles ADD email_notifications_enabled boolean DEFAULT false;
+    CREATE TABLE public.phone_settings(organization_id uuid NOT NULL,trust_hub_profile_sid text);
+  `);
+  await source('supabase/migrations/20261003174429_a2p_registration_workflow.sql');
+  const consent = await read('supabase/migrations/20261005194649_sms_consent_dispatch.sql');
+  const policyEnd = consent.indexOf('CREATE TABLE public.sms_bridge_nonces');
+  assert(policyEnd > 0, 'Could not isolate immutable agency policy DDL');
+  await db.exec(consent.slice(0,policyEnd));
+  await source('supabase/migrations/20261121040200_phone_number_setup.sql');
+  assert.equal((await q("select tgenabled from pg_trigger where tgname='enqueue_phone_number_setup'"))[0].tgenabled, 'D');
+  const activation = 'supabase/migrations/pending/20261121040203_enable_phone_number_setup.sql';
+  await assert.rejects(source(activation), /phone_number_setup_prerequisites_missing/);
+  await db.exec('ROLLBACK'); // The guarded activation intentionally aborted its own transaction.
+  await source('supabase/migrations/20261121040202_phone_number_setup_sms_intent.sql');
+  await source(activation);
+  await source('supabase/tests/phone_number_setup.sql');
+  await source('supabase/tests/phone_number_setup_sms_intent.sql');
+  const [setupResults] = await q('select count(*)::int as n from public.phone_purchase_test_results');
+  console.log(`PASS: ${setupResults.n - assertionCount} automatic phone setup SQL assertions`);
   if (pg) {
+    // Keep one worker transaction open while a second claims work from the same table.
+    const outcomes = await pg.begin(async (tx) => {
+      const [first] = await tx`select * from public.phone_number_setup_claim()`;
+      const [other] = await pg`select * from public.phone_number_setup_claim()`;
+      return [first,other];
+    });
+    assert(outcomes.every(Boolean));
+    assert.notEqual(outcomes[0].purchase_id + outcomes[0].kind, outcomes[1].purchase_id + outcomes[1].kind);
+    assert.notEqual(outcomes[0].lease_token, outcomes[1].lease_token);
+    console.log('PASS: concurrent setup workers claim distinct work under SKIP LOCKED');
+    // Release the first test leases, then isolate SMS work from two agencies with a
+    // deterministic order. A held SMS lease must not block Trust or another agency.
+    await pg`update private.phone_number_setup_jobs set lease_token=null,lease_until=null where lease_token is not null`;
+    await pg`update private.phone_number_setup_jobs set next_at=clock_timestamp() + case
+      when kind='trust' then interval '4 hours'
+      when organization_id='10000000-0000-4000-8000-000000000001' then interval '-2 hours'
+      else interval '-1 hour' end where state='pending'`;
+    await pg.begin(async (tx) => {
+      const [first] = await tx`select * from public.phone_number_setup_claim()`;
+      const [other] = await pg`select * from public.phone_number_setup_claim()`;
+      assert.equal(first.kind, 'sms'); assert.equal(other.kind, 'sms');
+      assert.notEqual(first.organization_id, other.organization_id);
+      const blocked = await pg`select * from public.phone_number_setup_claim()`;
+      assert.equal(blocked.length,0, 'another SMS for a leased org is unavailable');
+      await pg`update private.phone_number_setup_jobs set next_at=clock_timestamp()-interval '1 second'
+        where kind='trust' and organization_id=${first.organization_id} and state='pending'`;
+      const [trust] = await pg`select * from public.phone_number_setup_claim()`;
+      assert.equal(trust.kind,'trust'); assert.equal(trust.organization_id,first.organization_id);
+    });
+    console.log('PASS: per-agency SMS serialization under overlapping transactions, independent Trust and other agency');
     await import('./concurrency.mjs').then((m) => m.run(pg));
     console.log('PASS: native PostgreSQL simultaneous claims, cross-organization attempts, request collisions, receipt uniqueness and finalization');
   } else {

@@ -1,3 +1,33 @@
+## November 20, 2026 — Automatic agency phone number setup
+
+Chris authorized planning and the isolated build. Inspected main `2129fa8b195cee77ad75f614abe655facfad2725`. The reviewable feature is stacked on the sticky-number branch at `99ca1eb0588b89870c65c8c2d348e239e876f59e` to preserve the active production architecture. The goal is one number purchase with server-side setup that survives closing the page. The production release, live purchases and messages require separate approval.
+
+1. **Record work with the purchase.** Enqueue once on a committed, completed purchase receipt, pin its agency, Twilio account, number SID and number row. Track independent Trust Hub and SMS work with durable claims, bounded retries and scope checks. Keep the billing operation separate. Existing numbers stay on their current paths.
+2. **Complete agency setup.** Attach to the agency's approved Trust Hub profile. Register eligible US local senders with the agency's verified campaign and Messaging Service. Respect identity, exact ownership, capacity, voice-only designations and pending agency approvals. Reconcile an uncertain provider result before retrying. Preserve the paid onboarding flow, signed number evidence and single-leg voice architecture.
+3. **Use actual readiness.** Add eligible new senders to an active agency texting policy once confirmation and membership are verified. Preserve explicit later removals, consent, STOP/START, DNC, legacy senders and manual/workflow checks. Surface progress, waiting states and actionable issues in Phone Numbers, with scoped retry for recoverable cases. Require separate verification for toll-free SMS.
+4. **Verify and publish for review.** Use isolated SQL with synthetic receipts and tenants, mocked Twilio responses, UI tests, existing purchase and dialer/consent regressions, TypeScript and build checks. Record exact results and release order here and in WORK_LOG.md. Review sticky contact number PR #531 and verified START PR #429 for overlap before release. A successful application build does not constitute approval to deploy.
+
+**Intended source and test files, listed before implementation**
+
+- `supabase/migrations/20261121040200_phone_number_setup.sql`, `supabase/tests/phone_number_setup.sql`, `scripts/tests/phone-number-purchases/{run,concurrency}.mjs`.
+- `supabase/functions/a2p-reconcile/index.ts`, `supabase/functions/_shared/phoneNumbers/{setupTypes,setupWorker,setupTrust,setupSms,setupWorker_test,setupSms_test}.ts`.
+- `supabase/functions/_shared/a2p/{types,registration,provider,store,numberAttachment,sending,managedSending_test,tollFreeSending_test,workflow_test}.ts` as required by existing callers.
+- `supabase/functions/_shared/sms/{manual,scope,dispatch,manual_sender_test,sms_test}.ts` and `supabase/functions/workflow-executor/index.ts` where needed to enforce outbound-use rules.
+- `src/components/settings/phone/{NumberManagementSection,NumberSetupStatus}.tsx`, `src/components/settings/phone/useNumberSetupStatus.ts`, `src/components/settings/phone/__tests__/numberSetupStatus.test.tsx`.
+- `.github/workflows/phone-number-purchases.yml` for the relevant checks, `implementation_plan.md`, `WORK_LOG.md`. Document justified adjustments before editing extra files.
+
+**Verification commands**
+
+The existing manual Trust Hub route also needs to honor purchased-number setup. Add `supabase/functions/_shared/phoneNumbers/manualTrustScope.ts`, reuse the scoped worker test, and surface the per-number result in `src/components/settings/phone/TrustHubRegistrationPanel.tsx`.
+
+Verified direct-dispatch compatibility also requires a targeted explicit legacy-mode argument in `supabase/functions/twilio-sms/index.ts` and `supabase/functions/workflow-executor/index.ts` to keep newly purchased numbers on the consent-checked dispatch path. Reconcile against the exact sticky branch entrypoints before publication.
+
+A focused progress and release checklist lives in [the phone setup plan](docs/plans/2026-11-20-automatic-phone-number-setup/implementation_plan.md). The shared-master compatibility work also needs `supabase/migrations/20261121040202_phone_number_setup_sms_intent.sql`, its synthetic SQL test, the A2P test fixture `registrationTestDb.ts`, `src/pages/__tests__/settingsPageHeading.test.tsx`, and `scripts/tests/phone-number-purchases/browser/{check.mjs,client.ts,main.tsx}`.
+
+Additional paths after inspecting live behavior: `supabase/migrations/pending/20261121040203_enable_phone_number_setup.sql` is a separate activation step after all sending gates are installed. `supabase/functions/twilio-trust-hub/index.ts` records provenance for profiles created by the server. The Phone System container and purchase review (`src/components/settings/PhoneSystem.tsx`, `src/components/settings/phone/NumberPurchaseReview.tsx`) keep the selected tab stable and distinguish a paid purchase from SMS readiness. `AGENT_RULES.md` will record the new receipt and sender invariant.
+
+Use `npx tsc --noEmit`, the scoped `npx vitest run` for Phone Numbers/dialer regressions, `npm run build`, `deno test --frozen --lock deno.lock --import-map scripts/deno-ci-import-map.json --allow-env --allow-read` on affected Edge suites, and `node scripts/tests/phone-number-purchases/run.mjs` against a fresh synthetic database. Check native PostgreSQL contention when available. A signed provider-event fixture may stand in for real Twilio traffic in isolation. Preserve current voice call-record/status/disposition evidence through regression checks; do not dial leads.
+
 ## November 20, 2026 Pacific — pinned voice cap correction installed
 
 Chris authorized: “Ok correct the cap behavior and then I will run tests.” The exact correction was applied to AGENTFLOW CRM (`jncvvsvckxhqgqvkppmj`) as migration `20261120193109_sticky_pinned_voice_cap` at **11:31:09 AM Pacific**. Both sticky channels remain enforced for Chris's agency; the other five organizations remain off. The primary frontend and Edge packages are unchanged.

@@ -451,6 +451,17 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: "Trust Hub Step A: missing profile SID in Twilio response." }, 502);
       }
       await persistDraft({ customer_profile_sid: customerProfileSid });
+
+      // Only the Twilio creation response can establish an automatic setup binding.
+      // Resumed draft SIDs and agency-editable settings are never accepted as proof.
+      if (/^BU[0-9a-f]{32}$/i.test(customerProfileSid) && cr.data.account_sid === accountSid) {
+        const { error: pinError } = await supabase.from("phone_number_setup_profiles").insert({
+          organization_id: orgId,
+          account_sid: accountSid,
+          profile_sid: customerProfileSid,
+        });
+        if (pinError) console.error(`${FN} Could not record automatic setup profile ownership.`);
+      }
     }
 
     const businessIndustry = String(b.business_industry ?? "INSURANCE").trim();

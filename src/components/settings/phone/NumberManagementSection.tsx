@@ -19,6 +19,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { logActivity } from "@/lib/activityLogger";
 import { toggleDirectLine } from "./numberGroupMutations";
 import { NumberPurchaseDialog } from "./NumberPurchaseDialog";
+import { NumberSetupStatus } from "./NumberSetupStatus";
+import { useNumberSetupStatus } from "./useNumberSetupStatus";
 import { getNumberPurchaseScope, isTollFreeNumber, type PurchaseCompletion } from "@/lib/phone-number-purchase";
 import type { NumberGroupRow, NumberGroupMemberRow } from "./usePhoneSettingsController";
 
@@ -93,7 +95,9 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
     profile?.role === "Admin" ||
     profile?.is_super_admin === true;
 
-  const canPurchaseNumbers = !!getNumberPurchaseScope(user?.id, realProfile, organizationId, isImpersonating);
+  const purchaseScope = getNumberPurchaseScope(user?.id, realProfile, organizationId, isImpersonating);
+  const canPurchaseNumbers = !!purchaseScope;
+  const setup = useNumberSetupStatus(purchaseScope, numbers);
 
   const activeNumbers = numbers.filter((n) => n.status === "active");
 
@@ -350,6 +354,12 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
           </div>
         </CardHeader>
         <CardContent>
+          {setup.readFailed && (
+            <div role="alert" className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+              Number setup status is unavailable.
+              <Button type="button" size="sm" variant="link" onClick={() => void setup.refresh()}>Refresh status</Button>
+            </div>
+          )}
           {numbers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Phone className="w-12 h-12 text-muted-foreground mb-3" />
@@ -383,6 +393,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                 </thead>
                 <tbody>
                   {numbers.map((n) => {
+                    const setupRow = setup.rows?.get(n.id);
                     const isActive = n.status === "active";
                     const isReleased = n.status === "released";
                     const isDirect = n.is_direct_line === true;
@@ -417,7 +428,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                                 <TooltipContent className="text-xs">Direct line</TooltipContent>
                               </Tooltip>
                             )}
-                            {n.trust_hub_status === "approved" && (
+                            {!setupRow && n.trust_hub_status === "approved" && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-label="Trust Hub approved" />
@@ -425,7 +436,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                                 <TooltipContent className="text-xs">Trust Hub approved</TooltipContent>
                               </Tooltip>
                             )}
-                            {n.trust_hub_status && n.trust_hub_status !== "approved" && (
+                            {!setupRow && n.trust_hub_status && n.trust_hub_status !== "approved" && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-label={`Trust Hub: ${n.trust_hub_status}`} />
@@ -434,7 +445,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                               </Tooltip>
                             )}
                           </div>
-                          {isTollFreeNumber(n.phone_number) && (
+                          {!setupRow && isTollFreeNumber(n.phone_number) && (
                             <Badge variant="secondary" className="mt-1 font-sans text-[10px]">Toll-Free · SMS unavailable</Badge>
                           )}
                         </td>
@@ -467,7 +478,7 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                         </td>
                         <td className="px-3 py-3.5">
                           {n.status === "active" && (
-                            <Badge className="border-emerald-600/20 bg-emerald-600/10 text-xs text-emerald-700 dark:text-emerald-400">Active</Badge>
+                            <Badge className="border-emerald-600/20 bg-emerald-600/10 text-xs text-emerald-700 dark:text-emerald-400">{setupRow ? "Voice active" : "Active"}</Badge>
                           )}
                           {n.status === "released" && (
                             <Badge variant="secondary" className="text-xs">
@@ -488,6 +499,11 @@ export const NumberManagementSection: React.FC<Props> = ({ organizationId, numbe
                             <Badge variant="outline" className="text-xs">
                               Unknown
                             </Badge>
+                          )}
+                          {setupRow && (
+                            <NumberSetupStatus row={setupRow} phone={formatPhone(n.phone_number)}
+                              onRetry={() => setup.retry(n.id)} retrying={setup.retrying === n.id}
+                              retryError={setup.retryError === n.id} retryQueued={setup.retryQueued === n.id} />
                           )}
                         </td>
                         <td className="px-3 py-3.5 text-center">

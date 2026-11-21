@@ -3,16 +3,22 @@ on:
   pull_request:
     paths:
       - 'src/components/settings/phone/**'
+      - 'src/components/settings/PhoneSystem.tsx'
       - 'src/lib/phone-number-purchase.ts'
       - 'src/lib/caller-id-selection*'
       - 'supabase/functions/_shared/phoneNumbers/**'
-      - 'supabase/functions/_shared/a2p/sending.ts'
-      - 'supabase/functions/_shared/a2p/tollFreeSending_test.ts'
+      - 'supabase/functions/_shared/a2p/**'
+      - 'supabase/functions/_shared/sms/**'
+      - 'supabase/functions/a2p-reconcile/**'
+      - 'supabase/functions/twilio-trust-hub/**'
       - 'supabase/functions/twilio-search-numbers/**'
       - 'supabase/functions/twilio-buy-number/**'
       - 'supabase/migrations/pending/*phone_number_purchase_operations.sql'
       - 'supabase/migrations/*phone_number_purchase_operations.sql'
       - 'supabase/tests/phone_number_purchases.sql'
+      - 'supabase/migrations/*_phone_number_setup.sql'
+      - 'supabase/migrations/pending/*_enable_phone_number_setup.sql'
+      - 'supabase/tests/phone_number_setup.sql'
       - 'scripts/tests/phone-number-purchases/**'
       - 'scripts/prepare-phone-number-release.mjs'
       - 'scripts/*deno-ci*'
@@ -44,6 +50,8 @@ jobs:
           npx vitest run src/components/settings/phone/__tests__/NumberPurchaseDialog.test.tsx
           src/components/settings/phone/__tests__/useNumberPurchase.test.tsx
           src/components/settings/phone/__tests__/numberSearchSchema.test.ts
+          src/components/settings/phone/__tests__/numberSetupStatus.test.tsx
+          src/pages/__tests__/settingsPageHeading.test.tsx
           src/lib/caller-id-selection.test.ts src/lib/__tests__/inboundsRoom.test.ts
           src/hooks/__tests__/useInboundsVoice.test.tsx src/hooks/__tests__/useRoomDisposition.test.tsx
       - run: >-
@@ -85,6 +93,8 @@ jobs:
         run: >-
           "$RUNNER_TEMP/phone-edge/node_modules/.bin/deno" test --lock deno.lock --frozen --import-map scripts/deno-ci-import-map.json --allow-env --allow-read
           supabase/functions/_shared/phoneNumbers/purchase_test.ts
+          supabase/functions/_shared/phoneNumbers/setupWorker_test.ts
+          supabase/functions/_shared/phoneNumbers/setupSms_test.ts
           supabase/functions/twilio-search-numbers/search_test.ts
           supabase/functions/twilio-buy-number/purchase_test.ts
           supabase/functions/_shared/a2p/tollFreeSending_test.ts
@@ -95,6 +105,8 @@ jobs:
         run: >-
           "$RUNNER_TEMP/phone-edge/node_modules/.bin/deno" check --lock deno.lock --frozen --import-map scripts/deno-ci-import-map.json
           supabase/functions/twilio-search-numbers/index.ts supabase/functions/twilio-buy-number/index.ts
+          supabase/functions/a2p-registration/index.ts supabase/functions/a2p-reconcile/index.ts
+          supabase/functions/twilio-trust-hub/index.ts
           supabase/functions/twilio-sms/index.ts supabase/functions/workflow-executor/index.ts
           supabase/functions/sms-consent-worker/index.ts supabase/functions/clearpath-lead-alert/index.ts
   database:

@@ -1,3 +1,13 @@
+## November 20, 2026 — Automatic setup for agency phone numbers (review branch)
+
+Chris authorized the implementation after reviewing the purchase and A2P findings. A completed agency purchase can now record independently leased Trust Hub and SMS jobs. The scheduled reconciler can handle provider approval, existing membership, retry and review after the browser closes. US local senders use the agency's verified brand, campaign, Messaging Service and signed number registration. A provider-specific SMS write intent prevents duplicate submissions on ambiguous responses; the job never re-enters the purchase path. The approved agency SMS policy enrolls an eligible sender once, preserving subsequent admin changes. Phone Numbers shows voice and SMS status independently and supports scoped setup retries. Toll-free messaging uses its separate verification policy.
+
+Files touched include the numbered setup migrations, isolated SQL fixture and native runner, A2P sender/attachment helpers, Trust Hub provisioning, the existing reconcile worker, manual/workflow sender selection, Phone Numbers UI, browser/component tests, phone-number CI, project rules and plans. See [the implementation plan](docs/plans/2026-11-20-automatic-phone-number-setup/implementation_plan.md) for the user flow, verification and release sequence.
+
+Read-only production inspection confirmed the existing minute scheduler, CG Financial's approved brand and campaign, 22 active registered numbers, sticky-specific deployed dispatch logic, and a provider identifier shared across distinct Messaging Services. Tests exercise native purchase contention, per-agency setup isolation, signed registration and membership order, subsequent admin removal, provider failures, preserved sticky paths, and desktop/mobile behavior with synthetic data. This entry records branch implementation only. Compatibility migrations, trigger activation, Edge deployments, frontend production release and any real purchase remain separately gated.
+
+---
+
 ## November 20, 2026 Pacific — manual-dial sticky guard corrected and installed
 
 - Authority: Chris approved the exact Revision 2 one-function manual-dial hotfix. Applied to primary AGENTFLOW CRM as `20261120230232_sticky_unsaved_reconciled_call` at 3:02:32 PM Pacific; history is 388 records. Voice/SMS stay enforced for Chris's agency and off for the other five.

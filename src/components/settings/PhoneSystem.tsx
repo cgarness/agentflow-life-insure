@@ -55,6 +55,9 @@ const tabTriggerClass =
 
 const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
   const phone = usePhoneSettingsController();
+  const [selection, setSelection] = React.useState({ route: defaultTab, tab: defaultTab });
+  const tab = selection.route === defaultTab ? selection.tab : defaultTab;
+  if (selection.route !== defaultTab) setSelection({ route: defaultTab, tab: defaultTab });
 
   if (phone.loading) {
     return (
@@ -67,7 +70,7 @@ const PhoneSystem: React.FC<PhoneSystemProps> = ({ defaultTab = "phone" }) => {
 
   return (
     <div className="space-y-4">
-      <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full">
+      <Tabs value={tab} onValueChange={value => setSelection({ route: defaultTab, tab: value as PhoneSystemTab })} className="w-full">
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border border-border bg-muted/50 p-1.5">
           <TabsTrigger value="phone" className={tabTriggerClass}>
             Trust Hub

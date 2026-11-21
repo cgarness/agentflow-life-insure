@@ -1,4 +1,5 @@
 import { manualSender } from "./manual.ts";
+import { selectedSender } from "./scope.ts";
 import type { Policy } from "./consent.ts";
 import { SmsError } from "./wire.ts";
 
@@ -128,6 +129,7 @@ function fixture() {
       },
     ],
   };
+  rows.phone_numbers.forEach((row) => { row.inbounds_only = false; });
   return {
     rows,
     db: { from: (table: string) => new Query(rows[table] ?? []) },
@@ -170,4 +172,14 @@ Deno.test("manual SMS refuses when none of the selected numbers is registered", 
     throw error;
   }
   throw new Error("Missing registered sender was accepted");
+});
+
+Deno.test("a room-only or deregistered default does not displace a ready sender for manual or automated SMS", async () => {
+  for (const change of ["room-only", "unregistered"]) {
+    const f = fixture();
+    if (change === "room-only") f.rows.phone_numbers.find((row) => row.id === "default")!.inbounds_only = true;
+    else f.rows.a2p_numbers.find((row) => row.phone_number_id === "default")!.status = "deregistered";
+    equal(await manualSender(f.db, policy, "+12162706473"), "+12136676225");
+    equal(await selectedSender(f.db, policy), "+12136676225");
+  }
 });
