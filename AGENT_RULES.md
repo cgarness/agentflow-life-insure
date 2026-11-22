@@ -626,6 +626,7 @@ PR #515 is released as `c971306` after Chris approved exact head `1e98c55`; both
 - **Exceptions (refactor scheduled):** `DialerPage.tsx` (~3,800 lines), `TwilioContext.tsx` (~2,150 lines). Do not add features inline — use `src/components/dialer/`.
 - **Zod** on forms/modals.
 - **Tailwind only** — no inline styles.
+- For new and changed signed-in CRM screens, follow the [AgentFlow design standard](docs/design/AgentFlow_Design_Standard.md) during planning, implementation and review.
 
 ---
 

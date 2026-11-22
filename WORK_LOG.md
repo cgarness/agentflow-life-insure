@@ -126,6 +126,10 @@ Chris approved isolated Milestones 1–4, including scoped migration and RLS tes
 
 The candidate installs zero presets and ships all three release controls disabled. Production catalog inspection preceded this build. External scheduling remains unconfirmed. No live customer communication, production SQL, Edge deployment, Vercel release or merge was part of this work. See `docs/plans/2026-11-21-automations/context-snapshot.md` for the review evidence.
 
+## November 20, 2026 — Standing design reference for CRM builds
+
+Saved the AgentFlow v1 written standard and visual palette under `docs/design/`. Root `AGENTS.md` directs coding agents to the standard for signed-in CRM interface work, `CLAUDE.md` imports those instructions, and the existing component standards in `AGENT_RULES.md` link to the same document. Verified the instruction paths and three-page visual reference. Scope is repository documentation.
+
 ## November 20, 2026 — Automatic setup for purchased agency numbers is live
 
 At 8:55 PM Pacific, AgentFlow enabled background Trust Hub linking and eligible SMS registration for new agency number purchases. PR #532 passed all eight GitHub Actions workflows. Its approved candidate `7914faefc750aaf38d3659a71d9a01b3298f9107` and the release-branch merge `c862233d949deaa2a4888d4654f136e42df693d4` have identical file contents.
