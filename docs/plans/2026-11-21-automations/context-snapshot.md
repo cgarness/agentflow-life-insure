@@ -1,5 +1,27 @@
 # Automations builder · single-agency pilot decision
 
+## November 21, 2026 — post-Back verification
+
+Chris reported that the blank-canvas check returned him to the empty list in his own browser. A separate aggregate confirmed a fresh session for an active CG Financial user after the cutoff. At 8:44 p.m. PST Vercel returned the approved SHA `666387b06236281a1e61b1d0fc765284bc63cd99` and READY deployment `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7` for both primary domains.
+
+| Global measure | Installed, 4:11 p.m. PST | Visible, 4:13 p.m. PST | After Back, 8:44 p.m. PST |
+|---|---:|---:|---:|
+| Workflow definitions | 0 | 0 | 1 |
+| Active workflows | 0 | 0 | 0 |
+| Published versions | 0 | 0 | 0 |
+| Legacy runs | 0 | 0 | 0 |
+| Legacy steps | 0 | 0 | 0 |
+| Versioned runs | 0 | 0 | 0 |
+| Versioned steps | 0 | 0 | 0 |
+| Dispatch intents | 0 | 0 | 0 |
+| Logical automation messages | 0 | 0 | 0 |
+| Automation-attributed SMS | 0 | 0 | 0 |
+| Automation-attributed email | 0 | 0 | 0 |
+
+Both aggregate visibility checks after first show found exactly one visible agency, CG Financial. Every enrollment and dispatch control was off. Activation intervals and events were zero at all three checkpoints. The repeatable-read audits verified that row security allowed global counts.
+
+The draft was created at 8:42 p.m. PST, after the approved release window. Aggregate reads confirmed a first revision with a nonempty draft name, graph nodes and edges. The draft is unpublished and was preserved. Production installation created zero definitions. The subsequent eleven-zero acceptance check failed on workflow definitions alone. The receipts do not identify the originating browser action. A fresh isolated test on the shipped commit confirmed that opening and leaving the blank canvas made zero calls to the mocked save API. All nine tests in the builder access suite passed in 3.09 seconds. The earlier native test verified the same route against a disposable database.
+
 ## November 21, 2026 — approved production window
 
 Chris approved the exact frontend at `666387b06236281a1e61b1d0fc765284bc63cd99` and the four migrations in packet `f94ff6c09a9af2a83e5f2eca721b257a21285e07` from 4:00 to 5:00 p.m. PST. Only CG Financial's builder visibility and its reviewed hide operation are authorized. Enrollment and both messaging channels stay off across the installation. Chris confirmed a restorable physical backup on the target Supabase dashboard at November 21, 10:25:41 UTC.
@@ -19,7 +41,7 @@ The 4:11 p.m. PST installation receipt counted zero definitions, active workflow
 
 Security advisors moved from 317 findings to 346 (87 informational, 257 warnings and the same two errors). Eighteen new informational findings covered tables with RLS and deliberately restricted access. Fifteen new warnings corresponded exactly to the intended authenticated functions. Four previous warnings resolved. Public OpenAPI returned HTTP 401, consistent with preflight. After the database confirmed zero diagnostic name collisions, all four builder functions and both legacy controls produced the expected live PostgREST cache hints.
 
-At 4:12:59 p.m. PST the reviewed agency-only show operation established the session cutoff. The 4:13 p.m. readback counted one visible agency, CG Financial, zero agencies with enrollment or dispatch enabled, eleven zero workflow and message counts, zero events and zero activation intervals. Verification in a freshly signed-in browser is pending. A failed verification authorizes the reviewed hide for this agency while retaining records and the session cutoff. A site-wide frontend rollback requires separate approval. The previous frontend remains available as `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`.
+At 4:12:59 p.m. PST the reviewed agency-only show operation established the session cutoff. The 4:13 p.m. readback counted one visible agency, CG Financial, zero agencies with enrollment or dispatch enabled, eleven zero workflow and message counts, zero events and zero activation intervals. A failed verification authorizes the reviewed hide for this agency while retaining records and the session cutoff. A site-wide frontend rollback requires separate approval. The previous frontend remains available as `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`.
 
 ## November 21, 2026 — production-base correction
 

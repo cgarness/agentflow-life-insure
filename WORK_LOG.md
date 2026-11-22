@@ -1,3 +1,13 @@
+## November 21, 2026 — CG Financial pilot browser check and production readback
+
+Chris confirmed that Back returned him to the empty Automations list. An aggregate database check confirmed a fresh CG Financial session after the visibility cutoff. At 8:44 p.m. PST, both production domains still served `666387b06236281a1e61b1d0fc765284bc63cd99` on `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7`.
+
+The installation and first-visibility audits each counted zero workflow definitions. The post-Back audit found one at CG Financial, created at 8:42 p.m. PST after the release window. It was an unpublished, first-revision draft with a name and connected blocks. The other ten measures were zero. CG Financial was the only visible agency. Enrollment and dispatch were off everywhere.
+
+The installation met its empty-state check. The post-Back check for eleven zeros failed. The receipts cannot identify which browser action saved the draft. The draft was preserved. In an isolated rerun on the shipped SHA, Create → Choose trigger → Back returned to the list with zero calls to the mocked save API. All nine tests passed.
+
+[Production counts and release evidence](docs/plans/2026-11-21-automations/context-snapshot.md)
+
 ## November 21, 2026 — Approved single-agency builder pilot window
 
 Chris approved frontend `666387b06236281a1e61b1d0fc765284bc63cd99`, the four migrations and shared grants from release packet `f94ff6c09a9af2a83e5f2eca721b257a21285e07`, and show/hide for agency `a0000000-0000-0000-0000-000000000001`. The authorized window is November 21, 4:00–5:00 p.m. PST (November 22, 00:00–01:00 UTC). Chris confirmed that the Supabase dashboard for `jncvvsvckxhqgqvkppmj` showed a restorable physical backup dated November 21 at 10:25:41 UTC. The scoped full-schema waiver and the separate hold on live execution still apply.
@@ -8,7 +18,7 @@ The official Vercel CLI staged the approved SHA with `--skip-domain`. Vercel mar
 
 The four migrations brought the ledger to 395 entries. Each installed statement matched its approved SHA-256. Before first visibility, the production audit counted zero across all eleven workflow, execution and message measures, zero activation intervals and zero events. All three release controls were off globally. The grant audit matched 25 tables and 28 function signatures. The installed workflow grants and Settings routing changes also apply outside the pilot.
 
-The managed advisor identified 18 new informational findings on restricted tables and 15 warnings on approved authenticated RPCs. Four previous warnings resolved, with zero new errors. All four builder RPC names and two legacy controls were present in the live API cache. At 4:12:59 p.m. PST the reviewed show operation sealed the fresh-sign-in cutoff. Its independent readback counted one visible agency, CG Financial, and zero agencies enrolling or dispatching. All eleven counts remained zero. The signed-in blank-canvas observation and post-Back readback are pending.
+The managed advisor identified 18 new informational findings on restricted tables and 15 warnings on approved authenticated RPCs. Four previous warnings resolved, with zero new errors. All four builder RPC names and two legacy controls were present in the live API cache. At 4:12:59 p.m. PST the reviewed show operation sealed the fresh-sign-in cutoff. Its independent readback counted one visible agency, CG Financial, and zero agencies enrolling or dispatching. All eleven counts remained zero. The post-Back audit appears above.
 
 [Builder-only release packet](docs/plans/2026-11-21-automations/builder-only-release.md)
 
