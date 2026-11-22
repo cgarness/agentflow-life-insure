@@ -1,7 +1,8 @@
 {
   "git": {
     "deploymentEnabled": {
-      "feat/self-service-automations": false
+      "feat/self-service-automations": false,
+      "claude/cool-maxwell-15hyq7": false
     }
   },
   "rewrites": [
