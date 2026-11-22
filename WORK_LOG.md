@@ -1,3 +1,19 @@
+## November 22, 2026 — Automations V2 built and verified locally; nothing released
+
+Automations V2 is ready for review as a draft pull request from `claude/cool-maxwell-15hyq7` into `feat/self-service-automations`. No production migration, Edge function, Vercel deployment, release control or schedule was changed. Production was read only: the ledger still holds 395 entries ending `20261122001044`, one agency sees the builder, and no agency is enrolling or delivering.
+
+The builder opens on a blank unsaved canvas with Canvas and List views on desktop and a timeline on phones. Saving is three separate actions: Save draft, Save & review, Publish version. Messages are written directly, with Use saved message and Insert field as helpers. The server now decides each text's consent requirement at publish. Every step can carry an optional name and description, and a run shows the name from the version it executed.
+
+Six new triggers, a Create task action and an appointment wait build five workflows: new lead callback, no-answer follow-up, appointment reminders and no-show recovery, missed inbound callback, and policy follow-through. Contact tasks show a real due time, Inbounds lists claimable callbacks, and each policy has Confirm issuance. Nothing dials automatically. `TwilioContext.tsx` and `DialerPage.tsx` are unchanged.
+
+Seven migrations (`20261122100000` through `20261122100600`) and one guarded, data-preserving rollback file are prepared and unapplied. Two new public tables, `inbound_callbacks` and `policy_issuance_confirmations`, need their access rules approved. A stale save, publish or session change now answers HTTP 409; before, the request never answered.
+
+The three harness modes passed from scratch: builder, release, and a new backend-first mode. In that mode the first release's own acceptance script passed unchanged on the V2 database with its own frontend and worker, and the rollback was checked from the first-release frontend. Root TypeScript and the production build passed. App TypeScript diagnostics stayed at 78 with zero new. Vitest passed 7,381 tests; the nine failing files fail identically on the base. Deno passed 63 tests. All 14 native SQL suites passed. Every provider was an in-memory transport.
+
+Execution still needs its own approvals: a worker release, an owned schedule, the receipt endpoint, a verified email sender, recipient eligibility evidence, enrollment and message delivery. The complete production schema was not rehearsed.
+
+[Context snapshot](docs/plans/automations-v2/context-snapshot.md) · [Release and rollback plan](docs/plans/automations-v2/release-plan.md) · [Screenshots](docs/plans/automations-v2/evidence/)
+
 ## November 21, 2026 — CG Financial pilot browser check and production readback
 
 Chris confirmed that Back returned him to the empty Automations list. An aggregate database check confirmed a fresh CG Financial session after the visibility cutoff. At 8:44 p.m. PST, both production domains still served `666387b06236281a1e61b1d0fc765284bc63cd99` on `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7`.

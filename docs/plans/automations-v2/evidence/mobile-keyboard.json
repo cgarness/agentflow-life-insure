@@ -1,0 +1,25 @@
+{
+  "result": "pass",
+  "viewports": [
+    375,
+    1440
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "screenshots": [
+    "automations-1440-light.png",
+    "automations-1440-dark.png",
+    "automations-375-light.png",
+    "automations-375-dark.png"
+  ],
+  "keyboard": [
+    "choose trigger",
+    "insert on path",
+    "move up",
+    "move down"
+  ],
+  "workflowWrites": 0,
+  "network": "loopback browser guard"
+}
