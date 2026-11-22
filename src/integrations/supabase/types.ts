@@ -5153,12 +5153,14 @@ export type Database = {
       }
       tasks: {
         Row: {
+          all_day: boolean
           assigned_to: string
+          automation_run_id: string | null
           completed_at: string | null
           contact_id: string
           contact_type: string
           created_at: string
-          created_by: string
+          created_by: string | null
           due_date: string
           id: string
           notes: string | null
@@ -5167,12 +5169,14 @@ export type Database = {
           title: string
         }
         Insert: {
+          all_day?: boolean
           assigned_to: string
+          automation_run_id?: string | null
           completed_at?: string | null
           contact_id: string
           contact_type: string
           created_at?: string
-          created_by: string
+          created_by?: string | null
           due_date: string
           id?: string
           notes?: string | null
@@ -5181,12 +5185,14 @@ export type Database = {
           title: string
         }
         Update: {
+          all_day?: boolean
           assigned_to?: string
+          automation_run_id?: string | null
           completed_at?: string | null
           contact_id?: string
           contact_type?: string
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           due_date?: string
           id?: string
           notes?: string | null
@@ -5976,6 +5982,15 @@ export type Database = {
       automation_folder: { Args: { p_operation: string; p_folder_id: string | null; p_values: Json; p_session_revision: number }; Returns: Json }
       automation_stop_run: { Args: { p_run: string; p_session_revision: number }; Returns: undefined }
       automation_activity: { Args: { p_session_revision: number; p_viewer_id: string; p_workflow?: string | null; p_contact?: string | null; p_type?: string | null; p_before_at?: string | null; p_before_run?: string | null }; Returns: Json }
+      automation_disposition_options: { Args: Record<PropertyKey, never>; Returns: Json }
+      automation_saved_messages: { Args: { p_type: string; p_search?: string; p_offset?: number }; Returns: Json }
+      automation_sms_requirements: { Args: { p_workflow_id: string }; Returns: Json }
+      inbound_callback_queue: { Args: Record<PropertyKey, never>; Returns: Json }
+      claim_inbound_callback: { Args: { p_callback: string }; Returns: Json }
+      release_inbound_callback: { Args: { p_callback: string }; Returns: Json }
+      complete_inbound_callback: { Args: { p_callback: string }; Returns: Json }
+      confirm_policy_issuance: { Args: { p_request_id: string; p_policy_id: string; p_issued_on: string }; Returns: Json }
+      get_policy_issuance: { Args: { p_client_id: string }; Returns: Json }
       automation_session_context: { Args: Record<PropertyKey, never>; Returns: Json }
       automation_session_transition: { Args: { p_expected_revision: number; p_target_id: string | null }; Returns: Json }
       contact_number_modes: { Args: Record<PropertyKey, never>; Returns: Json }

@@ -110,3 +110,74 @@ Deno.test("timeout and receipt persistence error retain uncertainty without send
     assert(result.status === "unknown" && sends === 1, "ambiguous handoff retried");
   }
 });
+
+function smsDatabase(calls: string[]) {
+  return {
+    rpc: async (name: string) => {
+      calls.push(name);
+      return { data: null, error: { message: "fixture stop" } };
+    },
+    from: () => { calls.push("from"); throw Error("no table read expected"); },
+  };
+}
+const noTransport = async () => { throw Error("no provider traffic expected"); };
+
+Deno.test("a version 2 SMS step without a pinned purpose is held before any lookup or provider call", async () => {
+  const calls: string[] = [];
+  const v2 = { type: "send_sms" as const, version: 2, config: { body: "Hello {{first_name}}" } };
+  const unpinned = await dispatchChannel(smsDatabase(calls), claim, v2, { ...contact, phone: "+12025550123" }, {
+    env: fakeEnv, fetch: noTransport,
+  });
+  assert(unpinned.status === "held" && /purpose could not be established/i.test(unpinned.reason ?? ""), "unpinned purpose");
+  const forged = await dispatchChannel(smsDatabase(calls), { ...claim, context: { sms_purpose: "manual" } }, {
+    ...v2, config: { body: "Hello", purpose: "informational" },
+  }, { ...contact, phone: "+12025550123" }, { env: fakeEnv, fetch: noTransport });
+  assert(forged.status === "held", "an author-supplied purpose on a version 2 step is ignored");
+  assert(calls.length === 0, "held before any database or provider request");
+});
+
+Deno.test("messages are never attempted for clients, recruits or runs without a contact", async () => {
+  const calls: string[] = [];
+  for (const scope of [{ contact_type: "client" }, { contact_type: "recruit" }, { contact_id: null, contact_type: null }]) {
+    const result = await dispatchChannel(smsDatabase(calls), { ...claim, ...scope }, node, contact, {
+      env: fakeEnv, fetch: noTransport,
+    });
+    assert(result.status === "held" && calls.length === 0, "non-lead contact reached a provider path");
+  }
+});
+
+Deno.test("appointment wording uses the recipient's verified time zone and holds without one", async () => {
+  const appointmentNode = {
+    type: "send_email" as const,
+    config: { subject: "{{appointment_date}} at {{appointment_time}}", body: "See you then, {{first_name}}", sender_id: "sender-a" },
+  };
+  const scheduled = { ...claim, context: { appointment_start: "2026-12-05T20:00:00Z" } };
+  let sends = 0;
+  const names: string[] = [];
+  const zoned = {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      names.push(name);
+      if (name === "automation_message_timezone") {
+        assert(args.p_run === claim.run_id && args.p_channel === "email" && args.p_recipient === "alex@example.invalid", "scope");
+        return { data: "America/Los_Angeles", error: null };
+      }
+      return { error: null, data: { id: messageId, from_email: "verified@example.invalid", reply_to: "monitored@example.invalid", unsubscribe_token: receiptId } };
+    },
+  };
+  const sent = await dispatchChannel(zoned, scheduled, appointmentNode, contact, {
+    env: fakeEnv,
+    fetch: async (_url, init) => {
+      sends++;
+      const body = JSON.parse(String(init?.body));
+      assert(body.subject === "Saturday, December 5 at 12:00 PM PST" && body.text === "See you then, Alex", body.subject);
+      return Response.json({ id: receiptId });
+    },
+  });
+  assert(sent.status === "accepted" && sends === 1 && names[0] === "automation_message_timezone", "rendered in the verified zone");
+
+  const unverified = { rpc: async () => ({ data: null, error: null }) };
+  const held = await dispatchChannel(unverified, scheduled, appointmentNode, contact, { env: fakeEnv, fetch: noTransport });
+  assert(held.status === "held" && /verified timezone/i.test(held.reason ?? ""), "missing time zone holds");
+  const noStart = await dispatchChannel(zoned, claim, appointmentNode, contact, { env: fakeEnv, fetch: noTransport });
+  assert(noStart.status === "held" && /could not be filled in/i.test(noStart.reason ?? ""), "missing appointment holds");
+});

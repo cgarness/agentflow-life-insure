@@ -1,4 +1,4 @@
-import { renderMergeFields } from "../workflowMergeFields.ts";
+import { fieldValues, renderFields } from "./fields.ts";
 
 export type Config = Record<string, unknown>;
 export type Outcome = { status: string; reason?: string };
@@ -10,6 +10,7 @@ export interface RuntimeContext {
     handler: (contact: Config) => Outcome | Promise<Outcome>,
   ): Promise<Outcome>;
   send(type: MessageType, config: Config, contact: Config): Promise<Outcome>;
+  createTask(config: Config): Promise<Outcome>;
 }
 
 export interface PreviewContext {
@@ -24,15 +25,38 @@ export interface PreviewStep {
   branch?: "yes" | "no";
 }
 
+const UNIT_MS: Record<string, number> = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 };
+
+export function offsetLabel(amount: unknown, unit: unknown): string {
+  const count = Number(amount);
+  const name = String(unit ?? "");
+  if (!Number.isFinite(count) || !UNIT_MS[name]) return "";
+  return count + " " + (count === 1 ? name.slice(0, -1) : name);
+}
+
+function previewValues(input: Config) {
+  return fieldValues({
+    contact: input,
+    appointment_start: typeof input.appointment_start === "string" ? input.appointment_start : null,
+    timezone: typeof input.timezone === "string" ? input.timezone : null,
+  });
+}
+
+function mismatch(config: Config, input: Config): boolean {
+  const dispositions = Array.isArray(config.disposition_ids) ? config.disposition_ids : null;
+  const outcomes = Array.isArray(config.outcomes) ? config.outcomes : null;
+  return Boolean(
+    (config.lead_source && config.lead_source !== input.lead_source) ||
+      (config.campaign_id && !config.any_campaign && config.campaign_id !== input.campaign_id) ||
+      (dispositions && input.disposition_id && !dispositions.includes(input.disposition_id)) ||
+      (outcomes && input.outcome && !outcomes.includes(input.outcome)),
+  );
+}
+
 export function previewTrigger(
   { type, label, config, input }: PreviewContext,
 ): PreviewStep {
-  const hold = Boolean(
-    (input.trigger && input.trigger !== type) ||
-      (config.lead_source && config.lead_source !== input.lead_source) ||
-      (config.campaign_id && !config.any_campaign &&
-        config.campaign_id !== input.campaign_id),
-  );
+  const hold = Boolean(input.trigger && input.trigger !== type) || mismatch(config, input);
   return {
     hold,
     detail: label +
@@ -46,6 +70,19 @@ export function previewWait({ config }: PreviewContext): PreviewStep {
   return { detail: "Wait " + config.duration + " " + config.unit };
 }
 
+export function previewWaitUntil({ config, input }: PreviewContext): PreviewStep {
+  const offset = offsetLabel(config.amount, config.unit);
+  const base = "Wait until " + offset + " before the appointment";
+  const start = typeof input.appointment_start === "string" ? Date.parse(input.appointment_start) : NaN;
+  if (Number.isNaN(start)) return { detail: base + " · Held: enter a test appointment time.", hold: true };
+  const due = start - Number(config.amount) * (UNIT_MS[String(config.unit)] ?? 0);
+  const now = typeof input.now === "number" ? input.now : Date.now();
+  if (due > now) return { detail: base };
+  return config.late === "continue"
+    ? { detail: base + " · That time has passed, so the next step runs right away." }
+    : { detail: base + " · That time has passed, so the remaining steps are skipped.", hold: true };
+}
+
 export function previewEmailCondition(
   { label, input }: PreviewContext,
 ): PreviewStep {
@@ -56,13 +93,17 @@ export function previewEmailCondition(
   return { branch, detail: label + (branch === "yes" ? " — Yes" : " — No") };
 }
 
+function missingHold(missing: string[]): string {
+  return missing.length ? " · Held: " + missing.join(" and ") + " need a test appointment time and time zone." : "";
+}
+
 export function previewSms({ config, input }: PreviewContext): PreviewStep {
-  const hold = !input.phone || input.sms_eligible === false;
-  const body = renderMergeFields(String(config.body ?? ""), input);
+  const body = renderFields(config.body, previewValues(input));
+  const hold = !input.phone || input.sms_eligible === false || body.missing.length > 0;
   return {
     hold,
-    detail: "SMS (" + config.purpose + ") · " + body +
-      (hold ? " · Held: destination or SMS eligibility unavailable." : ""),
+    detail: "SMS" + (config.purpose ? " (" + config.purpose + ")" : "") + " · " + body.text + missingHold(body.missing) +
+      (!input.phone || input.sms_eligible === false ? " · Held: destination or SMS eligibility unavailable." : ""),
   };
 }
 
@@ -74,15 +115,31 @@ export function previewEmail({ config, input }: PreviewContext): PreviewStep {
   const identity = sender
     ? sender.from_email + " · Reply to " + sender.reply_to
     : "Sender unavailable";
-  const subject = renderMergeFields(String(config.subject ?? ""), input);
-  const body = renderMergeFields(String(config.body ?? ""), input);
-  const hold = !sender || !input.email || input.email_eligible === false;
+  const values = previewValues(input);
+  const subject = renderFields(config.subject, values);
+  const body = renderFields(config.body, values);
+  const missing = [...new Set([...subject.missing, ...body.missing])];
+  const unavailable = !sender || !input.email || input.email_eligible === false;
   return {
-    hold,
-    detail: "Email · " + identity + " · " + subject + " · " + body +
-      (hold
-        ? " · Held: sender, destination or email eligibility unavailable."
-        : ""),
+    hold: unavailable || missing.length > 0,
+    detail: "Email · " + identity + " · " + subject.text + " · " + body.text + missingHold(missing) +
+      (unavailable ? " · Held: sender, destination or email eligibility unavailable." : ""),
+  };
+}
+
+export function previewTask({ config, input }: PreviewContext): PreviewStep {
+  const values = previewValues(input);
+  const title = renderFields(config.title, values);
+  const notes = renderFields(config.notes, values);
+  const missing = [...new Set([...title.missing, ...notes.missing])];
+  const due = Number(config.due_amount) === 0 ? "due right away" : "due in " + offsetLabel(config.due_amount, config.due_unit);
+  const queue = input.trigger === "inbound_call_missed" && input.responsible_agent === false;
+  const noOwner = !queue && input.has_owner === false;
+  return {
+    hold: noOwner || missing.length > 0,
+    detail: (queue ? "Callback in Inbounds" : String(config.task_type ?? "Task") + " task") + " · " + title.text + " · " + due +
+      (notes.text ? " · " + notes.text : "") + missingHold(missing) +
+      (noOwner ? " · Held: the contact has no active assigned agent." : ""),
   };
 }
 
@@ -104,4 +161,7 @@ export function runEmailCondition(_config: Config, ctx: RuntimeContext) {
 export function runMessage(type: MessageType) {
   return (config: Config, ctx: RuntimeContext) =>
     ctx.withContact((contact) => ctx.send(type, config, contact));
+}
+export function runCreateTask(config: Config, ctx: RuntimeContext) {
+  return ctx.createTask(config);
 }

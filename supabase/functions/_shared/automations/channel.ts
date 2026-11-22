@@ -3,7 +3,7 @@ import { dispatch } from "../sms/dispatch.ts";
 import { policy } from "../sms/consent.ts";
 import { contactScope, selectedSender } from "../sms/scope.ts";
 import { phone, UUID } from "../sms/wire.ts";
-import { renderMergeFields } from "../workflowMergeFields.ts";
+import { fieldValues, renderFields, usesAppointmentField } from "./fields.ts";
 
 interface Claim {
   organization_id: string;
@@ -12,12 +12,15 @@ interface Claim {
   run_id: string;
   node_id: string;
   lease_token: string;
-  contact_type: string;
-  contact_id: string;
+  contact_type: string | null;
+  contact_id: string | null;
   stop_on_reply: boolean;
+  context?: { appointment_start?: string | null; sms_purpose?: string | null } | null;
 }
 interface Node {
   type: "send_sms" | "send_email";
+  /** Version 2 SMS steps carry no author purpose. The published version pins one. */
+  version?: number;
   config: Record<string, unknown>;
 }
 interface Outcome {
@@ -44,8 +47,36 @@ export async function dispatchChannel(
 ): Promise<Outcome> {
   const channel = node.type === "send_email" ? "email" : "sms";
   const config = node.config;
-  const body = renderMergeFields(String(config.body ?? config.body_override ?? ""), contact);
-  const subject = renderMergeFields(String(config.subject ?? config.subject_override ?? ""), contact);
+  if (!claim.contact_id || claim.contact_type !== "lead") {
+    return { status: "held", reason: "Automated messages are available for leads only." };
+  }
+  const contactId: string = claim.contact_id;
+  const contactType: string = claim.contact_type;
+  const rawBody = String(config.body ?? config.body_override ?? "");
+  const rawSubject = String(config.subject ?? config.subject_override ?? "");
+  const purpose = channel === "sms" && node.version === 2 ? claim.context?.sms_purpose : config.purpose;
+  if (channel === "sms" && purpose !== "informational" && purpose !== "marketing") {
+    return { status: "held", reason: "SMS purpose could not be established. Republish this automation." };
+  }
+  let timezone: string | null = null;
+  if (usesAppointmentField(rawBody) || usesAppointmentField(rawSubject)) {
+    // Appointment wording is written in the recipient's verified time zone, the same evidence the send window uses.
+    const recipient = channel === "email" ? String(contact.email ?? "").trim().toLowerCase() : String(contact.phone ?? "");
+    const { data, error } = await db.rpc("automation_message_timezone", {
+      p_run: claim.run_id, p_channel: channel, p_recipient: recipient,
+    });
+    if (error || typeof data !== "string" || !data) {
+      return { status: "held", reason: "Current recipient eligibility or verified timezone is missing." };
+    }
+    timezone = data;
+  }
+  const values = fieldValues({ contact, appointment_start: claim.context?.appointment_start, timezone });
+  const renderedBody = renderFields(rawBody, values);
+  const renderedSubject = renderFields(rawSubject, values);
+  const missing = [...new Set([...renderedSubject.missing, ...renderedBody.missing])];
+  if (missing.length) return { status: "held", reason: missing.join(" and ") + " could not be filled in for this appointment." };
+  const body = renderedBody.text;
+  const subject = renderedSubject.text;
   const origin = dependencies.env("SUPABASE_URL")?.replace(/\/+$/, "");
   if (!origin || !body.trim()) return { status: "held", reason: "Message configuration is incomplete." };
   let handedOff = false;
@@ -94,15 +125,15 @@ export async function dispatchChannel(
         to: destination,
         from: await selectedSender(db, smsPolicy),
         body,
-        purpose: config.purpose,
-        contactId: claim.contact_id,
-        contactType: claim.contact_type,
+        purpose,
+        contactId: contactId,
+        contactType: contactType,
         verifyRecipient: async () => {
           await contactScope(
             db,
             claim.organization_id,
-            claim.contact_id,
-            claim.contact_type,
+            contactId,
+            contactType,
             destination,
           );
         },
