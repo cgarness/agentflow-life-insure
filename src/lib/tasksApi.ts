@@ -9,6 +9,8 @@ export interface TaskPayload {
   title: string;
   task_type: string;
   due_date: string;
+  /** Omitted by the task form: a task a person adds is due on a day, not at a time. */
+  all_day?: boolean;
   notes?: string;
 }
 

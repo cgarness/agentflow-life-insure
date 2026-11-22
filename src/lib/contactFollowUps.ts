@@ -12,7 +12,7 @@
 import { APPOINTMENT_CALLBACK_TYPES, TERMINAL_CAMPAIGN_LEAD_STATUSES } from "@/lib/dashboard-callbacks";
 import type { ContactType } from "@/lib/dashboard-contact-identity";
 import { appointmentResponsibleUserId, isOpenAppointmentStatus } from "@/lib/calendar/appointmentOwnership";
-import { endOfLocalDueDay, getTaskDueStatus } from "@/lib/taskDates";
+import { endOfLocalDueDay, getTaskDueStatus, isTimedTask } from "@/lib/taskDates";
 
 export type FollowUpKind = "appointment" | "callback" | "task";
 export type FollowUpSource = "appointment" | "campaign_lead" | "task";
@@ -79,6 +79,8 @@ export interface FollowUpTaskRow {
   title: string | null;
   task_type?: string | null;
   due_date: string;
+  /** False only for a task with a time of day. Missing or true is an all-day task. */
+  all_day?: boolean | null;
   completed_at: string | null;
   notes?: string | null;
   assignee?: { first_name: string | null; last_name: string | null } | null;
@@ -208,7 +210,8 @@ export function normalizeTaskFollowUp(row: FollowUpTaskRow, contact: ContactRef,
   if (row.completed_at) return null;
   const due = validTime(row.due_date);
   if (due === null) return null;
-  const status = getTaskDueStatus(row.due_date, null, now);
+  const timed = isTimedTask(row);
+  const status = getTaskDueStatus(row.due_date, null, now, !timed);
   const embedName = `${row.assignee?.first_name ?? ""} ${row.assignee?.last_name ?? ""}`.trim();
 
   return {
@@ -218,8 +221,9 @@ export function normalizeTaskFollowUp(row: FollowUpTaskRow, contact: ContactRef,
     kind: "task",
     title: row.title?.trim() || "Task",
     dueAt: row.due_date,
-    rankAt: endOfLocalDueDay(row.due_date).getTime(),
-    dateOnly: true,
+    // An all-day task sorts at the end of its day. A timed task sorts, and shows, at its actual time.
+    rankAt: timed ? due : endOfLocalDueDay(row.due_date).getTime(),
+    dateOnly: !timed,
     assigneeId: row.assigned_to ?? null,
     assigneeName: embedName || null,
     statusLabel: status === "today" ? "Due today" : "Open",

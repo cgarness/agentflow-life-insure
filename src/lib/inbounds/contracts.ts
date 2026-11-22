@@ -78,3 +78,28 @@ export function canReceive(
     callState === "idle"
   );
 }
+/** A callback an automation opened for a missed inbound call. At most one exists per call. */
+export const callbackSchema = z.object({
+  id: z.string().uuid(),
+  call_id: z.string().uuid(),
+  caller_phone: z.string().nullable(),
+  contact_id: z.string().nullable(),
+  contact_type: z.enum(["lead", "client", "recruit"]).nullable(),
+  contact_name: z.string().nullable(),
+  status: z.enum(["open", "claimed"]),
+  claimed_by: z.string().nullable(),
+  claimed_by_name: z.string().nullable(),
+  claimed_by_me: z.boolean(),
+  can_claim: z.boolean(),
+  missed_at: z.string(),
+  due_at: z.string().nullable(),
+  title: z.string(),
+  notes: z.string().nullable(),
+  voicemail_id: z.string().nullable(),
+});
+export const callbackQueueSchema = z.object({
+  admin: z.boolean(),
+  items: z.array(callbackSchema),
+});
+export type InboundCallback = z.infer<typeof callbackSchema>;
+export type CallbackQueue = z.infer<typeof callbackQueueSchema>;

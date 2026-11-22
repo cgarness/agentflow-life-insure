@@ -1,16 +1,20 @@
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { roomSchema, sessionSchema, localDayBounds } from "./contracts";
+import { callbackQueueSchema, roomSchema, sessionSchema, localDayBounds } from "./contracts";
 type RpcName =
   | "inbounds_room_state"
   | "inbounds_room_session"
   | "set_inbounds_number"
   | "inbounds_room_call_state"
-  | "inbounds_room_add_contact";
+  | "inbounds_room_add_contact"
+  | "inbound_callback_queue"
+  | "claim_inbound_callback"
+  | "release_inbound_callback"
+  | "complete_inbound_callback";
 const rpc = supabase.rpc.bind(supabase) as unknown as (
   name: RpcName,
   args: Record<string, unknown>,
-) => Promise<{ data: unknown; error: { message: string } | null }>;
+) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
 export async function roomState() {
   const d = localDayBounds();
   const r = await rpc("inbounds_room_state", {
@@ -77,3 +81,27 @@ export async function roomAddContact(
   if (r.error) throw Error(r.error.message);
   return z.string().uuid().parse(r.data);
 }
+
+/** Another agent holds the callback, or it is no longer waiting. The list should be read again. */
+export class CallbackTakenError extends Error {}
+const CALLBACK_FAILURES: Record<string, string> = {
+  PT409: "Someone else already claimed this callback.",
+  PT404: "This callback is no longer available.",
+  "42501": "You cannot change this callback.",
+};
+async function callbackAction(name: RpcName, id: string, status: "claimed" | "open" | "done") {
+  const r = await rpc(name, { p_callback: id });
+  if (r.error) {
+    const message = CALLBACK_FAILURES[r.error.code ?? ""] ?? "The callback could not be updated. Try again.";
+    throw r.error.code === "PT409" || r.error.code === "PT404" ? new CallbackTakenError(message) : Error(message);
+  }
+  return z.object({ id: z.string().uuid(), status: z.literal(status) }).parse(r.data);
+}
+export async function callbackQueue() {
+  const r = await rpc("inbound_callback_queue", {});
+  if (r.error) throw Error("Callbacks could not be loaded.");
+  return callbackQueueSchema.parse(r.data);
+}
+export const claimCallback = (id: string) => callbackAction("claim_inbound_callback", id, "claimed");
+export const releaseCallback = (id: string) => callbackAction("release_inbound_callback", id, "open");
+export const completeCallback = (id: string) => callbackAction("complete_inbound_callback", id, "done");

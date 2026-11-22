@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   endOfLocalDueDay,
   getTaskDueStatus,
+  isTimedTask,
   isLocalDateInputTodayOrLater,
   localDateInputToIso,
   parseLocalDateInput,
@@ -104,5 +105,32 @@ describe("endOfLocalDueDay", () => {
     expect([end.getDate(), end.getHours(), end.getMinutes(), end.getSeconds(), end.getMilliseconds()]).toEqual([
       28, 23, 59, 59, 999,
     ]);
+  });
+});
+
+describe("timed tasks: a task with a time of day, which only automations create", () => {
+  const now = new Date(2026, 8, 28, 12, 0, 0);
+
+  it("only an explicit false is timed, so existing and cached rows stay all-day", () => {
+    expect(isTimedTask({ all_day: false })).toBe(true);
+    expect(isTimedTask({ all_day: true })).toBe(false);
+    expect(isTimedTask({ all_day: null })).toBe(false);
+    expect(isTimedTask({})).toBe(false);
+  });
+
+  it("is overdue from its due moment, even on the same day", () => {
+    expect(getTaskDueStatus(new Date(2026, 8, 28, 11, 55), null, now, false)).toBe("overdue");
+    expect(getTaskDueStatus(new Date(2026, 8, 27, 23, 59), null, now, false)).toBe("overdue");
+  });
+
+  it("is 'today' until its time arrives and upcoming on a later day", () => {
+    expect(getTaskDueStatus(new Date(2026, 8, 28, 12, 5), null, now, false)).toBe("today");
+    expect(getTaskDueStatus(new Date(2026, 8, 29, 9, 0), null, now, false)).toBe("upcoming");
+  });
+
+  it("completed still wins, and the all-day rule is the default", () => {
+    expect(getTaskDueStatus(new Date(2026, 8, 28, 11, 55), "2026-09-28T19:00:00Z", now, false)).toBe("completed");
+    expect(getTaskDueStatus(new Date(2026, 8, 28, 11, 55), null, now)).toBe("today");
+    expect(getTaskDueStatus(new Date(2026, 8, 28, 11, 55), null, now, true)).toBe("today");
   });
 });

@@ -259,6 +259,28 @@ describe("tasks", () => {
   });
 });
 
+describe("timed tasks from automations", () => {
+  it("shows its actual time, sorts at that time and is overdue once the time passes", () => {
+    const soon = new Date(2026, 8, 28, 12, 5).toISOString();
+    const item = normalizeTaskFollowUp(taskRow({ due_date: soon, all_day: false }), lead, NOW)!;
+    expect(item).toMatchObject({ dateOnly: false, isOverdue: false, statusLabel: "Due today", dueAt: soon });
+    expect(item.rankAt).toBe(new Date(soon).getTime());
+    const passed = new Date(2026, 8, 28, 11, 55).toISOString();
+    expect(normalizeTaskFollowUp(taskRow({ due_date: passed, all_day: false }), lead, NOW)).toMatchObject({
+      dateOnly: false, isOverdue: true,
+    });
+  });
+
+  it("leaves a task without the flag, or marked all-day, exactly as before", () => {
+    const due = new Date(2026, 8, 28, 9, 0).toISOString();
+    for (const all_day of [undefined, null, true]) {
+      expect(normalizeTaskFollowUp(taskRow({ due_date: due, all_day }), lead, NOW)).toMatchObject({
+        dateOnly: true, isOverdue: false, statusLabel: "Due today",
+      });
+    }
+  });
+});
+
 describe("ordering, primary item and summary", () => {
   it("orders chronologically by rankAt with a deterministic tie-break", () => {
     const items = buildContactFollowUps({
