@@ -12,7 +12,7 @@ Read-only checks on November 22, 2026 against Supabase `jncvvsvckxhqgqvkppmj`:
 | First release | Its four migrations are installed. All 16 functions V2 replaces match the recorded first-release fingerprint: definition, owner, definer flag, search path, grants and volatility. |
 | Release controls | One agency row. Builder visible for one agency. Zero agencies enrolling. Zero agencies delivering messages. |
 | Automations data | One draft definition, zero published versions, zero open activations, zero events, zero runs. |
-| Worker | `workflow-resume-paused` is version 44, last updated before the first release. It contains no Automations worker. |
+| Worker | `workflow-resume-paused` is version 44, last updated May 22, 2026. The Automations worker code was first written on November 21, so that version cannot contain it. |
 | Receipt endpoint | `automation-provider-receipt` does not exist. |
 
 The last recorded primary frontend is `666387b06236281a1e61b1d0fc765284bc63cd99` ([work log](../../../WORK_LOG.md), November 21). Vercel was not read again for this plan.

@@ -108,7 +108,7 @@ These fail identically on `0e49940` and were not touched.
 | --- | --- |
 | Supabase `jncvvsvckxhqgqvkppmj` | Unchanged. Ledger 395 entries ending `20261122001044`, read on November 22. |
 | Vercel `agentflow` | Unchanged. Not read for this work. Last recorded frontend `666387b06236281a1e61b1d0fc765284bc63cd99`. |
-| Edge functions | Unchanged. `workflow-resume-paused` is version 44 and holds no Automations worker. `automation-provider-receipt` does not exist. |
+| Edge functions | Unchanged. `workflow-resume-paused` is version 44, last updated May 22, 2026. The Automations worker code was first written on November 21, so that version cannot contain it. `automation-provider-receipt` does not exist. |
 | Release controls | Unchanged. One agency sees the builder. Zero enrolling, zero delivering. |
 
 ## Blockers
