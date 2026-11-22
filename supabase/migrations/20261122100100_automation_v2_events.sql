@@ -69,8 +69,9 @@ $$;
 
 -- One capture path for every new observer. The business write that fired the observer never waits
 -- long and never fails: a bounded lock wait or any error keeps the original facts for a later repair.
+-- p_settle delays enrollment for facts whose confirming evidence can arrive a moment after the event.
 CREATE FUNCTION private.automation_record_event(p_org uuid,p_type text,p_source uuid,p_contact uuid,p_contact_type text,
-  p_subject jsonb,p_scope text)
+  p_subject jsonb,p_scope text,p_settle interval)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='200ms' AS $$
 DECLARE occurred timestamptz:=clock_timestamp(); kind text:=CASE WHEN p_contact IS NULL THEN NULL ELSE p_contact_type END;
 BEGIN
@@ -83,8 +84,9 @@ BEGIN
     PERFORM pg_advisory_xact_lock_shared(hashtextextended('automation-activation:'||p_org::text,0));
     occurred:=clock_timestamp();
     INSERT INTO private.automation_events(organization_id,event_type,source_id,source_revision,contact_id,contact_type,
-        occurred_at,subject,scope_key)
-      VALUES(p_org,p_type,p_source,1,p_contact,kind,occurred,coalesce(p_subject,'{}'::jsonb),p_scope)
+        occurred_at,subject,scope_key,available_at)
+      VALUES(p_org,p_type,p_source,1,p_contact,kind,occurred,coalesce(p_subject,'{}'::jsonb),p_scope,
+        occurred+coalesce(p_settle,interval '0'))
       ON CONFLICT DO NOTHING;
   EXCEPTION WHEN OTHERS THEN
     INSERT INTO private.automation_intake_recovery(organization_id,event_type,source_id,contact_id,contact_type,occurred_at,subject,scope_key)
@@ -148,7 +150,7 @@ BEGIN
   IF contact IS NULL OR kind NOT IN ('lead','client','recruit') THEN RETURN NEW; END IF;
   PERFORM private.automation_record_event(NEW.organization_id,'disposition_recorded',NEW.operation_id,contact,kind,
     jsonb_build_object('disposition_id',NEW.payload->>'disposition_id','call_id',NEW.call_id,'agent_id',NEW.agent_id,
-      'campaign_lead_id',NEW.campaign_lead_id),kind||':'||contact::text);
+      'campaign_lead_id',NEW.campaign_lead_id),kind||':'||contact::text,interval '0');
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING 'Automation disposition capture requires investigation (SQLSTATE %)', SQLSTATE;
@@ -165,7 +167,7 @@ BEGIN
   IF NEW.policy_id IS NULL OR NEW.contact_id IS NULL OR NEW.event_time_source IS DISTINCT FROM 'event' THEN RETURN NEW; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.clients c WHERE c.organization_id=NEW.organization_id AND c.id=NEW.contact_id) THEN RETURN NEW; END IF;
   PERFORM private.automation_record_event(NEW.organization_id,'sale_recorded',NEW.id,NEW.contact_id,'client',
-    jsonb_build_object('policy_id',NEW.policy_id,'win_id',NEW.id,'agent_id',NEW.agent_id),'sale:'||NEW.policy_id::text);
+    jsonb_build_object('policy_id',NEW.policy_id,'win_id',NEW.id,'agent_id',NEW.agent_id),'sale:'||NEW.policy_id::text,interval '0');
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING 'Automation sale capture requires investigation (SQLSTATE %)', SQLSTATE;
@@ -342,12 +344,13 @@ begin
     -- Only the appointment's current slot, still ahead and without an outcome, starts a run.
     if not found or slot.occurrence_id::text is distinct from e.subject->>'occurrence_id'
       or coalesce(slot.head_outcome,'retracted')<>'retracted' or slot.starts_at<=e.occurred_at then return 0; end if;
-    -- A run already following this appointment moves with it instead of starting again.
+    -- A run already following this appointment moves with it instead of starting again, and a slot
+    -- a run has already waited for is never handled twice.
     if exists(select 1 from private.automation_runs r join private.automation_events origin
         on origin.organization_id=r.organization_id and origin.id=r.event_id
       where r.organization_id=e.organization_id and r.workflow_id=candidate.workflow_id
-        and r.status in ('queued','waiting','held','unknown')
-        and origin.subject->>'appointment_id'=e.subject->>'appointment_id') then return 0; end if;
+        and origin.subject->>'appointment_id'=e.subject->>'appointment_id'
+        and (r.status in ('queued','waiting','held','unknown') or r.anchor_id=slot.occurrence_id)) then return 0; end if;
   end if;
 
   replied:=e.contact_id is not null and candidate.graph#>>'{settings,stop_on_reply}'='true' and exists(
@@ -502,7 +505,7 @@ end $$;
 
 REVOKE ALL ON FUNCTION private.automation_contact_type(uuid,uuid),private.automation_contact_owner(uuid,text,uuid),
   private.automation_agency_time_zone(uuid),
-  private.automation_record_event(uuid,text,uuid,uuid,text,jsonb,text),
+  private.automation_record_event(uuid,text,uuid,uuid,text,jsonb,text,interval),
   private.automation_capture_disposition(),private.automation_capture_sale(),
   private.automation_appointment_state(uuid,uuid),private.automation_appointment_wait(uuid,uuid,jsonb),
   private.automation_stop_check(private.automation_runs),private.automation_settle_stop(private.automation_runs),

@@ -83,15 +83,23 @@ BEGIN
   RETURN jsonb_build_object('policy_id',saved.policy_id,'issued_on',saved.issued_on,'confirmed_at',saved.confirmed_at,'idempotent',false);
 END $$;
 
--- One entry per stored policy of a client the reader can see. Runs entirely under the reader's access.
+-- Whether the signed-in person may confirm issuance for this client right now.
+CREATE FUNCTION public.can_confirm_policy_issuance(p_client_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  SELECT NOT private.automation_viewing_as() AND EXISTS (
+    SELECT 1 FROM public.profiles p
+    JOIN public.clients c ON c.organization_id=p.organization_id AND c.id=p_client_id
+    WHERE p.id=auth.uid() AND p.status='Active' AND p.organization_id=public.get_org_id()
+      AND private.policy_issuance_allowed(p.id,p.role,coalesce(p.is_super_admin,false),c.assigned_agent_id))
+$$;
+
+-- One entry per stored policy of a client the reader can see. The client and the confirmations are
+-- read under the reader's own access, so this shows nothing the reader could not already open.
 CREATE FUNCTION public.get_policy_issuance(p_client_id uuid)
 RETURNS jsonb LANGUAGE sql STABLE SET search_path='' AS $$
-  WITH viewer AS (
-    SELECT p.id,p.role,coalesce(p.is_super_admin,false) AS is_super,p.organization_id,private.automation_viewing_as() AS viewing
-    FROM public.profiles p WHERE p.id=auth.uid() AND p.status='Active' AND p.organization_id=public.get_org_id()
-  ), holder AS (
-    SELECT c.id,c.organization_id,c.assigned_agent_id,c.primary_policy_id,c.custom_fields
-    FROM public.clients c JOIN viewer ON viewer.organization_id=c.organization_id WHERE c.id=p_client_id
+  WITH holder AS (
+    SELECT c.id,c.organization_id,c.primary_policy_id,c.custom_fields,public.can_confirm_policy_issuance(c.id) AS may_confirm
+    FROM public.clients c WHERE c.id=p_client_id AND c.organization_id=public.get_org_id()
   ), stored AS (
     SELECT holder.primary_policy_id::text AS policy_id,0 AS position FROM holder WHERE holder.primary_policy_id IS NOT NULL
     UNION ALL
@@ -103,10 +111,9 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path='' AS $$
   SELECT coalesce(jsonb_agg(jsonb_build_object(
       'policy_id',stored.policy_id,'issued_on',x.issued_on,'confirmed_at',x.confirmed_at,
       'confirmed_by_name',nullif(btrim(concat_ws(' ',by_whom.first_name,by_whom.last_name)),''),
-      'can_confirm',x.id IS NULL AND NOT viewer.viewing
-        AND private.policy_issuance_allowed(viewer.id,viewer.role,viewer.is_super,holder.assigned_agent_id))
+      'can_confirm',x.id IS NULL AND holder.may_confirm)
     ORDER BY stored.position),'[]'::jsonb)
-  FROM stored CROSS JOIN holder CROSS JOIN viewer
+  FROM stored CROSS JOIN holder
   LEFT JOIN public.policy_issuance_confirmations x
     ON x.organization_id=holder.organization_id AND x.policy_id::text=stored.policy_id
   LEFT JOIN public.profiles by_whom ON by_whom.id=x.confirmed_by AND by_whom.organization_id=holder.organization_id
@@ -123,7 +130,7 @@ BEGIN
     WHERE i.organization_id=NEW.organization_id AND i.policy_id=NEW.policy_id AND NOT i.legacy) THEN RETURN NEW; END IF;
   PERFORM private.automation_record_event(NEW.organization_id,'policy_issuance_confirmed',NEW.id,NEW.client_id,'client',
     jsonb_build_object('policy_id',NEW.policy_id,'confirmation_id',NEW.id,'issued_on',NEW.issued_on,'confirmed_by',NEW.confirmed_by),
-    'issuance:'||NEW.policy_id::text);
+    'issuance:'||NEW.policy_id::text,interval '0');
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING 'Automation issuance capture requires investigation (SQLSTATE %)', SQLSTATE;
@@ -134,7 +141,7 @@ CREATE TRIGGER automation_capture_issuance AFTER INSERT ON public.policy_issuanc
 
 REVOKE ALL ON FUNCTION private.guard_policy_issuance_append_only(),private.automation_capture_issuance(),
   private.policy_issuance_allowed(uuid,text,boolean,uuid),public.confirm_policy_issuance(uuid,uuid,date),
-  public.get_policy_issuance(uuid) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION private.policy_issuance_allowed(uuid,text,boolean,uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.confirm_policy_issuance(uuid,uuid,date),public.get_policy_issuance(uuid) TO authenticated;
+  public.get_policy_issuance(uuid),public.can_confirm_policy_issuance(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.confirm_policy_issuance(uuid,uuid,date),public.get_policy_issuance(uuid),
+  public.can_confirm_policy_issuance(uuid) TO authenticated;
 COMMIT;

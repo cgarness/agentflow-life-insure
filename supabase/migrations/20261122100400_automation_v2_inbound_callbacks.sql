@@ -39,7 +39,9 @@ BEGIN
   IF NEW.contact_id IS NOT NULL THEN kind:=private.automation_contact_type(NEW.organization_id,NEW.contact_id); END IF;
   PERFORM private.automation_record_event(NEW.organization_id,'inbound_call_missed',NEW.id,
     CASE WHEN kind IS NULL THEN NULL ELSE NEW.contact_id END,kind,
-    jsonb_build_object('call_id',NEW.id,'caller_phone',nullif(btrim(NEW.contact_phone),'')),'call:'||NEW.id::text);
+    jsonb_build_object('call_id',NEW.id,'caller_phone',nullif(btrim(NEW.contact_phone),'')),'call:'||NEW.id::text,
+    -- Answer evidence for a forwarded call can land just after the call ends. Let it settle first.
+    interval '1 minute');
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING 'Automation missed-call capture requires investigation (SQLSTATE %)', SQLSTATE;

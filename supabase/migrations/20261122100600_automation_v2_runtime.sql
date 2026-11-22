@@ -82,6 +82,7 @@ begin
     and v.workflow_id=r.workflow_id and v.id=r.version_id;
   select n into strict node from jsonb_array_elements(graph->'nodes') n where n->>'id'=r.current_node_id;
   kind:=node->>'type';
+  -- The slot a run last waited for stays on the run, so the same slot is never handled twice.
   next_anchor:=r.anchor_id;
   next_anchor_at:=r.anchor_at;
   -- Worker success alone cannot establish provider acceptance. The channel receipt
@@ -132,10 +133,14 @@ begin
       step_status:='wait';
     elsif placed.verdict='advance' then
       advance:=true;
+      next_anchor:=placed.anchor;
+      next_anchor_at:=placed.anchor_start;
       step_status:='elapsed';
       p_reason:='The reminder time had already passed';
     else
       next_status:='completed';
+      next_anchor:=placed.anchor;
+      next_anchor_at:=placed.anchor_start;
       step_status:='skipped';
       p_reason:=case placed.verdict when 'past' then 'The appointment had already started'
         else 'The reminder time had already passed' end;
@@ -153,8 +158,6 @@ begin
     select edge->>'target' into target from jsonb_array_elements(graph->'edges') edge
       where edge->>'source'=r.current_node_id and edge->>'branch' is not distinct from branch;
     next_status:=case when target is null then 'completed' else 'queued' end;
-    next_anchor:=null;
-    next_anchor_at:=null;
   end if;
 
   if kind in ('send_sms','send_email') and p_result in ('accepted','failed','unknown') then
