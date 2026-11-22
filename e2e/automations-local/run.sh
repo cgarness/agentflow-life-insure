@@ -82,7 +82,7 @@ writeFileSync(process.env.AUTOMATIONS_LOCAL_SETTINGS, JSON.stringify({
 }),{mode:0o600});
 JS
 if [[ $mode != release-full ]]; then
-  echo 'Scoped historical prerequisite fixture (33 migrations).'
+  echo 'Historical prerequisite fixture (105 migrations).'
   bash e2e/automations-local/upgrade.sh prerequisites
 else
   bash e2e/automations-local/restore-auth-state.sh verify "$2"
@@ -108,10 +108,12 @@ if [[ $mode == release || $mode == release-full ]]; then
 fi
 bash e2e/automations-local/legacy-upgrade.sh
 bash e2e/automations-local/upgrade.sh feature
-for file in supabase/tests/automation_{sessions,authoring,runtime,messages,backlog,legacy_dispatch}.sql; do
-  docker exec -i -e PGPASSWORD "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < "$file"
+for file in supabase/tests/automation_{sessions,authoring,runtime,messages,backlog,legacy_dispatch}.sql \
+    supabase/tests/automation_v2_{authoring,tasks,appointments,inbound,policies}.sql; do
+  docker exec -i -e PGPASSWORD "$db" psql -Xq -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < "$file"
 done
 python3 e2e/automations-local/concurrency.py
+python3 e2e/automations-local/concurrency_v2.py
 node e2e/automations-local/bootstrap.mjs
 anon=$(node -pe 'require(process.env.AUTOMATIONS_LOCAL_SETTINGS).ANON_KEY')
 env -i PATH="$PATH" NO_PROXY='*' VITE_SUPABASE_ANON_KEY="$anon" VITE_SUPABASE_URL=http://127.0.0.1:54340 \

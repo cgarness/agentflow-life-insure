@@ -3,11 +3,11 @@ import {mkdirSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {visibility,runSqlFile} from './release-visibility.mjs';
 import {APP} from '../team-open-local/lib.mjs';
-import {sql} from './fixture.mjs';
+import {sql,listView} from './fixture.mjs';
 
 const button = (p,name) => p.getByRole('button',{name,exact:true});
 async function checkEffects(region,enroll,dispatch) {
-  for (const [name,on] of [['Agency enrollment',enroll],['Provider dispatch',dispatch]])
+  for (const [name,on] of [['Enrollment',enroll],['Message delivery',dispatch]])
     await region.getByText(name+': '+(on?'On':'Off'),{exact:true}).waitFor();
   await region.getByText(enroll?/Qualifying new leads can start a run\./:/New events cannot start a run\./).waitFor();
   const sending = dispatch ? enroll?/Messages may go out after sender, consent, timing and limit checks\./
@@ -28,21 +28,21 @@ export async function releaseControls(page,org) {
     const choose=async label => button(page.getByRole('dialog').and(page.locator('[data-state="open"]')),label).click();
     await button(page,'Choose trigger').click();
     await choose('New lead created');
+    await listView(page);
     await button(page.getByRole('list',{name:'Ordered steps'}).getByRole('listitem').first(),'Add step').click();
     await choose('Send SMS');
-    await page.getByLabel('SMS purpose').selectOption('informational');
-    await page.getByLabel('Message body').fill('Synthetic release check');
+    await page.getByLabel('Message',{exact:true}).fill('Synthetic release check');
     await button(page,'Save draft').click();
     await page.getByText('Draft saved.').waitFor();
     const current=page.getByRole('region',{name:'Workflow status',exact:true});
     await current.getByText(/This draft cannot enroll/).waitFor();
-    await button(page,'Review & publish').click();
+    await button(page,'Save & review').click();
     const review=page.getByRole('region',{name:'Publish review controls',exact:true});
     await checkEffects(review,enroll,dispatch);
     if (!enroll && !dispatch) {
       const workflow=new URL(page.url()).searchParams.get('workflow');
       assert.match(workflow,/^[a-f0-9-]{36}$/);
-      const publish=button(page,'Publish');
+      const publish=button(page,'Publish version');
       // Wait for completed validation, then change the test agency's controls while the review remains open.
       await publish.click({trial:true});
       sql(`update private.automation_release_controls set dispatch_enabled=true where organization_id='${org}'`);
@@ -58,11 +58,11 @@ export async function releaseControls(page,org) {
       sql(`update private.automation_release_controls set dispatch_enabled=false where organization_id='${org}'`);
       await page.reload();
       await current.getByText(/This draft cannot enroll/).waitFor();
-      await button(page,'Review & publish').click();
+      await button(page,'Save & review').click();
       await checkEffects(review,enroll,dispatch);
       console.log('PASS stale review blocked until current controls were reviewed');
     }
-    await button(page,'Publish').click();
+    await button(page,'Publish version').click();
     await current.getByText('Version published.',{exact:true}).waitFor();
     await checkEffects(current,enroll,dispatch);
     const confirmation=await current.innerText();
@@ -88,8 +88,8 @@ export async function releaseControls(page,org) {
       await current.getByText(/This workflow is paused/).waitFor();
       await button(page,'Resume').click();
       await checkEffects(current,enroll,dispatch);
-      page.once('dialog',async dialog=>dialog.accept());
       await button(page,'Archive').click();
+      await button(page.getByRole('alertdialog'),'Archive automation').click();
       await current.getByText(/This workflow is archived/).waitFor();
     }
     console.log('PASS review, published confirmation and reopened status:',name);

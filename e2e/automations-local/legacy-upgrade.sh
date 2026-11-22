@@ -23,13 +23,14 @@ docker exec "$db" sh -eu -c '
   mkdir -p "$1/tests" "$1/migrations"
 ' -- "$dest"
 "${pg[@]}" pg_restore -L "$dest/toc" -U supabase_admin -d "$legacy" --exit-on-error "$dest/base.dump"
-for migration in supabase/migrations/202611210{75959,80000,80100,80200}_*.sql; do
+for migration in supabase/migrations/202611210{75959,80000,80100,80200}_*.sql supabase/migrations/202611221*_automation_v2_*.sql; do
   docker cp "$migration" "$db:$dest/migrations/"
 done
 docker cp supabase/tests/fixtures "$db:$dest/tests/"
 docker cp supabase/tests/automation_upgrade.sql "$db:$dest/tests/"
 "${pg[@]}" psql -X -q -U postgres -d "$legacy" -v ON_ERROR_STOP=1 -f "$dest/tests/automation_upgrade.sql"
 "${pg[@]}" psql -X -q -U postgres -d "$legacy" -v ON_ERROR_STOP=1 -f - < supabase/tests/automation_authoring.sql
+"${pg[@]}" psql -X -q -U postgres -d "$legacy" -v ON_ERROR_STOP=1 -f - < supabase/tests/automation_v2_authoring.sql
 echo 'Populated legacy graph, IDs, folders and history survived the complete feature upgrade.'
 # The legacy fixture has no candidate runtime events or runs. Reuse this isolated clone for actual lead intake.
 "${pg[@]}" psql -Xq -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE $legacy RENAME TO automation_release_channel_test"

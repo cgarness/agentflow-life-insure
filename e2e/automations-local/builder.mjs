@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { launch, session, APP } from '../team-open-local/lib.mjs';
-import { settings, sql, agency, otherAgency, campaign, sender, email } from './fixture.mjs';
+import { settings, sql, agency, otherAgency, campaign, sender, email, listView } from './fixture.mjs';
 import { visibility } from './release-visibility.mjs';
 
 const evidence = { sessions: [] };
@@ -20,14 +20,15 @@ async function start(page, name, trigger) {
   await page.getByLabel('Automation name').fill(name);
   await button(page,'Choose trigger').click();
   await button(page.getByRole('dialog').and(page.locator('[data-state="open"]')),trigger).click();
+  await listView(page);
 }
 async function add(page, index, type) {
   await button(rows(page).nth(index),'Add step').click();
   await button(page.getByRole('dialog').and(page.locator('[data-state="open"]')),type).click();
 }
 async function publish(page) {
-  await button(page,'Review & publish').click();
-  await button(page,'Publish').click();
+  await button(page,'Save & review').click();
+  await button(page,'Publish version').click();
   await page.getByRole('region',{name:'Workflow status',exact:true}).getByText('Version published.',{exact:true}).waitFor();
   return new URL(page.url()).searchParams.get('workflow');
 }
@@ -75,11 +76,12 @@ try {
   await start(first,'One UI action','New lead created');
   await add(first,0,'Send email');
   await first.getByLabel('Subject', {exact:true}).fill('First subject');
-  await first.getByLabel('Message body').fill('Hello {{first_name}} from the first graph.');
+  await first.getByLabel('Message',{exact:true}).fill('Hello {{first_name}} from the first graph.');
   await first.getByLabel('Email sender').selectOption(sender);
   await button(first,'Save draft').click();
   await first.getByText('Draft saved.').waitFor();
   await first.reload();
+  await listView(first);
   await rows(first).nth(1).waitFor();
   await button(first,'Preview').click();
   await first.getByLabel('First name',{exact:true}).fill('Alex');
@@ -95,8 +97,7 @@ try {
   await second.getByLabel('Duration').fill('2');
   await second.getByRole('combobox',{name:/^Unit/}).selectOption('minutes');
   await add(second,1,'Send SMS');
-  await second.getByLabel('SMS purpose').selectOption('informational');
-  await second.getByLabel('Message body').fill('Original for {{first_name}}');
+  await second.getByLabel('Message',{exact:true}).fill('Original for {{first_name}}');
   await button(second,'Preview').click();
   await second.getByLabel('First name',{exact:true}).fill('Blake');
   await second.getByLabel('Test campaign').selectOption(campaign);
