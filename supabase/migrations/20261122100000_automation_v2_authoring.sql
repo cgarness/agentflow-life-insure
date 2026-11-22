@@ -328,6 +328,54 @@ BEGIN
   END IF;
 END $$;
 
+-- A stale revision is a conflict the author must resolve, never a transient failure. The API layer
+-- retries serialization failures without limit, so these three refusals answer with a plain conflict.
+CREATE OR REPLACE FUNCTION public.save_automation_draft(p_workflow_id uuid,p_name text,p_graph jsonb,p_expected_revision bigint,p_session_revision bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE org uuid := private.automation_require_author(p_session_revision); rev bigint;
+BEGIN
+  IF p_workflow_id IS NULL OR p_expected_revision IS NULL OR p_expected_revision<0 OR length(coalesce(p_name,''))>100
+    OR NOT private.automation_editable_graph(p_graph) THEN
+    RAISE EXCEPTION 'Unsupported or malformed automation draft' USING ERRCODE='22023';
+  END IF;
+  IF p_expected_revision=0 THEN
+    INSERT INTO public.workflows(id,organization_id,name,trigger_type,created_by,automation_draft_name,automation_graph,automation_revision)
+      VALUES (p_workflow_id,org,coalesce(nullif(btrim(p_name),''),'Untitled automation'),'manual',auth.uid(),coalesce(p_name,''),p_graph,1)
+      ON CONFLICT (id) DO NOTHING RETURNING automation_revision INTO rev;
+  ELSE
+    UPDATE public.workflows SET automation_graph=p_graph, automation_revision=automation_revision+1,
+      automation_draft_name=coalesce(p_name,''), name=CASE WHEN automation_version_id IS NULL
+        THEN coalesce(nullif(btrim(p_name),''),'Untitled automation') ELSE name END
+    WHERE id=p_workflow_id AND organization_id=org AND private.automation_editable_graph(automation_graph)
+      AND private.automation_workflow_access(org,id) AND (created_by=auth.uid() OR private.automation_graph_in_scope(org,p_graph))
+      AND automation_revision=p_expected_revision AND status<>'archived' RETURNING automation_revision INTO rev;
+  END IF;
+  IF rev IS NULL THEN RAISE EXCEPTION 'Draft changed or unavailable; reopen the editor' USING ERRCODE='PT409'; END IF;
+  RETURN jsonb_build_object('id',p_workflow_id,'revision',rev);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.automation_session_transition(p_expected_revision bigint,p_target_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE
+  sid uuid := private.automation_session_id();
+  ctx private.automation_sessions;
+BEGIN
+  SELECT * INTO ctx FROM private.automation_sessions WHERE session_id=sid AND actor_id=auth.uid() FOR UPDATE;
+  IF ctx.revision IS NULL OR ctx.revision IS DISTINCT FROM p_expected_revision THEN
+    RAISE EXCEPTION 'Session mode changed. Reopen this view.' USING ERRCODE='PT409';
+  END IF;
+  IF p_target_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.profiles a JOIN public.profiles t ON a.organization_id=t.organization_id
+    WHERE a.id=auth.uid() AND a.status='Active' AND a.is_super_admin IS TRUE
+      AND t.id=p_target_id AND t.status='Active' AND t.id<>a.id
+  ) THEN
+    RAISE EXCEPTION 'View As target is unavailable' USING ERRCODE='42501';
+  END IF;
+  UPDATE private.automation_sessions SET target_id=p_target_id,revision=nextval('private.automation_session_revision')
+    WHERE session_id=sid AND actor_id=auth.uid() RETURNING * INTO ctx;
+  RETURN to_jsonb(ctx);
+END $$;
+
 -- Publishing pins the graph and, for every SMS step, the purpose the server resolved for its wording.
 CREATE OR REPLACE FUNCTION public.publish_automation(p_workflow_id uuid,p_expected_revision bigint,p_session_revision bigint,p_expected_controls jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
@@ -340,7 +388,7 @@ BEGIN
   IF NOT FOUND OR w.automation_graph IS NULL OR w.status='archived' THEN
     RAISE EXCEPTION 'Automation unavailable' USING ERRCODE='42501';
   END IF;
-  IF w.automation_revision IS DISTINCT FROM p_expected_revision THEN RAISE EXCEPTION 'Draft changed; reopen the editor' USING ERRCODE='40001'; END IF;
+  IF w.automation_revision IS DISTINCT FROM p_expected_revision THEN RAISE EXCEPTION 'Draft changed; reopen the editor' USING ERRCODE='PT409'; END IF;
   -- Publish under the exact switch state reviewed by the author. An operator changing a
   -- switch waits for this transaction (or commits first and invalidates the review).
   SELECT jsonb_build_object('enrollment_enabled',enrollment_enabled,'dispatch_enabled',dispatch_enabled)

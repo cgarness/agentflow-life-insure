@@ -126,6 +126,9 @@ export AUTOMATION_IMPORT_MAP="$PWD/e2e/automations-local/import-map.json"
 node e2e/automations-local/builder.mjs
 node e2e/automations-local/mobile-keyboard.mjs
 node e2e/automations-local/session-tabs.mjs
+# Automations V2: the five workflows through the CRM's own entry points, then the editor in both layouts and themes.
+node e2e/automations-local/v2-workflows.mjs
+node e2e/automations-local/v2-editor.mjs
 # Dedicated fixture tenants for exact SMS consent and signed receipt tests follow the UI acceptance.
 export AUTOMATION_TEST_SETTINGS="$AUTOMATIONS_LOCAL_SETTINGS"
 export AUTOMATION_TEST_ACCOUNT_SUFFIX=a1

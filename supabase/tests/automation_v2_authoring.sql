@@ -97,6 +97,10 @@ begin
     jsonb_set(base,'{nodes,1,extra}','true'),rev,s),'22023');
   perform pg_temp.ok((select automation_revision=rev and automation_graph=base from public.workflows where id=pg_temp.id(40)),
     'a refused save leaves the draft and its revision untouched');
+  -- A save from a stale copy is a conflict to resolve. It is never a retryable failure, which the API would repeat without end.
+  perform pg_temp.refused(format('select public.save_automation_draft(%L,''Stale'',%L,%s,%s)',pg_temp.id(40),base,rev-1,s),'PT409');
+  perform pg_temp.refused(format('select public.publish_automation(%L,%s,%s,%L)',pg_temp.id(40),rev-1,s,controls),'PT409');
+  perform pg_temp.refused(format('select public.automation_session_transition(%s,null)',s-1),'PT409');
   found:=pg_temp.issues(40,jsonb_set(base,'{nodes,1,meta}',jsonb_build_object('name',repeat('n',80),
     'description',repeat('d',499)||E'\n')),rev,s); rev:=rev+1;
   perform pg_temp.ok(found='[]'::jsonb,'details at the limits, with a line break in the description, are fine');

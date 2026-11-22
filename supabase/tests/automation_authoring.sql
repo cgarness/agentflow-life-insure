@@ -9,7 +9,7 @@ BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'Failed: %',explanation; 
 CREATE FUNCTION pg_temp.denied(statement text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   BEGIN EXECUTE statement;
-  EXCEPTION WHEN insufficient_privilege OR serialization_failure OR invalid_parameter_value THEN RETURN;
+  EXCEPTION WHEN insufficient_privilege OR serialization_failure OR invalid_parameter_value OR SQLSTATE 'PT409' THEN RETURN;
   END;
   RAISE EXCEPTION 'Unexpectedly allowed: %',statement;
 END $$;
