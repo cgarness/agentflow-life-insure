@@ -38,14 +38,15 @@ No existing table's row-level security policy changes. `public.calls` gets no po
 | New triggers on existing tables | `public.calls` (after a status update, inbound terminal calls only), `public.wins` (after insert), `private.dialer_disposition_receipts` (after insert), `private.appointment_occurrences` (after insert or close), `private.appointment_outcome_events` (after insert). Each does nothing when the agency is not enrolling, waits at most 200 ms for a lock and never raises into the CRM write. |
 | New functions | None is executable by `PUBLIC` or `anon`. Worker functions are `service_role` only. |
 
-## Release order: database, worker, frontend
+## Release order: database first, then frontend
 
 1. **Preflight (read-only).** Confirm the ledger tail, that the 16 function fingerprints still match, and that enrollment and message delivery are off for every agency. Confirm a restorable backup.
 2. **Apply the seven migrations in order.** Each file is one transaction. The install creates no definition, version, enrollment, task, callback or message. Run the Supabase advisors before and after.
 3. **Check the installed frontend still works.** The first-release frontend and worker passed their own acceptance script unchanged on the V2 database in the local rehearsal (below).
-4. **Worker.** Production has no Automations worker today. The first Automations worker released must be this V2 package. The first-release worker does not enforce a pinned SMS requirement and cannot run V2 steps. Releasing the worker, its schedule and the receipt endpoint stay under the separate execution approval listed under Live dependencies.
-5. **Frontend.** Promote the pull request head. Agents refresh after their current call.
-6. **Verify signed in.** Open Automations, create and leave a blank canvas with zero writes, open the existing draft, confirm Enrollment and Message delivery both read Off.
+4. **Frontend.** Promote the pull request head. Agents refresh after their current call.
+5. **Verify signed in.** Open Automations, create and leave a blank canvas with zero writes, open the existing draft, confirm Enrollment and Message delivery both read Off.
+
+No worker is released with this. Production has no Automations worker today, and the first one ever released must be this V2 package: the first-release worker does not enforce a pinned SMS requirement and cannot run V2 steps (it fails them without sending). The worker, its schedule and the receipt endpoint stay under the separate approvals listed under Live dependencies.
 
 Two effects start at step 2 and do not wait for the frontend:
 
@@ -94,10 +95,10 @@ These gate execution. None is part of the builder release above.
 
 | Dependency | State today | Needed before it is turned on |
 | --- | --- | --- |
-| Scheduler | No job calls the worker. V2 installs none. | One bounded, owned schedule for `workflow-resume-paused`, with its owner and interval recorded. |
+| Scheduler | None of the 14 active database cron jobs names a workflow or Automations endpoint (read November 22). A job that reaches the worker through a wrapper, or a scheduler outside the database, was not ruled out. V2 installs none. | One bounded, owned schedule for `workflow-resume-paused`, with its owner and interval recorded. |
 | Worker | No Automations worker is released. | The V2 package, retrieved and compared against the live function immediately before release. |
 | Enrollment | Off for every agency. | A per-agency decision. Tasks and callbacks start with it. |
 | Message delivery | Off for every agency. | A per-agency decision after the three rows below are in place. |
-| Email sender | No verified workflow sender exists. A connected Google mailbox does not count. | A verified agency sender with a connected reply inbox. |
+| Email sender | `private.automation_email_senders` holds zero rows (read November 22). A connected Google mailbox does not count. | A verified agency sender with a connected reply inbox. |
 | Receipts | `automation-provider-receipt` is not released. | The endpoint with signed callbacks. Its `verify_jwt=false` setting needs explicit approval. |
-| Recipient eligibility | No channel policy, recipient time zone or consent evidence has been populated for automations. | Agency sending limits and hours, a verified recipient time zone, SMS consent for the pinned purpose, sticky-number readiness and A2P registration. Missing evidence holds the step with a visible reason. |
+| Recipient eligibility | `private.automation_channel_policies` and `private.automation_recipient_facts` hold zero rows (read November 22). | Agency sending limits and hours, a verified recipient time zone, SMS consent for the pinned purpose, sticky-number readiness and A2P registration. Missing evidence holds the step with a visible reason. |
