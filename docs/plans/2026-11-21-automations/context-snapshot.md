@@ -1,5 +1,11 @@
 # Automations builder · single-agency pilot decision
 
+## November 21, 2026 — approved production window
+
+Chris approved the exact frontend at `666387b06236281a1e61b1d0fc765284bc63cd99` and the four migrations in packet `f94ff6c09a9af2a83e5f2eca721b257a21285e07` from 4:00 to 5:00 p.m. PST. Only CG Financial's builder visibility and its reviewed hide operation are authorized. Enrollment and both messaging channels stay off across the installation. Chris confirmed a restorable physical backup on the target Supabase dashboard at November 21, 10:25:41 UTC.
+
+At 4:00 p.m. PST both primary domains served `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU` at `b1a1d31f4330c750af73b2817f40b5234ab96ad1`. The unfiltered database audit counted zero definitions, active workflows, legacy runs and legacy steps. The 391-entry ledger ended at `20261121045526`. The pilot migrations, new execution and message tables, and both attribution columns were absent. The approved migration files matched the packet hashes. The first official CLI sign-in ended before the runner acquired a Vercel session. Staging, promotion, database installation and the fresh agency sign-in are pending.
+
 ## November 21, 2026 — production-base correction
 
 The candidate frontend is `666387b06236281a1e61b1d0fc765284bc63cd99` on draft PR #534. Its integration commit is `b8364c8947c9b58a7c6e9775845dfcf4095c7800`. The first tracked edit at `38972814` recorded the approved isolated work. Compared to the primary deployment at `b1a1d31f4330c750af73b2817f40b5234ab96ad1`, the sole production-changed runtime path shared with the builder is FullScreenContactView.tsx. Its diff adds two imports and the contact-scoped Activity section. TwilioContext, its single-leg browser transport, re-entrancy and telemetry, sticky caller and SMS selection, Quick Call, floating dialer and the named From control match the deployed release. The documentation-only #535 closeout is also included. The four migration artifacts and the two operator artifacts remain byte-identical to `2631ea7fd7ae8a53a273b4302c3e7672887474fa`.

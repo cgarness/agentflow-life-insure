@@ -1,3 +1,13 @@
+## November 21, 2026 — Approved single-agency builder pilot window
+
+Chris approved frontend `666387b06236281a1e61b1d0fc765284bc63cd99`, the four migrations and shared grants from release packet `f94ff6c09a9af2a83e5f2eca721b257a21285e07`, and show/hide for agency `a0000000-0000-0000-0000-000000000001`. The authorized window is November 21, 4:00–5:00 p.m. PST (November 22, 00:00–01:00 UTC). Chris confirmed that the Supabase dashboard for `jncvvsvckxhqgqvkppmj` showed a restorable physical backup dated November 21 at 10:25:41 UTC. The scoped full-schema waiver and the separate hold on live execution still apply.
+
+At 4:00 p.m. PST both primary aliases served deployment `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`, source `b1a1d31f4330c750af73b2817f40b5234ab96ad1`. The production ledger held 391 entries through `20261121045526`. All four pilot entries, the new run and message tables, and the channel attribution columns were absent. Global workflow, active workflow, legacy run and legacy step counts were each zero. The four migration hashes matched the packet on the clean release checkout. The 3:45 p.m. security advisor check matched the 317 baseline findings by identity.
+
+The protected runner started the official Vercel CLI sign-in. Its first authorization request ended while awaiting interaction. The runner still requires a Vercel session before staging with `--skip-domain`. The pilot is pending staging, promotion, migrations, visibility and the signed-in blank-canvas check.
+
+[Builder-only release packet](docs/plans/2026-11-21-automations/builder-only-release.md)
+
 ## November 21, 2026 — Automations pilot candidate corrected for the live contact and dialer release
 
 Draft PR #534 now includes the named From production frontend at `b1a1d31f4330c750af73b2817f40b5234ab96ad1` and its documentation closeout. Proposed frontend `666387b06236281a1e61b1d0fc765284bc63cd99` preserves the live phone paths. The contact screen adds its gated Automation Activity section. All four feature migrations and both operator files retain the original reviewed hashes.
