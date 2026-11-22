@@ -4,7 +4,22 @@
 
 Chris approved the exact frontend at `666387b06236281a1e61b1d0fc765284bc63cd99` and the four migrations in packet `f94ff6c09a9af2a83e5f2eca721b257a21285e07` from 4:00 to 5:00 p.m. PST. Only CG Financial's builder visibility and its reviewed hide operation are authorized. Enrollment and both messaging channels stay off across the installation. Chris confirmed a restorable physical backup on the target Supabase dashboard at November 21, 10:25:41 UTC.
 
-At 4:00 p.m. PST both primary domains served `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU` at `b1a1d31f4330c750af73b2817f40b5234ab96ad1`. The unfiltered database audit counted zero definitions, active workflows, legacy runs and legacy steps. The 391-entry ledger ended at `20261121045526`. The pilot migrations, new execution and message tables, and both attribution columns were absent. The approved migration files matched the packet hashes. The first official CLI sign-in ended before the runner acquired a Vercel session. Staging, promotion, database installation and the fresh agency sign-in are pending.
+At 4:00 p.m. PST both primary domains served `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU` at `b1a1d31f4330c750af73b2817f40b5234ab96ad1`. The unfiltered database audit counted zero definitions, active workflows, legacy runs and legacy steps. The 391-entry ledger ended at `20261121045526`. The pilot migrations, new execution and message tables, and both attribution columns were absent.
+
+The protected runner staged production with `--skip-domain`. The Vercel deployment API recorded the approved full SHA on READY deployment `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7`. The remote source listing matched all 3,588 uploaded files. Both primary aliases continued serving the predecessor during staging. After promotion both aliases resolved to the new deployment and SHA. The pre-migration audit confirmed the same zero counts at 4:07 p.m. PST. Both the /automations and /settings routes and their shared JavaScript entry returned HTTP 200.
+
+| Production ledger ID | Migration | Verified SHA-256 |
+|---|---|---|
+| `20261122000819` | `20261121075959_automation_sessions.sql` | `ef1df7180757d9e2b2fab0e48d3843bf1ef0c4184ba7fa8a8eb2c6d121946de7` |
+| `20261122000902` | `20261121080000_automation_authoring.sql` | `cbd33b79853aae41317846f486cfecb2545643c5ca45388b4f68ab4d094b0132` |
+| `20261122000928` | `20261121080100_automation_runtime.sql` | `5e6e8368114a94e957b641f49bedc0c9d6a65b17367c9f02c4de88fdd8b7b49a` |
+| `20261122001044` | `20261121080200_automation_message_history.sql` | `5bdc1246420ff80972751e1a4933a9ca26647e1192331614c684b77e93721da0` |
+
+The 4:11 p.m. PST installation receipt counted zero definitions, active workflows, published versions, legacy runs, legacy steps, versioned runs, versioned steps, dispatch intents, logical automation messages, attributed SMS and attributed email. Events and activation intervals were also zero. The session cutoff was unset and every agency's visibility, enrollment and dispatch controls were off. The grant receipt matched 25 tables and 28 RPCs with zero table, role, policy, RLS or function mismatches.
+
+Security advisors moved from 317 findings to 346 (87 informational, 257 warnings and the same two errors). Eighteen new informational findings covered tables with RLS and deliberately restricted access. Fifteen new warnings corresponded exactly to the intended authenticated functions. Four previous warnings resolved. Public OpenAPI returned HTTP 401, consistent with preflight. After the database confirmed zero diagnostic name collisions, all four builder functions and both legacy controls produced the expected live PostgREST cache hints.
+
+At 4:12:59 p.m. PST the reviewed agency-only show operation established the session cutoff. The 4:13 p.m. readback counted one visible agency, CG Financial, zero agencies with enrollment or dispatch enabled, eleven zero workflow and message counts, zero events and zero activation intervals. Verification in a freshly signed-in browser is pending. A failed verification authorizes the reviewed hide for this agency while retaining records and the session cutoff. A site-wide frontend rollback requires separate approval. The previous frontend remains available as `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`.
 
 ## November 21, 2026 — production-base correction
 

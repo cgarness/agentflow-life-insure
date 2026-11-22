@@ -4,7 +4,11 @@ Chris approved frontend `666387b06236281a1e61b1d0fc765284bc63cd99`, the four mig
 
 At 4:00 p.m. PST both primary aliases served deployment `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`, source `b1a1d31f4330c750af73b2817f40b5234ab96ad1`. The production ledger held 391 entries through `20261121045526`. All four pilot entries, the new run and message tables, and the channel attribution columns were absent. Global workflow, active workflow, legacy run and legacy step counts were each zero. The four migration hashes matched the packet on the clean release checkout. The 3:45 p.m. security advisor check matched the 317 baseline findings by identity.
 
-The protected runner started the official Vercel CLI sign-in. Its first authorization request ended while awaiting interaction. The runner still requires a Vercel session before staging with `--skip-domain`. The pilot is pending staging, promotion, migrations, visibility and the signed-in blank-canvas check.
+The official Vercel CLI staged the approved SHA with `--skip-domain`. Vercel marked `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7` READY and recorded the exact Git commit. Both primary domains served that deployment after promotion. The production source-file listing matched the checkout for all 3,588 uploaded files. Another read before the first migration found the same four zero counts and ledger.
+
+The four migrations brought the ledger to 395 entries. Each installed statement matched its approved SHA-256. Before first visibility, the production audit counted zero across all eleven workflow, execution and message measures, zero activation intervals and zero events. All three release controls were off globally. The grant audit matched 25 tables and 28 function signatures. The installed workflow grants and Settings routing changes also apply outside the pilot.
+
+The managed advisor identified 18 new informational findings on restricted tables and 15 warnings on approved authenticated RPCs. Four previous warnings resolved, with zero new errors. All four builder RPC names and two legacy controls were present in the live API cache. At 4:12:59 p.m. PST the reviewed show operation sealed the fresh-sign-in cutoff. Its independent readback counted one visible agency, CG Financial, and zero agencies enrolling or dispatching. All eleven counts remained zero. The signed-in blank-canvas observation and post-Back readback are pending.
 
 [Builder-only release packet](docs/plans/2026-11-21-automations/builder-only-release.md)
 
