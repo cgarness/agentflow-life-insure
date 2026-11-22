@@ -204,8 +204,8 @@ describe("Dialer / Leaderboard boundary", () => {
     expect(gitBlobSha(read("src/lib/report-utils.ts"))).toBe("9fa35b22a24648e5901a985d59f853288c049c57");
     // 2026-11-11: approved Carriers-only legacy normalization; carrierPermissions.test.tsx pins existing semantics.
     expect(gitBlobSha(read("src/hooks/usePermissions.ts"))).toBe("0f0d933cd4f827c1f2200fde254997cc20be6c20");
-    // 2026-11-11: additive Carriers page/default helper; all existing defaults and Reports contracts stay enforced.
-    expect(gitBlobSha(read("src/config/permissionDefaults.ts"))).toBe("71b81c35f62574e435b516208a6f469ba25dc3dc");
+    // The Automations authoring permission is additive and defaults off for delegated roles.
+    expect(gitBlobSha(read("src/config/permissionDefaults.ts"))).toBe("61a3da749ac06c103652e73ad80920df577b65ba");
   });
 });
 

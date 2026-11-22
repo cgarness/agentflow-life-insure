@@ -1,162 +1,75 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ReactFlow, Background, Controls, MiniMap, ReactFlowProvider, type Node,
-} from "@xyflow/react";
+import { useEffect } from "react";
+import { ReactFlow, Background, Controls, useNodesInitialized, useReactFlow, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { toast } from "@/hooks/use-toast";
-import { useOrganization } from "@/hooks/useOrganization";
-import { workflowApi, workflowNodeApi } from "@/lib/supabase-workflows";
-import { type WorkflowRow } from "@/lib/workflow-types";
-import WorkflowToolbar from "./WorkflowToolbar";
 import TriggerNode from "./nodes/TriggerNode";
 import ActionNode from "./nodes/ActionNode";
 import ConditionNode from "./nodes/ConditionNode";
 import WaitNode from "./nodes/WaitNode";
+import { calculateNodePositions } from "./lib/autoLayout";
+import type { NodeKind } from "@/lib/workflow-types";
+import { graphBlock, type AutomationGraph } from "../../../supabase/functions/_shared/automations/graph";
+import { type BlockType, type Branch } from "./lib/draftGraph";
+import AutomationBlockPicker from "./AutomationBlockPicker";
 import AddButtonEdge from "./edges/AddButtonEdge";
-import ActionConfigPanel from "./panels/ActionConfigPanel";
-import ConditionConfigPanel from "./panels/ConditionConfigPanel";
-import WaitConfigPanel from "./panels/WaitConfigPanel";
-import TriggerConfigPanel from "./panels/TriggerConfigPanel";
-import WorkflowExecutionLog from "./WorkflowExecutionLog";
-import { useCanvasState } from "./useCanvasState";
 
-const nodeTypes = {
-  trigger: TriggerNode,
-  action: ActionNode,
-  condition: ConditionNode,
-  wait: WaitNode,
-};
+const renderers = {trigger: TriggerNode, action: ActionNode, condition: ConditionNode, wait: WaitNode};
+function DraftNode(props: NodeProps) {
+  const Renderer = renderers[props.type as keyof typeof renderers] ?? ActionNode;
+  return <div className="relative"><Renderer {...props}/>
+    <div className="absolute inset-x-0 top-full flex justify-around pt-1">{props.data.menu as React.ReactNode}</div>
+  </div>;
+}
+const nodeTypes = {trigger: DraftNode, action: DraftNode, condition: DraftNode, wait: DraftNode};
+const edgeTypes = {insert: AddButtonEdge};
 
-const edgeTypes = { "add-button": AddButtonEdge };
-
-interface Props {
-  workflowId: string;
-  onBack: () => void;
+function FitGraph({shape}: {shape: string}) {
+  const initialized = useNodesInitialized();
+  const {fitView} = useReactFlow();
+  useEffect(() => {
+    if (!initialized) return;
+    const frame = requestAnimationFrame(() => { void fitView({maxZoom: 1, padding: 0.18}); });
+    return () => cancelAnimationFrame(frame);
+  }, [shape, initialized, fitView]);
+  return null;
 }
 
-const WorkflowCanvas: React.FC<Props> = ({ workflowId, onBack }) => {
-  const { organizationId } = useOrganization();
-  const [workflow, setWorkflow] = useState<WorkflowRow | null>(null);
-  const [showLog, setShowLog] = useState(false);
-  const {
-    nodes, edges, loading, selectedNodeId, setSelectedNodeId,
-    onNodesChange, onEdgesChange, handleDeleteNode, upsertNodeLocal,
-  } = useCanvasState({ workflowId, organizationId });
+interface Props {
+  graph: AutomationGraph;
+  selected: string | null;
+  onSelect: (id: string) => void;
+  onInsert: (id: string, branch: Branch, type: BlockType) => void;
+}
 
-  useEffect(() => {
-    let alive = true;
-    workflowApi.get(workflowId)
-      .then((wf) => { if (alive) setWorkflow(wf); })
-      .catch((e) => toast({ title: e instanceof Error ? e.message : "Failed to load workflow", variant: "destructive" }));
-    return () => { alive = false; };
-  }, [workflowId]);
-
-  const selectedNode = useMemo(() => {
-    const n = nodes.find((x) => x.id === selectedNodeId);
-    return n ?? null;
-  }, [nodes, selectedNodeId]);
-
-  const onNodeClick = useCallback((_e: React.MouseEvent, node: Node) => {
-    setSelectedNodeId(node.id);
-  }, [setSelectedNodeId]);
-
-  const onNodesDelete = useCallback(async (deleted: Node[]) => {
-    for (const n of deleted) {
-      if (n.type !== "trigger") {
-        await handleDeleteNode(n.id);
-      }
-    }
-  }, [handleDeleteNode]);
-
-  if (!workflow) {
-    return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading workflow…</div>;
+export default function WorkflowCanvas({graph, selected, onSelect, onInsert}: Props) {
+  function plus(id: string, branch?: Branch, edge = false) {
+    const label = edge ? "Insert step" : branch ? "Add step on " + branch : "Add step";
+    return <AutomationBlockPicker key={branch ?? id} compact label={label} onPick={type => onInsert(id,branch,type)}/>;
   }
-
-  const renderPanel = () => {
-    if (!selectedNode) return null;
-    const row = selectedNode.data.__row as import("@/lib/workflow-types").WorkflowNodeRow;
-    const close = () => setSelectedNodeId(null);
-    const onSave = async (patch: { config: Record<string, unknown>; label?: string | null }) => {
-      await workflowNodeApi.update(row.id, patch);
-      upsertNodeLocal({ ...row, ...patch, label: patch.label ?? row.label });
-    };
-    const onDelete = selectedNode.data.nodeType !== "trigger"
-      ? async () => { await handleDeleteNode(row.id); close(); }
-      : undefined;
-    const nodeType = selectedNode.data.nodeType;
-    if (nodeType === "action") return <ActionConfigPanel node={row} onClose={close} onSave={onSave} onDelete={onDelete} />;
-    if (nodeType === "condition") return <ConditionConfigPanel node={row} onClose={close} onSave={onSave} onDelete={onDelete} />;
-    if (nodeType === "wait") return <WaitConfigPanel node={row} onClose={close} onSave={onSave} onDelete={onDelete} />;
-    if (nodeType === "trigger" && workflow) {
-      return (
-        <TriggerConfigPanel
-          workflow={workflow}
-          onClose={close}
-          onSaved={(updated) => {
-            setWorkflow(updated);
-            workflowNodeApi.update(row.id, { config: updated.trigger_config ?? {} }).catch(() => undefined);
-            upsertNodeLocal({ ...row, config: updated.trigger_config ?? {} });
-          }}
-        />
-      );
-    }
-    return null;
-  };
-
-  return (
-    <>
-      <div className="flex h-[calc(100vh-180px)] min-h-[600px] flex-col overflow-hidden rounded-2xl border border-border/50 bg-card/30">
-        <WorkflowToolbar
-          workflow={workflow}
-          onBack={onBack}
-          onShowExecutionLog={() => setShowLog(true)}
-          onUpdated={setWorkflow}
-        />
-
-        <div className="relative flex-1 overflow-hidden">
-          <ReactFlowProvider>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onNodeClick={onNodeClick}
-              onPaneClick={() => setSelectedNodeId(null)}
-              onNodesDelete={onNodesDelete}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              defaultEdgeOptions={{
-                style: { strokeWidth: 2, stroke: "hsl(var(--border))" },
-              }}
-              nodesConnectable={false}
-              edgesFocusable={false}
-              edgesReconnectable={false}
-              fitView
-              fitViewOptions={{ padding: 0.3, minZoom: 0.4, maxZoom: 1 }}
-              proOptions={{ hideAttribution: true }}
-              style={{ background: "transparent" }}
-            >
-              <Background gap={16} className="!bg-transparent opacity-50" />
-              <Controls className="!bg-card !border-border/50 !rounded-lg" />
-              <MiniMap pannable zoomable className="!bg-card/80 !border !border-border/50 !rounded-lg" />
-            </ReactFlow>
-          </ReactFlowProvider>
-
-          {loading && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-card/30 text-sm text-muted-foreground">
-              Loading canvas…
-            </div>
-          )}
-
-        </div>
-
-        <WorkflowExecutionLog open={showLog} workflowId={workflowId} onClose={() => setShowLog(false)} />
-      </div>
-
-      {/* Panel rendered OUTSIDE the canvas container — no backdrop-blur stacking context, no overflow clipping */}
-      {renderPanel()}
-    </>
-  );
-};
-
-export default WorkflowCanvas;
+  function leafMenus(id: string, condition: boolean) {
+    const outgoing = graph.edges.filter(edge => edge.source === id);
+    if (!condition) return !outgoing.length && plus(id);
+    return (["yes","no"] as const).map(branch => outgoing.some(edge => edge.branch === branch) ? null : plus(id,branch));
+  }
+  const renderNodes = graph.nodes.map(node => ({
+    id: node.id, type: (graphBlock(node)?.category ?? "action") as NodeKind,
+    data: { label: graphBlock(node)?.label ?? node.type, action_type: node.type, config: node.config, menu: leafMenus(node.id,graphBlock(node)?.category === "condition") },
+    selected: node.id === selected,
+  }));
+  const edges = graph.edges.map(edge => ({
+    ...edge, source_node_id: edge.source, target_node_id: edge.target,
+    type: "insert", data: {edgeRowId: edge.id, menu: plus(edge.source,edge.branch ?? undefined,true), branchLabel: edge.branch === "yes" ? "Yes" : edge.branch === "no" ? "No" : undefined},
+    sourceHandle: edge.branch, condition_branch: edge.branch ?? null, label: edge.branch,
+  }));
+  const layout = calculateNodePositions(renderNodes, edges);
+  const nodes = renderNodes.map((node,index) => ({
+    ...node, position: layout.positions.get(node.id) ?? {x: 0, y: index * 180},
+  }));
+  return <div className="hidden h-[28rem] rounded-xl border bg-muted/20 md:block" aria-label="Automation canvas">
+    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} fitView fitViewOptions={{maxZoom:1,padding:0.18}}
+      nodesDraggable={false} nodesConnectable={false} edgesReconnectable={false} deleteKeyCode={null}
+      onNodeClick={(_, node) => onSelect(node.id)} proOptions={{hideAttribution: true}}>
+      <FitGraph shape={JSON.stringify(edges.map(edge => [edge.source,edge.target,edge.branch]))}/>
+      <Background gap={18}/><Controls showInteractive={false}/>
+    </ReactFlow>
+  </div>;
+}

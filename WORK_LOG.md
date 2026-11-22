@@ -1,3 +1,63 @@
+## November 21, 2026 — CG Financial pilot browser check and production readback
+
+Chris confirmed that Back returned him to the empty Automations list. An aggregate database check confirmed a fresh CG Financial session after the visibility cutoff. At 8:44 p.m. PST, both production domains still served `666387b06236281a1e61b1d0fc765284bc63cd99` on `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7`.
+
+The installation and first-visibility audits each counted zero workflow definitions. The post-Back audit found one at CG Financial, created at 8:42 p.m. PST after the release window. It was an unpublished, first-revision draft with a name and connected blocks. The other ten measures were zero. CG Financial was the only visible agency. Enrollment and dispatch were off everywhere.
+
+Chris confirmed he created the draft while testing and was unaware it had been saved. Installation met its empty-state check. His draft accounts for the one definition in the post-Back audit and was preserved. In an isolated rerun on the shipped SHA, Create → Choose trigger → Back returned to the list with zero calls to the mocked save API. All nine tests passed.
+
+[Production counts and release evidence](docs/plans/2026-11-21-automations/context-snapshot.md)
+
+## November 21, 2026 — Approved single-agency builder pilot window
+
+Chris approved frontend `666387b06236281a1e61b1d0fc765284bc63cd99`, the four migrations and shared grants from release packet `f94ff6c09a9af2a83e5f2eca721b257a21285e07`, and show/hide for agency `a0000000-0000-0000-0000-000000000001`. The authorized window is November 21, 4:00–5:00 p.m. PST (November 22, 00:00–01:00 UTC). Chris confirmed that the Supabase dashboard for `jncvvsvckxhqgqvkppmj` showed a restorable physical backup dated November 21 at 10:25:41 UTC. The scoped full-schema waiver and the separate hold on live execution still apply.
+
+At 4:00 p.m. PST both primary aliases served deployment `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`, source `b1a1d31f4330c750af73b2817f40b5234ab96ad1`. The production ledger held 391 entries through `20261121045526`. All four pilot entries, the new run and message tables, and the channel attribution columns were absent. Global workflow, active workflow, legacy run and legacy step counts were each zero. The four migration hashes matched the packet on the clean release checkout. The 3:45 p.m. security advisor check matched the 317 baseline findings by identity.
+
+The official Vercel CLI staged the approved SHA with `--skip-domain`. Vercel marked `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7` READY and recorded the exact Git commit. Both primary domains served that deployment after promotion. The production source-file listing matched the checkout for all 3,588 uploaded files. Another read before the first migration found the same four zero counts and ledger.
+
+The four migrations brought the ledger to 395 entries. Each installed statement matched its approved SHA-256. Before first visibility, the production audit counted zero across all eleven workflow, execution and message measures, zero activation intervals and zero events. All three release controls were off globally. The grant audit matched 25 tables and 28 function signatures. The installed workflow grants and Settings routing changes also apply outside the pilot.
+
+The managed advisor identified 18 new informational findings on restricted tables and 15 warnings on approved authenticated RPCs. Four previous warnings resolved, with zero new errors. All four builder RPC names and two legacy controls were present in the live API cache. At 4:12:59 p.m. PST the reviewed show operation sealed the fresh-sign-in cutoff. Its independent readback counted one visible agency, CG Financial, and zero agencies enrolling or dispatching. All eleven counts remained zero. The post-Back audit appears above.
+
+[Builder-only release packet](docs/plans/2026-11-21-automations/builder-only-release.md)
+
+## November 21, 2026 — Automations pilot candidate corrected for the live contact and dialer release
+
+Draft PR #534 now includes the named From production frontend at `b1a1d31f4330c750af73b2817f40b5234ab96ad1` and its documentation closeout. Proposed frontend `666387b06236281a1e61b1d0fc765284bc63cd99` preserves the live phone paths. The contact screen adds its gated Automation Activity section. All four feature migrations and both operator files retain the original reviewed hashes.
+
+A fresh authorized user in the isolated pilot saw one Create automation action, opened an unnamed, empty canvas and left via Back. The second agency was hidden. Both execution switches were off globally and all eleven database counts were zero before and after. Both the native builder and cutover runs passed, including server-enforced View As, stable legacy graph history, synthetic authoring/receipts and hide rollback. Root TypeScript and Vite passed, with the same 78 app TypeScript diagnostics on base and candidate. The full Vitest run retained one known voicemail-retention assertion failure after native subprocess reruns. The focused phone and CRM suites passed. All 15 GitHub Actions workflows and their 33 jobs passed on the proposed immutable frontend; Supabase Preview was skipped.
+
+Chris waived the complete-schema rehearsal gap solely for the builder-only pilot at `a0000000-0000-0000-0000-000000000001`. Read-only production preflight found zero workflows, active workflows, legacy runs and legacy steps and none of the four candidate migrations. The approval package names the primary frontend predecessor, verified artifacts, proposed Pacific window, installation-wide Settings/grants effect and hide procedure. Live execution remains gated. Production deployment, migration receipts, agency visibility and live signed-in verification remain pending explicit approval and a protected primary-project staging identity.
+
+[Builder-only release packet](docs/plans/2026-11-21-automations/builder-only-release.md) · [Context snapshot](docs/plans/2026-11-21-automations/context-snapshot.md)
+
+## November 21, 2026 — Contact From number names released on fflagent.com
+
+Chris approved the primary AgentFlow frontend release of `b1a1d31f4330c750af73b2817f40b5234ab96ad1` from PR #535. Vercel marked deployment `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU` ready at 12:57 PM Pacific. Both `fflagent.com` and `www.fflagent.com` resolved to this deployment. The live contacts page and its JavaScript bundle `/assets/index-CkKQiRdM.js` returned HTTP 200.
+
+On a signed-in test contact, the From dropdown contained 22 choices. **Denver, CO** appeared next to its formatted phone number. Opening and closing the list kept the same sender. Choosing Denver opened the confirmation with that same phone number and the permanent-assignment checkbox clear. Cancel restored the original selection. Verification ended there without placing a call, sending a text or saving an assignment.
+
+All eight GitHub Actions workflows passed on the released commit. The two runtime files were `src/components/contacts/FullScreenContactView.tsx` and `src/components/contacts/ContactFromNumberControl.tsx`. This release required only a frontend deployment. This closeout updates `WORK_LOG.md` and `implementation_plan.md`. The primary release and live verification are complete. The previous primary deployment was `dpl_Ces2SKbmdQrjHJ3XyYwopGZebt7U`.
+
+---
+
+## November 21, 2026 — Restore saved names in the contact From dropdown (review candidate)
+
+Chris reported that the sticky-number selector hid names such as Denver, CO. The contact screen already requested friendly names, but the sticky path rendered only the formatted phone number. A read-only count confirmed all 22 active numbers in Chris's agency had saved names. The page now shows the agency's label beside the formatted number in the selected value and the list. Blank or unmatched names fall back to the formatted sender number.
+
+The existing phone inventory read now includes row ID and organization. The selector uses a matching agency row ID and normalized number for display. Its underlying option values and eligible choices still come from the contact-number model. The inventory is scoped to the contact, actor, viewer and organization, including empty responses. The native control has more room for the name. The legacy dropdown continues to use phone numbers as its option values.
+
+Verification covered both selection modes, blank and missing names, equal digits on a different row, a saved number absent from the options, late inventory across agency switches, and call and SMS sender identity. Three label assertions failed on the previous implementation. The corrected candidate passed 302 tests across 20 files. All 298 corresponding tests passed on the base. Root TypeScript, scoped ESLint, the Vite build and the whitespace check passed. The separate application type-check produced the same 78 existing diagnostics on base and candidate.
+
+Four Chromium scenarios passed with synthetic inventory. The full contact screen showed the complete label on light and dark desktop layouts and in legacy mode. The isolated selector also fit at 390 pixels. Keyboard selection, cancellation and temporary confirmation preserved the expected number. The browser recorded zero external requests and zero page errors.
+
+The first PR run exposed two expectations that predated the live selector. The SMS browser fixture now supplies a synthetic labeled inventory row and eligible option. Its ready-contact assertion verifies that the correct labeled ID is selected, Send is actionable and no request is dispatched. The Conversations readiness assertion and both negative controls remain in the same test. The dialer byte-hash check now pins the approved primary `553f89d` source. Live, PR base and label candidate all have the same `TwilioContext.tsx` blob `be0964b2753b03cd3985ce58f7d50aadcd93ccf0`. The 23 contact integration tests and four dialer-boundary tests passed together after this test-only update.
+
+The two runtime files are `src/components/contacts/FullScreenContactView.tsx` and `src/components/contacts/ContactFromNumberControl.tsx`. Verification changes are in `src/components/contacts/__tests__/fullScreenContactViewFromNumber.test.tsx`, `scripts/tests/sms-responsiveness/stubs/supabase.ts`, `scripts/tests/sms-responsiveness/verify-number-preview.mjs` and `src/pages/__tests__/dialerPageReportsV2Exceptions.test.ts`. Documentation changed in `implementation_plan.md` and this log. The candidate is based on `f459ae7` on the PR #531 branch. The primary frontend release awaits Chris's approval. This change requires no migrations.
+
+---
+
 ## November 21, 2026 — Simplified contact FROM released on primary AgentFlow
 
 Chris approved exact frontend commit `553f89d3a647770a6c722e4ae4ba89b15b2a3b09`. Primary production deployment `dpl_Ces2SKbmdQrjHJ3XyYwopGZebt7U` became READY at **10:53:12 AM Pacific** with no alias error; both `fflagent.com` and `www.fflagent.com` point to it. The connected Git build used the approved source and existing primary configuration. Complete source/tree preflight preserved all backend, dependency, configuration, workflow and automatic number setup files. Main remains unmerged.
@@ -51,6 +111,20 @@ Files: `src/components/contacts/ContactNumberControl.tsx`, `src/components/conta
 Migrations/deployments: none. No main merge, secondary-project work, provider change or real call/text. The primary-only frontend release remains a separate exact approval. Next: publish only these six paths to the existing draft branch with expected-head protection and provide the release pin. Build production from the exact source using primary project settings; local bundles contain synthetic verification configuration. See `docs/plans/2026-11-21-assigned-number-ui/implementation_plan.md`.
 
 ---
+
+## November 21, 2026 — PR #534 builder visibility rehearsal
+
+The release application at `2631ea7fd7ae8a53a273b4302c3e7672887474fa` shows separate enrollment and provider dispatch settings in publish review, confirmation and workflow status. Publication requires the reviewed setting pair. A change during review aborts the transaction. First visibility seals the trusted session cutoff. A pre-cutover session must sign in again for Automations, including after refresh or a role change. Its ordinary CRM access and human Conversations history remain available.
+
+The isolated PostgreSQL 17 rehearsal starts with a populated legacy graph and execution history and switches from the deployed frontend to the new one with real sessions open. A separate catalog inspection found 24 differences between the historical prerequisite fixture and the current production schema families. The full-copy rehearsal requires the reviewed native schema-only archive. Production builder visibility is on hold pending that proof. Live execution also needs an attributable scheduler with a measured cadence and integrations that supply and refresh verified recipient facts, time zones, sender identities and reply-feed health. The isolated prep and draft PR are the only release actions in this entry.
+
+[Builder-only artifact manifest, verification and rollback](docs/plans/2026-11-21-automations/builder-only-release.md) · [Live execution decision](docs/plans/2026-11-21-automations/live-execution-decision.md) · [Full schema source and reproduction](docs/plans/2026-11-21-automations/schema-only-rehearsal.md)
+
+## November 21, 2026 — Self-service Automations · isolated review candidate
+
+Chris approved isolated Milestones 1–4, including scoped migration and RLS testing. The feature branch starts at `1536db4d957f256b5706d948545409cac2e1cfe1`. Its first commit prepends the approved plan. The builder uses the existing workflow IDs and canvas, a local blank graph, explicit draft saves, versioned publication, organization-scoped event intake and a worker-only ledger. Server-owned View As sessions fence Automations writes and bind activity reads to the effective viewer. Four candidate migrations are local. The release packet records verification, rollout controls, prerequisites, outstanding operational checks and data-preserving rollback.
+
+The candidate installs zero presets and ships all three release controls disabled. Production catalog inspection preceded this build. External scheduling remains unconfirmed. No live customer communication, production SQL, Edge deployment, Vercel release or merge was part of this work. See `docs/plans/2026-11-21-automations/context-snapshot.md` for the review evidence.
 
 ## November 20, 2026 — Automatic setup for purchased agency numbers is live
 

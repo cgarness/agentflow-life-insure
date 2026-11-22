@@ -1,0 +1,38 @@
+[
+  {
+    "agencyEnrollment": false,
+    "providerDispatch": false,
+    "confirmation": "Workflow status\nRefresh status\n\nVersion published.\n\nAgency enrollment: Off\nProvider dispatch: Off\n\nAgency enrollment is off. New events cannot start a run. Provider dispatch is off. Messages cannot be handed to a provider.",
+    "publishedVersions": 1,
+    "matchingLeadEnrolled": false,
+    "existingRunPassedDispatchGate": false,
+    "providerRequestsInMatrix": 0
+  },
+  {
+    "agencyEnrollment": false,
+    "providerDispatch": true,
+    "confirmation": "Workflow status\nRefresh status\n\nVersion published.\n\nAgency enrollment: Off\nProvider dispatch: On\n\nAgency enrollment is off. New events cannot start a run. Existing runs may send after sender, consent, timing and limit checks.",
+    "publishedVersions": 1,
+    "matchingLeadEnrolled": false,
+    "existingRunPassedDispatchGate": true,
+    "providerRequestsInMatrix": 0
+  },
+  {
+    "agencyEnrollment": true,
+    "providerDispatch": false,
+    "confirmation": "Workflow status\nRefresh status\n\nVersion published.\n\nAgency enrollment: On\nProvider dispatch: Off\n\nQualifying new leads can start a run. Provider dispatch is off. Messages cannot be handed to a provider.",
+    "publishedVersions": 1,
+    "matchingLeadEnrolled": true,
+    "existingRunPassedDispatchGate": false,
+    "providerRequestsInMatrix": 0
+  },
+  {
+    "agencyEnrollment": true,
+    "providerDispatch": true,
+    "confirmation": "Workflow status\nRefresh status\n\nVersion published.\n\nAgency enrollment: On\nProvider dispatch: On\n\nQualifying new leads can start a run. Messages may go out after sender, consent, timing and limit checks.",
+    "publishedVersions": 1,
+    "matchingLeadEnrolled": true,
+    "existingRunPassedDispatchGate": true,
+    "providerRequestsInMatrix": 0
+  }
+]

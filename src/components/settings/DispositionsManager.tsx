@@ -673,7 +673,7 @@ const DispositionsManager: React.FC = () => {
                 {form.automationTrigger && (
                   automations.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
-                      No disposition workflows yet. Create one in Settings → Workflow Builder, then return here to link it.
+                      {form.automationId ? "Linked workflow: " + (form.automationName || form.automationId) : "No eligible disposition workflows are available to link."}
                     </p>
                   ) : (
                     <select
@@ -685,6 +685,9 @@ const DispositionsManager: React.FC = () => {
                       className="w-full h-9 px-3 rounded-lg bg-accent text-sm text-foreground border-0 focus:ring-2 focus:ring-primary/50"
                     >
                       <option value="">Select workflow...</option>
+                      {form.automationId && !automations.some(a => a.id === form.automationId) && (
+                        <option value={form.automationId}>{form.automationName || "Linked workflow"}</option>
+                      )}
                       {automations.map(a => (
                         <option key={a.id} value={a.id}>{a.name}</option>
                       ))}

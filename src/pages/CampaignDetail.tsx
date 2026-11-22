@@ -1,3 +1,4 @@
+import { AutomationAccessGate } from "@/components/workflows/AutomationAccessGate";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
@@ -808,6 +809,7 @@ const CampaignDetail: React.FC = () => {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-bold text-foreground">{campaign.name}</h1>
+          <AutomationAccessGate author><button className="text-sm text-primary hover:underline" onClick={() => navigate("/automations?campaign=" + encodeURIComponent(id!))}>View automations</button></AutomationAccessGate>
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[campaign.type] || ""}`}>{campaign.type}</span>
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[campaign.status] || ""}`}>{campaign.status}</span>
         </div>

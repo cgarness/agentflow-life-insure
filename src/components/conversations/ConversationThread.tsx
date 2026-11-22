@@ -452,7 +452,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
                 </div>
               )}
               <div className={cn("text-[10px] text-muted-foreground mt-1 px-1", isOutbound ? "text-right" : "text-left")}>
-                {timeStr}
+                {item.automation_message_id ? "Automation · " : ""}{timeStr}
               </div>
             </div>
           </div>
@@ -509,7 +509,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({
               )}
             </div>
             <div className={cn("text-[10px] text-muted-foreground mt-1 px-1", isOutbound ? "text-right" : "text-left")}>
-              {timeStr}
+              {item.automation_message_id ? "Automation · " : ""}{timeStr}
             </div>
           </div>
         </div>

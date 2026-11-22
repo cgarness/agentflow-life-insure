@@ -9,6 +9,8 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useSidebarContext } from "@/contexts/SidebarContext";
 import { useOrganization } from "@/hooks/useOrganization";
+import { Workflow } from "lucide-react";
+import { AutomationAccessGate } from "@/components/workflows/AutomationAccessGate";
 import Logo from "@/components/shared/Logo";
 import { usePermissions } from "@/hooks/usePermissions";
 import {
@@ -138,6 +140,8 @@ const Sidebar: React.FC = () => {
             onClick={() => setMobileOpen(false)}
           />
         ))}
+        <AutomationAccessGate><MainNavItem icon={Workflow} label="Automations" path="/automations"
+          collapsed={collapsed} isActive={location.pathname === "/automations"} onClick={() => setMobileOpen(false)}/></AutomationAccessGate>
         {/* Directly below Resources. Not a "View As" surface: under View As it is not shown. */}
         <CommissionsNavItem collapsed={collapsed} onClick={() => setMobileOpen(false)} />
         {/* Custom links target `/app-link/:linkId`, which the route guard blocks. */}

@@ -9,6 +9,7 @@ import { actionMeta, type WorkflowExecutionRow, type WorkflowExecutionStepRow, t
 interface Props {
   open: boolean;
   workflowId: string;
+  organizationId: string;
   onClose: () => void;
 }
 
@@ -38,7 +39,7 @@ const StatusIcon: React.FC<{ status: string }> = ({ status }) => {
   }
 };
 
-const WorkflowExecutionLog: React.FC<Props> = ({ open, workflowId, onClose }) => {
+const WorkflowExecutionLog: React.FC<Props> = ({ open, workflowId, organizationId, onClose }) => {
   const [executions, setExecutions] = useState<WorkflowExecutionRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -48,13 +49,13 @@ const WorkflowExecutionLog: React.FC<Props> = ({ open, workflowId, onClose }) =>
     if (!open) return;
     setLoading(true);
     try {
-      const ex = await workflowExecutionApi.listForWorkflow(workflowId, 50);
+      const ex = await workflowExecutionApi.listForWorkflow(workflowId, organizationId, 50);
       setExecutions(ex);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to load executions";
       toast({ title: msg, variant: "destructive" });
     } finally { setLoading(false); }
-  }, [open, workflowId]);
+  }, [open, workflowId, organizationId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -63,7 +64,12 @@ const WorkflowExecutionLog: React.FC<Props> = ({ open, workflowId, onClose }) =>
     setExpandedId(executionId);
     if (!steps[executionId]) {
       try {
-        const s = await workflowExecutionApi.listSteps(executionId);
+        const s: WorkflowExecutionStepRow[] = [];
+        do {
+          const page = await workflowExecutionApi.listSteps(executionId, organizationId, s.length);
+          s.push(...page);
+          if (page.length < 100) break;
+        } while (true);
         setSteps((prev) => ({ ...prev, [executionId]: s }));
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Failed to load steps";

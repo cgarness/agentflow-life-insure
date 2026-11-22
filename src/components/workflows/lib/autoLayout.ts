@@ -31,8 +31,8 @@ export interface LayoutResult {
  * gets a virtual leaf-add node for the trailing "+" button.
  */
 export function calculateNodePositions(
-  nodes: WorkflowNodeRow[],
-  edges: WorkflowEdgeRow[],
+  nodes: Pick<WorkflowNodeRow, "type" | "id">[],
+  edges: Pick<WorkflowEdgeRow, "source_node_id" | "target_node_id" | "condition_branch">[],
 ): LayoutResult {
   const positions = new Map<string, { x: number; y: number }>();
   const leafAddNodes: LayoutResult["leafAddNodes"] = [];
@@ -41,7 +41,7 @@ export function calculateNodePositions(
   if (!trigger) return { positions, leafAddNodes };
 
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const outgoing = new Map<string, WorkflowEdgeRow[]>();
+  const outgoing = new Map<string, typeof edges>();
   for (const e of edges) {
     const list = outgoing.get(e.source_node_id) ?? [];
     list.push(e);

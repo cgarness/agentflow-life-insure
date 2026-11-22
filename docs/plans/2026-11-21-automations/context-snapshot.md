@@ -1,0 +1,130 @@
+# Automations builder · single-agency pilot decision
+
+## November 21, 2026 — post-Back verification
+
+Chris reported that the blank-canvas check returned him to the empty list in his own browser. A separate aggregate confirmed a fresh session for an active CG Financial user after the cutoff. At 8:44 p.m. PST Vercel returned the approved SHA `666387b06236281a1e61b1d0fc765284bc63cd99` and READY deployment `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7` for both primary domains.
+
+| Global measure | Installed, 4:11 p.m. PST | Visible, 4:13 p.m. PST | After Back, 8:44 p.m. PST |
+|---|---:|---:|---:|
+| Workflow definitions | 0 | 0 | 1 |
+| Active workflows | 0 | 0 | 0 |
+| Published versions | 0 | 0 | 0 |
+| Legacy runs | 0 | 0 | 0 |
+| Legacy steps | 0 | 0 | 0 |
+| Versioned runs | 0 | 0 | 0 |
+| Versioned steps | 0 | 0 | 0 |
+| Dispatch intents | 0 | 0 | 0 |
+| Logical automation messages | 0 | 0 | 0 |
+| Automation-attributed SMS | 0 | 0 | 0 |
+| Automation-attributed email | 0 | 0 | 0 |
+
+Both aggregate visibility checks after first show found exactly one visible agency, CG Financial. Every enrollment and dispatch control was off. Activation intervals and events were zero at all three checkpoints. The repeatable-read audits verified that row security allowed global counts.
+
+The draft was created at 8:42 p.m. PST, after the approved release window. Aggregate reads confirmed a first revision with a nonempty draft name, graph nodes and edges. Chris confirmed he created this draft while testing and was unaware it had been saved. It was unpublished at the time of the audit and was preserved. Installation created zero definitions. This user-authored draft accounts for the single definition at the post-Back checkpoint. All ten other counts were zero. A fresh isolated test on the shipped commit confirmed that opening and leaving the blank canvas made zero calls to the mocked save API. All nine tests in the builder access suite passed in 3.09 seconds. The earlier native test verified the same route against a disposable database.
+
+## November 21, 2026 — approved production window
+
+Chris approved the exact frontend at `666387b06236281a1e61b1d0fc765284bc63cd99` and the four migrations in packet `f94ff6c09a9af2a83e5f2eca721b257a21285e07` from 4:00 to 5:00 p.m. PST. Only CG Financial's builder visibility and its reviewed hide operation are authorized. Enrollment and both messaging channels stay off across the installation. Chris confirmed a restorable physical backup on the target Supabase dashboard at November 21, 10:25:41 UTC.
+
+At 4:00 p.m. PST both primary domains served `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU` at `b1a1d31f4330c750af73b2817f40b5234ab96ad1`. The unfiltered database audit counted zero definitions, active workflows, legacy runs and legacy steps. The 391-entry ledger ended at `20261121045526`. The pilot migrations, new execution and message tables, and both attribution columns were absent.
+
+The protected runner staged production with `--skip-domain`. The Vercel deployment API recorded the approved full SHA on READY deployment `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7`. The remote source listing matched all 3,588 uploaded files. Both primary aliases continued serving the predecessor during staging. After promotion both aliases resolved to the new deployment and SHA. The pre-migration audit confirmed the same zero counts at 4:07 p.m. PST. Both the /automations and /settings routes and their shared JavaScript entry returned HTTP 200.
+
+| Production ledger ID | Migration | Verified SHA-256 |
+|---|---|---|
+| `20261122000819` | `20261121075959_automation_sessions.sql` | `ef1df7180757d9e2b2fab0e48d3843bf1ef0c4184ba7fa8a8eb2c6d121946de7` |
+| `20261122000902` | `20261121080000_automation_authoring.sql` | `cbd33b79853aae41317846f486cfecb2545643c5ca45388b4f68ab4d094b0132` |
+| `20261122000928` | `20261121080100_automation_runtime.sql` | `5e6e8368114a94e957b641f49bedc0c9d6a65b17367c9f02c4de88fdd8b7b49a` |
+| `20261122001044` | `20261121080200_automation_message_history.sql` | `5bdc1246420ff80972751e1a4933a9ca26647e1192331614c684b77e93721da0` |
+
+The 4:11 p.m. PST installation receipt counted zero definitions, active workflows, published versions, legacy runs, legacy steps, versioned runs, versioned steps, dispatch intents, logical automation messages, attributed SMS and attributed email. Events and activation intervals were also zero. The session cutoff was unset and every agency's visibility, enrollment and dispatch controls were off. The grant receipt matched 25 tables and 28 RPCs with zero table, role, policy, RLS or function mismatches.
+
+Security advisors moved from 317 findings to 346 (87 informational, 257 warnings and the same two errors). Eighteen new informational findings covered tables with RLS and deliberately restricted access. Fifteen new warnings corresponded exactly to the intended authenticated functions. Four previous warnings resolved. Public OpenAPI returned HTTP 401, consistent with preflight. After the database confirmed zero diagnostic name collisions, all four builder functions and both legacy controls produced the expected live PostgREST cache hints.
+
+At 4:12:59 p.m. PST the reviewed agency-only show operation established the session cutoff. The 4:13 p.m. readback counted one visible agency, CG Financial, zero agencies with enrollment or dispatch enabled, eleven zero workflow and message counts, zero events and zero activation intervals. A failed verification authorizes the reviewed hide for this agency while retaining records and the session cutoff. A site-wide frontend rollback requires separate approval. The previous frontend remains available as `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`.
+
+## November 21, 2026 — production-base correction
+
+The candidate frontend is `666387b06236281a1e61b1d0fc765284bc63cd99` on draft PR #534. Its integration commit is `b8364c8947c9b58a7c6e9775845dfcf4095c7800`. The first tracked edit at `38972814` recorded the approved isolated work. Compared to the primary deployment at `b1a1d31f4330c750af73b2817f40b5234ab96ad1`, the sole production-changed runtime path shared with the builder is FullScreenContactView.tsx. Its diff adds two imports and the contact-scoped Activity section. TwilioContext, its single-leg browser transport, re-entrancy and telemetry, sticky caller and SMS selection, Quick Call, floating dialer and the named From control match the deployed release. The documentation-only #535 closeout is also included. The four migration artifacts and the two operator artifacts remain byte-identical to `2631ea7fd7ae8a53a273b4302c3e7672887474fa`.
+
+The requested release target is `a0000000-0000-0000-0000-000000000001` on primary project `agentflow` and Supabase `jncvvsvckxhqgqvkppmj`. The primary rollback deployment at preflight is `dpl_4ep4y3sDxcb4kuUpEqgey9fX9ZNU`. At 3:03 p.m. Pacific the live agency existed, all four legacy counts were zero, the candidate relations were absent, and the ledger had 391 entries through `20261121045526`. The target has a home-agency author. Production security advisors returned 69 informational findings, 246 warnings and two existing errors at 3:04 p.m. Pacific. First show seals the cutoff; Automations requires a new sign-in after that point. Hiding the pilot keeps its data and the cutoff. Shared grants and Settings routing prevent hidden agencies from using their old workflow editor.
+
+Chris waived equivalence to a complete current production schema for this builder-only pilot. The provider sources for two managed routines remain outstanding. The legacy plus 33-prerequisite test is a scoped upgrade. Live execution remains held pending scheduler ownership/cadence and verified recipient eligibility, timezone, sender and reply refresh. The release procedure installs an empty builder with only the target visible and zero agencies enrolling or dispatching. No production migration, deployment, flag change or live browser acceptance has occurred during this correction.
+
+The immutable approval manifest, migration sequence, global counts and rollback instructions are in the [builder-only release packet](builder-only-release.md). A protected production-capable CLI session is required for staging with `--skip-domain`. The existing Vercel connection can inspect/promote the resulting deployment. The runner cannot currently read managed backup status; record current provider recovery coverage before the first production mutation. Staging, verifying READY and source, and promoting precede the four database migrations. Record actual deployment ID, hosted ledger versions and hashes, advisor differences, agency control counts, blank-canvas before/after counts and the final alias after the approved window.
+
+All 15 GitHub Actions workflows and their 33 jobs passed on the immutable frontend candidate. Supabase Preview was skipped. The integration passed both native builder/cutover modes and all 71 offline builder Edge tests. Eleven signed-in blank-canvas counts stayed zero after Back. Scoped rollback preserved graphs, executions, receipts and the cutoff. The 954 focused phone/CRM checks and 120 phone/SMS Edge tests passed. Root TypeScript and Vite passed at both pins. App TypeScript had 78 identical diagnostics. The 506-file Vitest suite finished with 7,327 passing, 38 skipped and one inherited voicemail-retention assertion failure after relevant native subprocess reruns.
+
+## Earlier isolated candidate
+
+This snapshot records the earlier isolated candidate at `624ea7cc4566e1a65fb48eac2ae10bd5dbeb7df6`. For the current migration checksums, deployment order, cutover and release decisions, see the [builder-only release packet](builder-only-release.md) and [live execution decision](live-execution-decision.md).
+
+## Candidate and release boundary
+
+Feature branch `feat/self-service-automations` stacks on `prereq/sticky-numbers-baseline-20261113` at `1536db4d957f256b5706d948545409cac2e1cfe1`. Its application source matches the deployed phone-setup frontend at `7914faefc750aaf38d3659a71d9a01b3298f9107`. The first feature commit, `c814dc81`, only prepends the approved plan. Resolve the exact candidate with `git rev-parse HEAD` in this checkout.
+
+Chris approved isolated implementation and testing. Production release requires a separately approved manifest naming the target project, SQL checksums, policy changes, exact Edge packages/auth settings, Vercel commit, flags and scheduler decision. No customer workflow is part of installation. Default controls, including absence of an agency control row, disable runtime admission and dispatch.
+
+## Implementation decisions
+
+- `/automations` and the existing Settings entry use one editor. Opening the canvas allocates IDs in browser memory. A draft first reaches the database on an explicit save or publish review. Published versions pin their graph, settings and message copy. Newer drafts cannot change existing runs. Older graph formats retain their original IDs, execution history and stored configuration and open for inspection.
+- Authenticated SQL RPCs own draft, publish, lifecycle and stop transactions. This avoids a new authoring Edge endpoint. Each mutation checks the verified Auth session, real actor, session revision and role inside the database transaction. Mode changes and writes lock the same row. Direct client table writes are revoked. Other CRM mutations keep their existing authority checks. Independent Auth sessions have separate mode and revision records.
+- The shared block registry binds version, schema, editor, preview and execution for the available blocks. A block introducing a new trusted data source, permission or durable transition also needs reviewed server validation and database support. The author chooses the trigger, audience, branch or action order, wait, copy, re-entry and stop rule.
+- Automated SMS uses the current consent and sticky-number dispatch implementation. Email uses a verified agency identity with a monitored Reply-To. An operator must provision trusted channel readiness, recipient eligibility, timezone, sending policy and reply freshness before a live rollout. An uncertain original handoff stays held for reconciliation. Receipt repair can update Conversations without a second send.
+- Both GitHub-linked Vercel projects are covered by an exact feature-branch `git.deploymentEnabled` exclusion in `vercel.json`. The phone release previously recorded Preview Branch Tracking disabled on both projects. Supabase's check on #533 reported automatic preview-branch creation disabled. These provider settings should be rechecked before another branch is published. [Supabase check](https://github.com/cgarness/agentflow-life-insure/runs/136737569104)
+
+## Isolated evidence
+
+- PostgreSQL 17.6 upgraded a populated legacy folder, graph, edges, execution and step with the same IDs and contents. The six-table digest before and after was `e93d03439db532c75184c52354325338be74ff127855f972bc1450aec13eefbc`. Installation added zero published versions, activation intervals, events, runs, dispatch intents or messages.
+- Separate SQL sessions raced a View As transition against publication, duplicate campaign membership and event processing against admission, and workers against a single dispatch intent. Authorization and dedupe held under concurrency. Conditional execution covered both paths and held on an unavailable contact lookup.
+- The native SMS test covered denied consent, the registered sticky sender, exact rendered text, duplicate handoffs and a single attributed Conversations record. A signed Twilio callback test rejected a bad signature and a mismatched destination. Duplicate deliveries and an older status preserved one delivered message. Synthetic Resend tests covered exact copy, provider timeout, authenticated receipts, suppression and history repair.
+- Signed-in Chromium exercised the existing Settings entry and the top-level route. A tester created and reordered steps by keyboard, switched both themes and abandoned the canvas. The test counted zero workflow mutations. Screenshots and machine-readable results are under `evidence/` for 375×812 and 1440×1000 viewports.
+- Reproduction commands and local service prerequisites are in `e2e/automations-local/README.md`. The database fixture restores the relevant checked-in release prerequisites and exercises the real GoTrue, PostgREST and React paths. A rehearsal against the complete current production schema and an operator inventory of external invokers remain release prerequisites.
+- Two different people signed in through the normal UI. One published a lead-created email-only automation. The other published a campaign-membership → wait → SMS automation. Preview created zero runs and handoffs. The worker sent exactly one of each synthetic message. After a restart and a draft edit during the wait, the second run completed with its original published SMS copy. Both people saw the completed version in Activity. A third user saw an empty agency. Separate synthetic branch tests exercised both `Contact has email` exits and the lookup-error hold.
+- In Chromium, two tabs with one verified session showed the same View As state. A draft save already in flight returned HTTP 403 (`42501`) after the other tab entered View As. An independent session for the same real operator saved successfully. Reload retained the shared mode and an explicit exit restored editing. Activity pagination returned two non-overlapping pages of 100 runs each, then an empty page.
+- On the disposable PostgreSQL instance, the 1,000-lead import produced 200 eligible runs and zero handoffs. One measured run took 0.696 s for inserts, 2.141 s for admission and 0.135 s to claim and hold. This is a local functional load check. Production service-level targets and per-agency throughput need measurements on the actual release infrastructure.
+
+### Migration manifest
+
+| File under `supabase/migrations/` | SHA-256 |
+|---|---|
+| `20261121075959_automation_sessions.sql` | `6c2fecdaa33f48adf4301c772b6a4c4f53c03243874df0db54f3f34b8924ecda` |
+| `20261121080000_automation_authoring.sql` | `622608fb39177c127d889dfdaa32980ebfd6f5081c10f2ea95e0a6e46dbb030f` |
+| `20261121080100_automation_runtime.sql` | `5e6e8368114a94e957b641f49bedc0c9d6a65b17367c9f02c4de88fdd8b7b49a` |
+| `20261121080200_automation_message_history.sql` | `5bdc1246420ff80972751e1a4933a9ca26647e1192331614c684b77e93721da0` |
+
+### Verification results
+
+| Check | Result |
+|---|---|
+| Frontend and app diagnostics | `npx tsc --noEmit` and `npm run build` passed. `A2P_BASE_SHA=1536db4d957f256b5706d948545409cac2e1cfe1 node scripts/verify-a2p-types.mjs` reported 78 app diagnostics on the base, 78 on the candidate and zero new. The standalone app typecheck remains red. |
+| React and CRM regression tests | Final focused Vitest run passed 508 tests across 26 files. Coverage included authoring, Activity, both session authority suites, Voice.js lifecycle, voice status, dialer appointments and dispositions, Conversations, permissions and route isolation. |
+| Repository-wide Vitest run | Initial run reported 7,182 passed, 36 failed and 58 skipped. After updating affected authorization fixtures and contract assertions, rerunning every failed suite with working local subprocess IPC resolved all except one voicemail recording-retention assertion against the pinned v29 source. That same assertion failed on the exact base. No change was made to recording retention. |
+| Worker and channel tests | 71 Deno tests passed across the graph, runtime, channel, receipt, SMS and A2P workflow suites. The worker and callback packages were also assembled in a directory without the app’s `node_modules` and typechecked separately. The worker includes its own import map for the shared Zod types. |
+| Isolated database security advisors | The 22 pinned Supabase Splinter security queries reported 423 baseline findings and 446 on the candidate. The additions were 17 informational RLS-enabled private tables without a client policy, 15 authenticated `SECURITY DEFINER` RPC warnings, and one authenticated GraphQL exposure warning on the RLS-filtered version table. Ten prior warnings resolved. New errors and new anonymous exposure were both zero. Splinter source revision `cc529aa9d3eeffd2e64576c7591e60b22abd205c`. |
+
+The candidate package manifests are `workflow-resume-paused.sha256` and `automation-provider-receipt.sha256` beside this packet. They cover the entry points, transitive local modules including type imports, and the worker import map. From the repo root, use `sha256sum -c docs/plans/2026-11-21-automations/workflow-resume-paused.sha256` and `sha256sum -c docs/plans/2026-11-21-automations/automation-provider-receipt.sha256`. At release, compare the live provider-resolved dependencies and gateway settings with the exact packages submitted for approval.
+
+The implementation and local acceptance evidence are recorded at `58cf20b7e5b2e1cd99d3a29676f5225c3447ef2b`. A subsequent verification commit pins the Sheets browser runner to Ubuntu 24.04 after Playwright 1.56.1 failed to install on Ubuntu 26.04. The PR head identifies the exact candidate for review and its hosted check results. [Draft PR #534](https://github.com/cgarness/agentflow-life-insure/pull/534)
+
+## Proposed production sequence
+
+1. Reconcile main, #531, #532, #533, #429 and the actual production deployment again. Do not replay the three phone-release migrations under their repository timestamps. Inventory other callers of the legacy workflow readers and dispatcher. Verify release clients understand server-owned View As before exposing authoring. Coordinate existing open CRM sessions during cutover, since an older client cannot communicate its local View As state to the new server.
+2. Capture schema preimages, indexes, policies, table/routine ACLs, current workflow IDs and counts, version and history references, and aggregate outbound-message counts with the same tenant boundaries used after installation. The 2026-11-21 approved production check returned zero workflows, zero executions and zero steps. Those historical figures are not a release precondition. Preserve every agency-authored row existing at release.
+3. Present the SQL files in order for exact approval. `20261121075959_automation_sessions.sql` keys mode/revision to the verified actor/session. `20261121080000_automation_authoring.sql` introduces draft, publish, lifecycle and role enforcement. `20261121080100_automation_runtime.sql` implements event capture, claims, durable waits, activity and cancellation. `20261121080200_automation_message_history.sql` adds channel eligibility, receipts, reply observation and history projection. All four are under `supabase/migrations/`. Rehearse on a disposable clone of the current release schema with synthetic fixtures. Review lock time on shared mailbox/graph tables and run security advisors after any approved RLS change.
+4. Retrieve complete live packages immediately before a separately approved Edge release. `workflow-resume-paused` is the existing internally authenticated worker entry. The new `automation-provider-receipt` endpoint needs signed callbacks or a single-purpose unsubscribe token. Its `verify_jwt=false` setting requires explicit approval with the complete package. Preserve verify_jwt on every existing function. The production executor v52, evaluator v45, resume worker v44 and time trigger v45 all had verify_jwt=false at inspection. The live SMS webhook uses mixed-revision dependencies. Retain its exact package. Keep ordinary Gmail, manual SMS and single-leg Voice.js callers on their existing entry points.
+5. Verify the installation produces zero new definitions, enrollments, dispatch intents and outbound messages. Check disabled/runtime-default and authorized/unauthorized UI states, empty-list CTA, abandonment, Settings compatibility and direct API read/write boundaries. Any operational evidence for channel enablement must be independently verified, including authorized email identities, current recipient facts, suppression, sticky SMS readiness, agency limits and local send windows.
+6. Release builder visibility independently. Publishing an agency-authored draft pins a version. Enable enrollment or dispatch only under a later explicit per-agency authorization. Do not publish a test workflow in production.
+
+## Scheduler and operations
+
+The inspected production database had 14 active pg_cron jobs. No job referenced the four workflow endpoints directly or through recognizable public/private wrapper functions. The release branch Vercel configuration and GitHub Actions also did not identify a resume schedule. Dynamic endpoints, intermediaries and external schedulers remain unknown. Obtain owner/configuration evidence before activating a single bounded due-work path. The feature migration installs no cron job.
+
+In isolated load verification measure capture latency, pending event age, overdue eligible work, expired leases, work completed per sweep and receipt-repair age. Distinguish acceptance from delivery evidence. Investigate unknown handoffs against the original intent and provider receipt before considering retry. Never release a stored synthetic preview for handoff.
+
+## Data-preserving rollback
+
+1. Under incident approval fence new admissions and handoffs for affected organizations in one transaction by setting `enrollment_enabled=false` and `dispatch_enabled=false` in `private.automation_release_controls`. Read back both values. Hide the builder separately with `builder_visible=false` when necessary. An already authorized provider request can still resolve.
+2. Keep verified callback ingestion and history repair available for handed-off messages. Inventory uncertain intents, held runs, queued events and unpublished edits. Preserve receipts and deduplication keys throughout repair. Suspend a separately activated new schedule only after identifying its owner and protecting legacy waits sharing the worker.
+3. If code needs rollback, restore the last verified frontend and complete worker packages under separate release approval, with controls fenced and the read-only View As boundary retained. Check CRM create/attach, ordinary Gmail and SMS, Voice.js call creation/status/logs, and existing history. Inspect old-client compatibility before exposing the old Settings editor under tightened grants.
+4. Retain all Automations tables, indexes, session revisions, versions, logs and authorization policies. A future forward repair must revalidate held work, original intent states, eligibility, and the activation interval at event occurrence before a paced restart. No destructive down migration or restoration of broad legacy write access is part of rollback.

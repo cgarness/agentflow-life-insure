@@ -7,6 +7,8 @@ import { digest, phone, purpose, SmsError, UUID } from "./wire.ts";
 export interface Dispatch {
   /** Internal entry-point choice; never copied from a request body or workflow config. */
   manual?: boolean;
+  /** Worker-only transaction authorizes the workflow, calls sms_start_dispatch and returns its signed callback URL. */
+  authorizeHandoff?: (from: string) => Promise<string>;
   expectedSenderId?: string;
   overrideSenderId?: string;
   verifyRecipient?: () => Promise<void>;
@@ -172,6 +174,7 @@ export async function dispatch(
       "This send already has an attempt. Check its status before trying again.",
     );
   }
+  let callbackUrl: string | undefined;
   try {
   if (sticky) { from = phone(row.from_number); registered = await authorizeSender(db, input.org, input.key, row, input.actor); }
   // Automated consent stays purpose-specific. Manual sends make no consent claim.
@@ -196,7 +199,9 @@ export async function dispatch(
       );
     }
   }
-  if (
+  if (input.authorizeHandoff) {
+    callbackUrl = await input.authorizeHandoff(from);
+  } else if (
     !checked(
       await db.rpc("sms_start_dispatch", {
         p_org: input.org,
@@ -247,6 +252,7 @@ export async function dispatch(
           From: from,
           Body: input.body,
           MessagingServiceSid: registered.messagingServiceSid,
+          ...(callbackUrl ? { StatusCallback: callbackUrl } : {}),
         }),
         signal: AbortSignal.timeout(10000),
       },

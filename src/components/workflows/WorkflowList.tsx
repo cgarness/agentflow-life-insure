@@ -1,166 +1,68 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useState } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { readReleaseControls, workflowEffects } from "@/lib/automation-release";
 import { Plus, Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { toast } from "@/hooks/use-toast";
-import { useOrganization } from "@/hooks/useOrganization";
-import { workflowApi } from "@/lib/supabase-workflows";
+import { automationApi } from "@/lib/automation-api";
 import { workflowFolderApi } from "@/lib/supabase-workflow-folders";
-import type {
-  WorkflowRow as WorkflowRowType, WorkflowStatus, WorkflowFolderRow,
-} from "@/lib/workflow-types";
-import WorkflowRow from "./WorkflowRow";
-import NewWorkflowModal from "./NewWorkflowModal";
 import WorkflowFolderTabs, { ALL_TAB, UNFILED_TAB } from "./WorkflowFolderTabs";
-import DeleteWorkflowDialog from "./DeleteWorkflowDialog";
+import { selectStyle } from "./AutomationBlockPanel";
+import { block } from "./lib/draftGraph";
 
 interface Props {
+  org: string;
+  session: number;
+  scope: string;
+  campaign: string | null;
+  onCreate: () => void;
   onOpenWorkflow: (id: string) => void;
 }
 
-const WorkflowList: React.FC<Props> = ({ onOpenWorkflow }) => {
-  const { organizationId } = useOrganization();
-  const [workflows, setWorkflows] = useState<WorkflowRowType[]>([]);
-  const [folders, setFolders] = useState<WorkflowFolderRow[]>([]);
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [activeFolderId, setActiveFolderId] = useState<string>(ALL_TAB);
-  const [toDelete, setToDelete] = useState<WorkflowRowType | null>(null);
-
-  const load = useCallback(async () => {
-    if (!organizationId) { setLoading(false); return; }
-    setLoading(true);
+export default function WorkflowList({org, session, scope, campaign, onCreate, onOpenWorkflow}: Props) {
+  const [folder, setFolder] = useState(ALL_TAB);
+  const [error, setError] = useState("");
+  const folders = useQuery({queryKey: ["automation-folders", scope], queryFn: () => workflowFolderApi.list(org)});
+  const list = useInfiniteQuery({
+    queryKey: ["automations", scope, campaign],
+    initialPageParam: 0,
+    queryFn: ({pageParam}) => automationApi.list(pageParam, campaign),
+    getNextPageParam: (last, all) => last.length === 50 ? all.length * 50 : undefined,
+  });
+  if (list.isLoading) return <p role="status">Loading automations…</p>;
+  if (list.isError) return <p role="alert">Automations could not be loaded. <Button variant="link" onClick={() => list.refetch()}>Retry</Button></p>;
+  const rows = list.data?.pages.flat() ?? [];
+  const filtered = rows.filter(row => folder === ALL_TAB || (folder === UNFILED_TAB ? !row.folder_id : row.folder_id === folder));
+  const create = <Button onClick={onCreate}><Plus className="mr-2 h-4 w-4"/>Create automation</Button>;
+  async function move(id: string, folderId: string) {
     try {
-      const [ws, fs] = await Promise.all([
-        workflowApi.list(organizationId),
-        workflowFolderApi.list(organizationId),
-      ]);
-      setWorkflows(ws);
-      setFolders(fs);
-      const c = await workflowApi.executionCounts(organizationId, ws.map((w) => w.id));
-      setCounts(c);
-    } catch (e) {
-      toast({ title: e instanceof Error ? e.message : "Failed to load workflows", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }, [organizationId]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const visibleWorkflows = useMemo(() => {
-    if (activeFolderId === ALL_TAB) return workflows;
-    if (activeFolderId === UNFILED_TAB) return workflows.filter((w) => !w.folder_id);
-    return workflows.filter((w) => w.folder_id === activeFolderId);
-  }, [workflows, activeFolderId]);
-
-  const handleCycleStatus = async (id: string, next: WorkflowStatus) => {
-    setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, status: next } : w)));
-    try {
-      await workflowApi.setStatus(id, next);
-      toast({ title: `Workflow ${next}` });
-    } catch (e) {
-      toast({ title: e instanceof Error ? e.message : "Failed to update status", variant: "destructive" });
-      load();
-    }
-  };
-
-  const handleMoveToFolder = async (id: string, folderId: string | null) => {
-    setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, folder_id: folderId } : w)));
-    try {
-      await workflowApi.setFolder(id, folderId);
-      const dest = folderId ? folders.find((f) => f.id === folderId)?.name ?? "folder" : "Unfiled";
-      toast({ title: `Moved to ${dest}` });
-    } catch (e) {
-      toast({ title: e instanceof Error ? e.message : "Failed to move workflow", variant: "destructive" });
-      load();
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    await workflowApi.delete(id);
-    setWorkflows((prev) => prev.filter((w) => w.id !== id));
-    toast({ title: "Workflow deleted" });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-foreground">Workflow Builder</h3>
+      await automationApi.folder("move",folderId || null,{workflow_id:id},session);
+      await list.refetch(); setError("");
+    } catch (e) { setError(e instanceof Error ? e.message : "Unable to move automation."); }
+  }
+  return <section className="space-y-4">
+    <header className="flex flex-wrap items-center justify-between gap-3">
+      <h1 className="text-2xl font-semibold">Automations</h1>{!!rows.length && create}
+    </header>
+    {!!(rows.length || folders.data?.length) && <WorkflowFolderTabs session={session} folders={folders.data ?? []} workflows={rows}
+      activeFolderId={folder} onActiveChange={setFolder} onFoldersChanged={() => { folders.refetch(); list.refetch(); }}/>}
+    {error && <p role="alert">{error}</p>}
+    {filtered.length === 0 && <div className="grid justify-items-center gap-3 rounded-xl border border-dashed p-10 text-center">
+      <Workflow aria-hidden className="h-7 w-7 text-muted-foreground"/>
+      <p>{rows.length ? "No automations in this folder." : campaign ? "No automations for this campaign." : "Your agency has no automations yet."}</p>
+      {!rows.length && create}
+    </div>}
+    <ul className="space-y-2">{filtered.map(row =>
+      <li className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4" key={row.id}>
+        <div><button className="text-left font-semibold hover:underline" onClick={() => onOpenWorkflow(row.id)}>{row.name}</button>
+          <p className="text-sm text-muted-foreground">{block(row.trigger_type ?? "")?.label ?? row.trigger_type?.replace(/_/g," ") ?? "Choose trigger"} · {row.status}</p>
+          {!row.is_legacy && <p className="text-sm">{workflowEffects(row.status,row.trigger_type,readReleaseControls(row.release_controls))}</p>}
+          <p className="text-xs text-muted-foreground">{row.last_activity_at ? "Last activity " + new Date(row.last_activity_at).toLocaleString() : "No activity yet"}</p>
         </div>
-        <Button onClick={() => setShowModal(true)}>
-          <Plus className="mr-2 h-4 w-4" /> New Workflow
-        </Button>
-      </div>
-
-      {organizationId && (
-        <WorkflowFolderTabs
-          folders={folders}
-          workflows={workflows}
-          organizationId={organizationId}
-          activeFolderId={activeFolderId}
-          onActiveChange={setActiveFolderId}
-          onFoldersChanged={load}
-        />
-      )}
-
-      {loading ? (
-        <div className="space-y-2">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-16 animate-pulse rounded-2xl bg-accent/40" />
-          ))}
-        </div>
-      ) : visibleWorkflows.length === 0 ? (
-        <EmptyState onCreate={() => setShowModal(true)} hasWorkflows={workflows.length > 0} />
-      ) : (
-        <div className="space-y-2">
-          {visibleWorkflows.map((w) => (
-            <WorkflowRow
-              key={w.id}
-              workflow={w}
-              folders={folders}
-              executionCount={counts[w.id] ?? 0}
-              onOpen={onOpenWorkflow}
-              onCycleStatus={handleCycleStatus}
-              onMoveToFolder={handleMoveToFolder}
-              onDelete={setToDelete}
-            />
-          ))}
-        </div>
-      )}
-
-      <NewWorkflowModal
-        open={showModal}
-        onOpenChange={setShowModal}
-        onCreated={(id) => { load(); onOpenWorkflow(id); }}
-      />
-      <DeleteWorkflowDialog
-        workflow={toDelete}
-        onOpenChange={(open) => { if (!open) setToDelete(null); }}
-        onConfirm={handleDelete}
-      />
-    </div>
-  );
-};
-
-const EmptyState: React.FC<{ onCreate: () => void; hasWorkflows: boolean }> = ({ onCreate, hasWorkflows }) => (
-  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/60 bg-card/30 px-6 py-16 text-center">
-    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-      <Workflow className="h-7 w-7" />
-    </div>
-    <h4 className="text-base font-semibold text-foreground">
-      {hasWorkflows ? "No workflows in this folder" : "Create your first automation"}
-    </h4>
-    {hasWorkflows && (
-      <p className="max-w-sm text-sm text-muted-foreground">
-        Move workflows here from the All tab — or create a new one.
-      </p>
-    )}
-    <Button onClick={onCreate} className="mt-2">
-      <Plus className="mr-2 h-4 w-4" /> New Workflow
-    </Button>
-  </div>
-);
-
-export default WorkflowList;
+        {!!folders.data?.length && <label className="text-xs">Folder<select className={selectStyle} value={row.folder_id ?? ""}
+          onChange={e => move(row.id,e.target.value)}><option value="">Unfiled</option>
+          {folders.data.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select></label>}
+      </li>)}</ul>
+    {list.hasNextPage && <Button disabled={list.isFetchingNextPage} variant="outline" onClick={() => list.fetchNextPage()}>Load more</Button>}
+  </section>;
+}

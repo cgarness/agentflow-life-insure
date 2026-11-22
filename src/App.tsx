@@ -33,6 +33,7 @@ import CarriersPage from "@/pages/CarriersPage";
 import Resources from "./pages/Resources";
 import AppLinkEmbedPage from "./pages/AppLinkEmbedPage";
 import SettingsPage from "./pages/SettingsPage";
+import WorkflowBuilder from "./components/settings/WorkflowBuilder";
 import CommissionsPage from "./pages/CommissionsPage";
 import AgentProfile from "./pages/AgentProfile";
 import LoginPage from "./pages/LoginPage";
@@ -165,6 +166,7 @@ const App = () => (
                           {/* The former Commission Calculator address opens the Calculator tab, so saved links keep working. */}
                           <Route path="/commission-calculator" element={<Navigate to="/commissions/calculator" replace />} />
                           <Route path="/app-link/:linkId" element={<AppLinkEmbedPage />} />
+                          <Route path="/automations" element={<WorkflowBuilder />} />
                           <Route path="/settings" element={<SettingsPage />} />
                           <Route path="/agent-profile" element={<AgentProfile />} />
                           <Route path="/ai-testing" element={<SuperAdminRoute><AITestingPage /></SuperAdminRoute>} />
