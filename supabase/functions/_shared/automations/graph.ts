@@ -103,8 +103,8 @@ export function stepSummary(node: AutomationNode, names?: SummaryNames): string 
   return titled === block.label ? detail : titled.includes(detail) ? "" : detail;
 }
 
-// deno-lint-ignore no-control-regex
-const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+// Control characters other than tab, line feed and carriage return, tested by character code so no lint rule needs an exception.
+const CONTROL = { test: (text: string) => [...text].some((c) => { const code = c.charCodeAt(0); return code === 127 || (code < 32 && code !== 9 && code !== 10 && code !== 13); }) };
 function metaIssue(meta: unknown): string | undefined {
   if (meta === undefined) return undefined;
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return "Step details are not valid.";
