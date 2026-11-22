@@ -4,7 +4,7 @@
 
 **Nothing is released.** No production migration, Edge function, Vercel deployment, release control or schedule was changed. Production was read only. Enrollment and message delivery stay off for every agency. The branch is excluded from Vercel deployments in `vercel.json`.
 
-[Release and rollback plan](release-plan.md) · [Screenshots and run evidence](evidence/) · [Implementation plan entry](../../../implementation_plan.md)
+[Draft pull request 536](https://github.com/cgarness/agentflow-life-insure/pull/536) · [Release and rollback plan](release-plan.md) · [Screenshots and run evidence](evidence/) · [Implementation plan entry](../../../implementation_plan.md)
 
 ## What changed
 
@@ -49,13 +49,14 @@ The four applied first-release files are unchanged. No existing table's row-leve
 
 ## Verification
 
-All runs were local, on November 22, 2026, at the pull request head.
+All runs were local, on November 22, 2026. Commits made after the runs changed documentation and renamed one local helper that the lint rule mistook for a React hook. The 17 test files that read those documents, the builder tests, the app typecheck and the builder harness mode were run again afterwards.
 
 | Check | Result |
 | --- | --- |
 | `npx tsc --noEmit` | Pass. |
 | App TypeScript, `A2P_BASE_SHA=d85434f635bbf2d4118781e6d254798eef699363 node scripts/verify-a2p-types.mjs` | 78 diagnostics on the base and on the candidate. Zero new. |
 | `npm run build` | Pass. |
+| `npx eslint` on every frontend file this branch added or changed | 0 errors, 3 warnings (two effect-cleanup ref warnings, one fast-refresh warning on the shared badge). |
 | `npx vitest run` | 7,381 tests passed, 40 skipped, 1 failed. 502 files passed, 4 skipped, 9 failed. All nine failures exist on the base and are listed below. |
 | Focused Vitest: builder, tasks, Inbounds callbacks, policy issuance | 19 files, 217 passed, 5 skipped. |
 | Deno: `_shared/automations/` and three `_shared/sms/` files | 63 passed, 0 failed (34 Automations, 29 SMS). |

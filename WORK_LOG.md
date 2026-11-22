@@ -1,6 +1,6 @@
 ## November 22, 2026 — Automations V2 built and verified locally; nothing released
 
-Automations V2 is ready for review as a draft pull request from `claude/cool-maxwell-15hyq7` into `feat/self-service-automations`. No production migration, Edge function, Vercel deployment, release control or schedule was changed. Production was read only: the ledger still holds 395 entries ending `20261122001044`, one agency sees the builder, and no agency is enrolling or delivering.
+Automations V2 is ready for review as [draft pull request 536](https://github.com/cgarness/agentflow-life-insure/pull/536), from `claude/cool-maxwell-15hyq7` into `feat/self-service-automations`. No production migration, Edge function, Vercel deployment, release control or schedule was changed. Production was read only: the ledger still holds 395 entries ending `20261122001044`, one agency sees the builder, and no agency is enrolling or delivering.
 
 The builder opens on a blank unsaved canvas with Canvas and List views on desktop and a timeline on phones. Saving is three separate actions: Save draft, Save & review, Publish version. Messages are written directly, with Use saved message and Insert field as helpers. The server now decides each text's consent requirement at publish. Every step can carry an optional name and description, and a run shows the name from the version it executed.
 

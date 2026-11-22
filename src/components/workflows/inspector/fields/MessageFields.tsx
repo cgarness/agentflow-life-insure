@@ -30,7 +30,7 @@ export default function MessageFields({graph, node, scope, issues, onChange}: Ed
   // Any change made here leaves a text step on the current definition, which has no author-chosen purpose.
   const change = (patch: Record<string, unknown>) => onChange(patchConfig(currentSms(node), patch));
 
-  function use(message: SavedMessage) {
+  function applySaved(message: SavedMessage) {
     const copy = savedMessageCopy(message);
     cache.setQueryData(savedMessageKey(scope, channel, message.id), message);
     change({body: copy.body, ...(email && {subject: copy.subject}), template_id: message.id});
@@ -39,7 +39,7 @@ export default function MessageFields({graph, node, scope, issues, onChange}: Ed
     const copy = savedMessageCopy(message);
     const written = Boolean(body.trim() || (email && subject.trim()));
     const same = body === copy.body && (!email || subject === copy.subject);
-    if (written && !same) setAsking(message); else use(message);
+    if (written && !same) setAsking(message); else applySaved(message);
   }
 
   return <>
@@ -67,6 +67,6 @@ export default function MessageFields({graph, node, scope, issues, onChange}: Ed
       <p>This step was written in an earlier version of the builder.</p>
       <Button type="button" variant="outline" size="sm" className="h-11 md:h-8" onClick={() => change({})}>Update step</Button>
     </div>}
-    <ReplaceMessageDialog message={asking} onReplace={use} onClose={() => setAsking(null)} onClosed={() => menu.current?.focus()}/>
+    <ReplaceMessageDialog message={asking} onReplace={applySaved} onClose={() => setAsking(null)} onClosed={() => menu.current?.focus()}/>
   </>;
 }
