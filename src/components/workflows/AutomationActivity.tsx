@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { runStatusBadge } from "./list/statusBadges";
 
 type Props = { workflowId?: string; contactId?: string; contactType?: string };
 type Run = {
@@ -9,12 +11,15 @@ type Run = {
   workflow_name: string;
   version_id: string;
   contact_name: string | null;
-  contact_id: string;
-  contact_type: string;
+  /** Absent for a run that has no matched contact, such as a missed call from an unknown number. */
+  contact_id: string | null;
+  contact_type: string | null;
   node_id: string | null;
   status: string;
   node_type: string;
   node_label: string | null;
+  /** The name the step had in the version this run executed. */
+  node_name?: string | null;
   due_at: string | null;
   version_revision: number;
   message_status: string | null;
@@ -108,13 +113,18 @@ export function AutomationActivity({ workflowId, contactId, contactType }: Props
         <p className="text-sm text-muted-foreground">No automation activity.</p>
       )}
       <ul className="space-y-3">
-        {rows.map((run) => (
-          <li key={run.run_id} className="rounded-md border p-3">
-            <strong>{run.workflow_name}</strong>
-            <p className="text-sm">{run.contact_name ?? run.contact_id} · {run.status}</p>
-            <p className="break-all text-xs text-muted-foreground">
-              Version {run.version_revision} ·{" "}
-              {run.node_label || run.node_type?.replace(/_/g, " ") || run.node_id}
+        {rows.map((run) => {
+          const status = runStatusBadge(run.status);
+          const block = run.node_label || run.node_type?.replace(/_/g, " ") || run.node_id;
+          return (
+          <li key={run.run_id} className="space-y-1 rounded-md border bg-card p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <strong>{run.workflow_name}</strong>
+              <Badge variant={status.tone}>{status.label}</Badge>
+            </div>
+            <p className="text-sm">{run.contact_name ?? run.contact_id ?? "Unmatched caller"}</p>
+            <p className="break-words text-xs text-muted-foreground">
+              Version {run.version_revision} · {run.node_name ? run.node_name + " · " + block : block}
             </p>
             <p className="text-xs">{new Date(run.updated_at).toLocaleString()}</p>
             {run.status === "waiting" && run.due_at && (
@@ -138,7 +148,8 @@ export function AutomationActivity({ workflowId, contactId, contactType }: Props
               </Button>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
       {visible?.hasMore && oldest && (
         <Button type="button" variant="outline" disabled={loading}

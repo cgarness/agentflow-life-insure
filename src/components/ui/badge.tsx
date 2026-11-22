@@ -12,6 +12,12 @@ const badgeVariants = cva(
         secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
         destructive: "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
         outline: "text-foreground",
+        // Shared status roles. Each pairs a text colour with its own surface in both themes.
+        neutral: "border-transparent bg-badge-neutral-surface text-badge-neutral-text",
+        info: "border-transparent bg-badge-info-surface text-badge-info-text",
+        success: "border-transparent bg-badge-success-surface text-badge-success-text",
+        warning: "border-transparent bg-badge-warning-surface text-badge-warning-text",
+        error: "border-transparent bg-badge-error-surface text-badge-error-text",
       },
     },
     defaultVariants: {

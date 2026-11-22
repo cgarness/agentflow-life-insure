@@ -7,7 +7,7 @@ Use this reference when designing or reviewing an AgentFlow feature. A familiar 
 
 Preserve the AgentFlow wordmark, Inter typography, navy-and-slate surfaces and the app's light default. Honor the selected theme on new screens, dialogs and menus. Inbounds already has a dedicated dark workspace. Use its contrast and visual hierarchy as inspiration for other operational screens. Keep the standard app shell around a feature.
 
-The existing theme defines HSL variables in `src/index.css`, exposes them through `tailwind.config.ts`, and consumes them in `src/components/ui/`. The following values are the v1 design targets. Canvas, cards, primary text, dividers and report series follow the current theme. The asset blue is sampled from the existing logo. Deeper action fills, distinct link and hover roles, stronger control outlines and paired status colors are proposed shared-theme refinements. This guide is a design reference. Theme refinements take effect when integrated into the shared primitives.
+The existing theme defines HSL variables in `src/index.css`, exposes them through `tailwind.config.ts`, and consumes them in `src/components/ui/`. The following values are the v1 design targets. Canvas, cards, primary text, dividers and report series follow the current theme. The asset blue is sampled from the existing logo. Deeper action fills, distinct link and hover roles and stronger control outlines are proposed shared-theme refinements. The paired status colors are integrated in the shared Badge primitive. This guide is a design reference. Theme refinements take effect when integrated into the shared primitives.
 
 ## Color roles
 
@@ -44,7 +44,7 @@ Each color pair below is ordered **text / background**. Render an explicit statu
 
 Use neutral for a commission awaiting its expected payment. Switch to amber when the agent has a follow-up to do. On Phone Numbers, show “Registered” only after the number's SMS registration is confirmed. Keep agency A2P approval and number registration distinct. Red belongs to failed or blocked work and destructive actions. Keep an ordinary “Cancel” dialog button secondary.
 
-Use the existing Badge primitive with shared status variants. Suggested variant names are neutral, info, success, warning and error. Introduce paired badge-text and badge-surface variables centrally when adopting them. The current Badge primitive includes default, secondary, destructive and outline.
+Use the existing Badge primitive with shared status variants. The Badge primitive now provides neutral, info, success, warning and error alongside default, secondary, destructive and outline. Each status variant reads a paired `--badge-<role>-text` and `--badge-<role>-surface` variable from `src/index.css`, with the light and dark values in the table above. `tailwind.config.ts` exposes the pairs as `text-badge-<role>-text` and `bg-badge-<role>-surface` for a status callout that needs the same roles.
 
 ## Reporting and recognition
 

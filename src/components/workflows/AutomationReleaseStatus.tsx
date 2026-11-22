@@ -1,6 +1,8 @@
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { WorkflowStatus } from "@/lib/workflow-types";
 import { workflowEffects, type ReleaseControls } from "@/lib/automation-release";
+import { switchBadge } from "./list/statusBadges";
 
 interface Props {
   controls: ReleaseControls | null;
@@ -11,19 +13,24 @@ interface Props {
   onRefresh?: () => void;
 }
 
-export default function AutomationReleaseStatus({controls,status,trigger,review,published,onRefresh}: Props) {
+/** The agency's two switches as they are now, and what they mean for this workflow. A failed lookup reads Unknown. */
+export default function AutomationReleaseStatus({controls, status, trigger, review, published, onRefresh}: Props) {
   const title = review ? "Publish review controls" : "Workflow status";
-  const switchLabel = (enabled?: boolean) => enabled == null ? "Unavailable" : enabled ? "On" : "Off";
-  return <section aria-label={title} className="space-y-2 rounded-lg border bg-card p-3 text-sm">
+  const switches = [
+    {label: "Enrollment", badge: switchBadge(controls?.enrollment_enabled)},
+    {label: "Message delivery", badge: switchBadge(controls?.dispatch_enabled)},
+  ];
+  return <section aria-label={title} className="space-y-2 rounded-lg border bg-card p-3 text-sm text-card-foreground">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h3 className="font-semibold">{review ? "After publishing" : title}</h3>
-      {onRefresh && <Button size="sm" variant="ghost" onClick={onRefresh}>Refresh status</Button>}
+      {onRefresh && <Button type="button" size="sm" variant="ghost" className="h-11 md:h-9" onClick={onRefresh}>Refresh status</Button>}
     </div>
-    {published && <p role="status">Version published.</p>}
-    <div className="flex flex-wrap gap-x-4 gap-y-1">
-      <span>Agency enrollment: {switchLabel(controls?.enrollment_enabled)}</span>
-      <span>Provider dispatch: {switchLabel(controls?.dispatch_enabled)}</span>
+    {published && <p role="status" className="font-medium">Version published.</p>}
+    <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+      {switches.map(item => <div key={item.label} className="flex items-center gap-1.5">
+        {item.label}: <Badge variant={item.badge.tone}>{item.badge.label}</Badge>
+      </div>)}
     </div>
-    <p>{status ? workflowEffects(status,trigger,controls) : "Current workflow status could not be confirmed."}</p>
+    <p className="text-muted-foreground">{status ? workflowEffects(status, trigger, controls) : "Current workflow status could not be confirmed."}</p>
   </section>;
 }
