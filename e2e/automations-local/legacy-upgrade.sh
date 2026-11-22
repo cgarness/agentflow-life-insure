@@ -32,6 +32,8 @@ docker cp supabase/tests/automation_upgrade.sql "$db:$dest/tests/"
 "${pg[@]}" psql -X -q -U postgres -d "$legacy" -v ON_ERROR_STOP=1 -f - < supabase/tests/automation_authoring.sql
 "${pg[@]}" psql -X -q -U postgres -d "$legacy" -v ON_ERROR_STOP=1 -f - < supabase/tests/automation_v2_authoring.sql
 echo 'Populated legacy graph, IDs, folders and history survived the complete feature upgrade.'
+# The guarded V2 rollback, rehearsed on a copy of this upgraded clone.
+bash e2e/automations-local/rollback-rehearsal.sh "$legacy"
 # The legacy fixture has no candidate runtime events or runs. Reuse this isolated clone for actual lead intake.
 "${pg[@]}" psql -Xq -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE $legacy RENAME TO automation_release_channel_test"
 "${pg[@]}" psql -Xq -U postgres -d automation_release_channel_test -v ON_ERROR_STOP=1 -f - <supabase/tests/automation_intake_eligibility.sql

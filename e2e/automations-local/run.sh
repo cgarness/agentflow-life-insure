@@ -5,9 +5,9 @@ cd "$(dirname "$0")/../.."
 umask 077
 mode=${1:-builder}
 case "$mode" in
-  builder|release) [[ $# -le 1 ]] ;;
+  builder|release|backend-first) [[ $# -le 1 ]] ;;
   release-full) [[ $# -eq 2 && -d "$2" ]] || { echo 'A verified schema-only archive directory is required.' >&2; exit 2; } ;;
-  *) echo 'Choose builder, release, or release-full ARCHIVE_DIRECTORY.' >&2; exit 2 ;;
+  *) echo 'Choose builder, release, backend-first, or release-full ARCHIVE_DIRECTORY.' >&2; exit 2 ;;
 esac
 dir=$(mktemp -d)
 prefix="af-auto-test-$$"
@@ -94,6 +94,49 @@ import json, sys
 if json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])):
     raise SystemExit('Full-schema fingerprint changed after local Auth startup')
 PYTHON
+fi
+if [[ $mode == backend-first ]]; then
+  # The release order rehearsed end to end: the database first, the clients afterwards, then the rollback.
+  first_release=d85434f635bbf2d4118781e6d254798eef699363
+  git cat-file -e "$first_release^{commit}" || { echo 'The first-release commit is not in this checkout. Fetch feat/self-service-automations.' >&2; exit 2; }
+  psql=(docker exec -i -e PGPASSWORD "$db" psql -Xq -U postgres -d postgres -v ON_ERROR_STOP=1)
+  bash e2e/automations-local/upgrade.sh pilot
+  "${psql[@]}" -f - <e2e/automations-local/inflight-before.sql
+  bash e2e/automations-local/upgrade.sh v2
+  "${psql[@]}" -c "notify pgrst,'reload schema'"
+  "${psql[@]}" -f - <e2e/automations-local/inflight-after.sql
+  node e2e/automations-local/bootstrap.mjs
+  anon=$(node -pe 'require(process.env.AUTOMATIONS_LOCAL_SETTINGS).ANON_KEY')
+  mkdir "$dir/first-release"
+  git archive "$first_release" | tar -x -C "$dir/first-release"
+  ln -s "$PWD/node_modules" "$dir/first-release/node_modules"
+  frontend=
+  serve() { # One signed-in app at a time on the fixed loopback origin, built from the given checkout.
+    if [[ -n $frontend ]]; then kill "$frontend" 2>/dev/null || true; wait "$frontend" 2>/dev/null || true; fi
+    (cd "$1" && exec env -i PATH="$PATH" NO_PROXY='*' VITE_SUPABASE_ANON_KEY="$anon" VITE_SUPABASE_URL=http://127.0.0.1:54340 \
+      node_modules/.bin/vite --config e2e/team-open-local/vite.local.config.ts) >>"$dir/vite.log" 2>&1 &
+    frontend=$!
+    processes+=("$frontend")
+    curl --retry 30 --retry-all-errors --retry-delay 1 --fail --silent http://127.0.0.1:8089/login >/dev/null
+  }
+  export AUTOMATION_TEST_ACCOUNT_SUFFIX=b1
+  # 1. The first release's own acceptance script, frontend and worker, unchanged, on the V2 database.
+  serve "$dir/first-release"
+  (cd "$dir/first-release"
+    export AUTOMATION_IMPORT_MAP="$PWD/e2e/automations-local/import-map.json"
+    "${DENO_BIN:-deno}" cache --node-modules-dir=manual --no-lock --import-map="$AUTOMATION_IMPORT_MAP" e2e/automations-local/worker.ts
+    node e2e/automations-local/builder.mjs)
+  echo 'PASS the first-release frontend and worker passed their own acceptance script on the V2 database.'
+  # 2. The V2 frontend on the automations the first release just published.
+  serve "$PWD"
+  node e2e/automations-local/backend-first.mjs candidate
+  # 3. Rollback in its order: fence every agency, restore the first-release frontend, apply the guarded file.
+  "${psql[@]}" -c 'update private.automation_release_controls set enrollment_enabled=false,dispatch_enabled=false'
+  serve "$dir/first-release"
+  "${psql[@]}" -1 -f - <supabase/migrations/rollback/20261122100600_automation_v2.rollback.sql
+  "${psql[@]}" -c "notify pgrst,'reload schema'"
+  node e2e/automations-local/backend-first.mjs rolled-back
+  exit
 fi
 if [[ $mode == release || $mode == release-full ]]; then
   if [[ $mode == release ]]; then bash e2e/automations-local/legacy-upgrade.sh; fi
