@@ -54,7 +54,8 @@ export async function dispatchChannel(
   const contactType: string = claim.contact_type;
   const rawBody = String(config.body ?? config.body_override ?? "");
   const rawSubject = String(config.subject ?? config.subject_override ?? "");
-  const purpose = channel === "sms" && node.version === 2 ? claim.context?.sms_purpose : config.purpose;
+  // A version published under the current rules carries a pinned purpose. Earlier versions keep their stored one.
+  const purpose = claim.context?.sms_purpose ?? (node.version === 2 ? undefined : config.purpose);
   if (channel === "sms" && purpose !== "informational" && purpose !== "marketing") {
     return { status: "held", reason: "SMS purpose could not be established. Republish this automation." };
   }
