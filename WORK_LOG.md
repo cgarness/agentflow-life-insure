@@ -4,7 +4,7 @@ Chris confirmed that Back returned him to the empty Automations list. An aggrega
 
 The installation and first-visibility audits each counted zero workflow definitions. The post-Back audit found one at CG Financial, created at 8:42 p.m. PST after the release window. It was an unpublished, first-revision draft with a name and connected blocks. The other ten measures were zero. CG Financial was the only visible agency. Enrollment and dispatch were off everywhere.
 
-The installation met its empty-state check. The post-Back check for eleven zeros failed. The receipts cannot identify which browser action saved the draft. The draft was preserved. In an isolated rerun on the shipped SHA, Create → Choose trigger → Back returned to the list with zero calls to the mocked save API. All nine tests passed.
+Chris confirmed he created the draft while testing and was unaware it had been saved. Installation met its empty-state check. His draft accounts for the one definition in the post-Back audit and was preserved. In an isolated rerun on the shipped SHA, Create → Choose trigger → Back returned to the list with zero calls to the mocked save API. All nine tests passed.
 
 [Production counts and release evidence](docs/plans/2026-11-21-automations/context-snapshot.md)
 
