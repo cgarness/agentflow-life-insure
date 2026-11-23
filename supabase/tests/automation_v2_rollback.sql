@@ -296,16 +296,17 @@ select pg_temp.ok(public.automation_process_events(25)=2,'the lead captured befo
 select pg_temp.ok(not exists(select from private.automation_runs where contact_id=pg_temp.id(32)
     and private.automation_needs_v2(organization_id,version_id)),'and on no version that needs V2');
 select pg_temp.ok(pg_temp.work()='wait wait','its two runs wait');
--- Republished from the first-release editor with hand-written wording declared informational: still held to V2's requirement.
+-- Republished from the first-release editor with hand-written wording declared informational: still held to V2's
+-- requirement, so the version never becomes current and the automation stays paused on its pinned version.
 insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
   values (pg_temp.id(53),pg_temp.id(1),pg_temp.id(46),'Tightened text',2,pg_temp.graph('[
     {"type":"lead_created","config":{"lead_source":"Never used"}},
     {"type":"send_sms","config":{"body":"Hello there","purpose":"informational"}}]'),clock_timestamp(),pg_temp.id(10));
-update public.workflows set automation_version_id=pg_temp.id(53) where id=pg_temp.id(46);
+select pg_temp.refused(format('update public.workflows set automation_version_id=%L where id=%L',pg_temp.id(53),pg_temp.id(46)),'PT409');
 select pg_temp.refused(format('select public.automation_lifecycle(%L,%L,%s)',pg_temp.id(46),'resume',pg_temp.session()),'PT409');
 select pg_temp.nobody();
-select pg_temp.ok((select status='paused' from public.workflows where id=pg_temp.id(46)),
-  'a republished text that V2 would pin to marketing consent cannot be resumed as informational');
+select pg_temp.ok((select status='paused' and automation_version_id=pg_temp.id(47) from public.workflows where id=pg_temp.id(46)),
+  'a text that V2 pinned to marketing consent cannot be republished or resumed as informational');
 -- Republished as marketing, it may run. The earlier pending lead still never enrolls on the pinned version.
 insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
   values (pg_temp.id(54),pg_temp.id(1),pg_temp.id(46),'Tightened text',3,pg_temp.graph('[
@@ -421,5 +422,46 @@ begin
   end;
   perform pg_temp.ok(refusal like '%stays paused until V2 is installed again%',
     'a draft the earlier editor cannot change gets no advice it cannot follow: '||coalesce(refusal,'none'));
+end $$;
+-- 9. A version with V2 steps whose draft the earlier editor can change: the refusal says to publish the draft.
+insert into public.workflows(id,organization_id,name,status,trigger_type,automation_graph,automation_revision)
+  values (pg_temp.id(92),pg_temp.id(1),'Draft without V2','paused','manual',pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},{"type":"wait","config":{"duration":1,"unit":"days"}}]'),1);
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  values (pg_temp.id(93),pg_temp.id(1),pg_temp.id(92),'Draft without V2',1,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"create_task","config":{"title":"Call the new lead","task_type":"Follow Up","due_amount":5,"due_unit":"minutes"}}]'),
+    clock_timestamp(),pg_temp.id(10));
+do $$
+declare refusal text;
+begin
+  begin
+    insert into public.automation_intervals(organization_id,workflow_id,version_id,starts_at)
+      values (pg_temp.id(1),pg_temp.id(92),pg_temp.id(93),clock_timestamp());
+  exception when sqlstate 'PT409' then refusal:=sqlerrm;
+  end;
+  perform pg_temp.ok(refusal like '%Publish the current draft to use it now%',
+    'when the draft no longer needs V2, the refusal says publishing it fixes the automation now: '||coalesce(refusal,'none'));
+end $$;
+-- 10. A publish that started before the rollback and finishes after it cannot make a version that needs V2 current.
+insert into public.workflows(id,organization_id,name,status,trigger_type,automation_graph,automation_revision)
+  values (pg_temp.id(95),pg_temp.id(1),'Late publish','paused','manual',pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"create_task","config":{"title":"Call the new lead","task_type":"Follow Up","due_amount":5,"due_unit":"minutes"}}]'),1);
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  values (pg_temp.id(96),pg_temp.id(1),pg_temp.id(95),'Late publish',1,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"create_task","config":{"title":"Call the new lead","task_type":"Follow Up","due_amount":5,"due_unit":"minutes"}}]'),
+    clock_timestamp(),pg_temp.id(10));
+do $$
+declare refusal text;
+begin
+  begin
+    update public.workflows set automation_version_id=pg_temp.id(96) where id=pg_temp.id(95);
+  exception when sqlstate 'PT409' then refusal:=sqlerrm;
+  end;
+  perform pg_temp.ok(refusal like '%so this version cannot be published%',
+    'a late publish of a version that needs V2 is refused: '||coalesce(refusal,'none'));
+  perform pg_temp.ok((select automation_version_id is null from public.workflows where id=pg_temp.id(95)),'and nothing became current');
 end $$;
 rollback;

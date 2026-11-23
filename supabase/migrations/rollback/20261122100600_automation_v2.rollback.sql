@@ -10,14 +10,14 @@
 -- lock calls, sales, dispositions, appointments and the sign-in tables.
 -- It pauses every automation whose published version needs V2 to run as authored (a V2 step, a V2 re-entry or
 -- stop rule, or an SMS consent requirement stricter than the step's stored purpose), stops every unfinished run on
--- those automations, and stops any other run only V2 can execute. Two guard triggers, on private.automation_runs
--- and public.automation_intervals, keep work that needs V2 from starting again: such an automation cannot be
--- resumed, a text cannot be published with a weaker consent requirement than V2 set for it, and no run is enrolled
--- on such a version, until V2 is installed again. The decision depends only on stored data, so it never changes
+-- those automations, and stops any other run only V2 can execute. Three guard triggers, on private.automation_runs,
+-- public.automation_intervals and public.workflows, keep work that needs V2 from starting again: such a version
+-- cannot be made current or resumed, a text cannot be published with a weaker consent requirement than V2 set for
+-- it, and no run is enrolled on such a version, until V2 is installed again. A refusal says what the author can do. The decision depends only on stored data, so it never changes
 -- for a version once made.
 -- Locks: public.automation_intervals from the data phase until it commits, so publishing, pausing and resuming wait.
--- private.automation_runs only from creating its guard until the commit right after, so replies and the worker
--- keep writing runs while the file runs. Each version is judged once, not once per run.
+-- public.workflows and private.automation_runs only from creating their guards until the commit right after, so
+-- replies, the worker and draft saves keep writing while the file runs. Each version is judged once, not per run.
 -- It keeps every table, column, constraint, index, policy, grant and row V2 added. No task, callback, issuance
 -- confirmation, pinned SMS purpose, event, run, version or history row is removed or has its content changed. It
 -- only sets status and timing fields: it stops runs, closes activations, pauses automations, marks pending V2
@@ -25,7 +25,8 @@
 -- The restored bodies again raise SQLSTATE 40001 for a stale draft, publish or session change.
 -- The seven forward files cannot be replayed over the retained tables. Installing V2 again is a new migration
 -- that reinstalls the V2 function bodies (the six observers included), drops trigger automation_v2_rollback_guard
--- on both tables with functions private.automation_v2_rollback_guard(), private.automation_needs_v2(uuid,uuid),
+-- on all three tables with functions private.automation_v2_rollback_guard(), private.automation_v2_publish_guard(),
+-- private.automation_v2_refusal(uuid,uuid,uuid,boolean), private.automation_needs_v2(uuid,uuid),
 -- private.automation_v2_steps_needed(uuid,uuid) and private.automation_v2_loosened_text(uuid,uuid), releases the
 -- intake repairs and deferred admissions it parked, and fills scope_key for runs created while V2 was absent.
 \set ON_ERROR_STOP on
@@ -832,29 +833,52 @@ RETURNS boolean LANGUAGE sql STABLE SET search_path = '' AS $needs_v2$
   FROM public.workflow_versions v WHERE v.organization_id = p_org AND v.id = p_version
 $needs_v2$;
 
+-- Why a version that needs V2 cannot be made current or resumed while V2 is absent, worded by what the author can
+-- do now. The earlier editor can change a draft only when the draft has no V2 content.
+CREATE OR REPLACE FUNCTION private.automation_v2_refusal(p_org uuid, p_workflow uuid, p_version uuid, p_publishing boolean)
+RETURNS text LANGUAGE sql STABLE SET search_path = '' AS $refusal$
+  SELECT CASE
+    WHEN NOT EXISTS (SELECT FROM public.workflows w WHERE w.organization_id = p_org AND w.id = p_workflow
+        AND private.automation_editable_graph(w.automation_graph)) THEN
+      CASE WHEN p_publishing
+        THEN 'Automations V2 is not installed now, so this version cannot be published. Publish it again once V2 is installed.'
+        ELSE 'This automation was published with Automations V2 and stays paused until V2 is installed again.' END
+    WHEN private.automation_v2_steps_needed(p_org, p_version) THEN
+      'The published version of this automation needs Automations V2. Publish the current draft to use it now, or wait until V2 is installed again.'
+    ELSE
+      'A text in this automation needs the contact''s marketing consent, as Automations V2 set it. Choose Marketing for that text and publish again, or wait until V2 is installed again.'
+  END
+$refusal$;
+
 -- Nothing that needs V2 starts again while V2 is absent: such an automation cannot be resumed, and no run is
 -- enrolled on such a version. The first-release admission reads a skipped run as "not enrolled".
 CREATE OR REPLACE FUNCTION private.automation_v2_rollback_guard()
 RETURNS trigger LANGUAGE plpgsql SET search_path = '' AS $guard$
 BEGIN
   IF private.automation_needs_v2(NEW.organization_id, NEW.version_id) THEN
-    IF TG_TABLE_NAME = 'automation_intervals' AND NOT private.automation_v2_steps_needed(NEW.organization_id, NEW.version_id)
-      AND EXISTS (SELECT FROM public.workflows w WHERE w.organization_id = NEW.organization_id AND w.id = NEW.workflow_id
-        AND private.automation_editable_graph(w.automation_graph)) THEN
-      -- Only a text's consent requirement stands in the way, the earlier editor can change the draft, and publishing
-      -- the text as Marketing removes the obstacle.
-      RAISE EXCEPTION 'A text in this automation needs the contact''s marketing consent, as Automations V2 set it. Choose Marketing for that text and publish again, or wait until V2 is installed again.'
-        USING ERRCODE = 'PT409';
-    ELSIF TG_TABLE_NAME = 'automation_intervals' THEN
-      RAISE EXCEPTION 'This automation was published with Automations V2 and stays paused until V2 is installed again.'
+    IF TG_TABLE_NAME = 'automation_intervals' THEN
+      RAISE EXCEPTION '%', private.automation_v2_refusal(NEW.organization_id, NEW.workflow_id, NEW.version_id, false)
         USING ERRCODE = 'PT409';
     END IF;
     RETURN NULL;
   END IF;
   RETURN NEW;
 END $guard$;
+
+-- No automation's current version becomes one that needs V2 while V2 is absent, even through a publish that
+-- started before this file and finishes after it.
+CREATE OR REPLACE FUNCTION private.automation_v2_publish_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path = '' AS $publish_guard$
+BEGIN
+  IF private.automation_needs_v2(NEW.organization_id, NEW.automation_version_id) THEN
+    RAISE EXCEPTION '%', private.automation_v2_refusal(NEW.organization_id, NEW.id, NEW.automation_version_id, true)
+      USING ERRCODE = 'PT409';
+  END IF;
+  RETURN NEW;
+END $publish_guard$;
 REVOKE ALL ON FUNCTION private.automation_v2_loosened_text(uuid, uuid), private.automation_v2_steps_needed(uuid, uuid),
-  private.automation_needs_v2(uuid, uuid),
+  private.automation_needs_v2(uuid, uuid), private.automation_v2_refusal(uuid, uuid, uuid, boolean),
+  private.automation_v2_publish_guard(),
   private.automation_v2_rollback_guard() FROM PUBLIC, anon, authenticated;
 
 -- Publishing, pausing and resuming wait until this file commits, so nothing that needs V2 starts meanwhile. Runs are
@@ -928,16 +952,19 @@ BEGIN
  END IF;
 END $rollback_postimage$;
 
--- Last, so private.automation_runs is locked only from here until the commit that follows.
+-- Last, so public.workflows and private.automation_runs are locked only from here until the commit that follows.
 CREATE TRIGGER automation_v2_rollback_guard BEFORE INSERT ON public.automation_intervals
   FOR EACH ROW EXECUTE FUNCTION private.automation_v2_rollback_guard();
+CREATE TRIGGER automation_v2_rollback_guard BEFORE UPDATE OF automation_version_id ON public.workflows
+  FOR EACH ROW WHEN (NEW.automation_version_id IS DISTINCT FROM OLD.automation_version_id AND NEW.automation_version_id IS NOT NULL)
+  EXECUTE FUNCTION private.automation_v2_publish_guard();
 CREATE TRIGGER automation_v2_rollback_guard BEFORE INSERT ON private.automation_runs
   FOR EACH ROW EXECUTE FUNCTION private.automation_v2_rollback_guard();
 
 DO $rollback_guards$
 BEGIN
  IF (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'automation_v2_rollback_guard'
-   AND tgrelid IN ('private.automation_runs'::regclass, 'public.automation_intervals'::regclass)) <> 2 THEN
+   AND tgrelid IN ('private.automation_runs'::regclass, 'public.automation_intervals'::regclass, 'public.workflows'::regclass)) <> 3 THEN
   RAISE EXCEPTION 'automations v2 rollback guards are missing';
  END IF;
 END $rollback_guards$;

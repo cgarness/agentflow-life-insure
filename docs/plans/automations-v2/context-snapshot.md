@@ -35,7 +35,7 @@
 13. **Republishing an unchanged graph creates a version when an SMS step would now be pinned differently,** so review and publish always agree.
 14. **A super admin session the server cannot verify cannot claim callbacks or confirm issuance.** A sign-in from before the Automations upgrade keeps View As in the browser only, so it must sign in again.
 15. **The rollback never drops a trigger.** On Supabase that also locks every sign-in and storage table. It turns the six observers into no-ops instead.
-16. **The rollback decides once per version, from stored data only.** It never re-reads a saved message, it holds the lock on runs only for the moment before it commits, and it stops itself on a refusal even when psql's flags are left out.
+16. **The rollback decides once per version, from stored data only.** It never re-reads a saved message, it holds the locks on runs and workflows only for the moment before it commits, and it stops itself on a refusal even when psql's flags are left out.
 
 ## Migrations prepared, none executed
 
@@ -85,6 +85,13 @@ A third pass, also on November 23, checked the second round of fixes. Three chec
 | Builder | A step's name and description are cut to their limits, counted in characters, as they are typed or pasted. |
 | Verification and documents | The task row is checked at 375 px too. On a phone the contact screen's Tasks column stays on screen; only the policies column is pushed off, the reverse of what the notes said. |
 
+A fourth pass, also on November 23, checked the redesigned reschedule logic and the rollback guards. Two checkers reported 5 findings; a skeptic per area confirmed 4 (2 major) and refuted 1. One came from the third-pass redesign: taking back a cancellation missed a run when the cancellation had been restated, for example by retyping the appointment. The others: moving a cancelled appointment without reopening it started reminders for it (this predates the redesign); a refusal told an author to wait for V2 when publishing the current draft would fix the automation; and a V2 publish already under way when the rollback ran could still make a version that needs V2 current.
+
+| Area | Fixed in the fourth pass |
+| --- | --- |
+| Appointments | Taking back a cancellation revives every run stopped by that cancellation or a restatement of it. A slot with no recorded outcome takes the appointment's own final status, so a cancelled appointment moved to a new time never starts reminders. |
+| Rollback | A third guard, on `public.workflows`, refuses making a version that needs V2 current, even for a publish that started before the rollback. Each refusal says what the author can do now. |
+
 Accepted as they are, and stated here so they are not mistaken for fixed:
 
 - An automation task assigned to an agent who later leaves can be completed only by that agent. Opening tasks to anyone else would change the existing `public.tasks` row-level policies, which needs `#APPROVE_RLS_CHANGE`. The contact's new agent now gets their own task.
@@ -92,6 +99,7 @@ Accepted as they are, and stated here so they are not mistaken for fixed:
 - A task already created for a known caller is left open if proof that the call was answered arrives later. A callback in the same situation drops off the list and cannot be claimed.
 - While a save is in flight, under a second, leaving is not held. While a step is open, a problem only the server can see is hidden if the browser reports another problem for that step.
 - Two callbacks from the same number have buttons with the same accessible name. A permission refusal (42501) that signing in again does not fix still reads "You cannot change this callback."
+- A cancelled appointment moved to a new time starts no reminders. If it is later reopened without being moved again, it still gets none, because no booking for its new slot is recorded.
 - The rollback restores the first-release functions byte for byte. Afterwards a stale save, publish or session change again never answers (SQLSTATE 40001), and a held step retries every five minutes without an end. The release plan says to turn the worker schedule off after a database rollback.
 
 ## Verification

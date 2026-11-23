@@ -642,4 +642,40 @@ select pg_temp.as_agent(format('update public.appointments set start_time=%L whe
 select pg_temp.ok(public.automation_process_events(25)=1,'the new time starts the automation again');
 select pg_temp.ok((select status='stopped' and reason='Appointment was rescheduled' from private.automation_runs
   where workflow_id=pg_temp.id(46) and current_node_id='hour'),'the unconfirmed run ends');
+
+-- Fourth review follow-ups ------------------------------------------------------------------------
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(55,56) n;
+update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active';
+select pg_temp.publish(48,49,'Reminder, retyped while cancelled','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"until","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"task","type":"create_task","version":1,"config":{"title":"Reminder (L)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"until"},{"id":"b","source":"until","target":"task"}]}');
+
+-- Taking back a cancellation that was restated, here by retyping the cancelled appointment, still revives the run.
+insert into booked select 55,pg_temp.book(86,55,date_trunc('minute',clock_timestamp())+interval '3 days'),
+  date_trunc('minute',clock_timestamp())+interval '3 days';
+select pg_temp.ok(public.automation_process_events(25)=1,'the booking enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='wait','it waits for the day before');
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=55)));
+select public.automation_process_events(25);
+select pg_temp.as_agent(format('update public.appointments set type=''Zoom review'' where id=%L',(select id from booked where n=55)));
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=55)));
+select pg_temp.ok(public.automation_process_events(25)=0,'reopening starts no second run');
+select pg_temp.ok((select status='queued' and reason is null from private.automation_runs where workflow_id=pg_temp.id(48)
+  and contact_id=pg_temp.id(55)),'the run stopped by the cancellation carries on, though the cancellation was restated');
+
+-- Moving an appointment that stays cancelled never starts reminders for it.
+insert into booked select 56,pg_temp.book(87,56,date_trunc('minute',clock_timestamp())+interval '3 days'),
+  date_trunc('minute',clock_timestamp())+interval '3 days';
+select pg_temp.ok(public.automation_process_events(25)=1,'the booking enrolls');
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=56)));
+select public.automation_process_events(25);
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '5 days',(select id from booked where n=56)));
+select pg_temp.ok(public.automation_process_events(25)=0,'a cancelled appointment moved to a new time starts nothing');
+select pg_temp.ok(not exists(select from private.automation_runs where workflow_id=pg_temp.id(48) and contact_id=pg_temp.id(56)
+  and status in ('queued','waiting','held')),'and no run for it is live');
 rollback;
