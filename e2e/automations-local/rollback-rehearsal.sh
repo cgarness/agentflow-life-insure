@@ -32,16 +32,19 @@ SQL
 if refused=$("${apply[@]}" 2>&1); then echo 'The rollback applied while message delivery was on.' >&2; exit 1; fi
 grep -q 'turn enrollment and message delivery off for every agency first' <<<"$refused"
 
-# 3. Applies once every agency is fenced. 4. Refuses a second run because the functions are no longer the V2 ones.
+# 3. Refused when not run as one transaction, so it can never stop half way.
 "${sql[@]}" -c 'update private.automation_release_controls set enrollment_enabled=false,dispatch_enabled=false'
+if refused=$("${sql[@]}" -f "$dest/migrations/rollback/$rollback" 2>&1); then echo 'The rollback ran outside a transaction.' >&2; exit 1; fi
+grep -q 'run this file as one transaction' <<<"$refused"
+# 4. Applies once every agency is fenced. 5. Refuses a second run because the functions are no longer the V2 ones.
 "${apply[@]}"
 if refused=$("${apply[@]}" 2>&1); then echo 'The rollback applied twice.' >&2; exit 1; fi
 grep -q 'automations v2 rollback drift' <<<"$refused"
 
-# 5. The first-release suites pass on the rolled-back functions with the V2 tables and columns retained.
+# 6. The first-release suites pass on the rolled-back functions with the V2 tables and columns retained.
 for file in supabase/tests/automation_{sessions,authoring,runtime,messages,backlog,legacy_dispatch}.sql; do
   "${sql[@]}" -f - <"$file"
 done
 "${pg[@]}" dropdb -U supabase_admin "$copy"
 docker exec "$db" rm -rf "$dest"
-echo 'PASS guarded V2 rollback: refused until fenced, applied once, refused a second run, stopped and paused only V2 work, kept every V2 record, and the six first-release suites pass afterwards.'
+echo 'PASS guarded V2 rollback: refused until fenced and outside a transaction, applied once, refused a second run, stopped and paused only V2 work, kept every V2 record, and the six first-release suites pass afterwards.'

@@ -16,6 +16,8 @@ export interface RuntimeContext {
 export interface PreviewContext {
   type: string;
   label: string;
+  /** The author's name for the step, when it has one. */
+  name?: string;
   config: Config;
   input: Config;
 }
@@ -78,6 +80,8 @@ export function previewWaitUntil({ config, input }: PreviewContext): PreviewStep
   const due = start - Number(config.amount) * (UNIT_MS[String(config.unit)] ?? 0);
   const now = typeof input.now === "number" ? input.now : Date.now();
   if (due > now) return { detail: base };
+  // A run whose appointment has already started ends at this step, whatever the author chose for a late reminder.
+  if (start <= now) return { detail: base + " · The appointment has already started, so the remaining steps are skipped.", hold: true };
   return config.late === "continue"
     ? { detail: base + " · That time has passed, so the next step runs right away." }
     : { detail: base + " · That time has passed, so the remaining steps are skipped.", hold: true };
@@ -127,9 +131,17 @@ export function previewEmail({ config, input }: PreviewContext): PreviewStep {
   };
 }
 
-export function previewTask({ config, input }: PreviewContext): PreviewStep {
+/** The title a task gets when its fields render to nothing. The database applies the same rule. */
+export function fallbackTaskTitle(name: string | undefined, config: Config, trigger: unknown, callerPhone: unknown): string {
+  if (name?.trim()) return name.trim();
+  if (trigger === "inbound_call_missed") return "Call back " + (typeof callerPhone === "string" && callerPhone.trim() ? callerPhone.trim() : "the caller");
+  return String(config.task_type ?? "Follow Up");
+}
+
+export function previewTask({ name, config, input }: PreviewContext): PreviewStep {
   const values = previewValues(input);
-  const title = renderFields(config.title, values);
+  const rendered = renderFields(config.title, values);
+  const title = rendered.text.trim() ? rendered : { ...rendered, text: fallbackTaskTitle(name, config, input.trigger, input.caller_phone) };
   const notes = renderFields(config.notes, values);
   const missing = [...new Set([...title.missing, ...notes.missing])];
   const due = Number(config.due_amount) === 0 ? "due right away" : "due in " + offsetLabel(config.due_amount, config.due_unit);

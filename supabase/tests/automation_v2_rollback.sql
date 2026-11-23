@@ -131,6 +131,22 @@ select pg_temp.ok(pg_temp.work()='wait wait','both first steps are waits');
 select pg_temp.ok((select count(*)=2 and bool_and(status='waiting') from private.automation_runs
   where organization_id=pg_temp.id(1)),'both runs wait a day');
 
+-- An automation republished under V2 while an earlier first-release version still has a run under way.
+select pg_temp.publish(56,57,'Drip later upgraded',pg_temp.graph('[
+  {"type":"lead_created","config":{"lead_source":"Drip"}},{"type":"wait","config":{"duration":3,"unit":"days"}}]'));
+insert into public.leads(id,organization_id,first_name,lead_source,assigned_agent_id)
+  values (pg_temp.id(33),pg_temp.id(1),'Drip','Drip',pg_temp.id(11));
+select pg_temp.ok(public.automation_process_events(25)=3,'the drip lead enrolls in the drip, the first-release welcome and the V2 callback');
+select pg_temp.ok(pg_temp.work()='wait wait wait','all three wait');
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  values (pg_temp.id(58),pg_temp.id(1),pg_temp.id(56),'Drip later upgraded',2,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Drip"}},{"type":"wait","config":{"duration":3,"unit":"days"}},
+    {"type":"create_task","config":{"title":"Call the drip lead","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}]'),
+    clock_timestamp(),pg_temp.id(10));
+update public.automation_intervals set ends_at=clock_timestamp() where workflow_id=pg_temp.id(56) and ends_at is null;
+insert into public.automation_intervals(organization_id,workflow_id,version_id,starts_at)
+  values (pg_temp.id(1),pg_temp.id(56),pg_temp.id(58),clock_timestamp());
+update public.workflows set automation_version_id=pg_temp.id(58),automation_revision=2 where id=pg_temp.id(56);
 -- A missed call that already produced its callback, one whose run is still queued, and one not yet enrolled.
 select pg_temp.missed(60);
 update private.automation_events set available_at=clock_timestamp()-interval '1 second'
@@ -147,6 +163,12 @@ insert into private.automation_intake_recovery(organization_id,event_type,source
 select pg_temp.ok((select count(*)=1 from private.automation_events where organization_id=pg_temp.id(1)
   and event_type='inbound_call_missed' and processed_at is null),'the third missed call is still settling');
 
+-- A lead the agency captured just before the fence, not yet processed by any worker.
+insert into public.leads(id,organization_id,first_name,lead_source,assigned_agent_id)
+  values (pg_temp.id(32),pg_temp.id(1),'Pending','Never used',pg_temp.id(11));
+select pg_temp.ok((select count(*)=1 from private.automation_events where source_id=pg_temp.id(32) and processed_at is null),
+  'the pending lead''s event waits for the worker');
+
 create temporary table kept on commit drop as select
   (select count(*) from public.tasks where organization_id=pg_temp.id(1)) as tasks,
   (select count(*) from public.inbound_callbacks where organization_id=pg_temp.id(1)) as callbacks,
@@ -157,15 +179,15 @@ create temporary table kept on commit drop as select
   (select count(*) from private.automation_intake_recovery where organization_id=pg_temp.id(1)) as repairs,
   (select count(*) from public.workflow_versions where organization_id=pg_temp.id(1)) as versions,
   (select jsonb_agg(graph order by id) from public.workflow_versions where organization_id=pg_temp.id(1)) as graphs,
-  (select due_at from private.automation_runs where workflow_id=pg_temp.id(40)) as first_due;
-select pg_temp.ok((select callbacks=1 and receipts=1 and purposes=1 and runs=4 and repairs=1 and versions=6 from kept),
+  (select due_at from private.automation_runs where workflow_id=pg_temp.id(40) and contact_id=pg_temp.id(30)) as first_due;
+select pg_temp.ok((select callbacks=1 and receipts=1 and purposes=1 and runs=7 and repairs=1 and versions=8 from kept),
   'the fixture holds a callback, its receipt, a pinned requirement, four runs and an intake repair');
 
 -- The operator turns enrollment and delivery off everywhere, then runs the file.
 update private.automation_release_controls set enrollment_enabled=false,dispatch_enabled=false;
 \ir ../migrations/rollback/20261122100600_automation_v2.rollback.sql
 
--- 1. The first-release functions are back and the V2 observers are detached.
+-- 1. The first-release functions are back and the V2 observers record nothing.
 select pg_temp.ok(private.automation_block_fields('create_task','1'::jsonb) is null
   and private.automation_block_fields('wait','1'::jsonb)=array['duration','unit'],'the first-release step catalog is restored');
 select pg_temp.ok(private.automation_editable_graph((select graph from public.workflow_versions where id=pg_temp.id(41)))
@@ -177,19 +199,26 @@ select pg_temp.ok(not private.automation_needs_v2(pg_temp.id(1),pg_temp.id(41)) 
 select pg_temp.ok(private.automation_needs_v2(pg_temp.id(1),pg_temp.id(43)) and private.automation_needs_v2(pg_temp.id(1),pg_temp.id(45))
   and private.automation_needs_v2(pg_temp.id(1),pg_temp.id(47)) and private.automation_needs_v2(pg_temp.id(1),pg_temp.id(51)),
   'a V2 step, a V2 trigger, a tightened SMS requirement and a V2 stop rule each need V2');
-select pg_temp.ok(not exists(select from pg_trigger where not tgisinternal and tgname like 'automation\_capture\_%'
-  and tgname not in ('automation_capture_lead','automation_capture_campaign_membership')
-  and tgrelid in ('public.calls'::regclass,'public.wins'::regclass,'public.policy_issuance_confirmations'::regclass,
-    'private.appointment_occurrences'::regclass,'private.appointment_outcome_events'::regclass,
-    'private.dialer_disposition_receipts'::regclass)),'no V2 observer remains attached');
+select pg_temp.ok((select count(*)=6 and bool_and(position('Automations V2 was rolled back' in pg_get_functiondef(p.oid))>0)
+  from pg_proc p where p.oid in ('private.automation_capture_disposition()'::regprocedure,'private.automation_capture_sale()'::regprocedure,
+    'private.automation_capture_appointment_slot()'::regprocedure,'private.automation_capture_appointment_outcome()'::regprocedure,
+    'private.automation_capture_missed_inbound()'::regprocedure,'private.automation_capture_issuance()'::regprocedure)),
+  'every V2 observer records nothing');
+select pg_temp.ok((select count(*)=6 from pg_trigger where not tgisinternal and tgname in ('automation_capture_disposition',
+    'automation_capture_sale','automation_capture_appointment_slot','automation_capture_appointment_outcome',
+    'automation_capture_missed_inbound','automation_capture_issuance')),
+  'their triggers stay attached, so the rollback took no lock on calls, sales, dispositions, appointments or sign-in');
 
 -- 2. Only V2-only work was stopped or paused.
 select pg_temp.ok((select status='waiting' and not workflow_paused and due_at=(select first_due from kept)
-  from private.automation_runs where workflow_id=pg_temp.id(40)),'the first-release run keeps waiting with its due time');
-select pg_temp.ok((select count(*)=2 and bool_and(status='stopped' and reason='Stopped when Automations V2 was rolled back'
+  from private.automation_runs where workflow_id=pg_temp.id(40) and contact_id=pg_temp.id(30)),'the first-release run keeps waiting with its due time');
+select pg_temp.ok((select status='stopped' and reason='Stopped when Automations V2 was rolled back' and not workflow_paused
+  from private.automation_runs where workflow_id=pg_temp.id(56)),
+  'a first-release run on an automation paused by the rollback stops with the rollback''s reason instead of freezing');
+select pg_temp.ok((select count(*)=3 and bool_and(status='stopped' and reason='Stopped when Automations V2 was rolled back'
     and ended_at is not null and lease_token is null)
   from private.automation_runs where workflow_id in (pg_temp.id(42),pg_temp.id(44)) and status<>'completed'),
-  'the waiting V2 run and the queued missed-call run are stopped with a plain reason');
+  'the two waiting V2 callback runs and the queued missed-call run are stopped with a plain reason');
 select pg_temp.ok((select status='completed' from private.automation_runs r join private.automation_events e on e.id=r.event_id
   where r.workflow_id=pg_temp.id(44) and e.source_id=pg_temp.id(60)),'a finished run is left as it ended');
 select pg_temp.ok((select count(*)=2 and bool_and(status='active') from public.workflows where id in (pg_temp.id(40),pg_temp.id(48)))
@@ -200,9 +229,13 @@ select pg_temp.ok((select count(*)=4 and bool_and(status='paused') from public.w
   and not exists(select from public.automation_intervals
     where workflow_id in (pg_temp.id(42),pg_temp.id(44),pg_temp.id(46),pg_temp.id(50)) and ends_at is null),
   'the four automations that need V2 are paused with their activation closed');
-select pg_temp.ok(not exists(select from private.automation_events where organization_id=pg_temp.id(1) and processed_at is null)
+select pg_temp.ok((select status='paused' from public.workflows where id=pg_temp.id(56)),'the upgraded drip is paused too');
+select pg_temp.ok(not exists(select from private.automation_events where organization_id=pg_temp.id(1) and processed_at is null
+    and event_type not in ('lead_created','campaign_membership_created'))
   and (select retry_at='infinity' from private.automation_intake_recovery where organization_id=pg_temp.id(1)),
   'the unenrolled V2 event is settled and the V2 intake repair is parked');
+select pg_temp.ok((select processed_at is null from private.automation_events where source_id=pg_temp.id(32)),
+  'the pending lead''s event is kept for the first-release worker');
 
 -- 3. Nothing V2 created was removed or rewritten.
 select pg_temp.ok((select k.tasks=(select count(*) from public.tasks where organization_id=pg_temp.id(1))
@@ -241,6 +274,34 @@ select pg_temp.ok((select status='active' from public.workflows where id=pg_temp
 
 -- 5. With enrollment back on, only first-release work starts, in the first-release worker contract.
 update private.automation_release_controls set enrollment_enabled=true where organization_id=pg_temp.id(1);
+select pg_temp.ok(public.automation_process_events(25)=2,'the lead captured before the rollback enrolls in the two first-release automations');
+select pg_temp.ok(not exists(select from private.automation_runs where contact_id=pg_temp.id(32)
+    and private.automation_needs_v2(organization_id,version_id)),'and on no version that needs V2');
+select pg_temp.ok(pg_temp.work()='wait wait','its two runs wait');
+-- Republished from the first-release editor with hand-written wording declared informational: still held to V2's requirement.
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  values (pg_temp.id(53),pg_temp.id(1),pg_temp.id(46),'Tightened text',2,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"send_sms","config":{"body":"Hello there","purpose":"informational"}}]'),clock_timestamp(),pg_temp.id(10));
+update public.workflows set automation_version_id=pg_temp.id(53) where id=pg_temp.id(46);
+select pg_temp.refused(format('select public.automation_lifecycle(%L,%L,%s)',pg_temp.id(46),'resume',pg_temp.session()),'PT409');
+select pg_temp.nobody();
+select pg_temp.ok((select status='paused' from public.workflows where id=pg_temp.id(46)),
+  'a republished text that V2 would pin to marketing consent cannot be resumed as informational');
+-- Republished as marketing, it may run. The earlier pending lead still never enrolls on the pinned version.
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  values (pg_temp.id(54),pg_temp.id(1),pg_temp.id(46),'Tightened text',3,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"send_sms","config":{"body":"Hello there","purpose":"marketing"}}]'),clock_timestamp(),pg_temp.id(10));
+update public.workflows set automation_version_id=pg_temp.id(54) where id=pg_temp.id(46);
+select public.automation_lifecycle(pg_temp.id(46),'resume',pg_temp.session());
+select pg_temp.nobody();
+select pg_temp.ok((select status='active' from public.workflows where id=pg_temp.id(46)),'a version declared marketing resumes');
+select pg_temp.ok(public.automation_process_events(25)=0,'the pending lead''s deferred admission to the pinned version enrolls nothing');
+select pg_temp.ok(not exists(select from private.automation_runs where workflow_id=pg_temp.id(46))
+  and not exists(select from private.automation_deferred_admissions where workflow_id=pg_temp.id(46)),
+  'no run exists on the pinned version and its deferred admission is gone');
+update public.workflows set status='paused' where id=pg_temp.id(46);
 select pg_temp.missed(63);
 select pg_temp.ok((select count(*)=(select events from kept) from private.automation_events where organization_id=pg_temp.id(1)),
   'a missed call no longer records an automation event');

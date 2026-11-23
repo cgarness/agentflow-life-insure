@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { registrations, type SummaryNames } from "./blockRegistry.ts";
 import { offsetLabel } from "./blockHandlers.ts";
+import { characterCount } from "./fields.ts";
 
 /** Optional author notes. Never part of execution configuration or a customer message. */
 export interface StepMeta {
@@ -103,18 +104,40 @@ export function stepSummary(node: AutomationNode, names?: SummaryNames): string 
   return titled === block.label ? detail : titled.includes(detail) ? "" : detail;
 }
 
-// Control characters other than tab, line feed and carriage return, tested by character code so no lint rule needs an exception.
-const CONTROL = { test: (text: string) => [...text].some((c) => { const code = c.charCodeAt(0); return code === 127 || (code < 32 && code !== 9 && code !== 10 && code !== 13); }) };
+/**
+ * Control characters a step name or description may not contain: U+0000-U+001F and U+007F-U+009F, the set the
+ * database refuses. A description may keep tabs and line breaks. A name may not, nor a line or paragraph separator.
+ * Tested by code point, so no lint rule needs an exception.
+ */
+function refusedInStep(code: number, isName: boolean): boolean {
+  if (!isName && (code === 9 || code === 10 || code === 13)) return false;
+  return code <= 31 || (code >= 127 && code <= 159) || (isName && (code === 0x2028 || code === 0x2029));
+}
+export function stepTextHasControl(text: string, isName: boolean): boolean {
+  for (const c of text) if (refusedInStep(c.codePointAt(0) ?? 0, isName)) return true;
+  return false;
+}
+/** What an author typed or pasted, made acceptable: a name keeps one line, other control characters are dropped. */
+export function cleanStepText(text: string, isName: boolean): string {
+  let out = "";
+  for (const c of text) {
+    const code = c.codePointAt(0) ?? 0;
+    if (!refusedInStep(code, isName)) out += c;
+    else if (isName && (code === 9 || code === 10 || code === 13 || code === 0x2028 || code === 0x2029)) out += " ";
+  }
+  return out;
+}
 function metaIssue(meta: unknown): string | undefined {
   if (meta === undefined) return undefined;
   if (!meta || typeof meta !== "object" || Array.isArray(meta)) return "Step details are not valid.";
   const entries = Object.entries(meta as Record<string, unknown>);
   if (entries.some(([key]) => key !== "name" && key !== "description")) return "Step details are not valid.";
   const { name, description } = meta as StepMeta;
-  if (name !== undefined && (typeof name !== "string" || name.length > STEP_NAME_MAX || CONTROL.test(name) || /[\r\n\t]/.test(name))) {
+  if (name !== undefined && (typeof name !== "string" || characterCount(name) > STEP_NAME_MAX || stepTextHasControl(name, true))) {
     return "Step name must be plain text of " + STEP_NAME_MAX + " characters or fewer.";
   }
-  if (description !== undefined && (typeof description !== "string" || description.length > STEP_DESCRIPTION_MAX || CONTROL.test(description))) {
+  if (description !== undefined && (typeof description !== "string" || characterCount(description) > STEP_DESCRIPTION_MAX ||
+    stepTextHasControl(description, false))) {
     return "Description must be plain text of " + STEP_DESCRIPTION_MAX + " characters or fewer.";
   }
   return undefined;
@@ -249,6 +272,7 @@ export function previewGraph(
     const { detail, hold, branch = null } = spec.preview({
       type: node.type,
       label: spec.label,
+      name: node.meta?.name?.trim() || undefined,
       config: node.config,
       input,
     });

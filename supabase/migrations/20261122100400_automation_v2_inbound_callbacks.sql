@@ -53,16 +53,18 @@ CREATE TRIGGER automation_capture_missed_inbound AFTER UPDATE OF status ON publi
     AND NEW.outcome IS DISTINCT FROM 'forwarded_answered')
   EXECUTE FUNCTION private.automation_capture_missed_inbound();
 
--- answered: stop. ambiguous: a phone accepted the call and the conversation is not yet confirmed
--- either way, so nothing is created yet. missed: nobody answered.
+-- answered: stop. ambiguous: a phone accepted the call and its bridge result has not been recorded
+-- yet, so nothing is created yet. missed: nobody answered. A recorded bridge result is final, as in
+-- Inbounds: only DialBridged answers the call, and "unconfirmed" or "not_bridged" leaves it missed. A
+-- result that never arrives leaves the call missed ten minutes after it ended.
 CREATE FUNCTION private.automation_inbound_evidence(p_org uuid,p_call uuid)
 RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
   SELECT CASE
     WHEN c.id IS NULL THEN 'unknown'
     WHEN c.agent_id IS NOT NULL OR c.outcome IS NOT DISTINCT FROM 'forwarded_answered' THEN 'answered'
     WHEN c.status NOT IN ('completed','no-answer','failed') THEN 'ambiguous'
-    WHEN a.mobile_accept_result IN ('accepted','accepted_after_hangup')
-      AND coalesce(a.mobile_bridge_evidence,'unconfirmed')='unconfirmed' THEN 'ambiguous'
+    WHEN a.mobile_accept_result IN ('accepted','accepted_after_hangup') AND a.mobile_bridge_evidence IS NULL
+      AND coalesce(c.ended_at,c.updated_at,c.created_at)>clock_timestamp()-interval '10 minutes' THEN 'ambiguous'
     ELSE 'missed' END
   FROM (SELECT 1) one
   LEFT JOIN public.calls c ON c.organization_id=p_org AND c.id=p_call AND c.direction='inbound'
@@ -93,6 +95,16 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
     WHERE s.session_id=nullif(auth.jwt()->>'session_id','')::uuid AND s.actor_id=auth.uid() AND s.target_id IS NOT NULL)
 $$;
 
+-- Only a super admin can view as someone else, and the server knows a session's mode only once the
+-- session has a record. A super admin session without one (a sign-in from before the Automations
+-- upgrade keeps View As in the browser) cannot be verified, so it is not allowed to act.
+CREATE FUNCTION private.automation_mode_unverified()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  SELECT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id=auth.uid() AND p.is_super_admin IS TRUE)
+    AND NOT EXISTS (SELECT 1 FROM private.automation_sessions s
+      WHERE s.session_id=nullif(auth.jwt()->>'session_id','')::uuid AND s.actor_id=auth.uid())
+$$;
+
 -- Who may see a contact's name: the owner, an administrator, or a team leader above the owner.
 CREATE FUNCTION private.automation_visible_contact(p_viewer uuid,p_org uuid,p_type text,p_contact uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
@@ -111,7 +123,7 @@ $$;
 -- The callbacks waiting in this agency, newest first. A call answered after the fact drops out.
 CREATE FUNCTION public.inbound_callback_queue()
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE actor record; viewing boolean:=private.automation_viewing_as(); listed jsonb;
+DECLARE actor record; viewing boolean:=private.automation_viewing_as() OR private.automation_mode_unverified(); listed jsonb;
 BEGIN
   SELECT * INTO actor FROM private.inbounds_actor();
   SELECT coalesce(jsonb_agg(to_jsonb(item) ORDER BY item.missed_at DESC,item.id),'[]'::jsonb) INTO listed FROM (
@@ -150,6 +162,14 @@ BEGIN
   SELECT * INTO actor FROM private.inbounds_actor();
   IF private.automation_viewing_as() THEN
     RAISE EXCEPTION 'Callbacks cannot be claimed while viewing as another person' USING ERRCODE='42501'; END IF;
+  IF private.automation_mode_unverified() THEN
+    RAISE EXCEPTION 'Sign in again to claim callbacks.' USING ERRCODE='42501',HINT='automation_session_reauth'; END IF;
+  -- Proof that the call was answered can arrive after its callback was made. The list hides it, and
+  -- nobody can take it on.
+  IF EXISTS (SELECT 1 FROM public.inbound_callbacks b JOIN public.calls c ON c.id=b.call_id AND c.organization_id=b.organization_id
+      WHERE b.id=p_callback AND b.organization_id=actor.org
+        AND (c.agent_id IS NOT NULL OR c.outcome IS NOT DISTINCT FROM 'forwarded_answered')) THEN
+    RAISE EXCEPTION 'This call was answered, so no callback is needed.' USING ERRCODE='PT409'; END IF;
   UPDATE public.inbound_callbacks b SET status='claimed',claimed_by=actor.uid,claimed_at=clock_timestamp(),updated_at=clock_timestamp()
     WHERE b.id=p_callback AND b.organization_id=actor.org AND b.status='open' RETURNING b.* INTO item;
   IF NOT FOUND THEN
@@ -169,6 +189,8 @@ BEGIN
   SELECT * INTO actor FROM private.inbounds_actor();
   IF private.automation_viewing_as() THEN
     RAISE EXCEPTION 'Callbacks cannot be released while viewing as another person' USING ERRCODE='42501'; END IF;
+  IF private.automation_mode_unverified() THEN
+    RAISE EXCEPTION 'Sign in again to release callbacks.' USING ERRCODE='42501',HINT='automation_session_reauth'; END IF;
   UPDATE public.inbound_callbacks b SET status='open',claimed_by=NULL,claimed_at=NULL,updated_at=clock_timestamp()
     WHERE b.id=p_callback AND b.organization_id=actor.org AND b.status='claimed'
       AND (b.claimed_by=actor.uid OR actor.admin) RETURNING b.* INTO item;
@@ -188,6 +210,8 @@ BEGIN
   SELECT * INTO actor FROM private.inbounds_actor();
   IF private.automation_viewing_as() THEN
     RAISE EXCEPTION 'Callbacks cannot be completed while viewing as another person' USING ERRCODE='42501'; END IF;
+  IF private.automation_mode_unverified() THEN
+    RAISE EXCEPTION 'Sign in again to complete callbacks.' USING ERRCODE='42501',HINT='automation_session_reauth'; END IF;
   UPDATE public.inbound_callbacks b SET status='done',closed_by=actor.uid,closed_at=clock_timestamp(),updated_at=clock_timestamp()
     WHERE b.id=p_callback AND b.organization_id=actor.org AND b.status='claimed'
       AND (b.claimed_by=actor.uid OR actor.admin) RETURNING b.* INTO item;
@@ -202,9 +226,9 @@ END $$;
 
 REVOKE ALL ON FUNCTION private.automation_capture_missed_inbound(),private.automation_inbound_evidence(uuid,uuid),
   private.automation_inbound_responsible(uuid,uuid,text,uuid),private.automation_visible_contact(uuid,uuid,text,uuid),
-  private.automation_viewing_as(),public.inbound_callback_queue(),public.claim_inbound_callback(uuid),
+  private.automation_viewing_as(),private.automation_mode_unverified(),public.inbound_callback_queue(),public.claim_inbound_callback(uuid),
   public.release_inbound_callback(uuid),public.complete_inbound_callback(uuid) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION private.automation_viewing_as() TO authenticated;
+GRANT EXECUTE ON FUNCTION private.automation_viewing_as(),private.automation_mode_unverified() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.inbound_callback_queue(),public.claim_inbound_callback(uuid),
   public.release_inbound_callback(uuid),public.complete_inbound_callback(uuid) TO authenticated;
 COMMIT;

@@ -325,4 +325,65 @@ select pg_temp.refused('select count(*) from public.inbound_callbacks','42501');
 select pg_temp.refused('update public.inbound_callbacks set status=''open''','42501');
 reset role;
 select pg_temp.nobody();
+
+-- 12. Review follow-ups ----------------------------------------------------------------------------
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where organization_id=pg_temp.id(1) and status in ('queued','waiting','held');
+update public.workflows set status='paused' where id=pg_temp.id(42);
+-- A known caller's task goes to the agent who owns the contact, whichever agent's line they rang.
+select pg_temp.ring(100,'+12025550130','+15550001001',30);
+select pg_temp.ok(pg_temp.ended(100)=1,'a known caller who rang another agent''s direct line enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='created','the step makes a task');
+select pg_temp.ok((select t.assigned_to=pg_temp.id(11) and t.contact_id=pg_temp.id(30) from public.tasks t
+    join private.automation_task_receipts x on x.record_id=t.id where x.scope_key='call:'||pg_temp.id(100)::text)
+  and not exists(select from public.inbound_callbacks where call_id=pg_temp.id(100)),
+  'it belongs to the agent who owns the contact, not the owner of the line that was rung');
+-- A known caller whose contact has no active agent waits in Inbounds, already claimed by the agent whose line they rang.
+select pg_temp.ring(101,'+12025550131','+15550001001',31);
+select pg_temp.ok(pg_temp.ended(101)=1,'a missed call from an unowned contact enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='created','its callback is created');
+select pg_temp.ok((select status='claimed' and claimed_by=pg_temp.id(12) and contact_id=pg_temp.id(31) from public.inbound_callbacks
+  where call_id=pg_temp.id(101)),'the callback is claimed by the agent whose line was rung');
+-- A recorded "unconfirmed" bridge is final, as in Inbounds: the call stays missed and gets its callback.
+select pg_temp.ring(102,'+12025559102','+15550001000');
+insert into public.inbound_route_attempts(id,call_id,organization_id,mode,owner_agent_id,eligibility_reason,stage,
+    mobile_accepted_at,mobile_accept_result,mobile_bridge_evidence)
+  values (pg_temp.id(82),pg_temp.id(102),pg_temp.id(1),'owner',pg_temp.id(11),'owner_offline_mobile','owner_mobile',clock_timestamp(),
+    'accepted','unconfirmed');
+select pg_temp.ok(pg_temp.ended(102,'completed')=1,'a forward whose bridge was recorded as unconfirmed enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='created','the step is not held');
+select pg_temp.ok(exists(select from public.inbound_callbacks where call_id=pg_temp.id(102)),'and the callback is created');
+-- A bridge result that never arrives is waited for only ten minutes after the call ended.
+select pg_temp.ring(103,'+12025559103','+15550001000');
+insert into public.inbound_route_attempts(id,call_id,organization_id,mode,owner_agent_id,eligibility_reason,stage,
+    mobile_accepted_at,mobile_accept_result)
+  values (pg_temp.id(83),pg_temp.id(103),pg_temp.id(1),'owner',pg_temp.id(11),'owner_offline_mobile','owner_mobile',clock_timestamp(),'accepted');
+select pg_temp.ok(pg_temp.ended(103,'completed')=1,'a forward without a bridge result enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='held','it is held while the bridge result may still arrive');
+update public.calls set ended_at=clock_timestamp()-interval '11 minutes' where id=pg_temp.id(103);
+update private.automation_runs r set due_at=clock_timestamp()-interval '1 second' from private.automation_events e
+  where e.id=r.event_id and e.source_id=pg_temp.id(103);
+select pg_temp.ok(pg_temp.work()->>'result'='created','ten minutes after the call ended without a bridge result, the step goes on');
+select pg_temp.ok(exists(select from public.inbound_callbacks where call_id=pg_temp.id(103)),'and the callback is created');
+-- Proof of an answer that arrives after the callback exists: nobody can take it on.
+select pg_temp.refused_as(11,format('select public.claim_inbound_callback(%L)',
+  (select id from public.inbound_callbacks where call_id=pg_temp.id(68))),'PT409');
+select pg_temp.ok((select status='open' from public.inbound_callbacks where call_id=pg_temp.id(68)),'the answered call''s callback stays unclaimed');
+-- A super admin session whose mode the server cannot verify cannot act on callbacks until it signs in again.
+insert into auth.users(id,email) values (pg_temp.id(16),'v2-inbound-16@example.invalid');
+insert into public.profiles(id,organization_id,role,status,email,first_name,last_name,is_super_admin)
+  values (pg_temp.id(16),pg_temp.id(1),'Admin','Active','v2-inbound-16@example.invalid','Super','Admin',true)
+  on conflict (id) do update set organization_id=excluded.organization_id,role=excluded.role,status=excluded.status,is_super_admin=true;
+insert into auth.sessions(id,user_id,created_at) values (pg_temp.id(116),pg_temp.id(16),clock_timestamp());
+select pg_temp.ring(104,'+12025559104','+15550001000');
+select pg_temp.ok(pg_temp.ended(104)=1,'one more unknown caller enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='created','its callback is open');
+select pg_temp.ok((select item->>'can_claim'='false' from jsonb_array_elements(pg_temp.as_user(16,'select public.inbound_callback_queue()')->'items') item
+  where item->>'call_id'=pg_temp.id(104)::text),'the list offers no claim to a super admin session the server cannot verify');
+select pg_temp.refused_as(16,format('select public.claim_inbound_callback(%L)',
+  (select id from public.inbound_callbacks where call_id=pg_temp.id(104))),'42501');
+select pg_temp.as_user(16,'select public.automation_session_context()');
+select pg_temp.ok(pg_temp.as_user(16,format('select public.claim_inbound_callback(%L)',
+  (select id from public.inbound_callbacks where call_id=pg_temp.id(104))))->>'status'='claimed',
+  'once the session is recorded, the same person can claim');
 rollback;

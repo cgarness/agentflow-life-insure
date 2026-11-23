@@ -291,4 +291,91 @@ begin
 end $$;
 reset role;
 select pg_temp.ok(not has_table_privilege('authenticated','private.automation_sms_purposes','select'),'pinned purposes are server-only');
+
+-- Review follow-ups ------------------------------------------------------------------------------
+insert into public.message_templates(id,organization_id,name,type,scope,content,sms_purpose,created_by) values
+  (pg_temp.id(35),pg_temp.id(1),'See you soon','sms','agency','Hi {{contact_first_name}}, see you soon.','informational',pg_temp.id(10));
+set local role authenticated;
+do $$
+declare s bigint:=pg_temp.session(10); controls jsonb:='{"enrollment_enabled":false,"dispatch_enabled":false}';
+  g jsonb; found jsonb; first jsonb; again jsonb; rev bigint;
+begin
+  -- Each personalized field is checked on its own: a field cannot be split between the title and the notes.
+  found:=pg_temp.issues(45,pg_temp.graph('{"type":"sale_recorded","config":{}}',jsonb_build_array(
+    jsonb_build_object('type','create_task','config',jsonb_build_object('title','Call {{first_name','notes','}} today',
+      'task_type','General','due_amount',0,'due_unit','days')))),0,s);
+  perform pg_temp.ok(pg_temp.says(found,'Unsupported field in the task text'),'a field split across the title and the notes is refused');
+  -- Step names use one explicit set of control characters, the same set the builder uses.
+  rev:=(select automation_revision from public.workflows where id=pg_temp.id(45));
+  g:=pg_temp.graph('{"type":"sale_recorded","config":{}}',jsonb_build_array(pg_temp.task('Follow up')));
+  perform pg_temp.refused(format('select public.save_automation_draft(%L,''Bad'',%L,%s,%s)',pg_temp.id(45),
+    jsonb_set(g,'{nodes,1,meta}',jsonb_build_object('name','Don'||chr(146)||'t forget')),rev,s),'22023');
+  perform pg_temp.refused(format('select public.save_automation_draft(%L,''Bad'',%L,%s,%s)',pg_temp.id(45),
+    jsonb_set(g,'{nodes,1,meta}',jsonb_build_object('name','Line'||chr(8232)||'separator')),rev,s),'22023');
+  found:=pg_temp.issues(45,jsonb_set(g,'{nodes,1,meta}',jsonb_build_object('name','No'||chr(160)||'break space',
+    'description','Caf'||chr(233)||' '||chr(9749)||E'\nsecond line')),rev,s);
+  perform pg_temp.ok(found='[]'::jsonb,'ordinary text with a no-break space, accents, a symbol and a line break in the description is fine');
+
+  -- Publishing the live graph again creates no version while every SMS step would be pinned the same way.
+  g:=pg_temp.graph('{"type":"lead_created","config":{}}',jsonb_build_array(
+    jsonb_build_object('type','send_sms','version',2,'config',jsonb_build_object('template_id',pg_temp.id(35),
+      'body','Hi {{first_name}}, see you soon.'))));
+  perform pg_temp.ok(pg_temp.issues(46,g,0,s)='[]'::jsonb,'an unchanged saved message validates');
+  first:=public.publish_automation(pg_temp.id(46),1,s,controls);
+  again:=public.publish_automation(pg_temp.id(46),2,s,controls);
+  perform pg_temp.ok(again->>'version_id'=first->>'version_id' and (again->>'revision')::bigint=2,
+    'publishing the unchanged live graph again creates no version');
+  insert into versions values (46,(first->>'version_id')::uuid);
+
+  -- Outcome automations overlap only when they listen for the same outcome.
+  perform pg_temp.issues(47,pg_temp.graph('{"type":"appointment_outcome_recorded","config":{"outcomes":["held"]}}',
+    jsonb_build_array(pg_temp.task('Thank them'))),0,s);
+  perform public.publish_automation(pg_temp.id(47),1,s,controls);
+  perform pg_temp.issues(48,pg_temp.graph('{"type":"appointment_outcome_recorded","config":{"outcomes":["no_show"]}}',
+    jsonb_build_array(pg_temp.task('Reschedule'))),0,s);
+  perform public.publish_automation(pg_temp.id(48),1,s,controls);
+  perform pg_temp.ok(not public.automation_overlap(pg_temp.id(48)) @> jsonb_build_array(jsonb_build_object('id',pg_temp.id(47))),
+    'a Held follow-up and a No-show follow-up never start for the same event');
+  perform pg_temp.issues(49,pg_temp.graph('{"type":"appointment_outcome_recorded","config":{"outcomes":["no_show","held"]}}',
+    jsonb_build_array(pg_temp.task('Either'))),0,s);
+  perform pg_temp.ok(public.automation_overlap(pg_temp.id(49)) @> jsonb_build_array(jsonb_build_object('id',pg_temp.id(47)),
+    jsonb_build_object('id',pg_temp.id(48))),'an automation listening for both outcomes overlaps both');
+end $$;
+reset role;
+-- The saved message is relabelled. Review now shows marketing consent, so publishing the same graph pins it.
+update public.message_templates set sms_purpose='marketing' where id=pg_temp.id(35);
+set local role authenticated;
+do $$
+declare s bigint:=pg_temp.session(10); controls jsonb:='{"enrollment_enabled":false,"dispatch_enabled":false}'; needs jsonb; again jsonb;
+begin
+  needs:=public.automation_sms_requirements(pg_temp.id(46));
+  perform pg_temp.ok(needs->0->>'purpose'='marketing' and needs->0->>'basis'='saved_message','review shows the new requirement');
+  again:=public.publish_automation(pg_temp.id(46),2,s,controls);
+  perform pg_temp.ok(again->>'version_id'<>(select id::text from versions where doc=46) and (again->>'revision')::bigint=3,
+    'publishing the same graph creates a version, because its SMS requirement changed');
+  insert into versions values (146,(again->>'version_id')::uuid);
+end $$;
+reset role;
+select pg_temp.ok((select purpose='informational' from private.automation_sms_purposes where version_id=(select id from versions where doc=46))
+  and (select purpose='marketing' and basis='saved_message' from private.automation_sms_purposes where version_id=(select id from versions where doc=146)),
+  'the earlier version keeps its pin and the new version carries what review showed');
+-- A version published before pinning existed has none. Publishing it again from this release pins it.
+insert into public.workflows(id,organization_id,name,status,trigger_type,automation_graph,automation_draft_name,automation_revision)
+  values (pg_temp.id(50),pg_temp.id(1),'Earlier release text','active','lead_created',pg_temp.graph('{"type":"lead_created","config":{}}',
+    '[{"type":"send_sms","version":1,"config":{"body":"Written by hand","purpose":"informational"}}]'),'Earlier release text',2);
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  select pg_temp.id(51),organization_id,id,name,1,automation_graph,clock_timestamp(),pg_temp.id(10) from public.workflows where id=pg_temp.id(50);
+update public.workflows set automation_version_id=pg_temp.id(51) where id=pg_temp.id(50);
+set local role authenticated;
+do $$
+declare s bigint:=pg_temp.session(10); published jsonb;
+begin
+  published:=public.publish_automation(pg_temp.id(50),2,s,'{"enrollment_enabled":false,"dispatch_enabled":false}');
+  perform pg_temp.ok(published->>'version_id'<>pg_temp.id(51)::text,'an unpinned earlier version is published again with pins');
+  insert into versions values (50,(published->>'version_id')::uuid);
+end $$;
+reset role;
+select pg_temp.ok((select purpose='marketing' and basis='custom' from private.automation_sms_purposes
+  where version_id=(select id from versions where doc=50)) and not exists(select from private.automation_sms_purposes
+  where version_id=pg_temp.id(51)),'the new version is pinned to marketing consent and the earlier version is left as it was');
 rollback;

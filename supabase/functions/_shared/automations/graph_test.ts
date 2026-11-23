@@ -1,6 +1,7 @@
 import {
   type AutomationGraph,
   availableBlocks,
+  cleanStepText,
   emptyGraph,
   previewGraph,
   stepSummary,
@@ -278,4 +279,55 @@ Deno.test("appointment preview renders date and time and follows the wait rule",
   assert(previewGraph(g, { ...input, appointment_start: "2026-12-01T02:00:00Z" }).length === 3, "late booking may continue");
   const unzoned = previewGraph(g, { phone: "+12025550123", now, appointment_start: "2026-12-05T20:00:00Z" });
   assert(unzoned[2].detail.includes("Held"), "no time zone holds the message instead of sending a blank time");
+});
+
+Deno.test("step details refuse the same control characters as the database, counted as characters", () => {
+  const graph = taskGraph("lead_created");
+  const nameIssue = (name: string) => {
+    graph.nodes[1].meta = { name };
+    return validateGraph(graph).some((i) => i.message.includes("Step name"));
+  };
+  assert(nameIssue("Don\u0092t forget"), "a C1 control character is refused, as the database refuses it");
+  assert(nameIssue("Line separator"), "a line separator is refused in a name");
+  assert(!nameIssue("No break space and café"), "ordinary text with a no-break space and accents is fine");
+  assert(!nameIssue("\u{1F600}".repeat(80)), "eighty emoji are eighty characters");
+  assert(nameIssue("\u{1F600}".repeat(81)), "eighty-one are too many");
+  graph.nodes[1].meta = { description: "First line\nsecond line\tindented" };
+  assert(validateGraph(graph).length === 0, "a description keeps its line breaks and tabs");
+  graph.nodes[1].meta = { description: "Next\u0085line" };
+  assert(validateGraph(graph).some((i) => i.message.includes("Description")), "a C1 control character is refused in a description");
+  assert(cleanStepText("A\tname\nhere\u0092", true) === "A name here", "a pasted name becomes one clean line");
+  assert(cleanStepText("Keep\nlines\u0085", false) === "Keep\nlines", "a pasted description keeps its line breaks");
+});
+
+Deno.test("text lengths are checked as the database counts them, with the field's own wording", () => {
+  const g = emptyGraph();
+  g.nodes.push(
+    { id: "start", type: "lead_created", version: 1, config: {} },
+    { id: "sms", type: "send_sms", version: 2, config: { body: "x".repeat(1601) } },
+  );
+  g.edges.push({ id: "1", source: "start", target: "sms" });
+  assert(validateGraph(g).some((i) => i.message === "Message must be 1,600 characters or fewer."), "a long text names its field");
+  g.nodes[1].config.body = "\u{1F600}".repeat(1600);
+  assert(validateGraph(g).length === 0, "1,600 emoji are 1,600 characters");
+  const task = taskGraph("lead_created");
+  task.nodes[1].config.notes = "n".repeat(2001);
+  assert(validateGraph(task).some((i) => i.message === "Notes must be 2,000 characters or fewer."), "long notes name their field");
+});
+
+Deno.test("preview stops at an appointment that already started and shows the title a blank task gets", () => {
+  const g = emptyGraph();
+  g.nodes.push(
+    { id: "start", type: "appointment_booked", version: 1, config: {} },
+    { id: "wait", type: "wait_until_before_appointment", version: 1, config: { amount: 1, unit: "hours", late: "continue" } },
+    { id: "task", type: "create_task", version: 1, meta: { name: "Confirm the visit" },
+      config: { title: "{{first_name}}", task_type: "Follow Up", due_amount: 0, due_unit: "minutes" } },
+  );
+  g.edges.push({ id: "1", source: "start", target: "wait" }, { id: "2", source: "wait", target: "task" });
+  const now = Date.parse("2026-11-30T12:00:00Z");
+  const started = previewGraph(g, { now, has_owner: true, appointment_start: "2026-11-30T11:00:00Z" });
+  assert(started.length === 2 && started[1].detail.includes("already started"), "a started appointment ends the preview: " +
+    started[1].detail);
+  const soon = previewGraph(g, { now, has_owner: true, appointment_start: "2026-11-30T12:30:00Z", first_name: "" });
+  assert(soon.length === 3 && soon[2].detail.includes("Confirm the visit"), "a blank title takes the step's name: " + soon[2].detail);
 });

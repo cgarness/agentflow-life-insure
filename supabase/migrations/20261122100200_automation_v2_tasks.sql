@@ -7,8 +7,10 @@ ALTER TABLE public.tasks
   ADD COLUMN all_day boolean NOT NULL DEFAULT true,
   ADD COLUMN automation_run_id uuid,
   ALTER COLUMN created_by DROP NOT NULL,
-  -- A person created the task, or an automation run did. Never neither.
-  ADD CONSTRAINT tasks_creator_or_automation CHECK (created_by IS NOT NULL OR automation_run_id IS NOT NULL);
+  -- A person created the task, or an automation run did. Never neither. Every existing row already has a
+  -- creator (the column was NOT NULL), so the check applies to new and changed rows without scanning the
+  -- table while it is locked.
+  ADD CONSTRAINT tasks_creator_or_automation CHECK (created_by IS NOT NULL OR automation_run_id IS NOT NULL) NOT VALID;
 COMMENT ON COLUMN public.tasks.all_day IS
   'true: due on a calendar day (every task a person adds). false: due at the exact time in due_date.';
 COMMENT ON COLUMN public.tasks.automation_run_id IS

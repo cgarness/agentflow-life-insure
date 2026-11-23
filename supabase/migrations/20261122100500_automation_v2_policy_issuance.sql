@@ -50,6 +50,8 @@ BEGIN
   SELECT * INTO actor FROM private.campaign_actor();
   IF private.automation_viewing_as() THEN
     RAISE EXCEPTION 'Issuance cannot be confirmed while viewing as another person' USING ERRCODE='42501'; END IF;
+  IF private.automation_mode_unverified() THEN
+    RAISE EXCEPTION 'Sign in again to confirm issuance.' USING ERRCODE='42501',HINT='automation_session_reauth'; END IF;
   IF p_request_id IS NULL OR p_policy_id IS NULL OR p_issued_on IS NULL OR p_issued_on<date '1900-01-01' THEN
     RAISE EXCEPTION 'Enter the date the policy was issued' USING ERRCODE='22023'; END IF;
   -- Today anywhere in the world is acceptable. A later date is not an issued policy.
@@ -86,7 +88,7 @@ END $$;
 -- Whether the signed-in person may confirm issuance for this client right now.
 CREATE FUNCTION public.can_confirm_policy_issuance(p_client_id uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
-  SELECT NOT private.automation_viewing_as() AND EXISTS (
+  SELECT NOT private.automation_viewing_as() AND NOT private.automation_mode_unverified() AND EXISTS (
     SELECT 1 FROM public.profiles p
     JOIN public.clients c ON c.organization_id=p.organization_id AND c.id=p_client_id
     WHERE p.id=auth.uid() AND p.status='Active' AND p.organization_id=public.get_org_id()

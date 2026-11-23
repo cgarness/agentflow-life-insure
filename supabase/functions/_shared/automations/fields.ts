@@ -191,3 +191,8 @@ export function renderFields(template: unknown, values: Record<string, string>):
 export function usesAppointmentField(template: unknown): boolean {
   return typeof template === "string" && /\{\{\s*appointment_(date|time)\s*\}\}/.test(template);
 }
+
+/** Length as the database counts it: characters, not UTF-16 units. */
+export function characterCount(text: string): number {
+  return [...text].length;
+}

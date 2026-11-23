@@ -18,7 +18,7 @@ import {
   type RuntimeContext,
   runWait,
 } from "./blockHandlers.ts";
-import { fieldIssue } from "./fields.ts";
+import { characterCount, fieldIssue } from "./fields.ts";
 
 export type BlockEditor =
   | "lead" | "campaign" | "disposition" | "appointment" | "appointmentOutcome" | "inboundMissed" | "sale" | "issuance"
@@ -71,6 +71,12 @@ const MESSAGE_TRIGGERS = [
 
 function required(value: unknown, label: string) {
   return typeof value !== "string" || !value.trim() ? label + " is required." : undefined;
+}
+// Lengths count characters, as the database does. The schema only bounds the raw size.
+function withinLimit(value: unknown, label: string, max: number) {
+  return typeof value === "string" && characterCount(value) > max
+    ? label + " must be " + max.toLocaleString("en-US") + " characters or fewer."
+    : undefined;
 }
 function excerpt(value: unknown, fallback: string) {
   const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -223,14 +229,14 @@ export const registrations: BlockDefinition[] = [
     category: "action",
     schema: (z) =>
       z.object({
-        body: z.string().max(1600),
+        body: z.string().max(3200),
         purpose: z.enum(["informational", "marketing"]),
         template_id: z.string().uuid().optional(),
       }).strict(),
     check: (c, trigger) =>
       !["informational", "marketing"].includes(String(c.purpose))
         ? "Choose the SMS purpose."
-        : required(c.body, "Message") ?? fieldIssue(c.body, "Message", trigger),
+        : required(c.body, "Message") ?? withinLimit(c.body, "Message", 1600) ?? fieldIssue(c.body, "Message", trigger),
     summary: (c) => excerpt(c.body, "Write a message"),
   },
   {
@@ -244,8 +250,8 @@ export const registrations: BlockDefinition[] = [
     description: "Texts the contact.",
     keywords: ["sms", "text", "message"],
     category: "action",
-    schema: (z) => z.object({ body: z.string().max(1600), template_id: z.string().uuid().optional() }).strict(),
-    check: (c, trigger) => required(c.body, "Message") ?? fieldIssue(c.body, "Message", trigger),
+    schema: (z) => z.object({ body: z.string().max(3200), template_id: z.string().uuid().optional() }).strict(),
+    check: (c, trigger) => required(c.body, "Message") ?? withinLimit(c.body, "Message", 1600) ?? fieldIssue(c.body, "Message", trigger),
     summary: (c) => excerpt(c.body, "Write a message"),
   },
   {
@@ -261,16 +267,16 @@ export const registrations: BlockDefinition[] = [
     category: "action",
     schema: (z) =>
       z.object({
-        body: z.string().max(20000),
-        subject: z.string().max(200),
+        body: z.string().max(40000),
+        subject: z.string().max(400),
         sender_id: z.string().uuid(),
         template_id: z.string().uuid().optional(),
       }).strict(),
     check: (c, trigger) =>
       !c.sender_id
         ? "Select an authorized sender."
-        : required(c.subject, "Subject") ?? fieldIssue(c.subject, "Subject", trigger) ??
-          required(c.body, "Message") ?? fieldIssue(c.body, "Message", trigger),
+        : required(c.subject, "Subject") ?? withinLimit(c.subject, "Subject", 200) ?? fieldIssue(c.subject, "Subject", trigger) ??
+          required(c.body, "Message") ?? withinLimit(c.body, "Message", 20000) ?? fieldIssue(c.body, "Message", trigger),
     summary: (c) => excerpt(c.subject, "Add a subject"),
   },
   {
@@ -285,17 +291,17 @@ export const registrations: BlockDefinition[] = [
     category: "action",
     schema: (z) =>
       z.object({
-        title: z.string().max(200),
+        title: z.string().max(400),
         task_type: z.enum(TASK_TYPES),
-        notes: z.string().max(2000).optional(),
+        notes: z.string().max(4000).optional(),
         due_amount: z.number().int().min(0).max(99999),
         due_unit: z.enum(UNITS),
       }).strict(),
     check: (c, trigger) =>
-      required(c.title, "Task title") ?? fieldIssue(c.title, "Task title", trigger) ??
+      required(c.title, "Task title") ?? withinLimit(c.title, "Task title", 200) ?? fieldIssue(c.title, "Task title", trigger) ??
         (!(TASK_TYPES as readonly string[]).includes(String(c.task_type)) ? "Choose a task type." : undefined) ??
         (!validOffset(c.due_amount, c.due_unit, 0) ? "Choose when the task is due." : undefined) ??
-        fieldIssue(c.notes, "Notes", trigger),
+        withinLimit(c.notes, "Notes", 2000) ?? fieldIssue(c.notes, "Notes", trigger),
     summary: (c) =>
       [
         excerpt(c.title, "Add a task title"),

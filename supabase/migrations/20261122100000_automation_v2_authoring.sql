@@ -53,14 +53,17 @@ RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path='' AS $$
 $$;
 
 -- Optional author notes on a step. Bounded plain text, never part of execution configuration.
+-- Control characters are an explicit range, the same one the shared TypeScript graph rule uses:
+-- U+0001-U+001F and U+007F-U+009F. A description may keep tabs and line breaks; a name may not,
+-- nor a line or paragraph separator. Lengths count characters, as the TypeScript rule does.
 CREATE FUNCTION private.automation_step_meta_valid(p_meta jsonb)
 RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path='' AS $$
   SELECT p_meta IS NULL OR (
     jsonb_typeof(p_meta)='object' AND p_meta-ARRAY['name','description']='{}'::jsonb
     AND (NOT p_meta ? 'name' OR (jsonb_typeof(p_meta->'name')='string' AND length(p_meta->>'name')<=80
-      AND (p_meta->>'name') !~ '[[:cntrl:]]'))
+      AND (p_meta->>'name') !~ '[\x01-\x1F\x7F-\x9F\u2028\u2029]'))
     AND (NOT p_meta ? 'description' OR (jsonb_typeof(p_meta->'description')='string'
-      AND length(p_meta->>'description')<=500 AND (p_meta->>'description') !~ '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]')))
+      AND length(p_meta->>'description')<=500 AND (p_meta->>'description') !~ '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]')))
 $$;
 
 -- Mirror of the shared field catalog (supabase/functions/_shared/automations/fields.ts).
@@ -273,7 +276,8 @@ BEGIN
         ELSIF jsonb_typeof(c->'due_amount') IS DISTINCT FROM 'number' OR coalesce(c->>'due_amount','') !~ '^(0|[1-9][0-9]{0,4})$'
           OR coalesce(c->>'due_unit','') NOT IN ('minutes','hours','days') THEN reason:='Choose when the task is due';
         ELSIF c ? 'notes' AND (jsonb_typeof(c->'notes')<>'string' OR length(c->>'notes')>2000) THEN reason:='Shorten the task notes';
-        ELSIF NOT private.automation_fields_valid(concat(c->>'title',' ',c->>'notes'),trig) THEN reason:='Unsupported field in the task text';
+        ELSIF NOT private.automation_fields_valid(c->>'title',trig) OR NOT private.automation_fields_valid(c->>'notes',trig) THEN
+          reason:='Unsupported field in the task text';
         END IF;
       WHEN 'send_sms','send_email' THEN
         IF jsonb_typeof(c->'body') IS DISTINCT FROM 'string' OR nullif(btrim(c->>'body'),'') IS NULL
@@ -285,7 +289,8 @@ BEGIN
             OR length(c->>'subject')>200 OR coalesce(c->>'sender_id','') !~ uuid_pattern) THEN reason:='Enter the subject and choose an authorized sender';
         ELSIF c ? 'template_id' AND nullif(c->>'template_id','') IS NOT NULL AND (c->>'template_id') !~ uuid_pattern THEN
           reason:='Choose an eligible template';
-        ELSIF NOT private.automation_fields_valid(concat(c->>'body',' ',c->>'subject'),trig) THEN reason:='Unsupported merge field';
+        ELSIF NOT private.automation_fields_valid(c->>'body',trig) OR NOT private.automation_fields_valid(c->>'subject',trig) THEN
+          reason:='Unsupported merge field';
         ELSIF to_regprocedure('private.automation_channel_issue(uuid,uuid,jsonb)') IS NULL THEN reason:='Channel configuration is unavailable';
         ELSE reason:=private.automation_channel_issue(p_org,auth.uid(),n); END IF;
       ELSE reason:='Unsupported block';
@@ -400,8 +405,16 @@ BEGIN
   END IF;
   SELECT jsonb_agg(to_jsonb(i)) INTO issues FROM private.automation_graph_issues(org,w.automation_draft_name,w.automation_graph) i;
   IF issues IS NOT NULL THEN RAISE EXCEPTION 'Fix the indicated blocks before publishing' USING ERRCODE='22023', DETAIL=issues::text; END IF;
+  -- Publishing the live graph again changes nothing, unless an SMS step would now be pinned differently
+  -- (its saved message changed, or the live version predates pinning). Then it publishes a new version.
   IF EXISTS (SELECT 1 FROM public.workflow_versions v WHERE (v.organization_id,v.workflow_id,v.id)=(org,w.id,w.automation_version_id)
-      AND v.name=w.automation_draft_name AND v.graph=w.automation_graph AND v.published_by=auth.uid()) THEN
+      AND v.name=w.automation_draft_name AND v.graph=w.automation_graph AND v.published_by=auth.uid())
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(w.automation_graph->'nodes') step
+      CROSS JOIN LATERAL private.automation_sms_resolution(org,step.value) resolved
+      WHERE step.value->>'type'='send_sms' AND NOT EXISTS (SELECT 1 FROM private.automation_sms_purposes pinned
+        WHERE pinned.organization_id=org AND pinned.version_id=w.automation_version_id AND pinned.node_id=step.value->>'id'
+          AND (pinned.purpose,pinned.basis,pinned.template_id,pinned.template_hash)
+            IS NOT DISTINCT FROM (resolved.purpose,resolved.basis,resolved.template_id,resolved.template_hash))) THEN
     RETURN jsonb_build_object('id',w.id,'version_id',w.automation_version_id,'revision',w.automation_revision,
       'status',w.status,'trigger_type',private.automation_trigger(w.automation_graph)->>'type','release_controls',controls);
   END IF;
@@ -494,6 +507,11 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
           SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(d.t#>'{config,disposition_ids}')='array'
             THEN d.t#>'{config,disposition_ids}' ELSE '[]'::jsonb END) mine
           WHERE active.t#>'{config,disposition_ids}' ? mine.value)
+        WHEN d.t->>'type'='appointment_outcome_recorded'
+        THEN active.t->>'type'='appointment_outcome_recorded' AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(d.t#>'{config,outcomes}')='array'
+            THEN d.t#>'{config,outcomes}' ELSE '[]'::jsonb END) mine
+          WHERE active.t#>'{config,outcomes}' ? mine.value)
         ELSE active.t->>'type'=d.t->>'type' END
     ORDER BY w.name,w.id LIMIT 50
   ) q

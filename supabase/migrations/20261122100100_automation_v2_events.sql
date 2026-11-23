@@ -23,7 +23,9 @@ ALTER TABLE private.automation_intake_recovery
   ALTER COLUMN contact_id DROP NOT NULL,
   ADD COLUMN contact_type text DEFAULT 'lead',
   ADD COLUMN subject jsonb NOT NULL DEFAULT '{}'::jsonb,
-  ADD COLUMN scope_key text;
+  ADD COLUMN scope_key text,
+  -- The earliest moment the recovered event may enroll, so a repair keeps the event's settle time.
+  ADD COLUMN available_at timestamptz;
 
 ALTER TABLE private.automation_runs
   DROP CONSTRAINT automation_runs_contact_type_check,
@@ -35,9 +37,13 @@ ALTER TABLE private.automation_runs
   ADD COLUMN scope_key text,
   -- The appointment slot a waiting step is anchored to, and its start when the due time was set.
   ADD COLUMN anchor_id uuid,
-  ADD COLUMN anchor_at timestamptz;
+  ADD COLUMN anchor_at timestamptz,
+  -- When the current hold began. Retries back off from it and a run on hold too long ends.
+  ADD COLUMN held_since timestamptz;
 UPDATE private.automation_runs SET scope_key=contact_type||':'||contact_id::text WHERE scope_key IS NULL AND contact_id IS NOT NULL;
 CREATE INDEX automation_runs_scope ON private.automation_runs(organization_id,workflow_id,scope_key,ended_at);
+-- "Stop when an appointment is booked" looks up a contact's first slots.
+CREATE INDEX automation_appointment_first_slots ON private.appointment_occurrences(organization_id,contact_id) WHERE seq=1;
 
 CREATE FUNCTION private.automation_contact_type(p_org uuid,p_contact uuid)
 RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
@@ -89,8 +95,10 @@ BEGIN
         occurred+coalesce(p_settle,interval '0'))
       ON CONFLICT DO NOTHING;
   EXCEPTION WHEN OTHERS THEN
-    INSERT INTO private.automation_intake_recovery(organization_id,event_type,source_id,contact_id,contact_type,occurred_at,subject,scope_key)
-      VALUES(p_org,p_type,p_source,p_contact,kind,occurred,coalesce(p_subject,'{}'::jsonb),p_scope)
+    INSERT INTO private.automation_intake_recovery(organization_id,event_type,source_id,contact_id,contact_type,occurred_at,
+        subject,scope_key,available_at)
+      VALUES(p_org,p_type,p_source,p_contact,kind,occurred,coalesce(p_subject,'{}'::jsonb),p_scope,
+        occurred+coalesce(p_settle,interval '0'))
       ON CONFLICT DO NOTHING;
   END;
 END $$;
@@ -258,11 +266,16 @@ BEGIN
 
   IF r.contact_id IS NULL THEN RETURN; END IF;
   IF settings->>'stop_on_booking'='true' THEN
+    -- A later booking ends the run. The appointment a disposition save booked is part of that save
+    -- (one booking request per call, or per operation without a call), so it never counts.
     SELECT min(o.opened_at) INTO found_at FROM private.appointment_occurrences o
       WHERE o.organization_id=r.organization_id AND o.contact_id=r.contact_id AND o.seq=1
         AND o.opened_source IN ('booking','external_sync') AND o.booking_kind IS DISTINCT FROM 'callback'
         AND o.category<>'callback' AND o.opened_at>e.occurred_at
-        AND o.appointment_id::text IS DISTINCT FROM e.subject->>'appointment_id';
+        AND o.appointment_id::text IS DISTINCT FROM e.subject->>'appointment_id'
+        AND NOT (e.event_type='disposition_recorded' AND EXISTS (SELECT 1 FROM public.appointments a
+          WHERE a.organization_id=o.organization_id AND a.id=o.appointment_id
+            AND a.booking_request_id=coalesce(nullif(e.subject->>'call_id','')::uuid,e.source_id)));
     IF found_at IS NOT NULL THEN RETURN QUERY SELECT 'Appointment booked'::text,found_at; RETURN; END IF;
   END IF;
   IF settings->>'stop_on_contact'='true' THEN
@@ -277,6 +290,17 @@ BEGIN
   END IF;
 END $$;
 
+-- Whether a run already let an appointment wait pass, so a reminder for the appointment's earlier
+-- time may have gone out. Such a run starts over when the appointment moves to a new time.
+CREATE FUNCTION private.automation_passed_appointment_wait(p_org uuid,p_run uuid,p_version uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  SELECT EXISTS (SELECT 1 FROM private.automation_steps s
+    JOIN public.workflow_versions v ON v.organization_id=s.organization_id AND v.id=p_version
+    CROSS JOIN LATERAL jsonb_array_elements(v.graph->'nodes') n
+    WHERE s.organization_id=p_org AND s.run_id=p_run AND s.status='elapsed'
+      AND n->>'id'=s.node_id AND n->>'type'='wait_until_before_appointment')
+$$;
+
 CREATE FUNCTION private.automation_settle_stop(r private.automation_runs)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE verdict record;
@@ -286,7 +310,7 @@ BEGIN
   -- The run ended when the fact happened, so later events are judged against that moment.
   UPDATE private.automation_runs SET status='stopped',reason=verdict.stop_reason,
     ended_at=least(coalesce(verdict.stopped_at,clock_timestamp()),clock_timestamp()),
-    updated_at=clock_timestamp(),lease_token=NULL,leased_until=NULL
+    updated_at=clock_timestamp(),lease_token=NULL,leased_until=NULL,held_since=NULL
     WHERE id=r.id AND organization_id=r.organization_id AND status IN ('queued','waiting','held');
   RETURN FOUND;
 END $$;
@@ -344,12 +368,22 @@ begin
     -- Only the appointment's current slot, still ahead and without an outcome, starts a run.
     if not found or slot.occurrence_id::text is distinct from e.subject->>'occurrence_id'
       or coalesce(slot.head_outcome,'retracted')<>'retracted' or slot.starts_at<=e.occurred_at then return 0; end if;
-    -- A run already following this appointment moves with it instead of starting again, and a slot
-    -- a run has already waited for is never handled twice.
+    -- A run that already let a reminder time pass for this appointment starts over for the new time,
+    -- so the new time gets every reminder the automation gives.
+    update private.automation_runs r set status='stopped',reason='Appointment was rescheduled',ended_at=clock_timestamp(),
+        updated_at=clock_timestamp(),lease_token=null,leased_until=null,held_since=null
+      from private.automation_events origin
+      where origin.organization_id=r.organization_id and origin.id=r.event_id and origin.subject ? 'appointment_id'
+        and origin.subject->>'appointment_id'=e.subject->>'appointment_id'
+        and r.organization_id=e.organization_id and r.workflow_id=candidate.workflow_id
+        and r.status in ('queued','waiting','held') and r.anchor_id is distinct from slot.occurrence_id
+        and private.automation_passed_appointment_wait(r.organization_id,r.id,r.version_id);
+    -- Any other run still following this appointment moves with it instead of starting again, and a
+    -- slot a run has already waited for is never handled twice.
     if exists(select 1 from private.automation_runs r join private.automation_events origin
         on origin.organization_id=r.organization_id and origin.id=r.event_id
       where r.organization_id=e.organization_id and r.workflow_id=candidate.workflow_id
-        and origin.subject->>'appointment_id'=e.subject->>'appointment_id'
+        and origin.subject ? 'appointment_id' and origin.subject->>'appointment_id'=e.subject->>'appointment_id'
         and (r.status in ('queued','waiting','held','unknown') or r.anchor_id=slot.occurrence_id)) then return 0; end if;
   end if;
 
@@ -360,12 +394,12 @@ begin
   -- A run whose stop condition already happened has ended, even when no worker has looked at it since.
   for prior in select r.* from private.automation_runs r where r.organization_id=e.organization_id
       and r.workflow_id=candidate.workflow_id and r.status in ('queued','waiting','held')
-      and coalesce(r.scope_key,r.contact_type||':'||r.contact_id::text)=scope for update loop
+      and r.scope_key=scope for update loop
     perform private.automation_settle_stop(prior);
   end loop;
   reentry:=candidate.graph#>>'{settings,reentry}';
   if exists(select 1 from private.automation_runs r where r.organization_id=e.organization_id
-    and r.workflow_id=candidate.workflow_id and coalesce(r.scope_key,r.contact_type||':'||r.contact_id::text)=scope
+    and r.workflow_id=candidate.workflow_id and r.scope_key=scope
     and case reentry
       when 'after_completion' then r.status<>'completed' or r.ended_at>e.occurred_at
       when 'after_end' then r.status not in ('completed','stopped','failed') or r.ended_at is null or r.ended_at>e.occurred_at
@@ -384,13 +418,36 @@ end $$;
 -- appointment no longer stands, and a pending reminder moves to the new time.
 CREATE FUNCTION private.automation_refresh_appointment_runs(p_org uuid,p_appointment text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE prior private.automation_runs; node jsonb; placed record;
+DECLARE prior private.automation_runs; node jsonb; placed record; current_slot record;
 BEGIN
+  -- A cancellation that was taken back: the runs it stopped carry on from the step they were on.
+  -- The worker places that step against the appointment's time again, so a reminder time that
+  -- passed in the meantime follows the step's own rule.
+  SELECT s.occurrence_id,s.starts_at,s.head_outcome INTO current_slot
+    FROM private.automation_appointment_state(p_org,p_appointment::uuid) s;
+  IF FOUND AND coalesce(current_slot.head_outcome,'retracted')='retracted' AND current_slot.starts_at>clock_timestamp() THEN
+    UPDATE private.automation_runs r SET status='queued',reason=NULL,ended_at=NULL,due_at=clock_timestamp(),
+        updated_at=clock_timestamp(),held_since=NULL,workflow_paused=(w.status='paused')
+      FROM private.automation_events origin,public.workflows w
+      WHERE origin.organization_id=r.organization_id AND origin.id=r.event_id AND origin.event_type='appointment_booked'
+        AND origin.subject ? 'appointment_id' AND origin.subject->>'appointment_id'=p_appointment
+        AND origin.subject->>'occurrence_id'=current_slot.occurrence_id::text
+        AND w.organization_id=r.organization_id AND w.id=r.workflow_id AND w.status IN ('active','paused')
+        AND r.organization_id=p_org AND r.status='stopped' AND r.reason='Appointment was cancelled'
+        AND NOT EXISTS (SELECT 1 FROM private.automation_runs other JOIN private.automation_events later
+            ON later.organization_id=other.organization_id AND later.id=other.event_id
+          WHERE other.organization_id=p_org AND other.workflow_id=r.workflow_id AND other.id<>r.id
+            AND other.status IN ('queued','waiting','held','unknown')
+            AND later.subject ? 'appointment_id' AND later.subject->>'appointment_id'=p_appointment);
+  END IF;
   FOR prior IN SELECT r.* FROM private.automation_runs r JOIN private.automation_events origin
       ON origin.organization_id=r.organization_id AND origin.id=r.event_id
-    WHERE r.organization_id=p_org AND origin.organization_id=p_org AND origin.subject->>'appointment_id'=p_appointment
+    WHERE r.organization_id=p_org AND origin.organization_id=p_org AND origin.subject ? 'appointment_id'
+      AND origin.subject->>'appointment_id'=p_appointment
       AND r.status IN ('queued','waiting','held') ORDER BY r.id FOR UPDATE OF r LOOP
     IF private.automation_settle_stop(prior) OR prior.status<>'waiting' OR prior.anchor_id IS NULL THEN CONTINUE; END IF;
+    -- A run that already let a reminder time pass starts over when the new time is admitted.
+    IF private.automation_passed_appointment_wait(prior.organization_id,prior.id,prior.version_id) THEN CONTINUE; END IF;
     SELECT n INTO node FROM public.workflow_versions v,jsonb_array_elements(v.graph->'nodes') n
       WHERE v.organization_id=prior.organization_id AND v.workflow_id=prior.workflow_id AND v.id=prior.version_id
         AND n->>'id'=prior.current_node_id AND n->>'type'='wait_until_before_appointment';
@@ -430,10 +487,11 @@ begin
   loop
     begin
       insert into private.automation_events(organization_id,event_type,source_id,source_revision,contact_id,contact_type,
-          campaign_id,lead_source,occurred_at,subject,scope_key)
+          campaign_id,lead_source,occurred_at,subject,scope_key,available_at)
         values(recovery.organization_id,recovery.event_type,recovery.source_id,1,recovery.contact_id,
           case when recovery.contact_id is null then null else coalesce(recovery.contact_type,'lead') end,
-          recovery.campaign_id,recovery.lead_source,recovery.occurred_at,coalesce(recovery.subject,'{}'::jsonb),recovery.scope_key)
+          recovery.campaign_id,recovery.lead_source,recovery.occurred_at,coalesce(recovery.subject,'{}'::jsonb),recovery.scope_key,
+          greatest(cutoff,coalesce(recovery.available_at,cutoff)))
         on conflict do nothing;
       delete from private.automation_intake_recovery where id=recovery.id and organization_id=recovery.organization_id;
     exception when others then
@@ -509,6 +567,7 @@ REVOKE ALL ON FUNCTION private.automation_contact_type(uuid,uuid),private.automa
   private.automation_capture_disposition(),private.automation_capture_sale(),
   private.automation_appointment_state(uuid,uuid),private.automation_appointment_wait(uuid,uuid,jsonb),
   private.automation_stop_check(private.automation_runs),private.automation_settle_stop(private.automation_runs),
+  private.automation_passed_appointment_wait(uuid,uuid,uuid),
   private.automation_refresh_appointment_runs(uuid,text)
   FROM PUBLIC,anon,authenticated;
 COMMIT;

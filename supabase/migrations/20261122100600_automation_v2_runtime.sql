@@ -4,7 +4,8 @@
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 
--- A lease covers one node. A run whose stop condition already happened ends here instead of running.
+-- A lease covers one node. A run whose stop condition already happened ends here instead of running,
+-- and the claim keeps looking, so a page of stopped runs never reads as an empty queue.
 CREATE OR REPLACE FUNCTION public.automation_claim_work(p_limit integer default 10)
 returns setof jsonb language plpgsql security definer set search_path='' as $$
 declare
@@ -15,45 +16,57 @@ declare
   token uuid;
   previous_intent text;
   cutoff timestamptz := clock_timestamp();
+  bounded integer := least(25,greatest(1,coalesce(p_limit,10)));
+  leased integer := 0;
+  examined integer := 0;
+  fetched integer;
 begin
-  for run in
-    select r.* from private.automation_runs r
-    join public.workflows w on w.id=r.workflow_id and w.organization_id=r.organization_id
-    where w.status='active' and not r.workflow_paused and r.status in ('queued','waiting','held')
-      and greatest(r.due_at,r.leased_until)<=cutoff
-    order by greatest(r.due_at,r.leased_until),r.id limit least(25,greatest(1,coalesce(p_limit,10))) for update of r skip locked
   loop
-    if private.automation_settle_stop(run) then continue; end if;
-    select v.graph into graph from public.workflow_versions v
-      where v.id=run.version_id and v.organization_id=run.organization_id and v.workflow_id=run.workflow_id;
-    select n into node from jsonb_array_elements(graph->'nodes') n where n->>'id'=run.current_node_id;
-    select * into origin from private.automation_events ev where ev.id=run.event_id and ev.organization_id=run.organization_id;
-    token:=gen_random_uuid();
-    update private.automation_runs set lease_token=token,leased_until=clock_timestamp()+interval '2 minutes'
-      where id=run.id;
-    previous_intent:=null;
-    if node->>'type' in ('send_sms','send_email') then
-      insert into private.automation_intents(organization_id,run_id,node_id,status)
-        values(run.organization_id,run.id,run.current_node_id,'prepared') on conflict do nothing;
-      select i.status into previous_intent from private.automation_intents i where i.run_id=run.id
-        and i.node_id=run.current_node_id and i.organization_id=run.organization_id;
-    end if;
-    return next jsonb_build_object('organization_id',run.organization_id,'workflow_id',run.workflow_id,
-      'version_id',run.version_id,'run_id',run.id,'contact_id',run.contact_id,'contact_type',run.contact_type,
-      'lease_token',token,'node_id',run.current_node_id,'status',run.status,
-      'due_lag_ms',greatest(0,round(extract(epoch from cutoff-run.due_at)*1000)),
-      'uncertain_handoff',previous_intent='handed_off','stop_on_reply',graph#>'{settings,stop_on_reply}','graph',graph,
-      'trigger',origin.event_type,
-      'context',jsonb_strip_nulls(jsonb_build_object(
-        'appointment_start',case origin.event_type
-          when 'appointment_booked' then (select s.starts_at from private.automation_appointment_state(
-            run.organization_id,nullif(origin.subject->>'appointment_id','')::uuid) s)
-          when 'appointment_outcome_recorded' then (select o.scheduled_start from private.appointment_occurrences o
-            where o.organization_id=run.organization_id and o.id=nullif(origin.subject->>'occurrence_id','')::uuid) end,
-        'agency_timezone',private.automation_agency_time_zone(run.organization_id),
-        'caller_phone',origin.subject->>'caller_phone',
-        'sms_purpose',(select p.purpose from private.automation_sms_purposes p
-          where p.organization_id=run.organization_id and p.version_id=run.version_id and p.node_id=run.current_node_id))));
+    fetched:=0;
+    for run in
+      select r.* from private.automation_runs r
+      join public.workflows w on w.id=r.workflow_id and w.organization_id=r.organization_id
+      where w.status='active' and not r.workflow_paused and r.status in ('queued','waiting','held')
+        and greatest(r.due_at,r.leased_until)<=cutoff
+      order by greatest(r.due_at,r.leased_until),r.id limit bounded-leased for update of r skip locked
+    loop
+      fetched:=fetched+1;
+      examined:=examined+1;
+      if private.automation_settle_stop(run) then continue; end if;
+      select v.graph into graph from public.workflow_versions v
+        where v.id=run.version_id and v.organization_id=run.organization_id and v.workflow_id=run.workflow_id;
+      select n into node from jsonb_array_elements(graph->'nodes') n where n->>'id'=run.current_node_id;
+      select * into origin from private.automation_events ev where ev.id=run.event_id and ev.organization_id=run.organization_id;
+      token:=gen_random_uuid();
+      update private.automation_runs set lease_token=token,leased_until=clock_timestamp()+interval '2 minutes'
+        where id=run.id;
+      previous_intent:=null;
+      if node->>'type' in ('send_sms','send_email') then
+        insert into private.automation_intents(organization_id,run_id,node_id,status)
+          values(run.organization_id,run.id,run.current_node_id,'prepared') on conflict do nothing;
+        select i.status into previous_intent from private.automation_intents i where i.run_id=run.id
+          and i.node_id=run.current_node_id and i.organization_id=run.organization_id;
+      end if;
+      return next jsonb_build_object('organization_id',run.organization_id,'workflow_id',run.workflow_id,
+        'version_id',run.version_id,'run_id',run.id,'contact_id',run.contact_id,'contact_type',run.contact_type,
+        'lease_token',token,'node_id',run.current_node_id,'status',run.status,
+        'due_lag_ms',greatest(0,round(extract(epoch from cutoff-run.due_at)*1000)),
+        'uncertain_handoff',previous_intent='handed_off','stop_on_reply',graph#>'{settings,stop_on_reply}','graph',graph,
+        'trigger',origin.event_type,
+        'context',jsonb_strip_nulls(jsonb_build_object(
+          'appointment_start',case origin.event_type
+            when 'appointment_booked' then (select s.starts_at from private.automation_appointment_state(
+              run.organization_id,nullif(origin.subject->>'appointment_id','')::uuid) s)
+            when 'appointment_outcome_recorded' then (select o.scheduled_start from private.appointment_occurrences o
+              where o.organization_id=run.organization_id and o.id=nullif(origin.subject->>'occurrence_id','')::uuid) end,
+          'agency_timezone',private.automation_agency_time_zone(run.organization_id),
+          'caller_phone',origin.subject->>'caller_phone',
+          'sms_purpose',(select p.purpose from private.automation_sms_purposes p
+            where p.organization_id=run.organization_id and p.version_id=run.version_id and p.node_id=run.current_node_id))));
+      leased:=leased+1;
+    end loop;
+    -- Leased and stopped runs no longer match, so another pass only sees work not yet examined.
+    exit when fetched=0 or leased>=bounded or examined>=bounded*8;
   end loop;
 end $$;
 
@@ -71,6 +84,8 @@ declare
   next_due timestamptz:=clock_timestamp();
   next_anchor uuid;
   next_anchor_at timestamptz;
+  next_held_since timestamptz;
+  held_for interval;
   step_status text:=p_result;
   advance boolean:=false;
   branch text;
@@ -101,7 +116,20 @@ begin
     end if;
     step_status:=p_result;
   end if;
-  if p_result in ('held','failed','unknown') then
+  if p_result='held' then
+    -- A hold is retried after five minutes, then less often the longer it lasts (half the time held so
+    -- far, at most six hours). A run held for seven days ends with the reason it was held.
+    held_for:=case when r.status='held' and r.held_since is not null then clock_timestamp()-r.held_since else interval '0' end;
+    if held_for>interval '7 days' then
+      next_status:='stopped';
+      step_status:='stopped';
+      p_reason:='Stopped after 7 days on hold: '||coalesce(p_reason,'no reason given');
+    else
+      next_status:='held';
+      next_held_since:=case when r.status='held' then coalesce(r.held_since,clock_timestamp()) else clock_timestamp() end;
+      next_due:=next_due+least(interval '6 hours',greatest(interval '5 minutes',held_for/2));
+    end if;
+  elsif p_result in ('failed','unknown') then
     next_status:=p_result;
     next_due:=next_due+interval '5 minutes';
   elsif kind='create_task' and p_result='stopped' then
@@ -168,7 +196,7 @@ begin
     values(r.organization_id,p_run,r.current_node_id,step_status,left(p_reason,500))
     on conflict (run_id,node_id) do update set status=excluded.status,reason=excluded.reason,updated_at=clock_timestamp();
   update private.automation_runs set current_node_id=coalesce(target,r.current_node_id),status=next_status,
-    reason=left(p_reason,500),due_at=next_due,anchor_id=next_anchor,anchor_at=next_anchor_at,
+    reason=left(p_reason,500),due_at=next_due,anchor_id=next_anchor,anchor_at=next_anchor_at,held_since=next_held_since,
     lease_token=null,leased_until=null,updated_at=clock_timestamp(),
     ended_at=case when next_status in ('completed','failed','unknown','stopped') then clock_timestamp() end
     where id=p_run;
@@ -181,7 +209,7 @@ CREATE FUNCTION public.automation_create_task(p_run uuid,p_token uuid,p_node tex
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE r private.automation_runs; published record; node jsonb; cfg jsonb; origin private.automation_events;
   title text:=left(btrim(coalesce(p_title,'')),200); notes text:=nullif(left(btrim(coalesce(p_notes,'')),2000),'');
-  kind text; owner_id uuid; due timestamptz; made uuid; inbound uuid; evidence text; known boolean;
+  kind text; owner_id uuid; claimant uuid; due timestamptz; made uuid; inbound uuid; evidence text; known boolean;
 BEGIN
   SELECT run.* INTO r FROM private.automation_runs run WHERE run.id=p_run;
   IF NOT FOUND THEN RETURN jsonb_build_object('status','held','reason','Run is unavailable'); END IF;
@@ -204,10 +232,20 @@ BEGIN
   -- A replayed or re-leased step finds its own record and creates nothing more.
   IF EXISTS (SELECT 1 FROM private.automation_task_receipts x WHERE x.run_id=r.id AND x.node_id=p_node) THEN
     RETURN jsonb_build_object('status','created'); END IF;
+  -- Turning enrollment off stops automation output for the agency, the way turning message delivery off
+  -- stops messages. An operator's change waits for this step, or this step sees the change.
+  PERFORM 1 FROM private.automation_release_controls c WHERE c.organization_id=r.organization_id AND c.enrollment_enabled FOR SHARE;
+  IF NOT FOUND THEN RETURN jsonb_build_object('status','held','reason','Automations are turned off for this agency'); END IF;
   IF private.automation_settle_stop(r) THEN
     RETURN jsonb_build_object('status','stopped','reason',(SELECT run.reason FROM private.automation_runs run WHERE run.id=r.id));
   END IF;
-  IF title='' THEN RETURN jsonb_build_object('status','held','reason','Task title is empty'); END IF;
+  -- Fields that render to nothing (an unmatched caller, a contact without a name) still give the task
+  -- a title: the step's name, the caller for a missed call, or the task type.
+  IF title='' THEN
+    title:=left(coalesce(nullif(btrim(node#>>'{meta,name}'),''),
+      CASE WHEN origin.event_type='inbound_call_missed' THEN 'Call back '||coalesce(nullif(origin.subject->>'caller_phone',''),'the caller') END,
+      cfg->>'task_type','Follow Up'),200);
+  END IF;
   due:=clock_timestamp()+(cfg->>'due_amount')::integer * CASE cfg->>'due_unit'
     WHEN 'minutes' THEN interval '1 minute' WHEN 'hours' THEN interval '1 hour' ELSE interval '1 day' END;
   known:=r.contact_id IS NOT NULL
@@ -225,16 +263,19 @@ BEGIN
     IF EXISTS (SELECT 1 FROM private.automation_task_receipts x
         WHERE x.organization_id=r.organization_id AND x.scope_key='call:'||inbound::text) THEN
       RETURN jsonb_build_object('status','skipped','reason','A callback already exists for this call'); END IF;
-    owner_id:=private.automation_inbound_responsible(r.organization_id,inbound,
-      CASE WHEN known THEN r.contact_type END,CASE WHEN known THEN r.contact_id END);
-    IF owner_id IS NULL OR NOT known THEN
-      -- Nobody is responsible, or the caller is not a contact: the callback waits in Inbounds.
+    -- A known caller's task belongs to the contact's own active agent, like every automation task.
+    IF known THEN owner_id:=private.automation_contact_owner(r.organization_id,r.contact_type,r.contact_id); END IF;
+    IF owner_id IS NULL THEN
+      -- The caller is not a contact, or the contact has no active agent: the callback waits in Inbounds,
+      -- already claimed by the agent the call was for (the direct line dialed, or a recent outbound call)
+      -- when there is one. The list shows a contact's name only to people who can see the contact.
+      claimant:=private.automation_inbound_responsible(r.organization_id,inbound,NULL,NULL);
       INSERT INTO public.inbound_callbacks(organization_id,call_id,run_id,caller_phone,contact_id,contact_type,title,notes,due_at,
           status,claimed_by,claimed_at)
         VALUES(r.organization_id,inbound,r.id,nullif(origin.subject->>'caller_phone',''),
           CASE WHEN known THEN r.contact_id END,CASE WHEN known THEN r.contact_type END,title,notes,due,
-          CASE WHEN owner_id IS NULL THEN 'open' ELSE 'claimed' END,owner_id,
-          CASE WHEN owner_id IS NOT NULL THEN clock_timestamp() END)
+          CASE WHEN claimant IS NULL THEN 'open' ELSE 'claimed' END,claimant,
+          CASE WHEN claimant IS NOT NULL THEN clock_timestamp() END)
         ON CONFLICT (call_id) DO NOTHING RETURNING id INTO made;
       IF made IS NULL THEN
         RETURN jsonb_build_object('status','skipped','reason','A callback already exists for this call'); END IF;
@@ -252,11 +293,13 @@ BEGIN
     owner_id:=private.automation_contact_owner(r.organization_id,r.contact_type,r.contact_id);
     IF owner_id IS NULL THEN
       RETURN jsonb_build_object('status','held','reason','Contact has no active assigned agent'); END IF;
-    -- A repeated trigger does not stack a second task while the earlier one is still open.
+    -- A repeated trigger does not stack a second task on the agent while their earlier one is still open.
+    -- A task left with an agent the contact no longer belongs to does not hold back the current agent's.
     IF EXISTS (SELECT 1 FROM private.automation_task_receipts x
         JOIN public.tasks t ON t.id=x.record_id AND t.organization_id=x.organization_id
         WHERE x.organization_id=r.organization_id AND x.workflow_id=r.workflow_id AND x.node_id=p_node AND x.kind='task'
-          AND x.scope_key IS NOT DISTINCT FROM r.scope_key AND x.run_id<>r.id AND t.completed_at IS NULL) THEN
+          AND x.scope_key IS NOT DISTINCT FROM r.scope_key AND x.run_id<>r.id AND t.completed_at IS NULL
+          AND t.assigned_to=owner_id) THEN
       RETURN jsonb_build_object('status','skipped','reason','An earlier task from this automation is still open'); END IF;
   END IF;
 
@@ -270,15 +313,23 @@ BEGIN
   RETURN jsonb_build_object('status','created');
 END $$;
 
--- The verified zone an automated message to this recipient is written in.
+-- The verified zone an automated message to this recipient is written in. The recipient is normalized
+-- the way the handoff normalizes it (E.164 for a phone, trimmed lower case for an email), so a lead
+-- phone stored as 11 digits finds the same eligibility record the handoff requires.
 CREATE FUNCTION public.automation_message_timezone(p_run uuid,p_channel text,p_recipient text)
-RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
-  SELECT f.timezone_name FROM private.automation_runs r JOIN private.automation_recipient_facts f
-    ON f.organization_id=r.organization_id AND f.contact_id=r.contact_id AND f.contact_type=r.contact_type
-  WHERE r.id=p_run AND f.channel=p_channel AND f.destination=p_recipient AND f.valid_until>clock_timestamp()
-    AND EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names z WHERE z.name=f.timezone_name)
-  LIMIT 1
-$$;
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE wanted text;
+BEGIN
+  IF p_channel='sms' THEN
+    BEGIN wanted:=private.affinity_phone(p_recipient);
+    EXCEPTION WHEN OTHERS THEN RETURN NULL; END;
+  ELSE wanted:=lower(btrim(p_recipient)); END IF;
+  RETURN (SELECT f.timezone_name FROM private.automation_runs r JOIN private.automation_recipient_facts f
+      ON f.organization_id=r.organization_id AND f.contact_id=r.contact_id AND f.contact_type=r.contact_type
+    WHERE r.id=p_run AND f.channel=p_channel AND f.destination=wanted AND f.valid_until>clock_timestamp()
+      AND EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names z WHERE z.name=f.timezone_name)
+    LIMIT 1);
+END $$;
 
 CREATE OR REPLACE FUNCTION public.automation_activity(p_session_revision bigint,p_viewer_id uuid,p_workflow uuid default null,p_contact uuid default null,p_type text default null,
   p_before_at timestamptz default null,p_before_run uuid default null)

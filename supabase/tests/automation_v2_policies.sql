@@ -13,7 +13,7 @@ create function pg_temp.act(n integer) returns void language sql as $$
   select set_config('request.jwt.claim.sub',pg_temp.id(n)::text,true),
     set_config('request.jwt.claims',jsonb_build_object('sub',pg_temp.id(n),'role','authenticated','session_id',pg_temp.id(n+100),
       'app_metadata',jsonb_build_object('organization_id',pg_temp.id(case when n=14 then 2 else 1 end),
-        'role',case n when 10 then 'Admin' when 13 then 'Team Leader' else 'Agent' end))::text,true);
+        'role',case n when 10 then 'Admin' when 16 then 'Admin' when 13 then 'Team Leader' else 'Agent' end))::text,true);
 $$;
 create function pg_temp.nobody() returns void language sql as $$
   select set_config('request.jwt.claim.sub','',true),set_config('request.jwt.claims','',true);
@@ -184,6 +184,23 @@ select pg_temp.ok(public.automation_process_events(25)=1,'the confirmed policy e
 select pg_temp.ok(pg_temp.work()->>'result'='created','the delivery task is created');
 select pg_temp.ok((select count(*)=1 from public.tasks where title='Deliver the policy' and assigned_to=pg_temp.id(11)),
   'one delivery task, for the confirmed policy only');
+
+-- A super admin session whose mode the server cannot verify cannot confirm until it signs in again.
+insert into auth.users(id,email) values (pg_temp.id(16),'v2-policy-16@example.invalid');
+insert into public.profiles(id,organization_id,role,status,email,first_name,last_name,is_super_admin)
+  values (pg_temp.id(16),pg_temp.id(1),'Admin','Active','v2-policy-16@example.invalid','Super','Admin',true)
+  on conflict (id) do update set organization_id=excluded.organization_id,role=excluded.role,status=excluded.status,is_super_admin=true;
+insert into auth.sessions(id,user_id,created_at) values (pg_temp.id(116),pg_temp.id(16),clock_timestamp());
+select pg_temp.ok((select item->>'can_confirm'='false' from jsonb_array_elements(pg_temp.as_user(16,format(
+    'select public.get_policy_issuance(%L)',(select id from policy where label='client')))) item
+  where item->>'policy_id'=(select id::text from policy where label='second')),'the action is not offered to an unverified super admin session');
+select pg_temp.refused_as(16,format('select public.confirm_policy_issuance(%L,%L,%L)',pg_temp.id(75),
+  (select id from policy where label='second'),((now() at time zone 'America/Chicago')::date-1)::text),'42501');
+select pg_temp.as_user(16,'select public.automation_session_context()');
+select pg_temp.ok((select item->>'can_confirm'='true' from jsonb_array_elements(pg_temp.as_user(16,format(
+    'select public.get_policy_issuance(%L)',(select id from policy where label='client')))) item
+  where item->>'policy_id'=(select id::text from policy where label='second')),'once the session is recorded the action is offered');
+select pg_temp.ok((select count(*)=1 from public.policy_issuance_confirmations),'the refused attempt recorded nothing');
 
 -- The second policy is confirmed separately, by the team leader above the agent.
 select pg_temp.as_user(13,format('select public.confirm_policy_issuance(%L,%L,%L)',pg_temp.id(73),

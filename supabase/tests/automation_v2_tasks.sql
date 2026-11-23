@@ -337,4 +337,156 @@ begin
 end $$;
 reset role;
 select pg_temp.nobody();
+
+-- Review follow-ups ------------------------------------------------------------------------------
+-- Earlier runs are set aside so each case below follows its own run.
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where organization_id=pg_temp.id(1) and status in ('queued','waiting','held');
+update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active';
+create function pg_temp.dispose_for(call_n integer, disposition_n integer, lead_n integer, booking jsonb default null)
+returns jsonb language plpgsql as $$
+declare saved jsonb;
+begin
+  insert into public.calls(id,organization_id,agent_id,contact_id,contact_type,contact_phone,direction,status,duration,dialer_admission_required)
+    values(pg_temp.id(call_n),pg_temp.id(1),pg_temp.id(11),pg_temp.id(lead_n),'lead','+1202555'||lpad(lead_n::text,4,'0'),
+      'outbound','completed',0,false) on conflict (id) do nothing;
+  perform pg_temp.act(11);
+  set local role authenticated;
+  saved:=public.save_disposition_with_booking(jsonb_build_object('p_call_id',pg_temp.id(call_n),'p_operation_id',pg_temp.id(call_n+1000),
+    'p_disposition_id',pg_temp.id(disposition_n),'p_notes','synthetic','p_release_lock',false),booking);
+  reset role;
+  perform pg_temp.nobody();
+  return saved;
+end $$;
+
+-- The appointment a disposition save books is part of that save, so "stop when booked" lets the run go on.
+insert into public.dispositions(id,organization_id,name,counts_as_contacted,appointment_scheduler) values
+  (pg_temp.id(53),pg_temp.id(1),'Appointment Set',true,true);
+select pg_temp.publish(24,25,'After appointment set',jsonb_build_object(
+  'format',1,'settings',jsonb_build_object('reentry','after_end','stop_on_reply',false,'stop_on_booking',true),
+  'nodes',jsonb_build_array(
+    jsonb_build_object('id','start','type','disposition_recorded','version',1,'config',jsonb_build_object('disposition_ids',jsonb_build_array(pg_temp.id(53)))),
+    jsonb_build_object('id','task','type','create_task','version',1,'config',jsonb_build_object(
+      'title','Send the confirmation packet','task_type','Follow Up','due_amount',0,'due_unit','minutes'))),
+  'edges',jsonb_build_array(jsonb_build_object('id','a','source','start','target','task'))));
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id) values
+  (pg_temp.id(61),pg_temp.id(1),'Booked','+12025550061',pg_temp.id(11),pg_temp.id(11)),
+  (pg_temp.id(62),pg_temp.id(1),'Handed over','+12025550062',pg_temp.id(11),pg_temp.id(11)),
+  (pg_temp.id(63),pg_temp.id(1),'Fenced','+12025550063',pg_temp.id(11),pg_temp.id(11));
+select pg_temp.dispose_for(81,53,61,jsonb_build_object('title','Policy review','start_time',clock_timestamp()+interval '2 days'));
+select pg_temp.ok(public.automation_process_events(25)=1,'an appointment-setting disposition enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='created','the booking that disposition made is not a later booking, so the step runs');
+select pg_temp.ok(exists(select from public.tasks where contact_id=pg_temp.id(61) and title='Send the confirmation packet'),
+  'and its task exists');
+-- A booking made afterwards still stops a run that has not reached its step.
+update public.workflows set status='paused' where id=pg_temp.id(24);
+
+-- A task left with an agent the contact no longer belongs to does not hold back the current agent's task.
+select pg_temp.publish(26,27,'No answer task',jsonb_build_object(
+  'format',1,'settings',jsonb_build_object('reentry','after_completion','stop_on_reply',false),
+  'nodes',jsonb_build_array(
+    jsonb_build_object('id','start','type','disposition_recorded','version',1,'config',jsonb_build_object('disposition_ids',jsonb_build_array(pg_temp.id(50)))),
+    jsonb_build_object('id','task','type','create_task','version',1,'config',jsonb_build_object(
+      'title','Try again','task_type','Follow Up','due_amount',0,'due_unit','minutes'))),
+  'edges',jsonb_build_array(jsonb_build_object('id','a','source','start','target','task'))));
+select pg_temp.dispose_for(82,50,62);
+select pg_temp.ok(public.automation_process_events(25)=1,'the first no-answer enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='created','and makes a task for agent 11');
+update public.leads set assigned_agent_id=pg_temp.id(12),user_id=pg_temp.id(12) where id=pg_temp.id(62);
+select pg_temp.dispose_for(83,50,62);
+select pg_temp.ok(public.automation_process_events(25)=1,'the lead re-enters after its first run completed');
+select pg_temp.ok(pg_temp.work()->>'result'='created',
+  'the lead''s new agent gets their own task although the earlier agent''s task is still open');
+select pg_temp.ok((select count(*)=1 from public.tasks where contact_id=pg_temp.id(62) and assigned_to=pg_temp.id(12) and completed_at is null)
+  and (select count(*)=1 from public.tasks where contact_id=pg_temp.id(62) and assigned_to=pg_temp.id(11) and completed_at is null),
+  'one open task for each agent');
+select pg_temp.dispose_for(84,50,62);
+select pg_temp.ok(public.automation_process_events(25)=1,'and re-enters again');
+select pg_temp.ok(pg_temp.work()->>'reason'='An earlier task from this automation is still open','the current agent''s open task is not stacked');
+select pg_temp.ok((select count(*)=2 from public.tasks where contact_id=pg_temp.id(62)),'still two tasks');
+
+-- Turning enrollment off stops task output for runs already under way. Turning it on again resumes them.
+select pg_temp.dispose_for(85,50,63);
+select pg_temp.ok(public.automation_process_events(25)=1,'a run starts before the agency is turned off');
+update private.automation_release_controls set enrollment_enabled=false,dispatch_enabled=false where organization_id=pg_temp.id(1);
+do $$
+declare turn jsonb:=pg_temp.work();
+begin
+  perform pg_temp.ok(turn->>'result'='held' and turn->>'reason'='Automations are turned off for this agency'
+    and not exists(select from public.tasks where contact_id=pg_temp.id(63)),'a fenced agency creates no task');
+end $$;
+update private.automation_release_controls set enrollment_enabled=true where organization_id=pg_temp.id(1);
+update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where contact_id=pg_temp.id(63) and status='held';
+select pg_temp.ok(pg_temp.work()->>'result'='created','the held step creates its task once the agency is turned on again');
+update public.workflows set status='paused' where id=pg_temp.id(26);
+
+-- Holds back off and end. A blank rendered title falls back to the step's name.
+select pg_temp.publish(30,31,'Named callback','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"lead_created","version":1,"config":{}},
+    {"id":"task","type":"create_task","version":1,"meta":{"name":"Speed to lead"},
+     "config":{"title":"Call {{first_name}}","task_type":"Follow Up","due_amount":5,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"task"}]}');
+insert into public.leads(id,organization_id,first_name) values (pg_temp.id(64),pg_temp.id(1),'Nobody''s');
+select pg_temp.ok(public.automation_process_events(25)=1,'an unowned lead enrolls');
+do $$
+declare turn jsonb:=pg_temp.work(); run private.automation_runs;
+begin
+  select * into run from private.automation_runs where id=(turn->>'run_id')::uuid;
+  perform pg_temp.ok(run.status='held' and run.held_since is not null
+    and run.due_at between clock_timestamp()+interval '4 minutes' and clock_timestamp()+interval '6 minutes','the first retry is five minutes out');
+  update private.automation_runs set held_since=clock_timestamp()-interval '2 hours',due_at=clock_timestamp()-interval '1 second' where id=run.id;
+  perform pg_temp.work();
+  select * into run from private.automation_runs where id=run.id;
+  perform pg_temp.ok(run.status='held' and run.held_since<clock_timestamp()-interval '119 minutes'
+    and run.due_at between clock_timestamp()+interval '59 minutes' and clock_timestamp()+interval '61 minutes',
+    'after two hours on hold the next retry is an hour out, and the hold keeps its start');
+  update private.automation_runs set held_since=clock_timestamp()-interval '8 days',due_at=clock_timestamp()-interval '1 second' where id=run.id;
+  perform pg_temp.work();
+  select * into run from private.automation_runs where id=run.id;
+  perform pg_temp.ok(run.status='stopped' and run.ended_at is not null
+    and run.reason='Stopped after 7 days on hold: Contact has no active assigned agent','a run on hold for over seven days ends with its reason');
+end $$;
+insert into public.leads(id,organization_id,first_name,assigned_agent_id) values (pg_temp.id(65),pg_temp.id(1),'Blank',pg_temp.id(11));
+select pg_temp.ok(public.automation_process_events(25)=1,'a lead whose fields render to nothing enrolls');
+do $$
+declare c jsonb; made jsonb;
+begin
+  select * into strict c from public.automation_claim_work(1);
+  made:=public.automation_create_task((c->>'run_id')::uuid,(c->>'lease_token')::uuid,'task','   ',null);
+  perform pg_temp.ok(made->>'status'='created' and (select title='Speed to lead' from public.tasks where contact_id=pg_temp.id(65)),
+    'a title that renders to nothing takes the step''s name');
+  perform public.automation_finish_node((c->>'run_id')::uuid,(c->>'lease_token')::uuid,'created');
+end $$;
+update public.workflows set status='paused' where id=pg_temp.id(30);
+
+-- A page of runs that are already stopped does not hide live work behind it.
+select pg_temp.publish(28,29,'Wait then follow up',jsonb_build_object(
+  'format',1,'settings',jsonb_build_object('reentry','once','stop_on_reply',false,'stop_on_contact',true),
+  'nodes',jsonb_build_array(
+    jsonb_build_object('id','start','type','lead_created','version',1,'config','{}'::jsonb),
+    jsonb_build_object('id','pause','type','wait','version',1,'config',jsonb_build_object('duration',1,'unit','hours')),
+    jsonb_build_object('id','task','type','create_task','version',1,'config',jsonb_build_object(
+      'title','Follow up','task_type','Follow Up','due_amount',0,'due_unit','minutes'))),
+  'edges',jsonb_build_array(jsonb_build_object('id','a','source','start','target','pause'),
+    jsonb_build_object('id','b','source','pause','target','task'))));
+insert into public.leads(id,organization_id,first_name,assigned_agent_id) values
+  (pg_temp.id(66),pg_temp.id(1),'Reached A',pg_temp.id(11)),(pg_temp.id(67),pg_temp.id(1),'Reached B',pg_temp.id(11)),
+  (pg_temp.id(68),pg_temp.id(1),'Still due',pg_temp.id(11));
+select pg_temp.ok(public.automation_process_events(25)=3,'three leads enroll');
+select pg_temp.work() from generate_series(1,3);
+insert into public.calls(id,organization_id,agent_id,contact_id,contact_type,direction,status,duration,started_at,dialer_admission_required)
+  select pg_temp.id(n+20),pg_temp.id(1),pg_temp.id(11),pg_temp.id(n),'lead','outbound','completed',120,clock_timestamp(),false
+  from generate_series(66,67) n;
+update private.automation_runs r set due_at=clock_timestamp()-make_interval(mins=>case r.contact_id when pg_temp.id(66) then 3
+    when pg_temp.id(67) then 2 else 1 end) where r.workflow_id=pg_temp.id(28);
+do $$
+declare leased jsonb[];
+begin
+  select array_agg(c) into leased from public.automation_claim_work(2) c;
+  perform pg_temp.ok(coalesce(array_length(leased,1),0)=1 and leased[1]->>'contact_id'=pg_temp.id(68)::text,
+    'two stopped runs at the head of the queue do not hide the live run behind them');
+  perform pg_temp.ok((select count(*)=2 from private.automation_runs where workflow_id=pg_temp.id(28) and status='stopped'
+    and reason='Contact was reached'),'the runs whose contact was reached are stopped');
+end $$;
 rollback;
