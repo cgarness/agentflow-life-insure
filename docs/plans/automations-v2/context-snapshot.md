@@ -54,7 +54,7 @@ The four applied first-release files are unchanged. No existing table's row-leve
 
 ## Independent review
 
-On November 22–23 nine independent reviewers, one per area, read the change and tried to break it on the scratch databases. Eight reported 42 findings (12 major, 30 minor). The ninth, requirement and documentation coverage, and the separate refutation pass were stopped by a usage limit, so every finding was reproduced again before it was fixed. Each fix has a SQL, Deno or Vitest case that fails on the previous code and passes now.
+On November 22–23 nine independent reviewers, one per area, read the change and tried to break it on the scratch databases. Eight reported 42 findings (12 major, 30 minor). The ninth, requirement and documentation coverage, and the separate refutation pass were stopped by a usage limit, so every finding was reproduced again before it was fixed. Each code fix has a SQL, Deno or Vitest case that fails on the previous code and passes now; findings in documents and code comments were corrected in the text.
 
 | Area | Fixed |
 | --- | --- |
@@ -100,7 +100,7 @@ A fifth check, on November 23, reviewed every committed screenshot against the d
 | CRM | A task's type is a shared info badge; the old tint measured 3.2:1. An Inbounds callback's state is a status badge, its row stacks left-aligned on a phone, and the card says it covers missed calls to any agency number, which the room's own activity does not count. |
 | Harness | Screenshots are taken with the pointer resting off every control, so no button is captured in its hover colour. The keyboard check's dark captures were taken mid theme-switch and are now fully drawn at twice the density. The Inbounds capture centres the callbacks card. |
 
-A second check of the regenerated screenshots confirmed 8 of 10 claims and refuted 2. Fixed: Automation activity wrote times in the browser's own format, with seconds and no time zone, and now uses the agency's date and time format; Step details sat 8 px inside the rest of the step settings; and a run rule's label that wraps to two lines had no line spacing. The canvas, list, message editor, publish review and phone timeline were cut at the bottom of the window, so the editor checks now capture them as whole pages. One finding is inherited and listed below.
+A second check of the regenerated screenshots, all but the two rollback rehearsal captures, confirmed 8 of 11 claims and refuted 3. Two were major: the phone timeline captures did not show the timeline. Fixed: Automation activity wrote times in the browser's own format, with seconds and no time zone, and now uses the agency's date and time format; Step details sat 8 px inside the rest of the step settings; and a run rule's label that wraps to two lines had no line spacing. The canvas, list, message editor, publish review and phone timeline were cut at the bottom of the window, so the editor checks now capture them as whole pages. One finding is inherited and listed below.
 
 A third check confirmed 4 claims, all minor. The publish review's Publish version button sat flush against the bottom of the page, so the editor now has bottom padding of its own. Two whole-page captures had been taken with the window scrolled 4 px, which draws the fixed sidebar and header low, and the backend-first editor capture predated the run rule fix. The harness now scrolls to the top before a whole-page capture, and every capture was taken again.
 
@@ -117,14 +117,14 @@ Accepted as they are, and stated here so they are not mistaken for fixed:
 
 ## Verification
 
-All runs were local, on November 23, 2026, except the GitHub Actions row. The builder and backend-first modes ran at `d40f552`, the final code, and the release mode at `d6be5cc`. Commits after `d6be5cc` change only Automation activity's time format, three styling details and how the harness takes screenshots. All 14 SQL suites passed inside those runs. Both typechecks, the build, lint on the changed files and the Vitest suites for workflows, settings and contacts ran again at `d40f552`; the Automations Deno tests and the Vitest suites for Inbounds and `src/lib` last ran at `d6be5cc`. The full Vitest suite and the SMS Deno tests last ran locally at `28394a2`; GitHub Actions runs the full suite against the base on every push, and the pull request shows the final head's results. Each fix from the four review passes also has its own case that fails on the earlier code. Of the screenshot review's fixes, the switch labels and the callbacks list have one; the others are shown in the screenshots.
+All runs were local, on November 23, 2026, except the GitHub Actions row. The builder and backend-first modes ran at `d40f552`, the final code, and the release mode at `d6be5cc`. Commits after `d6be5cc` change only Automation activity's time format, three styling details and how the harness takes screenshots. All 14 SQL suites passed inside those runs. Both typechecks, the build, lint on the changed files and the Vitest suites for workflows, settings and contacts ran again at `d40f552`; the Automations Deno tests and the Vitest suites for Inbounds and `src/lib` last ran at `d6be5cc`. The full Vitest suite and the SMS Deno tests last ran locally at `28394a2`; GitHub Actions runs the full suite against the base on every push, and the pull request shows the final head's results. Each code fix from the four review passes also has its own case that fails on the earlier code; findings in documents and code comments were corrected in the text. Of the screenshot reviews' fixes, the switch labels, the callbacks list and Automation activity's time format have one; the others are shown in the screenshots.
 
 | Check | Result |
 | --- | --- |
 | `npx tsc --noEmit` | Pass at `d40f552`. |
 | App TypeScript, `A2P_BASE_SHA=d85434f635bbf2d4118781e6d254798eef699363 node scripts/verify-a2p-types.mjs` | 78 diagnostics on the base and on the candidate at `d40f552`. Zero new. |
 | `npm run build` | Pass at `d40f552`. |
-| `npx eslint` on the 89 frontend files this branch added or changed | 0 errors, 3 warnings (two effect-cleanup ref warnings, one fast-refresh warning on the shared badge). The 13 files the screenshot reviews changed: 0 errors, and only the effect-cleanup warning `AutomationActivity.tsx` already had. |
+| `npx eslint` on the 89 frontend files this branch had added or changed at `28394a2` | 0 errors, 3 warnings (two effect-cleanup ref warnings, one fast-refresh warning on the shared badge). The 13 files the screenshot reviews changed: 0 errors, and only the effect-cleanup warning `AutomationActivity.tsx` already had. |
 | `npx vitest run` at `28394a2` | 7,410 tests passed, 40 skipped, 1 failed. 504 files passed, 4 skipped, 9 failed. All nine failures exist on the base and are listed below. |
 | Vitest for workflows, Inbounds, contacts and `src/lib` at `d6be5cc`; for workflows, settings and contacts at `d40f552` | 3,711 tests passed, 16 skipped; then 868 passed, 5 skipped. The only failing files are among the nine inherited ones below. |
 | Deno: `_shared/automations/` and three `_shared/sms/` files | 67 passed, 0 failed (38 Automations, 29 SMS) at `28394a2`. The 38 Automations tests pass again at `d6be5cc`. |
@@ -149,7 +149,8 @@ All runs were local, on November 23, 2026, except the GitHub Actions row. The bu
 | A run shows the step name of its own version | `v2-editor.mjs`, `automation_v2_tasks.sql` |
 | Tenant isolation and role boundaries | A second agency and non-author roles in every V2 SQL suite, `v2-editor.mjs` |
 | Concurrent edits | `v2-editor.mjs`, `session-tabs.mjs` |
-| The five workflows through normal entry points | `v2-workflows.mjs` and the task, appointment, inbound and policy SQL suites |
+| The five workflows through normal entry points | `v2-workflows.mjs` and the task, appointment, inbound and policy SQL suites. Workflow A runs on New lead created in the browser; its campaign-entry form (a lead added to a selected campaign gets a call task due in five minutes, and the same event replayed creates one task) is the last case in `automation_v2_tasks.sql` |
+| Opening, editing and previewing enroll nobody and send nothing | `builder.mjs` (opening and leaving a blank canvas writes nothing; Preview made zero enrollments or handoffs), `v2-editor.mjs` (Preview starts no run) |
 | Duplicate events | `automation_v2_tasks.sql`, `automation_v2_inbound.sql`, `concurrency_v2.py` |
 | Reschedule and cancel races | `automation_v2_appointments.sql`, `v2-workflows.mjs` |
 | Concurrent inbound claims | `concurrency_v2.py`, `v2-workflows.mjs` |
@@ -166,7 +167,7 @@ These fail identically on `0e49940` and were not touched.
 - Eight Vitest suites cannot load without a Supabase URL: `addLeadAssignmentGate`, `dialerCampaignPresenceHook`, `contactName`, `contactScope`, `leadDisposition`, `userLocalDayBounds`, `runtimeEventLogger`, `custom-fields-settings`.
 - One Vitest assertion: `recordingRetentionVoicemail > handler wiring > byte-identical to deployed v29`.
 - `supabase/functions/_shared/sms/affinity.test.ts` needs its own loopback gateway and was not run. No file under `_shared/sms/` changed.
-- The screenshot review found three things this branch does not change. The shared Switch draws its off state with the divider colour, about 1.2:1 on a card; the standard lists the stronger control outline as a pending shared-theme refinement, and Run rules uses that Switch. In dark theme the shared destructive colour makes the contact screen's "Delete Lead" link about 1.8:1. The contact screen's closing-appointment lines take the client's primary carrier and policy type for every policy (`get_policy_appointment_links`), so a client with two policies shows two identical lines. On a contact opened at `/leads/:id` or `/clients/:id` the breadcrumb reads "Page" and no sidebar item is marked active, because the page titles and the sidebar match `/contacts` only.
+- The screenshot reviews found four things this branch does not change. The shared Switch draws its off state with the divider colour, about 1.2:1 on a card; the standard lists the stronger control outline as a pending shared-theme refinement, and Run rules uses that Switch. In dark theme the shared destructive colour makes the contact screen's "Delete Lead" link about 1.8:1. The contact screen's closing-appointment lines take the client's primary carrier and policy type for every policy (`get_policy_appointment_links`), so a client with two policies shows two identical lines. On a contact opened at `/leads/:id` or `/clients/:id` the breadcrumb reads "Page" and no sidebar item is marked active, because the page titles and the sidebar match `/contacts` only.
 - The harness prints `workflow_on_lead_created dispatch failed … http_request_queue` warnings from the legacy dispatcher, which has no URL configured in the fixture.
 - The contact screen is a fixed desktop layout anchored to the right edge everywhere it is used, and V2 does not change it. At 375 px its right column, with the Tasks tab, stays on screen, but the left column with the policies is pushed off the left edge, so Confirm issuance cannot be reached on a phone. `v2-crm.mjs` checks the task row at both widths and the issuance dialog itself at phone width.
 
@@ -175,15 +176,16 @@ These fail identically on `0e49940` and were not touched.
 - The fixture replays 105 of the 122 earlier migrations. The complete current production schema was not rehearsed. Left out because they need production-only preimages, organization data or release gates: `20261008024220`, `20261008033044`, `20261008035004`, `20261019013824`, `20261019015242`, `20261019032157`, `20261020171244`, `20261023232435`, `20261024045812`, `20261105120016`, `20261105120020`, `20261105120021`, `20261105120022`, `20261105120032`, `20261105120033`, `20261105120043`, `20261105120044`.
 - Every provider is an in-memory transport. No real Twilio, Resend, Gmail or Vercel request was made, and no managed migration runner was used.
 - GitHub Actions has no workflow for the Automations harness. These results are from local runs.
+- The current Vercel deployment was not read for this work; the release preflight reads it.
 
 ## Deployment status
 
 | Target | State |
 | --- | --- |
 | Supabase `jncvvsvckxhqgqvkppmj` | Unchanged. Ledger 395 entries ending `20261122001044`, read on November 22. |
-| Vercel `agentflow` | Unchanged. Not read for this work. Last recorded frontend `666387b06236281a1e61b1d0fc765284bc63cd99`. |
-| Edge functions | Unchanged. `workflow-resume-paused` is version 44, last updated May 22, 2026. The Automations worker code was first written on November 21, so that version cannot contain it. `automation-provider-receipt` does not exist. |
-| Release controls | Unchanged. One agency sees the builder. Zero enrolling, zero delivering. |
+| Vercel `agentflow` | Unchanged. Not read for this work. Last recorded frontend `666387b06236281a1e61b1d0fc765284bc63cd99` on `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7` (work log, November 21). The release preflight reads it again. |
+| Edge functions | Unchanged. Read on November 22: `workflow-resume-paused` is version 44, last updated May 22, 2026. The Automations worker code was first written on November 21, so that version cannot contain it. `automation-provider-receipt` does not exist. |
+| Release controls | Unchanged. Read on November 22: one agency sees the builder, zero enrolling, zero delivering. |
 
 ## Blockers
 

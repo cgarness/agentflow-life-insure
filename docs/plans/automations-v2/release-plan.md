@@ -22,8 +22,21 @@ The last recorded primary frontend is `666387b06236281a1e61b1d0fc765284bc63cd99`
 | Part | Content |
 | --- | --- |
 | Seven migrations | `20261122100000` through `20261122100600` under `supabase/migrations/`, applied in order. |
-| Frontend | The pull request head. |
+| Frontend | The exact commit Chris approves, named in the approval request. The application code last changed at `d40f552`; later commits change only tests and documents. |
 | Worker package | `supabase/functions/_shared/automations/` as used by `workflow-resume-paused`. Only needed when execution is turned on. |
+
+The files to approve are unchanged since `29f7046`. Their SHA-256 checksums:
+
+| File | SHA-256 |
+| --- | --- |
+| `20261122100000_automation_v2_authoring.sql` | `19ca5a6350b25c39a81d9ccd3bf469ed50cc5c4a70a9c6a62fa15b6ab47d742c` |
+| `20261122100100_automation_v2_events.sql` | `be3505497d11d9bb48d9b43f91ba943c64c62de79ec478e9e72da2c4c7a9d9b4` |
+| `20261122100200_automation_v2_tasks.sql` | `728ef809543e557aaf21ec73e059e5e4d2f7222bcf7d28c22560dbdbf2e29c36` |
+| `20261122100300_automation_v2_appointment_timing.sql` | `38eb3cad26c3fdea1f96af413ee6a5a608b67c594b2ee76c2c62e69d63423b34` |
+| `20261122100400_automation_v2_inbound_callbacks.sql` | `e7f6056d48a476d0570d39911f4aeb45c161ef1398f4715d9bdc5e29fb1ff8e9` |
+| `20261122100500_automation_v2_policy_issuance.sql` | `e5ebb02ece6bbdaf62ed4e9b5fa2950885e5f7672309433bd5fef031807e3817` |
+| `20261122100600_automation_v2_runtime.sql` | `db33ad2ad0b141abbe4a5046359fae7c30ea6d044d15d6b580f2b283a3dc4de1` |
+| `rollback/20261122100600_automation_v2.rollback.sql` | `300941979591f6317629d5fd8914fbdd3c7b4cfe5bfd78e277bca05a2ba30d70` |
 
 ### New tables and access rules to approve
 
@@ -36,20 +49,21 @@ No existing table's row-level security policy changes. `public.calls` gets no po
 | `private.automation_sms_purposes`, `private.automation_task_receipts` (new) | Row-level security on, no policy, no browser or service grant. |
 | `public.tasks` | Adds `all_day` (default true) and `automation_run_id`. `created_by` becomes nullable only for a row that names an automation run (CHECK). A trigger refuses any browser write that sets or clears `automation_run_id`. |
 | New triggers on existing tables | `public.calls` (after a status update, inbound terminal calls only), `public.wins` (after insert), `private.dialer_disposition_receipts` (after insert), `private.appointment_occurrences` (after insert or close), `private.appointment_outcome_events` (after insert). Each does nothing when the agency is not enrolling, waits at most 200 ms for a lock and never raises into the CRM write. |
-| New indexes on existing tables | `private.appointment_occurrences(organization_id, contact_id) WHERE seq = 1`, for "Stop when an appointment is booked". `private.automation_runs(organization_id, event_id)`, so an appointment change finds its runs without scanning them all. |
-| New functions | None is executable by `PUBLIC` or `anon`. Worker functions are `service_role` only. |
+| Altered first-release tables | `private.automation_events` (seven more event types, an optional contact, `contact_type`, `subject`, `scope_key`), `private.automation_intake_recovery` (an optional contact, `contact_type`, `subject`, `scope_key`, `available_at`) and `private.automation_runs` (an optional contact, `scope_key`, `anchor_id`, `anchor_at`, `held_since`, `reminded_for`). Existing event and run rows get their `scope_key` filled in the same file. |
+| New indexes on existing tables | `private.automation_events(organization_id, (subject->>'appointment_id')) WHERE subject ? 'appointment_id'`, to find an appointment's events. `private.automation_runs(organization_id, workflow_id, scope_key, ended_at)`, for re-entry by scope. `private.automation_runs(organization_id, event_id)`, so an appointment change finds its runs without scanning them all. `private.appointment_occurrences(organization_id, contact_id) WHERE seq = 1`, for "Stop when an appointment is booked". |
+| New functions | None is executable by `PUBLIC` or `anon`. Worker functions are `service_role` only. Signed-in users may execute twelve: `automation_sms_requirements`, `automation_disposition_options` and `automation_saved_messages` (the builder), `inbound_callback_queue`, `claim_inbound_callback`, `release_inbound_callback` and `complete_inbound_callback` (Inbounds), `confirm_policy_issuance`, `get_policy_issuance` and `can_confirm_policy_issuance` (Confirm issuance), and the helpers `private.automation_viewing_as` and `private.automation_mode_unverified`. Each checks the caller's agency and role itself. |
 
 ## Release order: database first, then frontend
 
-1. **Preflight (read-only).** Confirm the ledger tail, that the 16 function fingerprints still match, and that enrollment and message delivery are off for every agency. Confirm a restorable backup.
+1. **Preflight (read-only).** Confirm the ledger tail, that the 16 function fingerprints still match, that the seven files match the checksums above, and that enrollment and message delivery are off for every agency. Read the deployment production serves and record it as the frontend rollback target; the last record is `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7` serving `666387b` ([work log](../../../WORK_LOG.md), November 21). Confirm a restorable backup.
 2. **Apply the seven migrations in order, outside calling hours.** Each file is one transaction with a 5-second lock wait. The install creates no definition, version, enrollment, task, callback or message. Run the Supabase advisors before and after. Expect brief locks while each file commits:
    - Creating a trigger locks writes to its table: calls, sales, disposition receipts and the two appointment tables.
-   - Building the two new indexes locks writes to `private.appointment_occurrences` and to `private.automation_runs`, which production keeps empty while enrollment is off.
+   - Altering `private.automation_events`, `private.automation_intake_recovery` and `private.automation_runs` locks them until the events file commits, and building the four new indexes on existing tables locks writes to those and to `private.appointment_occurrences`.
    - Adding the two `public.tasks` columns locks the tasks table briefly. The new check is added without scanning existing rows.
    - On Supabase, `CREATE POLICY` (the issuance migration) also locks the sign-in and storage tables until that file commits.
    If any lock is not granted within 5 seconds the file fails and changes nothing. Retry it when the database is quieter.
 3. **Check the installed frontend still works.** The first-release frontend and worker passed their own acceptance script unchanged on the V2 database in the local rehearsal (below).
-4. **Frontend.** Promote the pull request head. Agents refresh after their current call.
+4. **Frontend.** Git deployments are off for this branch in `vercel.json`, so stage the approved commit with the Vercel CLI and `--skip-domain`, as the first release was staged. Confirm Vercel marks it READY with that commit recorded, then promote it. Agents refresh after their current call.
 5. **Verify signed in.** Open Automations, create and leave a blank canvas with zero writes, open the existing draft, confirm Agency enrollment and Agency message delivery both read Off.
 
 No worker is released with this. Production has no Automations worker today, and the first one ever released must be this V2 package: the first-release worker does not enforce a pinned SMS requirement and cannot run V2 steps (it fails them without sending). The worker, its schedule and the receipt endpoint stay under the separate approvals listed under Live dependencies.
@@ -72,7 +86,7 @@ Turning enrollment on is not part of this release. When it is later turned on fo
    ```
 
    Tasks automations created stay on the contacts, with their time of day.
-3. **Frontend.** Promote the previous READY deployment. A draft that uses V2 content opens for inspection only in the first-release editor. A first-release draft stays editable.
+3. **Frontend.** Promote the deployment recorded at preflight as the rollback target. A draft that uses V2 content opens for inspection only in the first-release editor. A first-release draft stays editable.
 4. **Worker.** There is no earlier Automations worker to restore. If the V2 worker was released, keep it, or turn its schedule off. Against the restored functions it runs first-release versions exactly as the first release defines them: claims carry no context, and each version 1 SMS step uses its stored purpose. That is correct for every version the rollback leaves active, because it pauses every version whose pinned requirement differs from the stored purpose. After step 5, while the fence is still on, turn the schedule off: the restored first-release functions retry a held step every five minutes with no end, so the seven-day end no longer applies.
 5. **Database, only if the V2 functions themselves are at fault.** Run [`rollback/20261122100600_automation_v2.rollback.sql`](../../../supabase/migrations/rollback/20261122100600_automation_v2.rollback.sql) as one transaction, outside calling hours:
 
@@ -104,7 +118,7 @@ All of this ran on a disposable local PostgreSQL 17.6, GoTrue and PostgREST stac
 | Rollback on real V2 work | `supabase/tests/automation_v2_rollback.sql` through `e2e/automations-local/rollback-rehearsal.sh` | Refused while a control was on and when run outside a transaction, with or without psql's flags, changing nothing. Applied once. Refused a second run. Stopped four runs (including a first-release run on an automation it paused), paused five automations, kept two first-release automations running, and kept every V2 record. A lead captured before the fence enrolled afterwards only on first-release versions. A text republished from the first-release editor with a weaker requirement than V2 pinned could not be resumed or published, and the refusal named the consent requirement. A saved message edited after a republish did not stop that automation enrolling. The six first-release SQL suites passed on the rolled-back database. |
 | Install from a pre-feature database | `bash e2e/automations-local/run.sh release` | Eleven migrations in order with zero install deltas and an unchanged legacy graph hash, old sessions fenced, the four enrollment and delivery combinations, and a data-preserving hide. |
 
-The "first release" source in the rehearsal is `d85434f635bbf2d4118781e6d254798eef699363`. It differs from the deployed frontend `666387b06236281a1e61b1d0fc765284bc63cd99` in three documentation files only.
+The "first release" source in the rehearsal is `d85434f635bbf2d4118781e6d254798eef699363`. It differs from the last recorded deployed frontend, `666387b06236281a1e61b1d0fc765284bc63cd99` (November 21), in three documentation files only.
 
 Not rehearsed: the complete current production schema (the fixture replays 105 historical migrations), the managed migration runner, Vercel promotion, and any real provider.
 

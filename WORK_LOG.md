@@ -7,7 +7,7 @@ Independent reviewers tried to break [draft pull request 536](https://github.com
 - Third pass: 10.
 - Fourth pass: 4, against the redesigned reschedule logic.
 
-Every confirmed finding from those four passes was reproduced and fixed on `claude/cool-maxwell-15hyq7`, each with a test that fails on the earlier code. No production migration, Edge function, Vercel deployment, release control or schedule was changed, and production was not read again.
+Every confirmed finding from those four passes was reproduced and fixed on `claude/cool-maxwell-15hyq7`, each code fix with a test that fails on the earlier code; findings in documents and code comments were corrected in the text. No production migration, Edge function, Vercel deployment, release control or schedule was changed, and production was not read again.
 
 Behaviour that changed:
 
