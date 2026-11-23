@@ -11,7 +11,7 @@
 | Area | Change |
 | --- | --- |
 | Builder | One Create automation button opens a blank unsaved canvas. Desktop has Canvas and List views with the selected step's settings on the right. Phones have a timeline and a settings sheet. Cards show a category icon and a readable summary. The add-step picker is searchable, grouped, and offers only valid choices. |
-| Saving | Three separate actions with separate results: Save draft, Save & review, Publish version. The editor shows saved or unsaved state, and Enrollment and Message delivery as On, Off or Unknown. |
+| Saving | Three separate actions with separate results: Save draft, Save & review, Publish version. The editor shows saved or unsaved state, and the agency's switches, Agency enrollment and Agency message delivery, as On, Off or Unknown. |
 | Message editor | A direct Message box (and Subject for email). Use saved message fills the fields, asks before replacing wording and never changes the saved message. Insert field sits beside every personalizable input and inserts at the cursor by mouse, keyboard or touch. |
 | SMS consent | The author no longer chooses a purpose. At publish the server pins one per SMS step: an unchanged agency saved message keeps its recorded purpose, any other wording requires marketing consent. The worker enforces the pinned requirement at handoff. Versions published before V2 keep their stored purpose. |
 | Step details | Every step takes an optional name (80 characters) and description (500), stored beside the step's settings. Step IDs never change. A run shows the name from the version it executed. |
@@ -92,6 +92,14 @@ A fourth pass, also on November 23, checked the redesigned reschedule logic and 
 | Appointments | Taking back a cancellation revives every run stopped by that cancellation or a restatement of it. A slot with no recorded outcome takes the appointment's own final status, so a cancelled appointment moved to a new time never starts reminders. |
 | Rollback | A third guard, on `public.workflows`, refuses making a version that needs V2 current, even for a publish that started before the rollback. Each refusal says what the author can do now. |
 
+A fifth check, on November 23, reviewed every committed screenshot against the design standard. Four inspectors read all 27 screenshots and a skeptic per group re-checked each claim, measuring colours in the image and reading the source. All 18 claims held, all minor. Five were capture artifacts in the harness, ten were in screens this branch adds or changes, and three are inherited and listed under [failures that exist on the base](#failures-that-exist-on-the-base-branch).
+
+| Area | Fixed after the screenshot review |
+| --- | --- |
+| Builder | The status panel names its switches Agency enrollment and Agency message delivery, as the first release did. "Enrollment: On" beside a draft's "cannot enroll" line read as a contradiction. The Canvas/List toggle marks the open view with its own border and colour; the shared outline toggle used the hover fill. Publish review steps sit on bordered cards, so their consent badges keep their shape. The phone field's sample in Insert field is the stored number, as the field writes it. |
+| CRM | A task's type is a shared info badge; the old tint measured 3.2:1. An Inbounds callback's state is a status badge, its row stacks left-aligned on a phone, and the card says it covers missed calls to any agency number, which the room's own activity does not count. |
+| Harness | Screenshots are taken with the pointer resting off every control, so no button is captured in its hover colour. The keyboard check's dark captures were taken mid theme-switch and are now fully drawn at twice the density. The Inbounds capture centres the callbacks card. |
+
 Accepted as they are, and stated here so they are not mistaken for fixed:
 
 - An automation task assigned to an agent who later leaves can be completed only by that agent. Opening tasks to anyone else would change the existing `public.tasks` row-level policies, which needs `#APPROVE_RLS_CHANGE`. The contact's new agent now gets their own task.
@@ -153,6 +161,7 @@ These fail identically on `0e49940` and were not touched.
 - Eight Vitest suites cannot load without a Supabase URL: `addLeadAssignmentGate`, `dialerCampaignPresenceHook`, `contactName`, `contactScope`, `leadDisposition`, `userLocalDayBounds`, `runtimeEventLogger`, `custom-fields-settings`.
 - One Vitest assertion: `recordingRetentionVoicemail > handler wiring > byte-identical to deployed v29`.
 - `supabase/functions/_shared/sms/affinity.test.ts` needs its own loopback gateway and was not run. No file under `_shared/sms/` changed.
+- The screenshot review found three things this branch does not change. The shared Switch draws its off state with the divider colour, about 1.2:1 on a card; the standard lists the stronger control outline as a pending shared-theme refinement, and Run rules uses that Switch. In dark theme the shared destructive colour makes the contact screen's "Delete Lead" link about 1.8:1. The contact screen's closing-appointment lines take the client's primary carrier and policy type for every policy (`get_policy_appointment_links`), so a client with two policies shows two identical lines.
 - The harness prints `workflow_on_lead_created dispatch failed … http_request_queue` warnings from the legacy dispatcher, which has no URL configured in the fixture.
 - The contact screen is a fixed desktop layout anchored to the right edge everywhere it is used, and V2 does not change it. At 375 px its right column, with the Tasks tab, stays on screen, but the left column with the policies is pushed off the left edge, so Confirm issuance cannot be reached on a phone. `v2-crm.mjs` checks the task row at both widths and the issuance dialog itself at phone width.
 

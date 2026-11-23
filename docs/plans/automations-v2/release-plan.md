@@ -50,7 +50,7 @@ No existing table's row-level security policy changes. `public.calls` gets no po
    If any lock is not granted within 5 seconds the file fails and changes nothing. Retry it when the database is quieter.
 3. **Check the installed frontend still works.** The first-release frontend and worker passed their own acceptance script unchanged on the V2 database in the local rehearsal (below).
 4. **Frontend.** Promote the pull request head. Agents refresh after their current call.
-5. **Verify signed in.** Open Automations, create and leave a blank canvas with zero writes, open the existing draft, confirm Enrollment and Message delivery both read Off.
+5. **Verify signed in.** Open Automations, create and leave a blank canvas with zero writes, open the existing draft, confirm Agency enrollment and Agency message delivery both read Off.
 
 No worker is released with this. Production has no Automations worker today, and the first one ever released must be this V2 package: the first-release worker does not enforce a pinned SMS requirement and cannot run V2 steps (it fails them without sending). The worker, its schedule and the receipt endpoint stay under the separate approvals listed under Live dependencies.
 
