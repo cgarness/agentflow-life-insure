@@ -11,7 +11,7 @@ mkdirSync(dir,{recursive:true});
 const evidence = {sessions:[]};
 const browser = await launch();
 try {
-  const login = session(browser,"keyboard and themes","af-ui-one@example.invalid",settings.PASSWORD,evidence);
+  const login = session(browser,"keyboard and themes","af-ui-one@example.invalid",settings.PASSWORD,evidence,{deviceScaleFactor:2});
   const loginWatch = setInterval(() => {
     for (const context of browser.contexts()) context.setDefaultTimeout(30000);
   }, 100);
@@ -66,7 +66,8 @@ try {
     const layout = await page.getByLabel("Ordered steps").boundingBox();
     assert.ok(layout && layout.x >= 0 && layout.x + layout.width <= width + 1);
     const file = "automations-" + width + "-" + theme + ".png";
-    await page.screenshot({path:join(dir,file)});
+    // A theme switch fades colours in. Finishing finite transitions first captures the page fully drawn.
+    await page.screenshot({path:join(dir,file),animations:"disabled"});
     screenshots.push(file);
   }
   for (const [width,height] of [[1440,1000],[375,812]]) {
