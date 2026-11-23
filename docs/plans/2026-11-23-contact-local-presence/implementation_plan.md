@@ -6,11 +6,11 @@ A lead, client or recruit with verified unassigned calling and texting numbers o
 
 | Contact state | Initial selection and action |
 | --- | --- |
-| Both channels verified unassigned, sticky routing enabled | AI Local Presence. Switch to an available number immediately. |
+| Both channels verified unassigned, ordinary first-use routing available | AI Local Presence. Switch to an available number immediately. |
 | Established number on either channel | Show the saved number. Preserve per-channel eligibility and the existing alternate-number confirmation. |
 | Different saved numbers | Keep the existing explicit channel distinction and choice. |
 | Pending first text, reserved number, history under review, or stale/missing preview | Preserve the existing safeguards. A pending retry must use its original number. |
-| Organization with sticky routing off or only in shadow mode | Preserve the existing rollout boundary and legacy behavior. No activation of agency settings. |
+| Organization with an off/shadow channel | The same automatic UI is available for verified unassigned contacts. Apply existing channel authorization and legacy SMS restrictions. Pin only in modes authorized to do so. Leave ambiguous legacy records and guard-only recovery paths under their existing rules. |
 
 ## Delivery checklist
 

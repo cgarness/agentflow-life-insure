@@ -1,16 +1,43 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ContactCallerRoutingContext } from "@/contexts/ContactCallerRoutingContext";
 import { z } from "zod";
 import { useAuth } from "@/contexts/AuthContext";
 import { toE164Plus } from "@/utils/phoneUtils";
 import { changeContactNumber, contactNumberOptions, type ContactNumberAffinity, type ContactNumberOption } from "@/lib/number-affinity";
-import { contactFromReadiness, contactNumberRevision, initialContactFrom, stickyFromEnabled } from "@/lib/contact-from-number";
+import { contactFromReadiness, contactNumberRevision, hasUnassignedContactNumbers, initialContactFrom, LOCAL_PRESENCE_OPTION, stickyFromEnabled } from "@/lib/contact-from-number";
 import type { useContactNumberAffinity } from "./useContactNumberAffinity";
 
 type Model = ReturnType<typeof useContactNumberAffinity>;
 type Props = { model: Model; phone?: string; canAssign: boolean; legacyNumber: string };
-type Choice = { visit: string; generation: number; sender: ContactNumberOption };
-type Pending = Choice & { revision: string };
+type Choice = { visit: string; generation: number; sender: ContactNumberOption; revision: string };
+const noOptions: ContactNumberOption[] = [];
 const confirmationSchema = z.object({ number: z.string().uuid(), assign: z.boolean() });
+
+function useLocalContactCaller(scope: string, phone: string | undefined, options: ContactNumberOption[], enabled: boolean) {
+  const routing = useContext(ContactCallerRoutingContext);
+  // Options are polled. Hold the same candidate array across equivalent inventories so an
+  // in-flight quick call survives a background refresh. Include IDs to catch replaced numbers.
+  const inventory = useMemo(() => {
+    const ready = options.flatMap(row => row.id && row.number && row.voice_readiness === "ready"
+      ? [{ id: row.id, number: row.number }] : []);
+    ready.sort((a, b) => a.id.localeCompare(b.id));
+    return { key: JSON.stringify(ready), numbers: ready.map(row => row.number) };
+  }, [options]);
+  const pool = useRef(inventory);
+  if (pool.current.key !== inventory.key) pool.current = inventory;
+  const candidates = pool.current.numbers;
+  const [result, setResult] = useState<{ scope: string; routing: typeof routing; candidates: string[]; number: string } | null>(null);
+  useEffect(() => {
+    if (!enabled || !routing || !phone || !candidates.length) return;
+    let current = true;
+    const finish = (number: string) => { if (current) setResult({ scope, routing, candidates, number }); };
+    routing.resolveContactLocalCaller(phone, candidates).then(finish, () => finish(""));
+    return () => { current = false; };
+  }, [scope, routing, candidates, enabled, phone]);
+  const resolved = enabled && result?.scope === scope && result.routing === routing && result.candidates === candidates;
+  const local = resolved ? options.find(row => row.number === result.number && row.voice_readiness === "ready") : null;
+  return { local, routing, checking: enabled && !!routing && candidates.length > 0 && !resolved };
+}
 
 export function useContactFromNumber({ model, phone, canAssign, legacyNumber }: Props) {
   const { user, profile, isImpersonating } = useAuth();
@@ -23,33 +50,50 @@ export function useContactFromNumber({ model, phone, canAssign, legacyNumber }: 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [loaded, setLoaded] = useState<{ visit: string; rows: ContactNumberOption[]; error?: string } | null>(null);
   const [choice, setChoice] = useState<Choice | null>(null);
-  const [requested, setRequested] = useState<Pending | null>(null);
+  const [requested, setRequested] = useState<Choice | null>(null);
   const [saved, setSaved] = useState<{ visit: string; data: ContactNumberAffinity } | null>(null);
   const [failure, setFailure] = useState<{ visit: string; message: string } | null>(null);
   const [busyVisit, setBusyVisit] = useState<string | null>(null);
   const submitting = useRef<string | null>(null);
   const [retry, setRetry] = useState(0);
   const preview = saved?.visit === visit && saved.data.generation > (model.data?.generation ?? -1) ? saved.data : model.data;
-  const enabled = stickyFromEnabled(preview);
+  const unassigned = hasUnassignedContactNumbers(preview);
+  const enabled = unassigned || stickyFromEnabled(preview);
   const readOnly = !!isImpersonating || model.readOnly;
-  const options = loaded?.visit === visit ? loaded.rows : [];
+  const options = loaded?.visit === visit ? loaded.rows : noOptions;
   const latestSender = (candidate: ContactNumberOption) => {
-    const fresh = options.find(row => row.id === candidate.id);
+    const fresh = options.find(row => row.id === candidate.id && row.number === candidate.number);
     return { ...candidate, readiness: fresh?.readiness ?? "unavailable",
       voice_readiness: fresh?.voice_readiness ?? "unavailable" };
   };
   const initial = initialContactFrom(preview, options);
-  const temporary = choice?.visit === visit && choice.generation === preview?.generation;
-  const sender = temporary ? latestSender(choice.sender) : initial;
   const revision = contactNumberRevision(preview);
+  const temporary = choice?.visit === visit && choice.revision === revision;
+  const automatic = unassigned && !temporary;
+  const sender = temporary ? latestSender(choice.sender) : initial;
+  const { local, routing, checking } = useLocalContactCaller(visit + revision, phone, options,
+    automatic && !readOnly && !model.isPending && !model.isError);
+  const callSender = automatic ? local : sender;
+  const manualFirstUse = unassigned && temporary;
+  const role = manualFirstUse && sender?.id && sender.number
+    ? routing?.getContactCallerRole(sender.id, sender.number) : null;
   const pending = requested?.visit === visit && requested.revision === revision
     ? { ...requested, sender: latestSender(requested.sender) } : null;
   const busy = busyVisit === visit;
-  const identity = JSON.stringify([visit, preview?.generation, sender?.id, sender?.number, !!temporary]);
+  const identity = JSON.stringify([visit, revision, callSender?.id, callSender?.number, !!temporary, role]);
   const current = useRef({ visit, identity, revision, pending: !!pending, blocked: false });
   const disabled = readOnly || !!model.isPending || !!model.isError || !preview || busy ||
     (enabled && (loaded?.visit !== visit || !!loaded.error));
   const readiness = contactFromReadiness(preview, sender, !!temporary);
+  if (automatic) {
+    readiness.call = local?.voice_readiness ?? (checking ? "checking" : "unavailable");
+    readiness.sms = preview?.sms.id && preview.sms.number ? preview.sms.readiness : "unavailable";
+  } else if (manualFirstUse && !role) {
+    readiness.call = "unavailable";
+    readiness.sms = "unavailable";
+  } else if (manualFirstUse && role === "personal" && preview?.sms_mode !== "enforced") {
+    readiness.sms = "unavailable";
+  }
   current.current = { visit, identity, revision, pending: !!pending,
     blocked: disabled || (enabled && readiness.call !== "ready") };
 
@@ -66,9 +110,18 @@ export function useContactFromNumber({ model, phone, canAssign, legacyNumber }: 
 
   const select = (id: string) => {
     if (disabled || busy || !preview) return;
+    if (unassigned && id === LOCAL_PRESENCE_OPTION) {
+      setChoice(null);
+      setFailure(null);
+      return;
+    }
     const next = options.find(row => row.id === id);
-    if (!next?.id || next.id === sender?.id) return;
+    if (!next?.id || (!automatic && next.id === sender?.id)) return;
     setFailure(null);
+    if (unassigned) {
+      setChoice({ visit, revision, generation: preview.generation, sender: next });
+      return;
+    }
     if (next.id === initial?.id) { setChoice(null); setRequested(null); return; }
     setRequested({ visit, generation: preview.generation, sender: next, revision });
   };
@@ -97,7 +150,7 @@ export function useContactFromNumber({ model, phone, canAssign, legacyNumber }: 
         await model.acceptPreview(updated);
         if (stillHere()) void model.refresh();
       } else {
-        setChoice({ visit: owner, generation: pending.generation, sender: pending.sender });
+        setChoice({ visit: owner, revision: pending.revision, generation: pending.generation, sender: pending.sender });
         setRequested(null);
       }
     } catch (error) {
@@ -113,19 +166,21 @@ export function useContactFromNumber({ model, phone, canAssign, legacyNumber }: 
   const captureCallSelection = () => {
     if (!canCall) return null;
     if (!enabled) return legacyNumber ? { fromNumber: legacyNumber } : {};
-    if (!sender?.id || !sender.number) return null;
+    if (!callSender?.id || !callSender.number) return null;
     const owner = identity;
-    return { fromNumber: sender.number, expectedCallerNumber: sender.number,
-      ...(temporary ? { oneCallNumberId: sender.id } : {}),
+    return { fromNumber: callSender.number, expectedCallerNumber: callSender.number,
+      ...(temporary && (!unassigned || role === "personal") ? { oneCallNumberId: callSender.id } : {}),
       isSelectionCurrent: () => mounted.current && current.current.identity === owner &&
         !current.current.blocked && !current.current.pending };
   };
-  return { enabled, preview, sender, temporary: !!temporary, options, initial, pending, busy, disabled,
+  const oneTextOverride = temporary && (!manualFirstUse ||
+    (preview?.sms_mode === "enforced" && !(role === "agency" && sender?.id === preview.sms.id)));
+  return { enabled, preview, sender, unassigned, automatic, temporary: !!temporary, options, initial, pending, busy, disabled,
     canAssign: canAssign && !readOnly, canCall, canText, readiness, select, cancel, confirm, captureCallSelection,
     error: failure?.visit === visit ? failure.message : loaded?.visit === visit ? loaded.error : undefined,
     retry: () => { setRetry(value => value + 1); void model.refetch(); },
     smsSelection: enabled ? { senderPreference: sender?.number ?? null, expectedSenderId: sender?.id ?? null,
-      overrideSenderId: temporary ? sender?.id ?? null : null } : {
+      overrideSenderId: oneTextOverride ? sender?.id ?? null : null } : {
       senderPreference: model.sender?.number ?? (legacyNumber ? toE164Plus(legacyNumber) : null),
       expectedSenderId: model.sender?.id ?? null, overrideSenderId: model.override?.id ?? null },
   };

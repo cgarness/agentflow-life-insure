@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ContactNumberAffinity } from "@/lib/number-affinity";
+import { ContactCallerRoutingContext } from "@/contexts/ContactCallerRoutingContext";
 import { QUICK_CALL_EVENT, type QuickCallDetail } from "@/lib/quick-call";
 
 type Row = Record<string, unknown>;
@@ -29,6 +30,15 @@ function affinity(id = A, number = N_A): ContactNumberAffinity {
   const choice = { id, number, readiness: "ready", provisional: true, state: "established", version: 1 };
   return { voice_mode: "enforced", sms_mode: "enforced", generation: 1, history: "reconciled", voice: { ...choice }, sms: { ...choice }, reply: null };
 }
+function unassignedAffinity(): ContactNumberAffinity {
+  const data = affinity();
+  return { ...data, history: "new", voice: { ...data.voice, state: "unassigned", version: 0 },
+    sms: { ...data.sms, state: "unassigned", version: 0 } };
+}
+const callerRouting = {
+  resolveContactLocalCaller: vi.fn(async () => N_B),
+  getContactCallerRole: vi.fn((_id: string, _number: string): "agency" | "personal" | null => "agency"),
+};
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 
@@ -116,6 +126,8 @@ beforeEach(() => {
   h.options = [{ id: A, number: N_A, readiness: "ready", voice_readiness: "ready", provisional: true }, { id: B, number: N_B, readiness: "ready", voice_readiness: "ready", provisional: true }];
   h.readInventory = null;
   h.inventory = [inventoryNumber(A, N_A.slice(1), "Denver, CO"), inventoryNumber(B, N_B, "Phoenix, AZ")];
+  callerRouting.resolveContactLocalCaller.mockReset().mockResolvedValue(N_B);
+  callerRouting.getContactCallerRole.mockReset().mockReturnValue("agency");
   pendingSmsStore.reset(); calls = []; window.addEventListener(QUICK_CALL_EVENT, captureCall);
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } } });
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
@@ -127,7 +139,13 @@ beforeEach(() => {
   }));
 });
 afterEach(() => { cleanup(); client.clear(); pendingSmsStore.reset(); window.removeEventListener(QUICK_CALL_EVENT, captureCall); vi.clearAllMocks(); vi.unstubAllGlobals(); });
-const Wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}><PendingSmsAuthorityBridge />{children}</QueryClientProvider>;
+const Wrapper = ({ children }: { children: React.ReactNode }) => (
+  <QueryClientProvider client={client}>
+    <ContactCallerRoutingContext.Provider value={callerRouting}>
+      <PendingSmsAuthorityBridge />{children}
+    </ContactCallerRoutingContext.Provider>
+  </QueryClientProvider>
+);
 const view = (contact = CONTACT, type: "lead" | "client" | "recruit" = "lead") => <FullScreenContactView contact={contact} type={type} onClose={vi.fn()} onUpdate={vi.fn(async () => {})} onDelete={vi.fn(async () => {})} />;
 function mount() { return render(view(), { wrapper: Wrapper }); }
 const picker = () => screen.getByLabelText("From number") as HTMLSelectElement;
@@ -135,6 +153,18 @@ const digits = (value: string) => { const number = value.replace(/\D/g, ""); ret
 const selectedDigits = () => digits(picker().selectedOptions[0]?.textContent ?? "");
 const mutations = () => h.rpc.filter(call => call.name === "change_contact_number");
 async function loaded() { await waitFor(() => expect(selectedDigits()).toContain(digits(N_A))); }
+async function autoSelected() {
+  await waitFor(() => {
+    expect(picker()).toBeEnabled();
+    expect(picker().selectedOptions[0]).toHaveTextContent("AI Local Presence");
+  });
+}
+function expectNoOutboundAction() {
+  expect(mutations()).toHaveLength(0);
+  expect(calls).toHaveLength(0);
+  expect(h.posts).toHaveLength(0);
+  expect(h.rpc.some(call => call.name === "authorize_contact_call")).toBe(false);
+}
 async function choose(number = N_B) {
   await waitFor(() => expect(picker()).toBeEnabled());
   const option = Array.from(picker().options).find(item => digits(item.textContent ?? "").includes(digits(number)));
@@ -158,6 +188,147 @@ async function send(body: string) {
 }
 
 describe("Full contact shared FROM", () => {
+  it.each(["lead", "client", "recruit"] as const)("uses automatic calling and texting candidates independently for an unassigned %s", async type => {
+    h.saved = unassignedAffinity();
+    render(view(CONTACT, type), { wrapper: Wrapper });
+    await autoSelected();
+    expect(screen.getByLabelText("Contact numbers")).toHaveTextContent("Not assigned");
+    expectNoOutboundAction();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Call" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Call" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toMatchObject({ contactId: CONTACT.id, type, fromNumber: N_B, expectedCallerNumber: N_B });
+    expect(calls[0].oneCallNumberId).toBeUndefined();
+    expect(calls[0].isSelectionCurrent?.()).toBe(true);
+    await send(`Automatic ${type} sender`);
+    expect(h.posts[0]).toMatchObject({ contact_id: CONTACT.id, contact_type: type, expected_sender_id: A });
+    expect(h.posts[0].override_sender_id).toBeUndefined();
+    expect(h.messages[0].from_number).toBe(N_A);
+    expect(mutations()).toHaveLength(0);
+  });
+
+  it.each(["off", "shadow"] as const)("offers automatic calls for clean %s contacts and respects the existing SMS role restriction", async mode => {
+    h.saved = { ...unassignedAffinity(), voice_mode: mode, sms_mode: mode };
+    callerRouting.getContactCallerRole.mockImplementation(id => id === B ? "personal" : "agency");
+    callerRouting.resolveContactLocalCaller.mockResolvedValue(N_A);
+    mount(); await autoSelected();
+    const callButton = screen.getByRole("button", { name: "Call" });
+    await waitFor(() => expect(callButton).toBeEnabled());
+    fireEvent.click(callButton);
+    expect(calls[0]).toMatchObject({ fromNumber: N_A, expectedCallerNumber: N_A });
+    expect(calls[0].oneCallNumberId).toBeUndefined();
+    fireEvent.change(picker(), { target: { value: B } });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Type SMS message…"), { target: { value: "Personal SMS restricted" } });
+    expect(screen.getByTitle("Send SMS")).toBeDisabled();
+    fireEvent.click(callButton);
+    expect(calls[1]).toMatchObject({ fromNumber: N_B, oneCallNumberId: B });
+    expect(h.posts).toHaveLength(0);
+    expect(mutations()).toHaveLength(0);
+  });
+
+  it("allows an automatic text while caller routing fails and refuses to dial a fallback", async () => {
+    h.saved = unassignedAffinity();
+    callerRouting.resolveContactLocalCaller.mockRejectedValue(new Error("Unavailable routing"));
+    mount(); await autoSelected();
+    await waitFor(() => expect(callerRouting.resolveContactLocalCaller).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Call" })).toBeDisabled();
+    await send("Available SMS channel");
+    expect(h.posts[0]).toMatchObject({ expected_sender_id: A });
+    expect(calls).toHaveLength(0);
+    expect(mutations()).toHaveLength(0);
+  });
+
+  it("keeps automatic calling available when the first SMS sender is not ready", async () => {
+    h.saved = unassignedAffinity();
+    h.saved.sms.readiness = "setup_required";
+    mount(); await autoSelected();
+    fireEvent.change(screen.getByPlaceholderText("Type SMS message…"), { target: { value: "Texting unavailable" } });
+    expect(screen.getByTitle("Send SMS")).toBeDisabled();
+    const callButton = screen.getByRole("button", { name: "Call" });
+    await waitFor(() => expect(callButton).toBeEnabled());
+    fireEvent.click(callButton);
+    expect(calls[0]).toMatchObject({ fromNumber: N_B, expectedCallerNumber: N_B });
+    expect(h.posts).toHaveLength(0);
+    expect(mutations()).toHaveLength(0);
+  });
+
+  it("switches an unassigned contact between named choices and automatic mode without confirmation, assignment or communication", async () => {
+    h.saved = unassignedAffinity();
+    mount(); await autoSelected();
+    const auto = picker().value;
+    const rpcBefore = h.rpc.length;
+    const details = screen.getByLabelText("Contact numbers");
+    for (const id of [B, A, auto]) {
+      fireEvent.change(picker(), { target: { value: id } });
+      expect(picker()).toHaveValue(id);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(details).toHaveTextContent("Not assigned");
+      expectNoOutboundAction();
+    }
+    expect(h.rpc).toHaveLength(rpcBefore);
+    expect(picker().selectedOptions[0]).toHaveTextContent("AI Local Presence");
+    expect(within(picker()).getByRole("option", { name: "Phoenix, AZ - (555) 000-3333" })).toHaveValue(B);
+  });
+
+  it("drops a clean manual choice and its call authorization when the server establishes an assignment within the same generation", async () => {
+    h.saved = unassignedAffinity();
+    mount(); await autoSelected();
+    fireEvent.change(picker(), { target: { value: B } });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Call" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toMatchObject({ fromNumber: N_B, expectedCallerNumber: N_B });
+    expect(calls[0].oneCallNumberId).toBeUndefined();
+    expect(calls[0].isSelectionCurrent?.()).toBe(true);
+
+    h.saved = affinity();
+    await act(async () => { await client.refetchQueries({ queryKey: ["contact-numbers"] }); });
+    await waitFor(() => expect(picker()).toHaveValue(A));
+    expect(calls[0].isSelectionCurrent?.()).toBe(false);
+    expect(within(picker()).queryByRole("option", { name: "AI Local Presence" })).toBeNull();
+    expect(await choose()).toHaveTextContent("Use a different number?");
+    expect(mutations()).toHaveLength(0);
+    expect(h.posts).toHaveLength(0);
+  });
+
+  it("preserves one-call behavior for a manual personal number on an unassigned contact", async () => {
+    h.saved = unassignedAffinity();
+    callerRouting.getContactCallerRole.mockImplementation(id => id === B ? "personal" : "agency");
+    mount(); await autoSelected();
+    fireEvent.change(picker(), { target: { value: B } });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Call" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toMatchObject({ fromNumber: N_B, expectedCallerNumber: N_B, oneCallNumberId: B });
+    expect(mutations()).toHaveLength(0);
+  });
+
+  it.each(["voice", "sms"] as const)("defaults to the saved %s number when only one channel has been established", async channel => {
+    h.saved = unassignedAffinity();
+    h.saved[channel] = { ...h.saved[channel], id: B, number: N_B, state: "established", version: 1 };
+    mount();
+    await waitFor(() => expect(picker()).toHaveValue(B));
+    expect(screen.getByLabelText("Contact numbers")).toHaveTextContent("(555) 000-3333");
+    expect(within(picker()).queryByRole("option", { name: "AI Local Presence" })).toBeNull();
+    expect(await choose(N_A)).toHaveTextContent("Use a different number?");
+    expectNoOutboundAction();
+  });
+
+  it.each(["reserved", "review", "missing states"])("keeps %s contacts out of the clean unassigned workflow", async state => {
+    h.saved = unassignedAffinity();
+    if (state === "reserved") h.saved.sms.state = "reserved";
+    if (state === "review") h.saved.history = "needs_review";
+    if (state === "missing states") { delete h.saved.voice.state; delete h.saved.sms.state; }
+    mount();
+    await waitFor(() => expect(picker()).toBeEnabled());
+    expect(within(picker()).queryByRole("option", { name: "AI Local Presence" })).toBeNull();
+    await choose();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expectNoOutboundAction();
+  });
+
   it.each(["pending", "error"] as const)("never falls back to a legacy sender while the preview is %s", async (state) => {
     const preview = deferred<RpcResult>(); h.previewReply = () => preview.promise;
     mount();
