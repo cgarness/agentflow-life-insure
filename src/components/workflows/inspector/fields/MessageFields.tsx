@@ -60,7 +60,8 @@ export default function MessageFields({graph, node, scope, issues, onChange}: Ed
       </Button>
     </div>}
     {!email && <p className="text-xs text-muted-foreground">
-      A saved message used unchanged keeps its own consent type. Any other wording needs the contact's marketing consent.
+      An agency saved message used unchanged keeps the consent type it was saved with. Any other wording, a personal
+      saved message included, needs the contact's marketing consent.
       The requirement is set when you publish, and your agency's texting rules choose the sender.
     </p>}
     {!email && node.version === 1 && !PURPOSES.includes(String(node.config.purpose)) && <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted p-3 text-xs">

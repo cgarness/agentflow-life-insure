@@ -14,7 +14,7 @@ type RpcName =
 const rpc = supabase.rpc.bind(supabase) as unknown as (
   name: RpcName,
   args: Record<string, unknown>,
-) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
+) => Promise<{ data: unknown; error: { message: string; code?: string; hint?: string | null } | null }>;
 export async function roomState() {
   const d = localDayBounds();
   const r = await rpc("inbounds_room_state", {
@@ -93,12 +93,15 @@ const CALLBACK_FAILURES: Record<string, string> = {
   PT404: "This callback is no longer available.",
   "42501": "You cannot change this callback.",
 };
+/** The server's hint on a refusal that signing in again fixes: a session whose mode it cannot verify. */
+const SIGN_IN_AGAIN = "automation_session_reauth";
 async function callbackAction(name: RpcName, id: string, status: "claimed" | "open" | "done") {
   const r = await rpc(name, { p_callback: id });
   if (r.error) {
     const code = r.error.code ?? "";
-    const message = (code === "PT409" && r.error.message?.trim()) || CALLBACK_FAILURES[code]
-      || "The callback could not be updated. Try again.";
+    // The server words each conflict, and a refusal that signing in again fixes, itself.
+    const own = (code === "PT409" || r.error.hint === SIGN_IN_AGAIN) && r.error.message?.trim();
+    const message = own || CALLBACK_FAILURES[code] || "The callback could not be updated. Try again.";
     throw code === "PT409" || code === "PT404" ? new CallbackTakenError(message) : Error(message);
   }
   return z.object({ id: z.string().uuid(), status: z.literal(status) }).parse(r.data);

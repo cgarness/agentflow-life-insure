@@ -332,3 +332,14 @@ Deno.test("preview stops at an appointment that already started and shows the ti
   const soon = previewGraph(g, { now, has_owner: true, appointment_start: "2026-11-30T12:30:00Z", first_name: "" });
   assert(soon.length === 3 && soon[2].detail.includes("Confirm the visit"), "a blank title takes the step's name: " + soon[2].detail);
 });
+
+Deno.test("preview names a missed call's blank task after the number typed as the phone, as the database does", () => {
+  const g = emptyGraph();
+  g.nodes.push(
+    { id: "start", type: "inbound_call_missed", version: 1, config: {} },
+    { id: "task", type: "create_task", version: 1, config: { title: "{{first_name}}", task_type: "Follow Up", due_amount: 0, due_unit: "minutes" } },
+  );
+  g.edges.push({ id: "1", source: "start", target: "task" });
+  const steps = previewGraph(g, { trigger: "inbound_call_missed", phone: "+12025550123", first_name: "" });
+  assert(steps.at(-1)?.detail.includes("Call back +12025550123"), "the blank title names the caller: " + steps.at(-1)?.detail);
+});

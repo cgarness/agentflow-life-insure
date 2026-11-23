@@ -141,7 +141,9 @@ export function fallbackTaskTitle(name: string | undefined, config: Config, trig
 export function previewTask({ name, config, input }: PreviewContext): PreviewStep {
   const values = previewValues(input);
   const rendered = renderFields(config.title, values);
-  const title = rendered.text.trim() ? rendered : { ...rendered, text: fallbackTaskTitle(name, config, input.trigger, input.caller_phone) };
+  // The preview form types a missed call's number as the phone, which is the caller's number the task names.
+  const caller = input.caller_phone ?? input.phone;
+  const title = rendered.text.trim() ? rendered : { ...rendered, text: fallbackTaskTitle(name, config, input.trigger, caller) };
   const notes = renderFields(config.notes, values);
   const missing = [...new Set([...title.missing, ...notes.missing])];
   const due = Number(config.due_amount) === 0 ? "due right away" : "due in " + offsetLabel(config.due_amount, config.due_unit);

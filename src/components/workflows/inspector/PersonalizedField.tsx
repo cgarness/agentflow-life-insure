@@ -4,7 +4,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Issue } from "@/lib/automation-api";
 import Field from "./Field";
 import InsertFieldMenu from "./InsertFieldMenu";
-import { describedBy, fieldIssues } from "./stepConfig";
+import { describedBy, fieldIssues, nativeMaxLength } from "./stepConfig";
 import { useInsertAtCursor } from "./useInsertAtCursor";
 
 interface Props {
@@ -29,7 +29,7 @@ export default function PersonalizedField({label, value, onChange, trigger, issu
   const {ref, insert, focus, bind} = useInsertAtCursor(value, onChange);
   const errors = fieldIssues(issues, label);
   const control = {
-    id, ref, value, maxLength, placeholder, className, ...bind,
+    id, ref, value, maxLength: nativeMaxLength(maxLength), placeholder, className, ...bind,
     "aria-invalid": errors.length > 0 || undefined,
     "aria-describedby": describedBy(id, hint, errors),
   };

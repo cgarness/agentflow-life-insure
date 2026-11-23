@@ -55,6 +55,10 @@ export async function confirmPolicyIssuance(requestId: string, policyId: string,
   const { data, error } = await supabase.rpc("confirm_policy_issuance", {
     p_request_id: requestId, p_policy_id: policyId, p_issued_on: issuedOn,
   });
-  if (error) throw new PolicyIssuanceError(FAILURES[error.code] ?? "Issuance was not confirmed. Try again.", error.code ?? "");
+  if (error) {
+    // A refusal that signing in again fixes (a session whose mode the server cannot verify) keeps the server's wording.
+    const own = error.hint === "automation_session_reauth" ? error.message?.trim() : "";
+    throw new PolicyIssuanceError(own || (FAILURES[error.code] ?? "Issuance was not confirmed. Try again."), error.code ?? "");
+  }
   return confirmedSchema.parse(data);
 }

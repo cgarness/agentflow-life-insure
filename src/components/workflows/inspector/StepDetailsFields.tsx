@@ -10,7 +10,7 @@ import {
   cleanStepText, graphBlock, STEP_DESCRIPTION_MAX, STEP_NAME_MAX, type AutomationNode, type StepMeta,
 } from "../../../../supabase/functions/_shared/automations/graph";
 import Field from "./Field";
-import { describedBy, fieldIssues } from "./stepConfig";
+import { describedBy, fieldIssues, nativeMaxLength } from "./stepConfig";
 
 interface Props {
   node: AutomationNode;
@@ -50,12 +50,12 @@ export default function StepDetailsFields({node, issues, readOnly, onChange}: Pr
     <CollapsibleContent>
       <fieldset disabled={readOnly} className="min-w-0 space-y-4 px-2 pb-1 pt-3">
         <Field id={id + "name"} label="Step name" errors={nameIssues}>
-          <Input id={id + "name"} value={name} maxLength={STEP_NAME_MAX} placeholder={graphBlock(node)?.label}
+          <Input id={id + "name"} value={name} maxLength={nativeMaxLength(STEP_NAME_MAX)} placeholder={graphBlock(node)?.label}
             aria-invalid={nameIssues.length > 0 || undefined} aria-describedby={describedBy(id + "name", false, nameIssues)}
             onChange={event => write("name", cleanStepText(event.target.value, true))}/>
         </Field>
         <Field id={id + "description"} label="Description" hint="Only your team sees this." errors={descriptionIssues}>
-          <Textarea id={id + "description"} value={description} maxLength={STEP_DESCRIPTION_MAX} className="text-base md:text-sm"
+          <Textarea id={id + "description"} value={description} maxLength={nativeMaxLength(STEP_DESCRIPTION_MAX)} className="text-base md:text-sm"
             aria-invalid={descriptionIssues.length > 0 || undefined} aria-describedby={describedBy(id + "description", true, descriptionIssues)}
             onChange={event => write("description", cleanStepText(event.target.value, false))}/>
         </Field>

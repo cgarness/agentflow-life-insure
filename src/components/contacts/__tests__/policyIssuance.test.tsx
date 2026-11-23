@@ -14,7 +14,7 @@ const entry = (policy_id: string, extra: Record<string, unknown> = {}) => ({
   policy_id, issued_on: null, confirmed_at: null, confirmed_by_name: null, can_confirm: true, ...extra,
 });
 let listed: ReturnType<typeof entry>[];
-let confirmFailures: {code: string; message: string}[];
+let confirmFailures: {code: string; message: string; hint?: string}[];
 const today = () => { const d = new Date(); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-"); };
 beforeEach(() => {
   auth.isImpersonating = false;
@@ -109,6 +109,18 @@ describe("Confirm issuance on one policy", () => {
     expect(rpc.mock.calls.filter(call => call[0] === "get_policy_issuance")).toHaveLength(2);
     fireEvent.click(dialog.getByRole("button", {name: "Cancel"}));
     await waitFor(() => expect(screen.getByRole("region", {name: "first"})).toBeEmptyDOMElement());
+  });
+
+  it("tells a person whose session the server cannot verify to sign in again", async () => {
+    mount();
+    fireEvent.click(await within(await screen.findByRole("region", {name: "first"})).findByRole("button", {name: "Confirm issuance"}));
+    const dialog = within(await screen.findByRole("dialog"));
+    confirmFailures = [{code: "42501", message: "Sign in again to confirm issuance.", hint: "automation_session_reauth"}];
+    fireEvent.click(dialog.getByRole("button", {name: "Confirm issuance"}));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Sign in again to confirm issuance.");
+    confirmFailures = [{code: "42501", message: "not allowed"}];
+    fireEvent.click(dialog.getByRole("button", {name: "Confirm issuance"}));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("You cannot confirm issuance for this client.");
   });
 
   it("refuses a date before 1900 in the browser and words the server's date refusal neutrally", async () => {

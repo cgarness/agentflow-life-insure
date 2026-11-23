@@ -16,7 +16,7 @@ const item = (extra: Record<string, unknown> = {}) => ({
   due_at: "2026-11-22T15:15:00Z", title: "Call back the missed caller", notes: null, voicemail_id: null, ...extra,
 });
 let queue: {admin: boolean; items: ReturnType<typeof item>[]};
-let failure: {code: string; message: string} | null;
+let failure: {code: string; message: string; hint?: string} | null;
 beforeEach(() => {
   queue = {admin: false, items: [item()]};
   failure = null;
@@ -95,6 +95,8 @@ describe("Inbounds callbacks", () => {
     [{code: "PT409", message: "This callback is no longer waiting."}, "This callback is no longer waiting."],
     [{code: "PT409", message: ""}, "This callback changed. The list now shows its current state."],
     [{code: "PT404", message: "Callback not found"}, "This callback is no longer available."],
+    [{code: "42501", message: "Sign in again to claim callbacks.", hint: "automation_session_reauth"}, "Sign in again to claim callbacks."],
+    [{code: "42501", message: "Inbounds access required"}, "You cannot change this callback."],
   ])("shows the server's conflict wording, or a plain fallback (%o)", async (refusal, shown) => {
     render(<RoomCallbacks/>);
     const claim = await screen.findByRole("button", {name: CLAIM});

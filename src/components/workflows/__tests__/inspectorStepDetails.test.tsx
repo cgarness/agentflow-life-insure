@@ -39,10 +39,11 @@ describe("Step details", () => {
     expect(name.tagName).toBe("INPUT");
     expect(name).toHaveValue("");
     expect(name).toHaveAttribute("placeholder", label);
-    expect(name).toHaveAttribute("maxlength", String(STEP_NAME_MAX));
+    // The rule counts characters and the browser counts UTF-16 units, so the longest allowed name fits even as emoji.
+    expect(name.maxLength).toBeGreaterThanOrEqual("😀".repeat(STEP_NAME_MAX).length);
     const description = screen.getByLabelText("Description");
     expect(description.tagName).toBe("TEXTAREA");
-    expect(description).toHaveAttribute("maxlength", String(STEP_DESCRIPTION_MAX));
+    expect((description as HTMLTextAreaElement).maxLength).toBeGreaterThanOrEqual("😀".repeat(STEP_DESCRIPTION_MAX).length);
     expect(description).toHaveAccessibleDescription("Only your team sees this.");
   });
 

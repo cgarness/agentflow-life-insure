@@ -44,6 +44,19 @@ const cases = [
 ];
 
 describe("Insert field", () => {
+  it.each(cases.map((item, index) => ({...item, limit: [1600, 200, 20000, 200, 2000][index]})))(
+    "lets the longest $name the rule allows be typed, even as emoji", ({node, label, limit}) => {
+      mountInspector(node);
+      // The rule counts characters and the browser counts UTF-16 units, where an emoji takes two.
+      expect((screen.getByLabelText(label) as TextControl).maxLength).toBeGreaterThanOrEqual("😀".repeat(limit).length);
+    });
+
+  it("says that only an agency saved message keeps its consent type, as the server decides at publish", () => {
+    mountInspector(cases[0].node);
+    expect(screen.getByText(/^An agency saved message used unchanged keeps the consent type it was saved with\. Any other wording, a personal saved message included, needs the contact's marketing consent\./))
+      .toBeVisible();
+  });
+
   it.each(cases)("inserts at the cursor of the $name, keeps the text around it and returns focus", async ({node, label, key}) => {
     const view = mountInspector(node);
     const field = screen.getByLabelText(label) as TextControl;
