@@ -90,6 +90,16 @@ describe("Step details", () => {
     expect(view.latest().meta).toEqual({name: "First line second"});
   });
 
+  it("keeps a name and a description within their limits, counted in characters, so the draft can always be saved", () => {
+    const view = mountInspector(step("wait", {duration: 5, unit: "minutes"}, {meta: {name: "Cool-off"}}));
+    type("Step name", "a".repeat(STEP_NAME_MAX + 1));
+    expect([...view.latest().meta!.name!]).toHaveLength(STEP_NAME_MAX);
+    type("Step name", "😀".repeat(STEP_NAME_MAX + 1));
+    expect(view.latest().meta!.name).toBe("😀".repeat(STEP_NAME_MAX));
+    type("Description", "b".repeat(STEP_DESCRIPTION_MAX + 1));
+    expect([...view.latest().meta!.description!]).toHaveLength(STEP_DESCRIPTION_MAX);
+  });
+
   it("leaves an older text step on its definition when only its details change", () => {
     const view = mountInspector(step("send_sms", {body: "Hi", purpose: "informational"}));
     open();

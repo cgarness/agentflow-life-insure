@@ -73,13 +73,14 @@ try {
   const page = await login('one');
   const tones = ['light', 'dark'];
 
-  // 1. A contact's timed automation task shows its date and time of day, with the Automation badge.
-  // The contact screen is a three-column desktop layout everywhere it is used, so tasks are checked at desktop width.
+  // 1. A contact's timed automation task shows its date and time of day, with the Automation badge. The contact
+  // screen is a fixed desktop layout anchored to the right edge, so on a phone its right column, with the Tasks tab,
+  // is the part on screen.
   const [lead, title] = sql(`select contact_id||'|'||title from public.tasks where organization_id='${agency}' and contact_type='lead'
     and automation_run_id is not null and not all_day and completed_at is null order by created_at limit 1`).split('|');
   assert.ok(lead && title, 'v2-workflows.mjs leaves an open timed automation task on a lead');
-  for (const tone of tones) {
-    await open(page, '/leads/' + lead, tone, wide);
+  for (const size of [wide, phone]) for (const tone of tones) {
+    await open(page, '/leads/' + lead, tone, size);
     await page.getByText('First Name', { exact: true }).waitFor();
     await button(page, 'Tasks').click();
     const done = page.getByRole('checkbox', { name: 'Mark “' + title + '” complete' });
@@ -94,8 +95,8 @@ try {
   }
 
   // 2. Confirm issuance on a client's policy: one policy already issued, the other offered for confirmation.
-  // The contact screen cannot reach its policies at phone width, so the dialog is opened on the desktop layout and the
-  // window is then narrowed: the dialog itself must still fit a phone.
+  // On a phone the policies column is the part of the contact screen pushed off the left edge, so the dialog is
+  // opened on the desktop layout and the window is then narrowed: the dialog itself must still fit a phone.
   const client = sql(`select id from public.clients where organization_id='${agency}' and first_name='Pat' and last_name='Holder'
     order by created_at desc limit 1`);
   assert.ok(client, 'v2-workflows.mjs leaves a client with two policies');
@@ -177,8 +178,8 @@ try {
   assert.deepEqual(blocked.filter(url => !/^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(url)), []);
   writeFileSync(join(dir, 'automations-v2-crm.json'), JSON.stringify({ result: 'pass', viewports: [1440, 375], themes: tones,
     screenshots, blockedOutsideRequests: blocked }, null, 2) + '\n');
-  console.log('PASS CRM screens: a timed automation task, Confirm issuance and the Inbounds callback list in both themes, ' +
-    'the dialog and the callbacks at 1440 px and 375 px; cancelling confirmed nothing, and a callback was claimed and finished without a call. ' +
+  console.log('PASS CRM screens: a timed automation task, the Confirm issuance dialog and the Inbounds callback list at 1440 px and 375 px ' +
+    'in both themes; cancelling confirmed nothing, and a callback was claimed and finished without a call. ' +
     screenshots.length + ' screenshots.');
 } catch (error) {
   for (const context of browser.contexts()) for (const page of context.pages()) {

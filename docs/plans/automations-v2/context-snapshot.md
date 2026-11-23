@@ -136,7 +136,7 @@ These fail identically on `0e49940` and were not touched.
 - One Vitest assertion: `recordingRetentionVoicemail > handler wiring > byte-identical to deployed v29`.
 - `supabase/functions/_shared/sms/affinity.test.ts` needs its own loopback gateway and was not run. No file under `_shared/sms/` changed.
 - The harness prints `workflow_on_lead_created dispatch failed … http_request_queue` warnings from the legacy dispatcher, which has no URL configured in the fixture.
-- The contact screen is a fixed three-column desktop layout everywhere it is used, and V2 does not change it. At 375 px the column with Tasks is off screen and the policies column cannot be brought into view, so contact tasks and Confirm issuance cannot be used on a phone. `v2-crm.mjs` checks them at desktop width and checks the issuance dialog itself at phone width.
+- The contact screen is a fixed desktop layout anchored to the right edge everywhere it is used, and V2 does not change it. At 375 px its right column, with the Tasks tab, stays on screen, but the left column with the policies is pushed off the left edge, so Confirm issuance cannot be reached on a phone. `v2-crm.mjs` checks the task row at both widths and the issuance dialog itself at phone width.
 
 ### Limits of this verification
 

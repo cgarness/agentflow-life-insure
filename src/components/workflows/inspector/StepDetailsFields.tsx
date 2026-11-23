@@ -10,7 +10,7 @@ import {
   cleanStepText, graphBlock, STEP_DESCRIPTION_MAX, STEP_NAME_MAX, type AutomationNode, type StepMeta,
 } from "../../../../supabase/functions/_shared/automations/graph";
 import Field from "./Field";
-import { describedBy, fieldIssues, nativeMaxLength } from "./stepConfig";
+import { describedBy, fieldIssues, keepCharacters, nativeMaxLength } from "./stepConfig";
 
 interface Props {
   node: AutomationNode;
@@ -23,7 +23,8 @@ interface Props {
 /**
  * Optional name and internal note for any step. They live beside the configuration, never inside it.
  * A name is one line of plain text; a description may keep its line breaks. The shared rule removes the
- * control characters the database refuses as they are typed or pasted.
+ * control characters the database refuses as they are typed or pasted. The database refuses a whole draft
+ * whose step details are too long, so they are also cut to their limit, counted in characters.
  */
 export default function StepDetailsFields({node, issues, readOnly, onChange}: Props) {
   const id = useId();
@@ -52,12 +53,12 @@ export default function StepDetailsFields({node, issues, readOnly, onChange}: Pr
         <Field id={id + "name"} label="Step name" errors={nameIssues}>
           <Input id={id + "name"} value={name} maxLength={nativeMaxLength(STEP_NAME_MAX)} placeholder={graphBlock(node)?.label}
             aria-invalid={nameIssues.length > 0 || undefined} aria-describedby={describedBy(id + "name", false, nameIssues)}
-            onChange={event => write("name", cleanStepText(event.target.value, true))}/>
+            onChange={event => write("name", keepCharacters(cleanStepText(event.target.value, true), STEP_NAME_MAX))}/>
         </Field>
         <Field id={id + "description"} label="Description" hint="Only your team sees this." errors={descriptionIssues}>
           <Textarea id={id + "description"} value={description} maxLength={nativeMaxLength(STEP_DESCRIPTION_MAX)} className="text-base md:text-sm"
             aria-invalid={descriptionIssues.length > 0 || undefined} aria-describedby={describedBy(id + "description", true, descriptionIssues)}
-            onChange={event => write("description", cleanStepText(event.target.value, false))}/>
+            onChange={event => write("description", keepCharacters(cleanStepText(event.target.value, false), STEP_DESCRIPTION_MAX))}/>
         </Field>
       </fieldset>
     </CollapsibleContent>

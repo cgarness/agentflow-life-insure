@@ -39,13 +39,17 @@ export function otherIssues(issues: Issue[], labels: readonly string[]): Issue[]
   return issues.filter(issue => !labels.some(label => issue.message.startsWith(label + " ")));
 }
 
-/** IDs of the hint and error text that `Field` renders for a control. */
 /**
  * The browser's limit for a field whose rule counts characters. Browsers count UTF-16 units, so an emoji takes two.
- * Twice the rule lets every text the rule allows be typed; the character count shown under the field enforces it.
+ * Twice the rule lets every text the rule allows be typed. The rule itself is enforced by the problem shown under the
+ * field; a step's name and description are also cut to the rule as they are typed (`keepCharacters`).
  */
 export const nativeMaxLength = (characters: number) => characters * 2;
 
+/** The first `characters` characters of `text`, counted as the database counts them. */
+export const keepCharacters = (text: string, characters: number) => Array.from(text).slice(0, characters).join("");
+
+/** IDs of the hint and error text that `Field` renders for a control. */
 export function describedBy(id: string, hint: unknown, errors: string[] = []): string | undefined {
   return [hint ? id + "-hint" : "", errors.length ? id + "-error" : ""].filter(Boolean).join(" ") || undefined;
 }
