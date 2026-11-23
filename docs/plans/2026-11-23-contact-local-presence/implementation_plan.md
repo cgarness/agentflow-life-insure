@@ -59,6 +59,10 @@ Exact implementation and verification files for this increment:
 Run focused Vitest and the mounted contact view, isolated Deno dispatch tests, native PostgreSQL transaction/replay and rollback tests, root and app TypeScript, scoped lint and Vite build. Check both old/new request formats. Compare the live twilio-sms package, function metadata and database dependencies read-only. Draft code and local tests are authorized. An exact release request will name the migration, full Edge package and frontend.
 
 
+## Telephony boundary verification
+
+GitHub caught the old TwilioContext.tsx fingerprint in the Reports V2 guard. A second source review verified the provider diff against the released base. The change exposes organization-scoped caller selection and clears stale pool results. Call admission, identity checks, the single-leg connection, telemetry, dispositions and Reports clauses retain the reviewed code. Updated the whole-file assertion and description in `src/pages/__tests__/dialerPageReportsV2Exceptions.test.ts` to the runtime candidate SHA-256 `9216bb6a306bbe54ce740fd7604219500d22cce14663014f3a9c35d6922420d5`. All 618 tests in the GitHub dialer regression command passed locally. All 41 tests in the focused provider, identity and Reports boundary command also passed.
+
 ## Production release and recovery
 
 Candidate code commit [2128bb6](https://github.com/cgarness/agentflow-life-insure/commit/2128bb641afecae1bf45e6a3ce9b3e8b2e04b15b). Approval is pending. No production migration, Edge deployment or frontend rollout took place.
