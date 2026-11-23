@@ -70,6 +70,8 @@ async function shot(page, name, { fullPage = false } = {}) {
   // The pointer rests away from every control, and finite animations are completed first,
   // so a sheet or menu is captured fully open and no button in its hover colour.
   await restPointer(page);
+  // A whole-page capture draws the fixed sidebar and header where the window is scrolled, so start at the top.
+  if (fullPage) await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: join(dir, file), animations: 'disabled', fullPage });
   screenshots.push(file);
 }

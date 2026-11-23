@@ -31,7 +31,8 @@ export default function AutomationEditor({record, session, scope, onBack, onSave
   const names = useStepNames(scope, draft.graph);
   const {mode, graph, snapshot, notice} = draft;
   const general = draft.issues.filter(issue => !issue.node_id);
-  return <section className="flex min-h-0 flex-col gap-4">
+  // Bottom padding of its own: when the editor is taller than the window, the layout's padding sits behind it.
+  return <section className="flex min-h-0 flex-col gap-4 pb-6">
     <EditorToolbar draft={draft} onArchive={() => setAsking("archive")}
       onBack={() => { if (draft.dirty) setAsking("leave"); else onBack(); }}/>
     {notice && <p role={notice.tone === "error" ? "alert" : "status"}
