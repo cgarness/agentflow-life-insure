@@ -1,6 +1,6 @@
 # Automations V2 screenshots
 
-Synthetic data on a local stack, taken by `bash e2e/automations-local/run.sh` at twice the pixel density, fully drawn, with the pointer resting off every control. The builder and CRM screens come from the builder mode at `7cdf4b5`; the two rollback rehearsal screens come from the backend-first mode at `c8cbec7`. Screens taller than the window are captured as whole pages, so in those the fixed sidebar stops at the window's height. The run summaries are [`mobile-keyboard.json`](mobile-keyboard.json), [`automations-v2-editor.json`](automations-v2-editor.json) and [`automations-v2-crm.json`](automations-v2-crm.json).
+Synthetic data on a local stack, taken by `bash e2e/automations-local/run.sh` at twice the pixel density, fully drawn, with the pointer resting off every control. All of them come from the builder and backend-first modes at `d40f552`. Screens taller than the window are captured as whole pages, so in those the fixed sidebar stops at the window's height. The run summaries are [`mobile-keyboard.json`](mobile-keyboard.json), [`automations-v2-editor.json`](automations-v2-editor.json) and [`automations-v2-crm.json`](automations-v2-crm.json).
 
 ## Builder
 

@@ -102,6 +102,8 @@ A fifth check, on November 23, reviewed every committed screenshot against the d
 
 A second check of the regenerated screenshots confirmed 8 of 10 claims and refuted 2. Fixed: Automation activity wrote times in the browser's own format, with seconds and no time zone, and now uses the agency's date and time format; Step details sat 8 px inside the rest of the step settings; and a run rule's label that wraps to two lines had no line spacing. The canvas, list, message editor, publish review and phone timeline were cut at the bottom of the window, so the editor checks now capture them as whole pages. One finding is inherited and listed below.
 
+A third check confirmed 4 claims, all minor. The publish review's Publish version button sat flush against the bottom of the page, so the editor now has bottom padding of its own. Two whole-page captures had been taken with the window scrolled 4 px, which draws the fixed sidebar and header low, and the backend-first editor capture predated the run rule fix. The harness now scrolls to the top before a whole-page capture, and every capture was taken again.
+
 Accepted as they are, and stated here so they are not mistaken for fixed:
 
 - An automation task assigned to an agent who later leaves can be completed only by that agent. Opening tasks to anyone else would change the existing `public.tasks` row-level policies, which needs `#APPROVE_RLS_CHANGE`. The contact's new agent now gets their own task.
@@ -115,22 +117,22 @@ Accepted as they are, and stated here so they are not mistaken for fixed:
 
 ## Verification
 
-All runs were local, on November 23, 2026, except the GitHub Actions row. The builder mode ran at `7cdf4b5`, the final code; the release mode ran at `d6be5cc` and the backend-first mode at `c8cbec7`. Commits after `d6be5cc` change only Automation activity's time format, two styling details and how the harness takes screenshots. All 14 SQL suites passed inside those runs. Both typechecks, the build and lint on the changed files ran at `7cdf4b5`; the Automations Deno tests and the Vitest suites for workflows, Inbounds, contacts and `src/lib` ran at `d6be5cc`, and those for workflows, settings and contacts again at `7cdf4b5`. The full Vitest suite and the SMS Deno tests last ran locally at `28394a2`; GitHub Actions runs the full suite against the base on every push, and the pull request shows the final head's results. Each fix from the four review passes also has its own case that fails on the earlier code. Of the screenshot review's fixes, the switch labels and the callbacks list have one; the others are shown in the screenshots.
+All runs were local, on November 23, 2026, except the GitHub Actions row. The builder and backend-first modes ran at `d40f552`, the final code, and the release mode at `d6be5cc`. Commits after `d6be5cc` change only Automation activity's time format, three styling details and how the harness takes screenshots. All 14 SQL suites passed inside those runs. Both typechecks, the build, lint on the changed files and the Vitest suites for workflows, settings and contacts ran again at `d40f552`; the Automations Deno tests and the Vitest suites for Inbounds and `src/lib` last ran at `d6be5cc`. The full Vitest suite and the SMS Deno tests last ran locally at `28394a2`; GitHub Actions runs the full suite against the base on every push, and the pull request shows the final head's results. Each fix from the four review passes also has its own case that fails on the earlier code. Of the screenshot review's fixes, the switch labels and the callbacks list have one; the others are shown in the screenshots.
 
 | Check | Result |
 | --- | --- |
-| `npx tsc --noEmit` | Pass at `7cdf4b5`. |
-| App TypeScript, `A2P_BASE_SHA=d85434f635bbf2d4118781e6d254798eef699363 node scripts/verify-a2p-types.mjs` | 78 diagnostics on the base and on the candidate at `7cdf4b5`. Zero new. |
-| `npm run build` | Pass at `7cdf4b5`. |
-| `npx eslint` on the 89 frontend files this branch added or changed | 0 errors, 3 warnings (two effect-cleanup ref warnings, one fast-refresh warning on the shared badge). The 12 files the screenshot reviews changed: 0 errors, and only the effect-cleanup warning `AutomationActivity.tsx` already had. |
+| `npx tsc --noEmit` | Pass at `d40f552`. |
+| App TypeScript, `A2P_BASE_SHA=d85434f635bbf2d4118781e6d254798eef699363 node scripts/verify-a2p-types.mjs` | 78 diagnostics on the base and on the candidate at `d40f552`. Zero new. |
+| `npm run build` | Pass at `d40f552`. |
+| `npx eslint` on the 89 frontend files this branch added or changed | 0 errors, 3 warnings (two effect-cleanup ref warnings, one fast-refresh warning on the shared badge). The 13 files the screenshot reviews changed: 0 errors, and only the effect-cleanup warning `AutomationActivity.tsx` already had. |
 | `npx vitest run` at `28394a2` | 7,410 tests passed, 40 skipped, 1 failed. 504 files passed, 4 skipped, 9 failed. All nine failures exist on the base and are listed below. |
-| Vitest for workflows, Inbounds, contacts and `src/lib` at `d6be5cc`; for workflows, settings and contacts at `7cdf4b5` | 3,711 tests passed, 16 skipped; then 868 passed, 5 skipped. The only failing files are among the nine inherited ones below. |
+| Vitest for workflows, Inbounds, contacts and `src/lib` at `d6be5cc`; for workflows, settings and contacts at `d40f552` | 3,711 tests passed, 16 skipped; then 868 passed, 5 skipped. The only failing files are among the nine inherited ones below. |
 | Deno: `_shared/automations/` and three `_shared/sms/` files | 67 passed, 0 failed (38 Automations, 29 SMS) at `28394a2`. The 38 Automations tests pass again at `d6be5cc`. |
 | Native SQL on PostgreSQL 17.6 | All 14 `supabase/tests/automation_*.sql` suites pass inside the harness modes: six first-release, five V2, the rollback rehearsal, the upgrade and intake eligibility. |
 | `concurrency.py`, `concurrency_v2.py` | Pass. One winner of two simultaneous callback claims, one task from a twice-delivered step, one callback for a call two automations reached together, and an appointment saved in 0.3 s while a publish lock was held. |
-| `bash e2e/automations-local/run.sh` | Pass in 367 s at `7cdf4b5`, including the CRM screen check and Insert field by touch. |
+| `bash e2e/automations-local/run.sh` | Pass in 396 s at `d40f552`, including the CRM screen check and Insert field by touch. |
 | `bash e2e/automations-local/run.sh release` | Pass in 135 s at `d6be5cc`, including the rollback rehearsal run without psql's flags. |
-| `bash e2e/automations-local/run.sh backend-first` | Pass in 118 s at `c8cbec7`. |
+| `bash e2e/automations-local/run.sh backend-first` | Pass in 126 s at `d40f552`. |
 | Rollback at scale | With 100,000 unfinished runs the final file took about 1 second: 879 ms for the data phase, then 2 ms to create the guards, which is all the time the locks on runs and workflows are held before the commit. |
 | Browser | 1440 px and 375 px, light and dark: the builder with keyboard authoring and Insert field by touch, and the changed CRM screens. Screenshots are taken fully drawn at twice the pixel density. The only request that tried to leave the machine was the app's Google Fonts stylesheet, which the harness blocked. Zero provider requests. |
 | GitHub Actions at `9b6db95`, before the screenshot review's fixes | All 18 jobs passed, including Reports frontend verification, which runs both typechecks and the full Vitest suite on the base and on this branch and found no new failing test or diagnostic. Supabase Preview was skipped. The pull request shows the results for the final head. |
