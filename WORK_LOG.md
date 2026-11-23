@@ -1,3 +1,13 @@
+## November 23, 2026 — Full Contact View first agency text · verified branch candidate
+
+Chris approved remembering the manually selected agency number on a verified unassigned contact. When SMS first-use routing is enforced, the first provider-accepted text can establish that eligible number. A personal number is an explicit, owner-only, one-time selection. The contact view hides the permanent-assignment checkbox for it. A definitive provider rejection restores the draft when safe. An uncertain receipt retains the original request identity.
+
+The increment updates the From control, Full Contact View, its hook, pending SMS storage and send-result handling, the twilio-sms endpoint and shared dispatcher, their regression tests, and the branch rules and plan. It adds a service-only SQL preparation/start path, protection for late provider receipts, a guarded rollback and native database tests. The [implementation checklist and release instructions](docs/plans/2026-11-23-contact-local-presence/implementation_plan.md) list the exact files and hashes.
+
+Verification passed on runtime commit [2128bb6](https://github.com/cgarness/agentflow-life-insure/commit/2128bb641afecae1bf45e6a3ce9b3e8b2e04b15b). Counts were 402 frontend tests, six Chromium scenarios, 15 new and 66 existing native database groups, 29 Edge unit tests, six Edge integration suites and one live-version compatibility test run locally. Root TypeScript, Edge type checking and Vite passed. App TypeScript matched all 78 baseline diagnostics. Scoped lint had zero errors and seven existing warnings.
+
+Production inspection was read-only. All 17 SQL dependency definitions and the full 15-file live Edge package were accounted for. No migration, Edge deployment, Vercel rollout or customer communication took place. The draft PR is ready for review. Production migration, full Edge package and primary frontend promotion await explicit release approval.
+
 ## November 23, 2026 — Full Contact View local presence · frontend candidate
 
 An unassigned lead, client or recruit now defaults to AI Local Presence in the candidate. Agents can switch to a named number or back to automatic during the visit. The contact view preserves confirmation for existing assignments. Automatic calls use the eligible agency pool and geographic matcher. Texts use the existing SMS sender and readiness checks. Geographic selection and visiting the contact do not create assignments.
