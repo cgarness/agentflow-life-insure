@@ -265,6 +265,24 @@ select pg_temp.refused(format('select public.automation_lifecycle(%L,%L,%s)',pg_
 select pg_temp.refused(format('select public.automation_lifecycle(%L,%L,%s)',pg_temp.id(46),'resume',pg_temp.session()),'PT409');
 select pg_temp.ok((select bool_and(status='paused') from public.workflows where id in (pg_temp.id(42),pg_temp.id(46))),
   'a refused resume leaves the automation paused');
+do $$
+declare refusal text;
+begin
+  begin
+    perform public.automation_lifecycle(pg_temp.id(46),'resume',pg_temp.session());
+  exception when sqlstate 'PT409' then refusal:=sqlerrm;
+  end;
+  perform pg_temp.ok(refusal like '%Choose Marketing for that text and publish again%',
+    'when only a text''s consent requirement stands in the way, the refusal says how to fix it now: '||coalesce(refusal,'none'));
+  refusal:=null;
+  begin
+    perform public.automation_lifecycle(pg_temp.id(42),'resume',pg_temp.session());
+  exception when sqlstate 'PT409' then refusal:=sqlerrm;
+  end;
+  perform pg_temp.ok(refusal like '%stays paused until V2 is installed again%',
+    'an automation with V2 steps stays paused until V2 returns: '||coalesce(refusal,'none'));
+end $$;
+select pg_temp.nobody();
 select public.automation_lifecycle(pg_temp.id(40),'pause',pg_temp.session());
 select public.automation_lifecycle(pg_temp.id(40),'resume',pg_temp.session());
 select pg_temp.nobody();
@@ -362,4 +380,23 @@ select pg_temp.ok(exists(select from private.automation_runs where workflow_id=p
 update public.workflows set status='paused' where id=pg_temp.id(81);
 update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
   where contact_id=pg_temp.id(84) and status in ('queued','waiting','held');
+-- 7. Only the most recent pin of a text counts. V2 pinned it to marketing as custom wording, then to informational
+-- once it became an unchanged agency saved message, so a first-release republish of that informational text may run.
+insert into public.workflows(id,organization_id,name,status,trigger_type,automation_graph,automation_revision)
+  values (pg_temp.id(86),pg_temp.id(1),'Pins over time','paused','manual','{}'::jsonb,1);
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by) values
+  (pg_temp.id(87),pg_temp.id(1),pg_temp.id(86),'Pins over time',1,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"send_sms","config":{"body":"Come and see us","purpose":"informational"}}]'),clock_timestamp()-interval '2 days',pg_temp.id(10)),
+  (pg_temp.id(88),pg_temp.id(1),pg_temp.id(86),'Pins over time',2,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"send_sms","config":{"body":"See you at the office","purpose":"informational"}}]'),clock_timestamp()-interval '1 day',pg_temp.id(10)),
+  (pg_temp.id(89),pg_temp.id(1),pg_temp.id(86),'Pins over time',3,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"send_sms","config":{"body":"See you at the office","purpose":"informational"}}]'),clock_timestamp(),pg_temp.id(10));
+insert into private.automation_sms_purposes(organization_id,version_id,node_id,purpose,basis) values
+  (pg_temp.id(1),pg_temp.id(87),pg_temp.id(502)::text,'marketing','custom'),
+  (pg_temp.id(1),pg_temp.id(88),pg_temp.id(502)::text,'informational','saved_message');
+select pg_temp.ok(not private.automation_needs_v2(pg_temp.id(1),pg_temp.id(89)),
+  'a text whose latest V2 pin was informational may be republished as informational');
 rollback;

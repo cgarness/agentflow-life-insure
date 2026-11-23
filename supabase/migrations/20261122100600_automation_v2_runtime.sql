@@ -33,6 +33,13 @@ begin
       fetched:=fetched+1;
       examined:=examined+1;
       if private.automation_settle_stop(run) then continue; end if;
+      -- Its appointment moved after it gave a reminder, and admitting the new time will decide whether the
+      -- automation starts again. Until then the run does nothing on the old time.
+      if private.automation_awaits_restart(run) then
+        update private.automation_runs set due_at=clock_timestamp()+interval '1 minute',updated_at=clock_timestamp()
+          where id=run.id;
+        continue;
+      end if;
       select v.graph into graph from public.workflow_versions v
         where v.id=run.version_id and v.organization_id=run.organization_id and v.workflow_id=run.workflow_id;
       select n into node from jsonb_array_elements(graph->'nodes') n where n->>'id'=run.current_node_id;
@@ -85,6 +92,7 @@ declare
   next_anchor uuid;
   next_anchor_at timestamptz;
   next_held_since timestamptz;
+  next_reminded_for uuid;
   held_for interval;
   step_status text:=p_result;
   advance boolean:=false;
@@ -100,6 +108,7 @@ begin
   -- The slot a run last waited for stays on the run, so the same slot is never handled twice.
   next_anchor:=r.anchor_id;
   next_anchor_at:=r.anchor_at;
+  next_reminded_for:=r.reminded_for;
   -- Worker success alone cannot establish provider acceptance. The channel receipt
   -- transaction marks its original intent before normal or recovered advancement.
   if p_result='accepted' and kind in ('send_sms','send_email') and not exists(
@@ -152,20 +161,7 @@ begin
       -- The wait this run was given has elapsed and the appointment still stands at the same time.
       advance:=true;
       step_status:='elapsed';
-    elsif r.anchor_id is not null and placed.anchor is distinct from r.anchor_id
-      and private.automation_restarts_for_new_time(r.organization_id,r.id,r.version_id,
-        nullif(origin.subject->>'appointment_id','')::uuid)
-      and exists(select 1 from private.automation_events booked where booked.organization_id=r.organization_id
-        and booked.subject->>'appointment_id'=origin.subject->>'appointment_id' and booked.event_type='appointment_booked'
-        and booked.subject->>'occurrence_id'=placed.anchor::text
-        and (booked.processed_at is null or exists(select 1 from private.automation_deferred_admissions d
-          where d.organization_id=booked.organization_id and d.workflow_id=r.workflow_id and d.event_id=booked.id))) then
-      -- The appointment moved after this run let a reminder time pass, and the new time is still to be
-      -- admitted. This run ends here and admitting the new time starts the automation again, whichever of
-      -- the two the worker reaches first.
-      next_status:='stopped';
-      step_status:='stopped';
-      p_reason:='Appointment was rescheduled';
+      next_reminded_for:=r.anchor_id;
     elsif placed.verdict='wait' then
       -- First arrival, or the appointment moved while this run slept: wait for the current time.
       next_status:='waiting';
@@ -177,6 +173,7 @@ begin
       advance:=true;
       next_anchor:=placed.anchor;
       next_anchor_at:=placed.anchor_start;
+      next_reminded_for:=placed.anchor;
       step_status:='elapsed';
       p_reason:='The reminder time had already passed';
     else
@@ -211,6 +208,7 @@ begin
     on conflict (run_id,node_id) do update set status=excluded.status,reason=excluded.reason,updated_at=clock_timestamp();
   update private.automation_runs set current_node_id=coalesce(target,r.current_node_id),status=next_status,
     reason=left(p_reason,500),due_at=next_due,anchor_id=next_anchor,anchor_at=next_anchor_at,held_since=next_held_since,
+    reminded_for=next_reminded_for,
     lease_token=null,leased_until=null,updated_at=clock_timestamp(),
     ended_at=case when next_status in ('completed','failed','unknown','stopped') then clock_timestamp() end
     where id=p_run;
