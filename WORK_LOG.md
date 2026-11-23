@@ -1,3 +1,9 @@
+## November 23, 2026 — Full Contact View local presence and first agency text · live
+
+Chris approved the primary release. Applied `contact_first_sms_sender` as Supabase history version `20261123231917`, deployed the complete `twilio-sms` v64 package, and then released reviewed frontend `2128bb641afecae1bf45e6a3ce9b3e8b2e04b15b` to the primary Vercel project. Both production domains serve READY deployment `dpl_AZc2iNcS9XTY2nZ6p8hpqs3MeZ5Z`. The previous frontend is `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7`.
+
+Verified the installed SQL checksum, five function bodies and grants, two enabled triggers, all 15 Edge files and the live contact-route assets. All 21 GitHub jobs passed before release and the production advisor findings matched preflight. The authenticated browser smoke remains pending sign-in. No test calls or texts were sent and no contact records were changed by verification. This entry and the [implementation plan](docs/plans/2026-11-23-contact-local-presence/implementation_plan.md) record the release and recovery details.
+
 ## November 23, 2026 — Full Contact View first agency text · verified branch candidate
 
 Chris approved remembering the manually selected agency number on a verified unassigned contact. When SMS first-use routing is enforced, the first provider-accepted text can establish that eligible number. A personal number is an explicit, owner-only, one-time selection. The contact view hides the permanent-assignment checkbox for it. A definitive provider rejection restores the draft when safe. An uncertain receipt retains the original request identity.
