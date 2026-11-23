@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { launch, session, APP } from '../team-open-local/lib.mjs';
+import { launch, session, restPointer, APP } from '../team-open-local/lib.mjs';
 import { settings, sql, agency, email } from './fixture.mjs';
 import { worker } from './work.mjs';
 
@@ -35,7 +35,9 @@ async function shot(page, name) {
   const width = page.viewportSize().width;
   const dark = await page.locator('html').evaluate(element => element.classList.contains('dark'));
   const file = `automations-v2-${name}-${width}-${dark ? 'dark' : 'light'}.png`;
-  // Finite animations are completed first, so a dialog is captured fully open.
+  // The pointer rests away from every control, and finite animations are completed first,
+  // so a dialog is captured fully open and no button in its hover colour.
+  await restPointer(page);
   await page.screenshot({ path: join(dir, file), animations: 'disabled' });
   screenshots.push(file);
 }
@@ -161,6 +163,8 @@ try {
     await button(list, claim).waitFor();
     await noSideScroll(page, 'Inbounds');
     await inside(page, button(list, claim), 'Claim');
+    // Centre the whole Callbacks card, with its note and footer, instead of leaving Claim on the bottom edge.
+    await list.evaluate(element => element.scrollIntoView({ block: 'center' }));
     await shot(page, 'inbounds-callbacks');
   }
   // Claim and finish it from the phone layout. The list never places a call.

@@ -16,9 +16,10 @@ interface Props {
 /** The agency's two switches as they are now, and what they mean for this workflow. A failed lookup reads Unknown. */
 export default function AutomationReleaseStatus({controls, status, trigger, review, published, onRefresh}: Props) {
   const title = review ? "Publish review controls" : "Workflow status";
+  // Named as the agency's, so a draft's own "cannot enroll" line never reads as contradicting them.
   const switches = [
-    {label: "Enrollment", badge: switchBadge(controls?.enrollment_enabled)},
-    {label: "Message delivery", badge: switchBadge(controls?.dispatch_enabled)},
+    {label: "Agency enrollment", badge: switchBadge(controls?.enrollment_enabled)},
+    {label: "Agency message delivery", badge: switchBadge(controls?.dispatch_enabled)},
   ];
   return <section aria-label={title} className="space-y-2 rounded-lg border bg-card p-3 text-sm text-card-foreground">
     <div className="flex flex-wrap items-center justify-between gap-2">

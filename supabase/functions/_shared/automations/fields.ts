@@ -19,7 +19,8 @@ export const WORKFLOW_FIELDS: readonly WorkflowField[] = [
   { token: "first_name", label: "First name", group: "Contact", sample: "Alex" },
   { token: "last_name", label: "Last name", group: "Contact", sample: "Morgan" },
   { token: "email", label: "Email address", group: "Contact", sample: "alex@example.com" },
-  { token: "phone", label: "Phone number", group: "Contact", sample: "(555) 010-0100" },
+  // The stored number, as the field writes it into a message or task. The contact screen formats it for display.
+  { token: "phone", label: "Phone number", group: "Contact", sample: "+15550100100" },
   {
     token: "appointment_date",
     label: "Appointment date",

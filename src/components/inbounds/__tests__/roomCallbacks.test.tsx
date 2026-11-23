@@ -43,6 +43,8 @@ describe("Inbounds callbacks", () => {
     expect(within(row).getByText("Call back the missed caller")).toBeVisible();
     expect(within(row).getByText(/^Missed .* · Call back by /)).toBeVisible();
     expect(screen.getByRole("heading", {name: /Callbacks\s*1 open/})).toBeVisible();
+    // The list covers every agency number, while the room's activity counts only the room's own lines.
+    expect(screen.getByText("Automations open these for missed calls to any agency number, not only the room's lines.")).toBeVisible();
     // Row actions name the caller ("Claim callback for …"), but none of them places a call.
     expect(screen.queryByRole("button", {name: /\bcall\b|\bdial/i})).toBeNull();
     expect(within(row).getByRole("button", {name: "Claim callback for +12025550100"})).toBeVisible();

@@ -38,7 +38,8 @@ export default function ReviewSteps({steps, names, senders, requirements}: Props
       const summary = message ? (node.meta?.name?.trim() ? block.label : "") : stepSummary(node, names);
       const sender = senders[text(node.config.sender_id)];
       const requirement = requirements?.find(item => item.node_id === node.id);
-      return <li key={node.id} className="space-y-1 rounded-md bg-muted p-3">
+      // A bordered card, not a muted one: the neutral badge shares the muted surface and would lose its shape.
+      return <li key={node.id} className="space-y-1 rounded-md border bg-card p-3">
         <p className="font-medium">
           {path && <span className="font-normal text-muted-foreground">{path} · </span>}{stepTitle(node)}
         </p>

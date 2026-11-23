@@ -7,7 +7,7 @@ import {sql,listView} from './fixture.mjs';
 
 const button = (p,name) => p.getByRole('button',{name,exact:true});
 async function checkEffects(region,enroll,dispatch) {
-  for (const [name,on] of [['Enrollment',enroll],['Message delivery',dispatch]])
+  for (const [name,on] of [['Agency enrollment',enroll],['Agency message delivery',dispatch]])
     await region.getByText(name+': '+(on?'On':'Off'),{exact:true}).waitFor();
   await region.getByText(enroll?/Qualifying new leads can start a run\./:/New events cannot start a run\./).waitFor();
   const sending = dispatch ? enroll?/Messages may go out after sender, consent, timing and limit checks\./

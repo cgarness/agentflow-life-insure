@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge";
 import { VoicemailPlayer } from "@/components/voicemail/VoicemailPlayer";
 import { useInboundCallbacks } from "@/hooks/useInboundCallbacks";
 import type { InboundCallback } from "@/lib/inbounds/contracts";
@@ -9,6 +10,8 @@ function holder(item: InboundCallback) {
   if (item.status === "open") return "Open";
   return item.claimed_by_me ? "Claimed by you" : "Claimed by " + (item.claimed_by_name || "another agent");
 }
+// A state, not an action: shown as a status badge so "Open" never reads as a button label.
+const tone = (item: InboundCallback) => item.status === "open" ? "info" : "neutral";
 
 /**
  * Callbacks that automations opened for missed inbound calls. An agent claims one, calls back from
@@ -27,6 +30,7 @@ export function RoomCallbacks() {
           Refresh
         </button>
       </div>
+      <p className="mt-1 text-sm text-slate-300">Automations open these for missed calls to any agency number, not only the room's lines.</p>
       {callbacks.notice && <p role="status" className="mt-3 rounded-lg border border-amber-300 bg-amber-950 px-3 py-2 text-sm text-amber-100">
         {callbacks.notice}
       </p>}
@@ -43,7 +47,8 @@ export function RoomCallbacks() {
           const others = item.status === "claimed" && !item.claimed_by_me;
           const caller = item.contact_name || item.caller_phone || "unknown caller";
           return (
-            <li key={item.id} className="flex flex-wrap items-start justify-between gap-3 py-4">
+            // Side by side from 640 px; stacked and left-aligned on a phone.
+            <li key={item.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-1">
                 <p className="font-semibold text-white">{item.contact_name || item.caller_phone || "Unknown caller"}</p>
                 {/* Selectable, so the agent can copy the number into their own dialer. */}
@@ -55,10 +60,10 @@ export function RoomCallbacks() {
                 {item.notes && <p className="whitespace-pre-wrap text-sm text-slate-300">{item.notes}</p>}
                 {item.voicemail_id && <VoicemailPlayer voicemailId={item.voicemail_id} compact/>}
               </div>
-              <div className="flex flex-col items-end gap-2">
-                <p className="text-sm font-semibold text-slate-100">{holder(item)}</p>
+              <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+                <Badge variant={tone(item)}>{holder(item)}</Badge>
                 {/* While any action is saving, every row waits, so a press is never dropped without a sign. */}
-                <div className="flex flex-wrap justify-end gap-2" aria-busy={pressed !== null}>
+                <div className="flex flex-wrap gap-2 sm:justify-end" aria-busy={pressed !== null}>
                   {item.status === "open" && item.can_claim && <button type="button" className={primary} disabled={!!callbacks.busy}
                     aria-label={"Claim callback for " + caller}
                     onClick={() => { void callbacks.claim(item); }}>{pressed === "claim" ? "Claiming…" : "Claim"}</button>}

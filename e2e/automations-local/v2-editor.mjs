@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { launch, session, APP } from '../team-open-local/lib.mjs';
+import { launch, session, restPointer, APP } from '../team-open-local/lib.mjs';
 import { settings, sql, agency, sender, email, listView } from './fixture.mjs';
 import { worker } from './work.mjs';
 
@@ -66,7 +66,9 @@ async function shot(page, name) {
   const width = page.viewportSize().width;
   const dark = await page.locator('html').evaluate(element => element.classList.contains('dark'));
   const file = `automations-v2-${name}-${width}-${dark ? 'dark' : 'light'}.png`;
-  // Finite animations are completed first, so a sheet or menu is captured fully open.
+  // The pointer rests away from every control, and finite animations are completed first,
+  // so a sheet or menu is captured fully open and no button in its hover colour.
+  await restPointer(page);
   await page.screenshot({ path: join(dir, file), animations: 'disabled' });
   screenshots.push(file);
 }
@@ -229,25 +231,25 @@ try {
   await review.waitFor();
   await review.getByText('Informational · unchanged saved message').waitFor();
   await review.getByText('Requires marketing consent · custom wording').waitFor();
-  await page.getByRole('region', { name: 'Publish review controls', exact: true }).getByText('Message delivery: On', { exact: true }).waitFor();
+  await page.getByRole('region', { name: 'Publish review controls', exact: true }).getByText('Agency message delivery: On', { exact: true }).waitFor();
   assert.equal(sql(`select status||'|'||(select count(*) from public.workflow_versions where workflow_id='${id}')||'|'||automation_draft_name from public.workflows where id='${id}'`),
     'draft|0|' + title + ' (renamed)');
   await shot(page, 'review');
   await button(page, 'Publish version').click();
   const status = page.getByRole('region', { name: 'Workflow status', exact: true });
   await status.getByText('Version published.', { exact: true }).waitFor();
-  await status.getByText('Enrollment: On', { exact: true }).waitFor();
+  await status.getByText('Agency enrollment: On', { exact: true }).waitFor();
   assert.equal(sql(`select w.status||'|'||count(v.*) from public.workflows w join public.workflow_versions v on v.workflow_id=w.id where w.id='${id}' group by w.status`), 'active|1');
   assert.equal(sql(`select string_agg(purpose||'/'||basis,',' order by purpose) from private.automation_sms_purposes p
     join public.workflow_versions v on v.id=p.version_id where v.workflow_id='${id}'`), 'informational/saved_message,marketing/custom');
   // A failed status lookup reads Unknown. It never shows a switch as on or off.
   await page.route('**/rest/v1/rpc/automation_access*', route => route.abort());
   await button(status, 'Refresh status').click();
-  await status.getByText('Enrollment: Unknown', { exact: true }).waitFor();
-  await status.getByText('Message delivery: Unknown', { exact: true }).waitFor();
+  await status.getByText('Agency enrollment: Unknown', { exact: true }).waitFor();
+  await status.getByText('Agency message delivery: Unknown', { exact: true }).waitFor();
   await page.unroute('**/rest/v1/rpc/automation_access*');
   await button(status, 'Refresh status').click();
-  await status.getByText('Enrollment: On', { exact: true }).waitFor();
+  await status.getByText('Agency enrollment: On', { exact: true }).waitFor();
   console.log('PASS explicit saves: Save draft stored a draft, Save & review stored and reviewed it with each text\'s consent requirement, Publish version created the one version and pinned those requirements. A failed lookup read Unknown.');
 
   // 4. History keeps the step name of the version that ran.

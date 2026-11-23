@@ -50,9 +50,7 @@ export default function TaskRow({task, status, busy, canComplete, formatDateTime
     <div className="min-w-0 flex-1">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="flex flex-wrap items-center gap-1.5">
-          <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", completed ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary")}>
-            {task.task_type}
-          </span>
+          <Badge variant={completed ? "neutral" : "info"}>{task.task_type}</Badge>
           {task.automation_run_id && <Badge variant="neutral">Automation</Badge>}
         </span>
         <span className={cn("flex items-center text-xs", overdue ? "font-medium text-badge-warning-text" : "text-muted-foreground")}>

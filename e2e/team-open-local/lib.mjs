@@ -73,6 +73,21 @@ export async function session(browser, label, email, password, evidence, options
   return { context, page, net, consoleErrors };
 }
 
+const INTERACTIVE = 'a,button,input,select,textarea,summary,label,[role="button"],[role="link"],[role="radio"],[role="tab"],' +
+  '[role="menuitem"],[role="option"],[role="switch"],[role="checkbox"]';
+/** Parks the pointer on a window corner with no control under it, so a screenshot never shows a hover colour. */
+export async function restPointer(page) {
+  const { width, height } = page.viewportSize();
+  for (const [x, y] of [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]) {
+    const idle = await page.evaluate(([px, py, selector]) => {
+      const element = document.elementFromPoint(px, py);
+      return !!element && !element.closest(selector) && getComputedStyle(element).cursor !== "pointer";
+    }, [x, y, INTERACTIVE]);
+    if (idle) return page.mouse.move(x, y);
+  }
+  throw new Error("No window corner is free of controls to rest the pointer on");
+}
+
 export function evidenceStore(dir) {
   mkdirSync(dir, { recursive: true });
   const ev = { sessions: [], scenarios: [] };

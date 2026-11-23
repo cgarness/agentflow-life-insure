@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { APP, launch, session } from "../team-open-local/lib.mjs";
+import { APP, launch, restPointer, session } from "../team-open-local/lib.mjs";
 
 const settings = JSON.parse(readFileSync(process.env.AUTOMATIONS_LOCAL_SETTINGS,"utf8"));
 assert.equal(new URL(settings.API_URL).hostname,"127.0.0.1");
@@ -66,7 +66,9 @@ try {
     const layout = await page.getByLabel("Ordered steps").boundingBox();
     assert.ok(layout && layout.x >= 0 && layout.x + layout.width <= width + 1);
     const file = "automations-" + width + "-" + theme + ".png";
-    // A theme switch fades colours in. Finishing finite transitions first captures the page fully drawn.
+    // A theme switch fades colours in, and the menu that switched it is still under the pointer.
+    // Resting the pointer and finishing finite transitions captures the page fully drawn.
+    await restPointer(page);
     await page.screenshot({path:join(dir,file),animations:"disabled"});
     screenshots.push(file);
   }

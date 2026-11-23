@@ -24,6 +24,8 @@ interface Props {
   onSelect: (id: string | null) => void;
 }
 type View = "canvas" | "list";
+// The open view keeps a marker of its own: the shared outline toggle uses the same fill for selected and hover.
+const SELECTED_VIEW = "data-[state=on]:border-primary data-[state=on]:bg-badge-info-surface data-[state=on]:text-badge-info-text";
 
 /** Where the workflow is built. A desktop shows the canvas or the list beside the settings; a phone shows the timeline. */
 export default function WorkflowWorkspace({graph, selected, issues, names, scope, readOnly, onChange, onSelect}: Props) {
@@ -62,8 +64,8 @@ export default function WorkflowWorkspace({graph, selected, issues, names, scope
   return <div className="flex min-h-0 flex-1 flex-col gap-3">
     <ToggleGroup type="single" variant="outline" size="sm" aria-label="Workflow view" className="justify-start" value={view}
       onValueChange={next => { if (next) setView(next as View); }}>
-      <ToggleGroupItem value="canvas">Canvas</ToggleGroupItem>
-      <ToggleGroupItem value="list">List</ToggleGroupItem>
+      <ToggleGroupItem value="canvas" className={SELECTED_VIEW}>Canvas</ToggleGroupItem>
+      <ToggleGroupItem value="list" className={SELECTED_VIEW}>List</ToggleGroupItem>
     </ToggleGroup>
     <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="flex min-h-0 min-w-0 flex-col">
