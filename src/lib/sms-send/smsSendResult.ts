@@ -3,11 +3,9 @@ import { z } from "zod";
 /**
  * The `twilio-sms` response contract, classified conservatively.
  *
- * Only the exact (HTTP status, code) and (HTTP status, error literal) pairs below were inspected in
- * the deployed source (twilio-sms v38, byte-identical to the repository) and are raised BEFORE the
- * provider is called, so they alone prove that THIS request did not send. Everything else — a
- * provider rejection, an ambiguous database error, a malformed body, an unknown code, a lost
- * connection — is "uncertain": never restored, never resent. No code families, no "any 4xx".
+ * Exact pre-send failures prove that a request did not dispatch. A first-use send can also
+ * receive proof of terminal rejection from its dispatch ledger. A generic provider rejection,
+ * malformed receipt or transport failure leaves the outcome uncertain.
  */
 
 export interface SmsReceipt {
@@ -29,7 +27,7 @@ export type UncertainReason =
   | "transport"
   | "deadline";
 
-/** `refused`: an exact pre-send server contract. The others never started the POST. */
+/** `refused`: the server proved non-sending. The others never started the POST. */
 export type NotSentReason = "refused" | "session" | "authority" | "deadline";
 
 export type SmsSendOutcome =
@@ -52,6 +50,9 @@ const FailureSchema = z.object({
   code: z.string().regex(/^[A-Z0-9_]{2,64}$/).optional(),
   error: z.string().max(2000).optional(),
 });
+
+// Only the first-use dispatcher returns this after the matching ledger row is definitively failed.
+export const FIRST_CONTACT_REJECTED = "FIRST_CONTACT_REJECTED";
 
 /** Coded pre-send refusals and the exact status each is raised with. */
 export const PROVEN_NOT_SENT_CODES: Readonly<Record<string, number>> = Object.freeze({
@@ -126,7 +127,7 @@ function uncertain(reason: UncertainReason, code: string | null, message?: strin
 }
 
 /** Classify one completed HTTP response from `twilio-sms`. */
-export function classifySmsResponse(status: number, bodyText: string): SmsSendOutcome {
+export function classifySmsResponse(status: number, bodyText: string, firstUseRequested = false): SmsSendOutcome {
   const body = parseJson(bodyText);
   if (body && typeof body === "object" && (body as { success?: unknown }).success === true) {
     const receipt = ReceiptSchema.safeParse(body);
@@ -147,6 +148,9 @@ export function classifySmsResponse(status: number, bodyText: string): SmsSendOu
   const { code, error } = failure.data;
 
   if (code) {
+    if (code === FIRST_CONTACT_REJECTED && firstUseRequested && status === 409) {
+      return { state: "not_sent", reason: "refused", code, message: error?.trim() || FALLBACK_MESSAGES.refused };
+    }
     if (code === ACCEPTED_REVIEW.code) {
       return status === ACCEPTED_REVIEW.status
         ? { state: "accepted_review", code, message: error?.trim() || "Provider accepted the text; history needs review." }

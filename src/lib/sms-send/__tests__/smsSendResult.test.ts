@@ -73,7 +73,16 @@ describe("only exact, inspected pre-send contracts prove non-sending", () => {
   });
 });
 
-describe("everything after a possible provider call is uncertain", () => {
+describe("provider outcomes", () => {
+  it("trusts the recorded first-use rejection only for that request type and exact status", () => {
+    const rejected = coded("FIRST_CONTACT_REJECTED", "The provider rejected this text.");
+    expect(classifySmsResponse(409, rejected, true)).toEqual({
+      state: "not_sent", reason: "refused", code: "FIRST_CONTACT_REJECTED", message: "The provider rejected this text.",
+    });
+    expect(classifySmsResponse(409, rejected)).toMatchObject({ state: "uncertain" });
+    expect(classifySmsResponse(503, rejected, true)).toMatchObject({ state: "uncertain" });
+    expect(classifySmsResponse(409, coded("PROVIDER_REJECTED"), true)).toMatchObject({ state: "uncertain" });
+  });
   it("PROVIDER_REJECTED is uncertain, including the provider-5xx case", () => {
     expect(classifySmsResponse(502, coded("PROVIDER_REJECTED", "Provider unavailable."))).toEqual({
       state: "uncertain", reason: "provider_rejected", code: "PROVIDER_REJECTED", message: "Provider unavailable.",

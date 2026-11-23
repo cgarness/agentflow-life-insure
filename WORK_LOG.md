@@ -1,3 +1,31 @@
+## November 23, 2026 — Full Contact View local presence and first agency text · live
+
+Chris approved the primary release. Applied `contact_first_sms_sender` as Supabase history version `20261123231917`, deployed the complete `twilio-sms` v64 package, and then released reviewed frontend `2128bb641afecae1bf45e6a3ce9b3e8b2e04b15b` to the primary Vercel project. Both production domains serve READY deployment `dpl_AZc2iNcS9XTY2nZ6p8hpqs3MeZ5Z`. The previous frontend is `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7`.
+
+Verified the installed SQL checksum, five function bodies and grants, two enabled triggers, all 15 Edge files and the live contact-route assets. All 21 GitHub jobs passed before release and the production advisor findings matched preflight. The authenticated browser smoke remains pending sign-in. No test calls or texts were sent and no contact records were changed by verification. This entry and the [implementation plan](docs/plans/2026-11-23-contact-local-presence/implementation_plan.md) record the release and recovery details.
+
+## November 23, 2026 — Full Contact View first agency text · verified branch candidate
+
+Chris approved remembering the manually selected agency number on a verified unassigned contact. When SMS first-use routing is enforced, the first provider-accepted text can establish that eligible number. A personal number is an explicit, owner-only, one-time selection. The contact view hides the permanent-assignment checkbox for it. A definitive provider rejection restores the draft when safe. An uncertain receipt retains the original request identity.
+
+The increment updates the From control, Full Contact View, its hook, pending SMS storage and send-result handling, the twilio-sms endpoint and shared dispatcher, their regression tests, and the branch rules and plan. It adds a service-only SQL preparation/start path, protection for late provider receipts, a guarded rollback and native database tests. The [implementation checklist and release instructions](docs/plans/2026-11-23-contact-local-presence/implementation_plan.md) list the exact files and hashes.
+
+Verification passed on runtime commit [2128bb6](https://github.com/cgarness/agentflow-life-insure/commit/2128bb641afecae1bf45e6a3ce9b3e8b2e04b15b). Counts were 402 frontend tests, six Chromium scenarios, 15 new and 66 existing native database groups, 29 Edge unit tests, six Edge integration suites and one live-version compatibility test run locally. Root TypeScript, Edge type checking and Vite passed. App TypeScript matched all 78 baseline diagnostics. Scoped lint had zero errors and seven existing warnings.
+
+The Reports V2 check caught the previous Twilio provider fingerprint. A separate review of the complete provider diff verified that call admission, SDK and reporting paths were preserved. Updated the exact fingerprint test and ran the GitHub dialer command locally, with all 618 tests passing across 48 suites. The focused boundary and provider run passed 41 tests.
+
+Production inspection was read-only. All 17 SQL dependency definitions and the full 15-file live Edge package were accounted for. No migration, Edge deployment, Vercel rollout or customer communication took place. The draft PR is ready for review. Production migration, full Edge package and primary frontend promotion await explicit release approval.
+
+## November 23, 2026 — Full Contact View local presence · frontend candidate
+
+An unassigned lead, client or recruit now defaults to AI Local Presence in the candidate. Agents can switch to a named number or back to automatic during the visit. The contact view preserves confirmation for existing assignments. Automatic calls use the eligible agency pool and geographic matcher. Texts use the existing SMS sender and readiness checks. Geographic selection and visiting the contact do not create assignments.
+
+Files touched include the contact From control and controller, contact-number state helpers, a narrow caller-routing context and its Twilio provider, three focused test files, the feature plan, this log and the feature-branch deployment exclusion.
+
+Verification: 387 focused tests passed across 21 suites, including mounted full-contact, voice admission/status, disposition and SMS cases. Four isolated Chromium scenarios passed on desktop and mobile. Root TypeScript, scoped lint and Vite build pass. The same 78 app-level TypeScript diagnostics and seven scoped lint warnings remain as on the base.
+
+No migrations, Edge deployments, production data changes or frontend releases. Automatic first SMS uses the normal qualifying path; a manually selected alternative first agency SMS sender still has one-time semantics. Its proposed server change and receipt/race tests need explicit scope approval. See the [implementation checklist](docs/plans/2026-11-23-contact-local-presence/implementation_plan.md).
+
 ## November 21, 2026 — CG Financial pilot browser check and production readback
 
 Chris confirmed that Back returned him to the empty Automations list. An aggregate database check confirmed a fresh CG Financial session after the visibility cutoff. At 8:44 p.m. PST, both production domains still served `666387b06236281a1e61b1d0fc765284bc63cd99` on `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7`.
