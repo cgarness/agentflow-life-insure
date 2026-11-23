@@ -161,7 +161,8 @@ node e2e/automations-local/bootstrap.mjs
 anon=$(node -pe 'require(process.env.AUTOMATIONS_LOCAL_SETTINGS).ANON_KEY')
 env -i PATH="$PATH" NO_PROXY='*' VITE_SUPABASE_ANON_KEY="$anon" VITE_SUPABASE_URL=http://127.0.0.1:54340 \
   node_modules/.bin/vite --config e2e/team-open-local/vite.local.config.ts >"$dir/vite.log" 2>&1 &
-processes+=("$!")
+vite=$!
+processes+=("$vite")
 curl --retry 30 --retry-all-errors --retry-delay 1 --fail --silent http://127.0.0.1:8089/login >/dev/null
 export AUTOMATION_TEST_ACCOUNT_SUFFIX=b1
 export AUTOMATION_IMPORT_MAP="$PWD/e2e/automations-local/import-map.json"
@@ -172,6 +173,14 @@ node e2e/automations-local/session-tabs.mjs
 # Automations V2: the five workflows through the CRM's own entry points, then the editor in both layouts and themes.
 node e2e/automations-local/v2-workflows.mjs
 node e2e/automations-local/v2-editor.mjs
+# The CRM screens V2 changed. The Inbounds room is a build option, so the same checkout is served again with it on.
+kill "$vite" 2>/dev/null || true
+wait "$vite" 2>/dev/null || true
+env -i PATH="$PATH" NO_PROXY='*' VITE_SUPABASE_ANON_KEY="$anon" VITE_SUPABASE_URL=http://127.0.0.1:54340 VITE_INBOUNDS_ROOM=true \
+  node_modules/.bin/vite --config e2e/team-open-local/vite.local.config.ts >>"$dir/vite.log" 2>&1 &
+processes+=("$!")
+curl --retry 30 --retry-all-errors --retry-delay 1 --fail --silent http://127.0.0.1:8089/login >/dev/null
+node e2e/automations-local/v2-crm.mjs
 # Dedicated fixture tenants for exact SMS consent and signed receipt tests follow the UI acceptance.
 export AUTOMATION_TEST_SETTINGS="$AUTOMATIONS_LOCAL_SETTINGS"
 export AUTOMATION_TEST_ACCOUNT_SUFFIX=a1
