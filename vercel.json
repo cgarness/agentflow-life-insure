@@ -1,7 +1,8 @@
 {
   "git": {
     "deploymentEnabled": {
-      "feat/self-service-automations": false
+      "feat/self-service-automations": false,
+      "feat/contact-local-presence-20261123": false
     }
   },
   "rewrites": [
