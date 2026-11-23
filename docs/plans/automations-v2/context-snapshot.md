@@ -104,7 +104,7 @@ Accepted as they are, and stated here so they are not mistaken for fixed:
 
 ## Verification
 
-All runs were local, on November 23, 2026. The three harness modes and every SQL suite ran at `29f7046`, the final code; later commits changed only screenshots and documents. Vitest, the build, both typechecks, lint and Deno ran at `28394a2`, and nothing those checks read changed after it. Each review fix also has its own case that fails on the earlier code.
+All runs were local, on November 23, 2026, except the GitHub Actions row. The release and backend-first harness modes and every SQL suite ran at `29f7046`, the final code. The builder mode ran again at `406974d`, which changed only how the keyboard check takes its screenshots, and printed the same results. Later commits changed only screenshots and documents. Vitest, the build, both typechecks, lint and Deno ran at `28394a2`, and nothing those checks read changed after it. Each review fix also has its own case that fails on the earlier code.
 
 | Check | Result |
 | --- | --- |
@@ -117,11 +117,12 @@ All runs were local, on November 23, 2026. The three harness modes and every SQL
 | Deno: `_shared/automations/` and three `_shared/sms/` files | 67 passed, 0 failed (38 Automations, 29 SMS). |
 | Native SQL on PostgreSQL 17.6 | All 14 `supabase/tests/automation_*.sql` suites pass inside the harness modes: six first-release, five V2, the rollback rehearsal, the upgrade and intake eligibility. |
 | `concurrency.py`, `concurrency_v2.py` | Pass. One winner of two simultaneous callback claims, one task from a twice-delivered step, one callback for a call two automations reached together, and an appointment saved in 0.3 s while a publish lock was held. |
-| `bash e2e/automations-local/run.sh` | Pass in 344 s, including the CRM screen check and Insert field by touch. |
+| `bash e2e/automations-local/run.sh` | Pass in 339 s at `406974d`, including the CRM screen check and Insert field by touch. |
 | `bash e2e/automations-local/run.sh release` | Pass in 123 s, including the rollback rehearsal run without psql's flags. |
 | `bash e2e/automations-local/run.sh backend-first` | Pass in 115 s. |
 | Rollback at scale | With 100,000 unfinished runs the final file took about 1 second: 879 ms for the data phase, then 2 ms to create the guards, which is all the time the locks on runs and workflows are held before the commit. |
 | Browser | 1440 px and 375 px, light and dark: the builder with keyboard authoring and Insert field by touch, and the changed CRM screens. Screenshots are taken fully drawn at twice the pixel density. The only request that tried to leave the machine was the app's Google Fonts stylesheet, which the harness blocked. Zero provider requests. |
+| GitHub Actions at `9b6db95` | All 18 jobs passed, including Reports frontend verification, which runs both typechecks and the full Vitest suite on the base and on this branch and found no new failing test or diagnostic. Supabase Preview was skipped. The application, database and test code are the same at the final head. |
 
 ### Where each required check lives
 
