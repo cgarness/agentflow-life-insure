@@ -1,3 +1,13 @@
+## November 23, 2026 — Full Contact View local presence · frontend candidate
+
+An unassigned lead, client or recruit now defaults to AI Local Presence in the candidate. Agents can switch to a named number or back to automatic during the visit. The contact view preserves confirmation for existing assignments. Automatic calls use the eligible agency pool and geographic matcher. Texts use the existing SMS sender and readiness checks. Geographic selection and visiting the contact do not create assignments.
+
+Files touched include the contact From control and controller, contact-number state helpers, a narrow caller-routing context and its Twilio provider, three focused test files, the feature plan, this log and the feature-branch deployment exclusion.
+
+Verification: 387 focused tests passed across 21 suites, including mounted full-contact, voice admission/status, disposition and SMS cases. Four isolated Chromium scenarios passed on desktop and mobile. Root TypeScript, scoped lint and Vite build pass. The same 78 app-level TypeScript diagnostics and seven scoped lint warnings remain as on the base.
+
+No migrations, Edge deployments, production data changes or frontend releases. Automatic first SMS uses the normal qualifying path; a manually selected alternative first agency SMS sender still has one-time semantics. Its proposed server change and receipt/race tests need explicit scope approval. See the [implementation checklist](docs/plans/2026-11-23-contact-local-presence/implementation_plan.md).
+
 ## November 21, 2026 — CG Financial pilot browser check and production readback
 
 Chris confirmed that Back returned him to the empty Automations list. An aggregate database check confirmed a fresh CG Financial session after the visibility cutoff. At 8:44 p.m. PST, both production domains still served `666387b06236281a1e61b1d0fc765284bc63cd99` on `dpl_BD2R2C2bBUWc1aiW3Zu6gRXvKGR7`.
