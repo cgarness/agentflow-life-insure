@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { launch, session, APP } from '../team-open-local/lib.mjs';
+import { launch, session, restPointer, APP } from '../team-open-local/lib.mjs';
 import { settings, sql, agency, email, listView } from './fixture.mjs';
 
 const phase = process.argv[2];
@@ -52,6 +52,8 @@ try {
     assert.equal(steps(emailFlow), emailSteps, 'Saving in the V2 editor keeps every first-release step, version and setting');
     assert.equal(sql(`select automation_graph->'settings' from public.workflows where id='${emailFlow}'`), '{"reentry": "once", "stop_on_reply": false}');
     assert.equal(state(emailFlow), 'active|1|1', 'A saved draft changes nothing that is published');
+    // The pointer rests off every control, so the button just pressed is not captured in its hover colour.
+    await restPointer(one.page);
     await one.page.screenshot({ path: join(dir, 'backend-first-v2-editor.png'), animations: 'disabled' });
 
     // 2. Its SMS step keeps its wording and stored purpose. Republishing pins the consent requirement.
@@ -122,6 +124,7 @@ try {
       assert.equal(refused.body.message, 'This automation was published with Automations V2 and stays paused until V2 is installed again.');
       assert.equal(state(textFlow), 'paused|2|0');
     }
+    await restPointer(two.page);
     await two.page.screenshot({ path: join(dir, 'backend-first-rolled-back.png'), animations: 'disabled' });
     assert.equal(sql(`select count(*) from private.automation_sms_purposes p join public.workflow_versions v on v.id=p.version_id where v.workflow_id='${textFlow}'`), '2',
       'Pinned requirements are retained');
