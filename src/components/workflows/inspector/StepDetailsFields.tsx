@@ -43,13 +43,13 @@ export default function StepDetailsFields({node, issues, readOnly, onChange}: Pr
 
   return <Collapsible open={open} onOpenChange={setOpened} className="border-t pt-2">
     <CollapsibleTrigger asChild>
-      <Button type="button" variant="ghost" className="h-11 w-full justify-between px-2 md:h-9">
+      <Button type="button" variant="ghost" className="-mx-2 h-11 w-[calc(100%+1rem)] justify-between px-2 md:h-9">
         Step details
         <ChevronDown aria-hidden="true" className={cn("transition-transform duration-150 motion-reduce:transition-none", open && "rotate-180")}/>
       </Button>
     </CollapsibleTrigger>
     <CollapsibleContent>
-      <fieldset disabled={readOnly} className="min-w-0 space-y-4 px-2 pb-1 pt-3">
+      <fieldset disabled={readOnly} className="min-w-0 space-y-4 pb-1 pt-3">
         <Field id={id + "name"} label="Step name" errors={nameIssues}>
           <Input id={id + "name"} value={name} maxLength={nativeMaxLength(STEP_NAME_MAX)} placeholder={graphBlock(node)?.label}
             aria-invalid={nameIssues.length > 0 || undefined} aria-describedby={describedBy(id + "name", false, nameIssues)}

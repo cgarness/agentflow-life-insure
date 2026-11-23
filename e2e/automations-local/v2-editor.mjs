@@ -62,14 +62,15 @@ async function theme(page, wanted) {
   await menu.click();
   await page.waitForFunction(expected => document.documentElement.classList.contains('dark') === expected, wanted === 'dark');
 }
-async function shot(page, name) {
+/** `fullPage` captures the whole page, for screens taller than the window; sheets and dialogs are captured as seen. */
+async function shot(page, name, { fullPage = false } = {}) {
   const width = page.viewportSize().width;
   const dark = await page.locator('html').evaluate(element => element.classList.contains('dark'));
   const file = `automations-v2-${name}-${width}-${dark ? 'dark' : 'light'}.png`;
   // The pointer rests away from every control, and finite animations are completed first,
   // so a sheet or menu is captured fully open and no button in its hover colour.
   await restPointer(page);
-  await page.screenshot({ path: join(dir, file), animations: 'disabled' });
+  await page.screenshot({ path: join(dir, file), animations: 'disabled', fullPage });
   screenshots.push(file);
 }
 
@@ -189,7 +190,7 @@ try {
   await field(page, 'Description').fill('Sent to every new lead from the Editor check source.');
   await button(rows(page).nth(2), 'Welcome text').waitFor();
   assert.match(await rows(page).nth(2).innerText(), /Send SMS · Hello \{\{first_name\}\}/);
-  await shot(page, 'message-editor');
+  await shot(page, 'message-editor', { fullPage: true });
 
   // An email step: Subject and Message, each with its own Insert field, starting from a saved email.
   await add(page, 2, 'Send email');
@@ -234,7 +235,7 @@ try {
   await page.getByRole('region', { name: 'Publish review controls', exact: true }).getByText('Agency message delivery: On', { exact: true }).waitFor();
   assert.equal(sql(`select status||'|'||(select count(*) from public.workflow_versions where workflow_id='${id}')||'|'||automation_draft_name from public.workflows where id='${id}'`),
     'draft|0|' + title + ' (renamed)');
-  await shot(page, 'review');
+  await shot(page, 'review', { fullPage: true });
   await button(page, 'Publish version').click();
   const status = page.getByRole('region', { name: 'Workflow status', exact: true });
   await status.getByText('Version published.', { exact: true }).waitFor();
@@ -303,10 +304,10 @@ try {
   await page.getByRole('region', { name: 'Configure block' }).waitFor();
   const box = await canvas.boundingBox();
   assert.ok(box.height >= 500, 'The canvas uses the height of the workspace: ' + box.height);
-  for (const tone of ['light', 'dark']) { await theme(page, tone); await shot(page, 'canvas'); }
+  for (const tone of ['light', 'dark']) { await theme(page, tone); await shot(page, 'canvas', { fullPage: true }); }
   await theme(page, 'light');
   await listView(page);
-  await shot(page, 'list');
+  await shot(page, 'list', { fullPage: true });
   await button(page, 'Close step settings').click();
   await page.setViewportSize({ width: 375, height: 812 });
   const timeline = page.getByRole('list', { name: 'Ordered steps' });
@@ -318,7 +319,7 @@ try {
   assert.equal(await page.getByRole('radio', { name: 'List', exact: true }).count(), 0);
   const fits = await timeline.boundingBox();
   assert.ok(fits.x >= 0 && fits.x + fits.width <= 376, 'The timeline fits a phone');
-  for (const tone of ['light', 'dark']) { await theme(page, tone); await shot(page, 'timeline'); }
+  for (const tone of ['light', 'dark']) { await theme(page, tone); await shot(page, 'timeline', { fullPage: true }); }
   const stepButton = button(rows(page).nth(2), 'Welcome text');
   await stepButton.focus();
   await page.keyboard.press('Enter');

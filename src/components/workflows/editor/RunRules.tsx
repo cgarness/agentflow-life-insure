@@ -44,7 +44,7 @@ export default function RunRules({graph, readOnly, onChange}: Props) {
       </Field>
       <div className="space-y-1">
         {rules.map((rule, index) => <div key={STOP_KEYS[index]} className="flex min-h-11 items-center justify-between gap-3 md:min-h-9">
-          <Label htmlFor={id + STOP_KEYS[index]} className="font-normal">{rule.label}</Label>
+          <Label htmlFor={id + STOP_KEYS[index]} className="font-normal leading-5">{rule.label}</Label>
           <Switch id={id + STOP_KEYS[index]} checked={rule.on} onCheckedChange={on => set({[STOP_KEYS[index]]: on})}/>
         </div>)}
       </div>

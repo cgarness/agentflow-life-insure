@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useBranding } from "@/contexts/BrandingContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,6 +32,8 @@ type Run = {
 
 export function AutomationActivity({ workflowId, contactId, contactType }: Props) {
   const { profile, impersonatedUser, automationSessionRevision } = useAuth();
+  // The agency's date and time format, as every other time on the contact screen uses.
+  const { formatDateTime } = useBranding();
   const key = JSON.stringify([
     profile?.organization_id,
     profile?.id,
@@ -126,9 +129,9 @@ export function AutomationActivity({ workflowId, contactId, contactType }: Props
             <p className="break-words text-xs text-muted-foreground">
               Version {run.version_revision} · {run.node_name ? run.node_name + " · " + block : block}
             </p>
-            <p className="text-xs">{new Date(run.updated_at).toLocaleString()}</p>
+            <p className="text-xs">{formatDateTime(run.updated_at)}</p>
             {run.status === "waiting" && run.due_at && (
-              <p className="text-sm">Due {new Date(run.due_at).toLocaleString()}</p>
+              <p className="text-sm">Due {formatDateTime(run.due_at)}</p>
             )}
             {run.message_status && (
               <p className="text-sm">Message {run.message_status.replace(/_/g, " ")}</p>
