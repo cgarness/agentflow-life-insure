@@ -27,7 +27,7 @@ assert.match(emailFlow, /^[a-f0-9-]{36}$/);
 assert.match(textFlow, /^[a-f0-9-]{36}$/);
 
 async function login(n) {
-  const { page, net } = await session(browser, phase + ' ' + n, email(n), settings.PASSWORD, evidence);
+  const { page, net } = await session(browser, phase + ' ' + n, email(n), settings.PASSWORD, evidence, { deviceScaleFactor: 2 });
   page.setDefaultTimeout(20000);
   return { page, net };
 }
@@ -52,7 +52,7 @@ try {
     assert.equal(steps(emailFlow), emailSteps, 'Saving in the V2 editor keeps every first-release step, version and setting');
     assert.equal(sql(`select automation_graph->'settings' from public.workflows where id='${emailFlow}'`), '{"reentry": "once", "stop_on_reply": false}');
     assert.equal(state(emailFlow), 'active|1|1', 'A saved draft changes nothing that is published');
-    await one.page.screenshot({ path: join(dir, 'backend-first-v2-editor.png') });
+    await one.page.screenshot({ path: join(dir, 'backend-first-v2-editor.png'), animations: 'disabled' });
 
     // 2. Its SMS step keeps its wording and stored purpose. Republishing pins the consent requirement.
     const two = await login('two');
@@ -122,7 +122,7 @@ try {
       assert.equal(refused.body.message, 'This automation was published with Automations V2 and stays paused until V2 is installed again.');
       assert.equal(state(textFlow), 'paused|2|0');
     }
-    await two.page.screenshot({ path: join(dir, 'backend-first-rolled-back.png') });
+    await two.page.screenshot({ path: join(dir, 'backend-first-rolled-back.png'), animations: 'disabled' });
     assert.equal(sql(`select count(*) from private.automation_sms_purposes p join public.workflow_versions v on v.id=p.version_id where v.workflow_id='${textFlow}'`), '2',
       'Pinned requirements are retained');
     console.log('PASS first-release frontend after the rollback: the first-release automation stayed active and editable; the automation republished under V2 '

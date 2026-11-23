@@ -37,9 +37,9 @@ export async function launch() {
   });
 }
 
-/** One isolated browser context per signed-in user (separate storage = separate Auth session). */
-export async function session(browser, label, email, password, evidence) {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, permissions: ["microphone"] });
+/** One isolated browser context per signed-in user (separate storage = separate Auth session). `options` adds context settings such as deviceScaleFactor. */
+export async function session(browser, label, email, password, evidence, options = {}) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, permissions: ["microphone"], ...options });
   const net = { label, requests: [], blocked: [], ws: [], httpErrors: [] };
   const consoleErrors = [];
   await context.route("**/*", (route) => {

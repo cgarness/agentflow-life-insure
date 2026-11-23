@@ -24,7 +24,8 @@ const notice = 'ba921000-0000-4000-8000-000000000060';
 const title = 'V2 editor check ' + randomUUID().slice(0, 8);
 
 async function login(n) {
-  const { page, net } = await session(browser, 'editor ' + n, email(n), settings.PASSWORD, evidence);
+  // Screenshots are for people, so they are taken at twice the pixel density.
+  const { page, net } = await session(browser, 'editor ' + n, email(n), settings.PASSWORD, evidence, { deviceScaleFactor: 2 });
   page.setDefaultTimeout(20000);
   return { page, net };
 }
@@ -65,7 +66,8 @@ async function shot(page, name) {
   const width = page.viewportSize().width;
   const dark = await page.locator('html').evaluate(element => element.classList.contains('dark'));
   const file = `automations-v2-${name}-${width}-${dark ? 'dark' : 'light'}.png`;
-  await page.screenshot({ path: join(dir, file) });
+  // Finite animations are completed first, so a sheet or menu is captured fully open.
+  await page.screenshot({ path: join(dir, file), animations: 'disabled' });
   screenshots.push(file);
 }
 
@@ -329,6 +331,8 @@ try {
     await stepButton.focus();
     await page.keyboard.press('Enter');
     await sheet.waitFor();
+    // Wait until the sheet has finished sliding in and its Done button can be pressed.
+    await button(sheet, 'Done').click({ trial: true });
     await shot(page, 'step-sheet');
   }
   await button(sheet, 'Done').press('Enter');
