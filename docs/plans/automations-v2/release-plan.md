@@ -36,12 +36,18 @@ No existing table's row-level security policy changes. `public.calls` gets no po
 | `private.automation_sms_purposes`, `private.automation_task_receipts` (new) | Row-level security on, no policy, no browser or service grant. |
 | `public.tasks` | Adds `all_day` (default true) and `automation_run_id`. `created_by` becomes nullable only for a row that names an automation run (CHECK). A trigger refuses any browser write that sets or clears `automation_run_id`. |
 | New triggers on existing tables | `public.calls` (after a status update, inbound terminal calls only), `public.wins` (after insert), `private.dialer_disposition_receipts` (after insert), `private.appointment_occurrences` (after insert or close), `private.appointment_outcome_events` (after insert). Each does nothing when the agency is not enrolling, waits at most 200 ms for a lock and never raises into the CRM write. |
+| New index on an existing table | `private.appointment_occurrences(organization_id, contact_id) WHERE seq = 1`, for "Stop when an appointment is booked". |
 | New functions | None is executable by `PUBLIC` or `anon`. Worker functions are `service_role` only. |
 
 ## Release order: database first, then frontend
 
 1. **Preflight (read-only).** Confirm the ledger tail, that the 16 function fingerprints still match, and that enrollment and message delivery are off for every agency. Confirm a restorable backup.
-2. **Apply the seven migrations in order.** Each file is one transaction. The install creates no definition, version, enrollment, task, callback or message. Run the Supabase advisors before and after.
+2. **Apply the seven migrations in order, outside calling hours.** Each file is one transaction with a 5-second lock wait. The install creates no definition, version, enrollment, task, callback or message. Run the Supabase advisors before and after. Expect brief locks while each file commits:
+   - Creating a trigger locks writes to its table: calls, sales, disposition receipts and the two appointment tables.
+   - Building the new index locks writes to `private.appointment_occurrences`.
+   - Adding the two `public.tasks` columns locks the tasks table briefly. The new check is added without scanning existing rows.
+   - On Supabase, `CREATE POLICY` (the issuance migration) also locks the sign-in and storage tables until that file commits.
+   If any lock is not granted within 5 seconds the file fails and changes nothing. Retry it when the database is quieter.
 3. **Check the installed frontend still works.** The first-release frontend and worker passed their own acceptance script unchanged on the V2 database in the local rehearsal (below).
 4. **Frontend.** Promote the pull request head. Agents refresh after their current call.
 5. **Verify signed in.** Open Automations, create and leave a blank canvas with zero writes, open the existing draft, confirm Enrollment and Message delivery both read Off.
@@ -55,24 +61,37 @@ Two effects start at step 2 and do not wait for the frontend:
 
 Turning enrollment on is not part of this release. When it is later turned on for an agency, V2 tasks and callbacks are created as soon as a published automation is active. Message delivery stays behind its own switch.
 
-## Rollback order: frontend first
+## Rollback order: fence first, then frontend
 
-1. **Fence.** Set `enrollment_enabled=false` and `dispatch_enabled=false` for every agency and read both back.
-2. **Frontend.** Promote the previous READY deployment. A draft that uses V2 content opens for inspection only in the first-release editor. A first-release draft stays editable.
-3. **Worker.** If a V2 worker was released, restore the previous package.
-4. **Database, only if the V2 functions themselves are at fault.** Run [`rollback/20261122100600_automation_v2.rollback.sql`](../../../supabase/migrations/rollback/20261122100600_automation_v2.rollback.sql) as one transaction.
+1. **Fence.** Set `enrollment_enabled=false` and `dispatch_enabled=false` for every agency and read both back. From this moment no automation creates a task or callback, and no message is handed to a provider; runs already under way hold until the fence is lifted (a run on hold for seven days ends).
+2. **Hand over open callbacks.** The previous frontend has no callback list. Before restoring it, list each agency's open and claimed callbacks and give them to the agency for manual follow-up:
+
+   ```sql
+   select b.organization_id, b.status, b.caller_phone, b.claimed_by, b.created_at, b.title
+   from public.inbound_callbacks b where b.status in ('open','claimed') order by b.organization_id, b.created_at;
+   ```
+
+   Tasks automations created stay on the contacts, with their time of day.
+3. **Frontend.** Promote the previous READY deployment. A draft that uses V2 content opens for inspection only in the first-release editor. A first-release draft stays editable.
+4. **Worker.** There is no earlier Automations worker to restore. If the V2 worker was released, keep it, or turn its schedule off. Against the restored functions it runs first-release versions exactly as the first release defines them: claims carry no context, and each version 1 SMS step uses its stored purpose. That is correct for every version the rollback leaves active, because it pauses every version whose pinned requirement differs from the stored purpose.
+5. **Database, only if the V2 functions themselves are at fault.** Run [`rollback/20261122100600_automation_v2.rollback.sql`](../../../supabase/migrations/rollback/20261122100600_automation_v2.rollback.sql) as one transaction, outside calling hours:
+
+   ```bash
+   psql -X -1 -v ON_ERROR_STOP=1 -f supabase/migrations/rollback/20261122100600_automation_v2.rollback.sql
+   ```
 
 What the rollback file does:
 
 | It does | It never does |
 | --- | --- |
-| Refuses unless every agency is fenced and all 16 functions still carry the V2 definitions. | Remove or rewrite a task, callback, issuance confirmation, pinned SMS requirement, event, run, version, draft or history row. |
-| Restores the 16 first-release function bodies byte for byte and checks each fingerprint afterwards. | Drop a table, column, constraint, index, policy or grant that V2 added. |
-| Detaches the six V2 event observers. | Change release controls. |
-| Stops unfinished runs only V2 can execute, with the reason "Stopped when Automations V2 was rolled back". | Touch calls, appointments, policies, sales or contacts. |
-| Pauses automations whose published version needs V2 (a V2 step, a V2 re-entry or stop rule, or a tightened SMS requirement) and refuses to resume them until V2 is installed again. | |
+| Refuses outside a transaction, while any agency is not fenced, and when any of the 22 functions it replaces has drifted from the V2 definition. | Remove or rewrite a task, callback, issuance confirmation, pinned SMS requirement, event, run, version, draft or history row. |
+| Restores the 16 first-release function bodies byte for byte and checks each fingerprint afterwards. | Drop a table, column, constraint, index, policy, grant or trigger. |
+| Turns the six V2 event observers into no-ops. Their triggers stay attached, because on Supabase dropping a trigger also locks every sign-in and storage table. | Lock calls, sales, dispositions, appointments, policies or the sign-in tables. It locks only `private.automation_runs` and `public.automation_intervals`, until it commits. |
+| Pauses every automation whose published version needs V2: a V2 step, a V2 re-entry or stop rule, or an SMS consent requirement stricter than the step's stored purpose. | Change release controls. |
+| Stops every unfinished run on those automations, and any other run only V2 can execute, with the reason "Stopped when Automations V2 was rolled back". | Touch contacts. |
+| Adds two guards, on `private.automation_runs` and `public.automation_intervals`: no run is enrolled on a version that needs V2, and such an automation cannot be resumed. A text republished from the first-release editor without its pinned requirement still counts as needing V2. | |
 
-After the rollback, a stale save, publish or session change again never answers (the inherited 40001 behaviour). Installing V2 again is a new migration that reinstalls the function bodies and observers and drops the resume guard. The seven original files cannot be replayed over the retained tables.
+After the rollback, a stale save, publish or session change again never answers (the inherited 40001 behaviour). Installing V2 again is a new migration that reinstalls the V2 function bodies (the six observers included), drops the two guard triggers and their functions, and fills `scope_key` for runs created while V2 was absent. The seven original files cannot be replayed over the retained tables.
 
 ## Rehearsal evidence
 
@@ -82,7 +101,7 @@ All of this ran on a disposable local PostgreSQL 17.6, GoTrue and PostgREST stac
 | --- | --- | --- |
 | Database first | `bash e2e/automations-local/run.sh backend-first` | Two first-release runs that were waiting and queued when the seven migrations were applied kept their state and completed. The first release's own acceptance script passed unchanged with the first-release frontend and worker on the V2 database. The V2 editor then opened, saved and republished those automations with every step ID, wording and stored purpose kept. |
 | Rollback seen from the browser | same command | After fencing and the rollback file, the first-release frontend kept its automation active and editable. The automation republished under V2 was paused, a resume request answered HTTP 409 with a plain reason, and its draft opened for inspection only. |
-| Rollback on real V2 work | `supabase/tests/automation_v2_rollback.sql` through `e2e/automations-local/rollback-rehearsal.sh` | Refused while a control was on. Applied once. Refused a second run. Stopped two V2 runs, paused four automations, kept two first-release automations running, kept every V2 record. The six first-release SQL suites passed on the rolled-back database. |
+| Rollback on real V2 work | `supabase/tests/automation_v2_rollback.sql` through `e2e/automations-local/rollback-rehearsal.sh` | Refused while a control was on and when run outside a transaction. Applied once. Refused a second run. Stopped four runs (including a first-release run on an automation it paused), paused five automations, kept two first-release automations running, and kept every V2 record. A lead captured before the fence enrolled afterwards only on first-release versions. A text republished from the first-release editor without its pinned requirement could not be resumed. The six first-release SQL suites passed on the rolled-back database. |
 | Install from a pre-feature database | `bash e2e/automations-local/run.sh release` | Eleven migrations in order with zero install deltas and an unchanged legacy graph hash, old sessions fenced, the four enrollment and delivery combinations, and a data-preserving hide. |
 
 The "first release" source in the rehearsal is `d85434f635bbf2d4118781e6d254798eef699363`. It differs from the deployed frontend `666387b06236281a1e61b1d0fc765284bc63cd99` in three documentation files only.

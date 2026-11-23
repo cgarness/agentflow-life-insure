@@ -1,6 +1,6 @@
 # Automations V2 context snapshot
 
-**November 22, 2026.** Branch `claude/cool-maxwell-15hyq7`, targeting `feat/self-service-automations` (PR #534's head `d85434f635bbf2d4118781e6d254798eef699363`, with main's `83a0ed509be89274d18b229239a3112de0a5dbf6` merged in as `0e49940`).
+**November 22–23, 2026.** Branch `claude/cool-maxwell-15hyq7`, targeting `feat/self-service-automations` (PR #534's head `d85434f635bbf2d4118781e6d254798eef699363`, with main's `83a0ed509be89274d18b229239a3112de0a5dbf6` merged in as `0e49940`).
 
 **Nothing is released.** No production migration, Edge function, Vercel deployment, release control or schedule was changed. Production was read only. Enrollment and message delivery stay off for every agency. The branch is excluded from Vercel deployments in `vercel.json`.
 
@@ -22,15 +22,19 @@
 
 1. **Re-entry identity is a scope, not always the contact.** The contact for lead, campaign and disposition triggers; the appointment slot, the appointment outcome, the call or the policy for the others. Two policies on one client each get their own follow-up.
 2. **Message steps deliver to leads only.** For a client, a recruit or an unmatched caller the step is skipped and the run continues. Tasks and callbacks work for every contact type.
-3. **Tasks and callbacks are not behind the message delivery switch.** They are created whenever an agency is enrolling and the automation is active.
-4. **A task goes to the contact's current active assigned agent.** With no active owner the step holds with a visible reason. A converted or removed contact stops the run. An open task from the same step for the same scope is not duplicated.
-5. **A reschedule moves the waiting run; it does not start a second one.** A cancellation or deletion stops it. A slot a run already waited for is never handled twice. A reminder whose time has passed is skipped unless the author chose to continue.
-6. **A missed inbound call waits one minute before enrolling,** so late answer evidence can arrive. A confirmed answer stops the run, incomplete bridge evidence holds it, and there is at most one callback per call. Claiming is one conditional update. A person viewing as someone else cannot claim.
+3. **Tasks and callbacks are not behind the message delivery switch, but they are behind enrollment.** They are created while an agency is enrolling and the automation is active. Turning enrollment off holds task steps already under way.
+4. **A task goes to the contact's current active assigned agent, for every trigger.** A known caller who rings another agent's direct line still gets a task for their own agent. With no active owner the step holds with a visible reason (a missed call becomes an Inbounds callback instead). A converted or removed contact stops the run. A repeated trigger does not stack a second open task on the same agent; a task left with a former agent does not hold back the current agent's.
+5. **A reschedule before any reminder went out moves the waiting run. After a reminder went out, the automation starts again for the new time,** so the new time gets every reminder. A cancellation or deletion stops the run, and taking a cancellation back lets it carry on. A slot a run already waited for is never handled twice. A reminder whose time has passed is skipped unless the author chose to continue.
+6. **A missed inbound call waits one minute before enrolling,** so late answer evidence can arrive. A confirmed answer stops the run. A phone that accepted the call holds the step only until its bridge result is recorded, or for ten minutes after the call ended; a recorded "unconfirmed" result leaves the call missed, as Inbounds shows it. There is at most one callback per call, claiming is one conditional update, and a callback whose call was later proven answered cannot be claimed. A person viewing as someone else cannot claim.
 7. **Only an explicit Confirm issuance starts delivery follow-up.** A sale, an effective date or a legacy issue date never does. A confirmation is permanent: there is no edit or undo yet.
 8. **A stale save, publish or session change answers HTTP 409 (`PT409`).** The first release raised SQLSTATE 40001, which PostgREST retries without limit, so the request never answered. V2 replaces those three functions.
 9. **The save gate is strict.** Malformed step details or unknown settings refuse the save instead of being stored and reported later.
 10. **One guarded rollback file covers the seven migrations,** because they are released together. The implementation plan had listed one per migration.
 11. **The first release stays usable on the V2 database.** Its editor opens V2 drafts for inspection only and cannot overwrite them.
+12. **A hold retries less often the longer it lasts and ends after seven days.** The first retry is five minutes out, then half the time held so far, at most six hours. The run then stops with the reason it was held.
+13. **Republishing an unchanged graph creates a version when an SMS step would now be pinned differently,** so review and publish always agree.
+14. **A super admin session the server cannot verify cannot claim callbacks or confirm issuance.** A sign-in from before the Automations upgrade keeps View As in the browser only, so it must sign in again.
+15. **The rollback never drops a trigger.** On Supabase that also locks every sign-in and storage table. It turns the six observers into no-ops instead.
 
 ## Migrations prepared, none executed
 
@@ -46,6 +50,29 @@
 | `rollback/20261122100600_automation_v2.rollback.sql` | The guarded, data-preserving inverse of all seven. |
 
 The four applied first-release files are unchanged. No existing table's row-level security policy changes. The two new public tables and their access rules are listed for approval in the [release plan](release-plan.md).
+
+## Independent review
+
+On November 22–23 nine independent reviewers, one per area, read the change and tried to break it on the scratch databases. Eight reported 42 findings (12 major, 30 minor). The ninth, requirement and documentation coverage, and the separate refutation pass were stopped by a usage limit, so every finding was reproduced again before it was fixed. Each fix has a SQL, Deno or Vitest case that fails on the previous code and passes now.
+
+| Area | Fixed |
+| --- | --- |
+| Authoring | Republishing an unchanged graph pins a changed SMS requirement. Fields are checked one field at a time. Outcome automations overlap only on a shared outcome. Step names use one explicit control-character set in the browser and the database, counted as characters. |
+| Events and appointments | A reschedule after a reminder starts the automation again for the new time. Taking a cancellation back lets the reminder carry on. The booking a disposition save makes does not stop that save's own run. A repaired missed-call event keeps its one-minute settle. Re-entry and booking checks use indexes. |
+| Tasks and worker contract | Turning enrollment off holds task steps. A task left with a former agent does not block the current agent's. Holds back off and end after seven days. A page of stopped runs no longer hides live work. A blank rendered title takes the step's name, the caller's number or the task type. SMS appointment reminders find the recipient's zone for an 11-digit phone. |
+| Missed calls and issuance | A known caller's task goes to the contact's own agent. A recorded "unconfirmed" bridge is final and a missing one is waited for ten minutes. An answered call's callback cannot be claimed. An unverified super admin session cannot claim or confirm. |
+| Rollback | No trigger is dropped (dropping one locked the sign-in tables). Refuses outside a transaction. Stops runs on the automations it pauses. Guards new runs and resumes on any version that needs V2, including a text republished without its pinned requirement. The release plan now covers worker handling, open callbacks and migration locks. |
+| Builder | Reopening waits for the current record. Unsaved changes are protected on every way out. Save & review saves an incomplete draft and says so. Each problem shows once. Focus returns to a newly added step on phones. A failed background read no longer replaces an open editor (found while fixing the others). |
+| CRM | Callback conflicts show the server's message. Callback buttons name the caller and only the pressed one shows as busy. The task list re-reads the clock and the tasks, and disables completion for anyone but the assignee or creator. Confirm issuance re-reads the status after a refusal and refuses dates before 1900. |
+
+Accepted as they are, and stated here so they are not mistaken for fixed:
+
+- An automation task assigned to an agent who later leaves can be completed only by that agent. Opening tasks to anyone else would change the existing `public.tasks` row-level policies, which needs `#APPROVE_RLS_CHANGE`. The contact's new agent now gets their own task.
+- The worker's queue is shared by every agency and has no per-agency share. Backoff and the seven-day end bound how much a held backlog costs.
+- A task already created for a known caller is left open if proof that the call was answered arrives later. A callback in the same situation drops off the list and cannot be claimed.
+- While a save is in flight, under a second, leaving is not held. While a step is open, a problem only the server can see is hidden if the browser reports another problem for that step.
+- Two callbacks from the same number have buttons with the same accessible name. A conflict that is a permission refusal (42501) still reads "You cannot change this callback."
+- A reused issuance request with a changed date reads as a date error.
 
 ## Verification
 
