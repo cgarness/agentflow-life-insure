@@ -76,6 +76,15 @@ On November 23 a second pass tested those fixes. Four checkers reported 18 findi
 | Builder and CRM | Refusals that signing in again fixes show the server's words. The preview names a missed call's blank task after the caller's number. Fields accept the longest allowed text even as emoji. The text-step hint says only an agency saved message keeps its consent type. |
 | Verification and documents | The changed CRM screens and Insert field by touch are now checked in a real browser. Every result under Verification was produced again at the fixed code. The release plan says to turn the worker schedule off after a database rollback. Two wrong statements were corrected. |
 
+A third pass, also on November 23, checked the second round of fixes. Three checkers reported 10 findings and a skeptic per area confirmed all 10 (5 major). Two came from second-pass fixes of mine: the worker-side restart could still act on the old time or end a run with no replacement, and doubling the browser limit on step details let a long paste make the whole draft refuse to save.
+
+| Area | Fixed in the third pass |
+| --- | --- |
+| Appointments | The restart is one decision, made when the new time is admitted. The old run ends in the same statement as the new one starts, including a run still waiting to hear whether its last message was accepted. Until then the worker leaves a run whose appointment moved after it gave a reminder alone, so no step acts on the old time. If the admission is refused, the run keeps its place. An appointment change moves every waiting reminder to the new time. Taking back a cancellation revives every run that cancellation stopped, including one that moved with a reschedule. A new column, `private.automation_runs.reminded_for`, records which time a run's reminders were for. |
+| Rollback | A text's requirement is compared with the most recent pin V2 made for the same step. When only a text's requirement stands in the way, the refusal says to choose Marketing and publish again. The header, the plan and the rules now say exactly which status and timing fields the file sets. |
+| Builder | A step's name and description are cut to their limits, counted in characters, as they are typed or pasted. |
+| Verification and documents | The task row is checked at 375 px too. On a phone the contact screen's Tasks column stays on screen; only the policies column is pushed off, the reverse of what the notes said. |
+
 Accepted as they are, and stated here so they are not mistaken for fixed:
 
 - An automation task assigned to an agent who later leaves can be completed only by that agent. Opening tasks to anyone else would change the existing `public.tasks` row-level policies, which needs `#APPROVE_RLS_CHANGE`. The contact's new agent now gets their own task.
