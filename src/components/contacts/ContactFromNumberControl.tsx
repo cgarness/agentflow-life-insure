@@ -26,7 +26,7 @@ function NumberConfirmation({ model, onClosed }: { model: Model; onClosed: () =>
           {assignment.split ? "This contact has different assigned numbers for calls and texts." :
             assignment.number ? `This contact is assigned to ${formatPhoneNumber(assignment.number)}.` :
               "This contact does not have a shared assigned number."}
-          {` Use ${formatPhoneNumber(pending.sender.number ?? "")} instead?`}
+          {` Use ${formatPhoneNumber(pending.sender.number ?? "")} ${model.canAssign ? "instead" : "for this visit"}?`}
         </DialogDescription>
       </DialogHeader>
       {model.canAssign && <div className="space-y-1.5">
@@ -81,7 +81,7 @@ export function ContactFromNumberControl({ model, legacyNumber, legacyOptions, o
         {model.readiness.sms !== "ready" && <p>{readinessLabels[model.readiness.sms] ?? "Texting unavailable"}</p>}
       </div>}
     </>}
-    {model.pending && <NumberConfirmation key={`${model.pending.visit}:${model.pending.sender.id}`}
+    {model.pending && <NumberConfirmation key={`${model.pending.visit}:${model.pending.sender.id}:${model.canAssign}`}
       model={model} onClosed={() => trigger.current?.focus()} />}
   </div>;
 }

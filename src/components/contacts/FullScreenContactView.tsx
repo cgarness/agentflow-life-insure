@@ -301,6 +301,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   // The saved row already shows in the conversation, so an accepted send refreshes history only
   // while Activity is open; an uncertain outcome refreshes once to show whatever was saved.
   useSmsScopeEvents(smsKey, (event) => {
+    const preview = contactFrom.preview;
+    if (preview?.sms_mode === "enforced" && (contactFrom.unassigned || preview.sms.state === "reserved")) {
+      void contactNumbers.refetch();
+    }
     if (event === "recovery" || rightTab === "Activity") history.refresh();
   });
   const latestContactIdRef = useRef<string | null>(null);

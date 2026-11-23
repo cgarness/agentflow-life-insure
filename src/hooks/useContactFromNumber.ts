@@ -79,9 +79,13 @@ export function useContactFromNumber({ model, phone, canAssign, legacyNumber }: 
     ? routing?.getContactCallerRole(sender.id, sender.number) : null;
   const pending = requested?.visit === visit && requested.revision === revision
     ? { ...requested, sender: latestSender(requested.sender) } : null;
+  const pendingAgency = !!pending?.sender.id && !!pending.sender.number &&
+    routing?.getContactCallerRole(pending.sender.id, pending.sender.number) === "agency";
+  const canAssignPending = canAssign && !readOnly && pendingAgency;
+  const assignableId = canAssignPending ? pending.sender.id : null;
   const busy = busyVisit === visit;
   const identity = JSON.stringify([visit, revision, callSender?.id, callSender?.number, !!temporary, role]);
-  const current = useRef({ visit, identity, revision, pending: !!pending, blocked: false });
+  const current = useRef({ visit, identity, revision, assignableId, pending: !!pending, blocked: false });
   const disabled = readOnly || !!model.isPending || !!model.isError || !preview || busy ||
     (enabled && (loaded?.visit !== visit || !!loaded.error));
   const readiness = contactFromReadiness(preview, sender, !!temporary);
@@ -94,7 +98,7 @@ export function useContactFromNumber({ model, phone, canAssign, legacyNumber }: 
   } else if (manualFirstUse && role === "personal" && preview?.sms_mode !== "enforced") {
     readiness.sms = "unavailable";
   }
-  current.current = { visit, identity, revision, pending: !!pending,
+  current.current = { visit, identity, revision, assignableId, pending: !!pending,
     blocked: disabled || (enabled && readiness.call !== "ready") };
 
   useEffect(() => {
@@ -133,8 +137,12 @@ export function useContactFromNumber({ model, phone, canAssign, legacyNumber }: 
     const owner = visit;
     const stillHere = () => mounted.current && current.current.visit === owner;
     if (current.current.revision !== pending.revision) return;
-    if (assign && (!canAssign || pending.sender.readiness !== "ready" || pending.sender.voice_readiness !== "ready")) {
-      setFailure({ visit, message: canAssign ? "This number must be ready for calls and texts before it can be assigned." : "You do not have permission to change this assignment." }); return;
+    if (assign && current.current.assignableId !== pending.sender.id) {
+      setFailure({ visit, message: canAssign ? "This number can only be used for this visit." : "You do not have permission to change this assignment." });
+      return;
+    }
+    if (assign && (pending.sender.readiness !== "ready" || pending.sender.voice_readiness !== "ready")) {
+      setFailure({ visit, message: "This number must be ready for calls and texts before it can be assigned." }); return;
     }
     submitting.current = owner; setBusyVisit(owner); setFailure(null);
     try {
@@ -173,14 +181,15 @@ export function useContactFromNumber({ model, phone, canAssign, legacyNumber }: 
       isSelectionCurrent: () => mounted.current && current.current.identity === owner &&
         !current.current.blocked && !current.current.pending };
   };
-  const oneTextOverride = temporary && (!manualFirstUse ||
-    (preview?.sms_mode === "enforced" && !(role === "agency" && sender?.id === preview.sms.id)));
+  const firstUse = manualFirstUse && role === "agency" && preview?.sms_mode === "enforced" && sender?.id
+    ? { senderId: sender.id, generation: preview.generation } : null;
+  const oneTextOverride = temporary && (!manualFirstUse || (preview?.sms_mode === "enforced" && role === "personal"));
   return { enabled, preview, sender, unassigned, automatic, temporary: !!temporary, options, initial, pending, busy, disabled,
-    canAssign: canAssign && !readOnly, canCall, canText, readiness, select, cancel, confirm, captureCallSelection,
+    canAssign: canAssignPending, canCall, canText, readiness, select, cancel, confirm, captureCallSelection,
     error: failure?.visit === visit ? failure.message : loaded?.visit === visit ? loaded.error : undefined,
     retry: () => { setRetry(value => value + 1); void model.refetch(); },
     smsSelection: enabled ? { senderPreference: sender?.number ?? null, expectedSenderId: sender?.id ?? null,
-      overrideSenderId: oneTextOverride ? sender?.id ?? null : null } : {
+      overrideSenderId: oneTextOverride ? sender?.id ?? null : null, ...(firstUse ? { firstUse } : {}) } : {
       senderPreference: model.sender?.number ?? (legacyNumber ? toE164Plus(legacyNumber) : null),
       expectedSenderId: model.sender?.id ?? null, overrideSenderId: model.override?.id ?? null },
   };

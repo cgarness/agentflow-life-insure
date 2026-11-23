@@ -144,8 +144,10 @@ describe("contact FROM action ownership and readiness", () => {
     expect(result.current.captureCallSelection()).toMatchObject({ expectedCallerNumber: first.number });
     expect(result.current.captureCallSelection()).not.toHaveProperty("oneCallNumberId");
     expect(result.current.smsSelection.overrideSenderId).toBeNull();
+    expect(result.current.smsSelection).toHaveProperty("firstUse", { senderId: first.id, generation: unassigned.generation });
     const original = result.current.captureCallSelection();
     await act(async () => result.current.select(LOCAL_PRESENCE_OPTION));
+    expect(result.current.smsSelection).not.toHaveProperty("firstUse");
     expect(result.current.automatic).toBe(true);
     expect(original && "isSelectionCurrent" in original && original.isSelectionCurrent?.()).toBe(false);
     expect(result.current.pending).toBeNull();
@@ -159,6 +161,7 @@ describe("contact FROM action ownership and readiness", () => {
     act(() => result.current.select(alternate.id!));
     expect(result.current.pending).toBeNull();
     expect(result.current.captureCallSelection()).toMatchObject({ expectedCallerNumber: alternate.number, oneCallNumberId: alternate.id });
+    expect(result.current.smsSelection).not.toHaveProperty("firstUse");
     expect(result.current.smsSelection.overrideSenderId).toBe(alternate.id);
     expect(api.change).not.toHaveBeenCalled();
   });
@@ -224,9 +227,24 @@ describe("contact FROM action ownership and readiness", () => {
     expect(api.change).not.toHaveBeenCalled();
   });
 
+  it.each(["personal", null] as const)("blocks permanent assignment of an alternate with role %s and allows the visit choice", async role => {
+    const { wrapper } = routed({ getContactCallerRole: () => role });
+    const { result } = renderHook(() => useContactFromNumber(props()), { wrapper });
+    await waitFor(() => expect(result.current.canCall).toBe(true));
+    act(() => result.current.select(alternate.id!));
+    expect(result.current.pending?.sender.id).toBe(alternate.id);
+    expect(result.current.canAssign).toBe(false);
+    await act(async () => result.current.confirm(true));
+    expect(api.change).not.toHaveBeenCalled();
+    expect(result.current.sender?.id).toBe(first.id);
+    await act(async () => result.current.confirm(false));
+    expect(result.current.smsSelection.overrideSenderId).toBe(alternate.id);
+    expect(result.current.captureCallSelection()).toMatchObject({ oneCallNumberId: alternate.id });
+  });
+
   it("rechecks pending-choice readiness before allowing a permanent assignment", async () => {
     const input = props();
-    const { result, rerender } = renderHook((value: Props) => useContactFromNumber(value), { initialProps: input });
+    const { result, rerender } = renderHook((value: Props) => useContactFromNumber(value), { initialProps: input, wrapper: routed().wrapper });
     await waitFor(() => expect(result.current.canCall).toBe(true));
     act(() => result.current.select(alternate.id!));
     api.options.mockResolvedValue([first, { ...alternate, readiness: "setup_required" }]);

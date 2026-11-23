@@ -134,7 +134,7 @@ beforeEach(() => {
     const payload = JSON.parse(String(init.body)) as Row; h.posts.push(payload);
     const messageId = `90000000-0000-4000-8000-${String(h.posts.length).padStart(12, "0")}`;
     const selected = h.options.find(option => option.id === (payload.override_sender_id ?? payload.expected_sender_id));
-    h.messages.push({ id: messageId, organization_id: h.org, created_by: h.actor, contact_id: payload.contact_id, contact_type: payload.contact_type, lead_id: null, direction: "outbound", body: payload.body, to_number: payload.to, from_number: selected?.number ?? N_A, status: "queued", sent_at: "2026-11-21T00:00:00Z", created_at: "2026-11-21T00:00:00Z", provider_message_id: `SM${"1".repeat(31)}${h.posts.length}` });
+    h.messages.push({ id: messageId, organization_id: h.org, created_by: h.actor, contact_id: payload.contact_id, contact_type: payload.contact_type, lead_id: null, direction: "outbound", body: (payload.first_use as Row | undefined)?.body ?? payload.body, to_number: payload.to, from_number: selected?.number ?? N_A, status: "queued", sent_at: "2026-11-21T00:00:00Z", created_at: "2026-11-21T00:00:00Z", provider_message_id: `SM${"1".repeat(31)}${h.posts.length}` });
     return { status: 200, text: async () => JSON.stringify({ success: true, message_id: messageId, provider_message_id: `SM${"1".repeat(31)}${h.posts.length}`, status: "queued" }) } as Response;
   }));
 });
@@ -293,6 +293,68 @@ describe("Full contact shared FROM", () => {
     expect(h.posts).toHaveLength(0);
   });
 
+  it.each(["enforced", "off", "shadow"] as const)("uses a generation-bound first SMS selection when voice mode is %s", async voice_mode => {
+    const empty = { ...unassignedAffinity(), voice_mode, generation: 0 };
+    // A read after the synthetic send returns the number now saved by the server.
+    h.previewReply = async () => ({ data: h.posts.length ? affinity(B, N_B) : empty, error: null });
+    mount(); await autoSelected();
+    fireEvent.change(picker(), { target: { value: B } });
+    expectNoOutboundAction();
+    await send("Follow up");
+    expect(h.posts).toHaveLength(1);
+    expect(h.posts[0]).toMatchObject({
+      expected_sender_id: B, from: N_B, first_use: { sender_id: B, generation: 0, body: "Follow up" },
+    });
+    expect(h.posts[0]).not.toHaveProperty("body");
+    expect(h.posts[0]).not.toHaveProperty("override_sender_id");
+    await waitFor(() => expect(within(picker()).queryByRole("option", { name: "AI Local Presence" })).toBeNull());
+    expect(picker()).toHaveValue(B);
+    expect(mutations()).toHaveLength(0);
+  });
+
+  it("restores a first text only after its same-key replay proves rejection, without sending the draft automatically", async () => {
+    h.saved = unassignedAffinity();
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      h.posts.push(JSON.parse(String(init.body)));
+      const unknown = h.posts.length === 1;
+      return { status: unknown ? 503 : 409, text: async () => JSON.stringify({
+        success: false, code: unknown ? "SEND_UNCERTAIN" : "FIRST_CONTACT_REJECTED",
+      }) } as Response;
+    }));
+    mount(); await autoSelected();
+    fireEvent.change(picker(), { target: { value: B } });
+    const draft = screen.getByPlaceholderText("Type SMS message…");
+    fireEvent.change(draft, { target: { value: "Check back tomorrow" } });
+    fireEvent.click(screen.getByTitle("Send SMS"));
+    await waitFor(() => expect(pendingSmsStore.getSnapshot()[0]?.state).toBe("uncertain"));
+    expect(draft).toHaveValue("");
+    fireEvent.change(draft, { target: { value: "Check back tomorrow" } });
+    fireEvent.click(screen.getByTitle("Send SMS"));
+    await waitFor(() => expect(draft).toHaveValue("Check back tomorrow"));
+    expect(h.posts).toHaveLength(2);
+    expect(h.posts[1]).toEqual(h.posts[0]);
+    expect(pendingSmsStore.getSnapshot()).toHaveLength(1);
+    fireEvent.click(screen.getByTitle("Send SMS"));
+    await waitFor(() => expect(h.posts).toHaveLength(3));
+    expect(h.posts[2].request_id).not.toBe(h.posts[0].request_id);
+    expect(mutations()).toHaveLength(0);
+  });
+
+  it("offers a personal alternate for this visit only when the contact already has an assignment", async () => {
+    callerRouting.getContactCallerRole.mockImplementation(id => id === B ? "personal" : "agency");
+    mount(); await loaded();
+    const dialog = await choose(N_B);
+    expect(within(dialog).queryByRole("checkbox", { name: "Make this the assigned number" })).toBeNull();
+    expect(dialog).toHaveTextContent("for this visit");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use number" }));
+    expect(picker()).toHaveValue(B);
+    await send("Keep agency number");
+    expect(h.posts[0]).toMatchObject({ override_sender_id: B, expected_sender_id: B });
+    expect(h.posts[0]).not.toHaveProperty("first_use");
+    expect(screen.getByLabelText("Contact numbers")).toHaveTextContent("(555) 000-2222");
+    expect(mutations()).toHaveLength(0);
+  });
+
   it("preserves one-call behavior for a manual personal number on an unassigned contact", async () => {
     h.saved = unassignedAffinity();
     callerRouting.getContactCallerRole.mockImplementation(id => id === B ? "personal" : "agency");
@@ -302,6 +364,9 @@ describe("Full contact shared FROM", () => {
     fireEvent.click(screen.getByRole("button", { name: "Call" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]).toMatchObject({ fromNumber: N_B, expectedCallerNumber: N_B, oneCallNumberId: B });
+    await send("Personal sender");
+    expect(h.posts[0]).toMatchObject({ override_sender_id: B, expected_sender_id: B, body: "Personal sender" });
+    expect(h.posts[0]).not.toHaveProperty("first_use");
     expect(mutations()).toHaveLength(0);
   });
 
