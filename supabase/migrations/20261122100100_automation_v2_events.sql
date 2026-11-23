@@ -42,6 +42,8 @@ ALTER TABLE private.automation_runs
   ADD COLUMN held_since timestamptz;
 UPDATE private.automation_runs SET scope_key=contact_type||':'||contact_id::text WHERE scope_key IS NULL AND contact_id IS NOT NULL;
 CREATE INDEX automation_runs_scope ON private.automation_runs(organization_id,workflow_id,scope_key,ended_at);
+-- An appointment change finds the runs that its booking started.
+CREATE INDEX automation_runs_by_event ON private.automation_runs(organization_id,event_id);
 -- "Stop when an appointment is booked" looks up a contact's first slots.
 CREATE INDEX automation_appointment_first_slots ON private.appointment_occurrences(organization_id,contact_id) WHERE seq=1;
 
@@ -290,15 +292,31 @@ BEGIN
   END IF;
 END $$;
 
--- Whether a run already let an appointment wait pass, so a reminder for the appointment's earlier
--- time may have gone out. Such a run starts over when the appointment moves to a new time.
-CREATE FUNCTION private.automation_passed_appointment_wait(p_org uuid,p_run uuid,p_version uuid)
+-- Whether a run following an appointment starts over for the appointment's current time. It does when it
+-- already let a reminder time pass (so a reminder for the earlier time may have gone out) and every reminder
+-- it passed would still be ahead for the current time, or the author chose to send it late. A restarted run
+-- then gives the current time every reminder. Otherwise the run keeps its place: its pending reminder moves
+-- to the current time, so a move into the first reminder's window never loses the reminders after it.
+CREATE FUNCTION private.automation_restarts_for_new_time(p_org uuid,p_run uuid,p_version uuid,p_appointment uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
-  SELECT EXISTS (SELECT 1 FROM private.automation_steps s
+  WITH passed AS (SELECT n AS node FROM private.automation_steps s
     JOIN public.workflow_versions v ON v.organization_id=s.organization_id AND v.id=p_version
     CROSS JOIN LATERAL jsonb_array_elements(v.graph->'nodes') n
     WHERE s.organization_id=p_org AND s.run_id=p_run AND s.status='elapsed'
       AND n->>'id'=s.node_id AND n->>'type'='wait_until_before_appointment')
+  SELECT EXISTS (SELECT 1 FROM passed) AND NOT EXISTS (SELECT 1 FROM passed p
+    CROSS JOIN LATERAL private.automation_appointment_wait(p_org,p_appointment,p.node) placed
+    WHERE placed.verdict NOT IN ('wait','advance'))
+$$;
+
+-- Whether a run sits in a plain wait that had already started, so its due time is when that wait ends.
+CREATE FUNCTION private.automation_waiting_out(r private.automation_runs)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  SELECT EXISTS (SELECT 1 FROM private.automation_steps s
+    JOIN public.workflow_versions v ON v.organization_id=s.organization_id AND v.id=r.version_id
+    CROSS JOIN LATERAL jsonb_array_elements(v.graph->'nodes') n
+    WHERE s.organization_id=r.organization_id AND s.run_id=r.id AND s.node_id=r.current_node_id AND s.status='wait'
+      AND n->>'id'=r.current_node_id AND n->>'type'='wait')
 $$;
 
 CREATE FUNCTION private.automation_settle_stop(r private.automation_runs)
@@ -368,8 +386,8 @@ begin
     -- Only the appointment's current slot, still ahead and without an outcome, starts a run.
     if not found or slot.occurrence_id::text is distinct from e.subject->>'occurrence_id'
       or coalesce(slot.head_outcome,'retracted')<>'retracted' or slot.starts_at<=e.occurred_at then return 0; end if;
-    -- A run that already let a reminder time pass for this appointment starts over for the new time,
-    -- so the new time gets every reminder the automation gives.
+    -- A run that already let a reminder time pass for this appointment starts over for the new time when
+    -- that gives the new time every reminder the automation gives (automation_restarts_for_new_time).
     update private.automation_runs r set status='stopped',reason='Appointment was rescheduled',ended_at=clock_timestamp(),
         updated_at=clock_timestamp(),lease_token=null,leased_until=null,held_since=null
       from private.automation_events origin
@@ -377,7 +395,7 @@ begin
         and origin.subject->>'appointment_id'=e.subject->>'appointment_id'
         and r.organization_id=e.organization_id and r.workflow_id=candidate.workflow_id
         and r.status in ('queued','waiting','held') and r.anchor_id is distinct from slot.occurrence_id
-        and private.automation_passed_appointment_wait(r.organization_id,r.id,r.version_id);
+        and private.automation_restarts_for_new_time(r.organization_id,r.id,r.version_id,(e.subject->>'appointment_id')::uuid);
     -- Any other run still following this appointment moves with it instead of starting again, and a
     -- slot a run has already waited for is never handled twice.
     if exists(select 1 from private.automation_runs r join private.automation_events origin
@@ -420,14 +438,17 @@ CREATE FUNCTION private.automation_refresh_appointment_runs(p_org uuid,p_appoint
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE prior private.automation_runs; node jsonb; placed record; current_slot record;
 BEGIN
-  -- A cancellation that was taken back: the runs it stopped carry on from the step they were on.
-  -- The worker places that step against the appointment's time again, so a reminder time that
-  -- passed in the meantime follows the step's own rule.
+  -- A cancellation that was taken back: the runs it stopped carry on from the step they were on. A plain
+  -- wait that had started keeps the time it had left. Any other step runs again now, and the worker places
+  -- an appointment wait against the appointment's time again, so a reminder time that passed in the
+  -- meantime follows the step's own rule.
   SELECT s.occurrence_id,s.starts_at,s.head_outcome INTO current_slot
     FROM private.automation_appointment_state(p_org,p_appointment::uuid) s;
   IF FOUND AND coalesce(current_slot.head_outcome,'retracted')='retracted' AND current_slot.starts_at>clock_timestamp() THEN
-    UPDATE private.automation_runs r SET status='queued',reason=NULL,ended_at=NULL,due_at=clock_timestamp(),
-        updated_at=clock_timestamp(),held_since=NULL,workflow_paused=(w.status='paused')
+    UPDATE private.automation_runs r SET
+        status=CASE WHEN private.automation_waiting_out(r) THEN 'waiting' ELSE 'queued' END,
+        due_at=CASE WHEN private.automation_waiting_out(r) THEN r.due_at ELSE clock_timestamp() END,
+        reason=NULL,ended_at=NULL,updated_at=clock_timestamp(),held_since=NULL,workflow_paused=(w.status='paused')
       FROM private.automation_events origin,public.workflows w
       WHERE origin.organization_id=r.organization_id AND origin.id=r.event_id AND origin.event_type='appointment_booked'
         AND origin.subject ? 'appointment_id' AND origin.subject->>'appointment_id'=p_appointment
@@ -446,8 +467,9 @@ BEGIN
       AND origin.subject->>'appointment_id'=p_appointment
       AND r.status IN ('queued','waiting','held') ORDER BY r.id FOR UPDATE OF r LOOP
     IF private.automation_settle_stop(prior) OR prior.status<>'waiting' OR prior.anchor_id IS NULL THEN CONTINUE; END IF;
-    -- A run that already let a reminder time pass starts over when the new time is admitted.
-    IF private.automation_passed_appointment_wait(prior.organization_id,prior.id,prior.version_id) THEN CONTINUE; END IF;
+    -- A run that starts over for the new time is stopped when that time is admitted. Any other run keeps its
+    -- place, and its pending reminder moves to the new time below.
+    IF private.automation_restarts_for_new_time(prior.organization_id,prior.id,prior.version_id,p_appointment::uuid) THEN CONTINUE; END IF;
     SELECT n INTO node FROM public.workflow_versions v,jsonb_array_elements(v.graph->'nodes') n
       WHERE v.organization_id=prior.organization_id AND v.workflow_id=prior.workflow_id AND v.id=prior.version_id
         AND n->>'id'=prior.current_node_id AND n->>'type'='wait_until_before_appointment';
@@ -567,7 +589,8 @@ REVOKE ALL ON FUNCTION private.automation_contact_type(uuid,uuid),private.automa
   private.automation_capture_disposition(),private.automation_capture_sale(),
   private.automation_appointment_state(uuid,uuid),private.automation_appointment_wait(uuid,uuid,jsonb),
   private.automation_stop_check(private.automation_runs),private.automation_settle_stop(private.automation_runs),
-  private.automation_passed_appointment_wait(uuid,uuid,uuid),
+  private.automation_restarts_for_new_time(uuid,uuid,uuid,uuid),
+  private.automation_waiting_out(private.automation_runs),
   private.automation_refresh_appointment_runs(uuid,text)
   FROM PUBLIC,anon,authenticated;
 COMMIT;

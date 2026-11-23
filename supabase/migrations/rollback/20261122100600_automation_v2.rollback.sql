@@ -1,9 +1,10 @@
 -- Guarded, data-preserving inverse of Automations V2 (migrations 20261122100000 through 20261122100600).
 -- Rehearse only on an isolated database. Production use needs its own approval.
 -- Order: turn enrollment and message delivery off for every agency, restore the previous frontend, then run
--- this file as ONE transaction: psql -X -1 -v ON_ERROR_STOP=1 -f <this file>, or the migration runner.
+-- this file with psql as ONE transaction: psql -X -1 -v ON_ERROR_STOP=1 -f <this file>. The file also turns
+-- ON_ERROR_STOP on itself, so a refusal stops psql before anything changes even when the flags are left out.
 -- It refuses outside a transaction, while either control is on anywhere, and when any function it replaces
--- has drifted from the V2 definition.
+-- has drifted from the V2 definition. It holds the release controls until it commits, so the fence stays up.
 -- It restores the sixteen first-release function bodies byte for byte and turns the six V2 event observers into
 -- no-ops. Their triggers stay attached: replacing a function takes no table lock, while dropping a trigger would
 -- lock calls, sales, dispositions, appointments and the sign-in tables.
@@ -11,15 +12,20 @@
 -- stop rule, or an SMS consent requirement stricter than the step's stored purpose), stops every unfinished run on
 -- those automations, and stops any other run only V2 can execute. Two guard triggers, on private.automation_runs
 -- and public.automation_intervals, keep work that needs V2 from starting again: such an automation cannot be
--- resumed, and no run is enrolled on such a version, until V2 is installed again. Creating them locks only those
--- two automation tables.
+-- resumed, a text cannot be published with a weaker consent requirement than V2 set for it, and no run is enrolled
+-- on such a version, until V2 is installed again. The decision depends only on stored data, so it never changes
+-- for a version once made.
+-- Locks: public.automation_intervals for the whole file, so publishing, pausing and resuming wait until it commits.
+-- private.automation_runs only from creating its guard until the commit right after, so replies and the worker
+-- keep writing runs while the file runs. Each version is judged once, not once per run.
 -- It keeps every table, column, constraint, index, policy, grant and row V2 added. Tasks, callbacks, issuance
 -- confirmations, pinned SMS purposes, events, runs, versions and history are never removed or rewritten.
 -- The restored bodies again raise SQLSTATE 40001 for a stale draft, publish or session change.
 -- The seven forward files cannot be replayed over the retained tables. Installing V2 again is a new migration
 -- that reinstalls the V2 function bodies (the six observers included), drops trigger automation_v2_rollback_guard
--- on both tables with functions private.automation_v2_rollback_guard() and private.automation_needs_v2(uuid,uuid),
--- and fills scope_key for runs created while V2 was absent.
+-- on both tables with functions private.automation_v2_rollback_guard(), private.automation_needs_v2(uuid,uuid) and
+-- private.automation_v2_loosened_text(uuid,uuid), and fills scope_key for runs created while V2 was absent.
+\set ON_ERROR_STOP on
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '60s';
 
@@ -31,7 +37,7 @@ BEGIN
  IF current_setting('lock_timeout') <> '3s' THEN
   RAISE EXCEPTION 'automations v2 rollback refused: run this file as one transaction (psql -X -1 -v ON_ERROR_STOP=1 -f)';
  END IF;
- FOR expected IN SELECT value FROM jsonb_array_elements($catalog$[{"acl":"{postgres=X/postgres}","md5":"81278817208063820207cd27b12f1d26","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_block_fields(text,jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"a4655647978ad2365a8fb382031c8912","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_trigger(jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"6d08be68ca01bcccd0d51e135362b0ea","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_editable_graph(jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"ed5464e5230a669853453e12d51d6e06","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_channel_issue(uuid,uuid,jsonb)","volatility":"s","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"13fae2dff2e436bb175d23eaafaef6b8","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_graph_issues(uuid,text,jsonb)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"8e86f52e37bb4d588f9674cf9ac8400b","owner":"postgres","config":["search_path=\"\""],"signature":"public.save_automation_draft(uuid,text,jsonb,bigint,bigint)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"477a9cc249ae4702ce16358ea49956bf","owner":"postgres","config":["search_path=\"\""],"signature":"public.publish_automation(uuid,bigint,bigint,jsonb)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"ffc7882e881ee50e5a4f3f2f05df2842","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_overlap(uuid)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"9b831e70951a5c1099fc9c2e3684cf94","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_session_transition(bigint,uuid)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"7c6058677dc9245843919d5f76c8f15d","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_event()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"34d08fc6a0a5b93f54da7b4eb3f1b0c0","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_admit_event(private.automation_events,uuid)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"b2030c657655f886bd866762e6c9a7ce","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_process_events(integer)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"fb0b351ba4427b4ec031ced51834f385","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_claim_work(integer)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"6dd439a0357a55ed2d7d485f15688e57","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_finish_node(uuid,uuid,text,text)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"de664a6ba7c5e245c63e1a673ad4ada8","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_activity(bigint,uuid,uuid,uuid,text,timestamp with time zone,uuid)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"d4fd3b3f56fb6303bbbb2bdac0473096","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_stop_run(uuid,bigint)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"29bfdde74a00238eeedc6e4a3b9d467e","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_disposition()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"b957d7891e0f88c06e29341b7e40c5d9","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_sale()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"0efb90c58ccfbdd2393502b0c4ba88c1","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_appointment_slot()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"427f6c1151c09c0bc322064f70d643c9","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_appointment_outcome()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"9b753b3372dbd2cabb77e2d96e85506d","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_missed_inbound()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"8b58fa9c3ec9714f770dc58bb1dbd7eb","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_issuance()","volatility":"v","security_definer":true}]$catalog$::jsonb) LOOP
+ FOR expected IN SELECT value FROM jsonb_array_elements($catalog$[{"acl":"{postgres=X/postgres}","md5":"81278817208063820207cd27b12f1d26","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_block_fields(text,jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"a4655647978ad2365a8fb382031c8912","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_trigger(jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"6d08be68ca01bcccd0d51e135362b0ea","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_editable_graph(jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"ed5464e5230a669853453e12d51d6e06","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_channel_issue(uuid,uuid,jsonb)","volatility":"s","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"13fae2dff2e436bb175d23eaafaef6b8","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_graph_issues(uuid,text,jsonb)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"8e86f52e37bb4d588f9674cf9ac8400b","owner":"postgres","config":["search_path=\"\""],"signature":"public.save_automation_draft(uuid,text,jsonb,bigint,bigint)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"477a9cc249ae4702ce16358ea49956bf","owner":"postgres","config":["search_path=\"\""],"signature":"public.publish_automation(uuid,bigint,bigint,jsonb)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"ffc7882e881ee50e5a4f3f2f05df2842","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_overlap(uuid)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"9b831e70951a5c1099fc9c2e3684cf94","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_session_transition(bigint,uuid)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"7c6058677dc9245843919d5f76c8f15d","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_event()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"ff20a9e1967cde88b1b1948403c6e8a1","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_admit_event(private.automation_events,uuid)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"b2030c657655f886bd866762e6c9a7ce","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_process_events(integer)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"fb0b351ba4427b4ec031ced51834f385","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_claim_work(integer)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"89255638a1ddbcabb3e160c73e4c1f64","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_finish_node(uuid,uuid,text,text)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"de664a6ba7c5e245c63e1a673ad4ada8","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_activity(bigint,uuid,uuid,uuid,text,timestamp with time zone,uuid)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"d4fd3b3f56fb6303bbbb2bdac0473096","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_stop_run(uuid,bigint)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"29bfdde74a00238eeedc6e4a3b9d467e","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_disposition()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"b957d7891e0f88c06e29341b7e40c5d9","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_sale()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"0efb90c58ccfbdd2393502b0c4ba88c1","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_appointment_slot()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"427f6c1151c09c0bc322064f70d643c9","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_appointment_outcome()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"9b753b3372dbd2cabb77e2d96e85506d","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_missed_inbound()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"8b58fa9c3ec9714f770dc58bb1dbd7eb","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_issuance()","volatility":"v","security_definer":true}]$catalog$::jsonb) LOOP
   function_oid := to_regprocedure(expected->>'signature');
   SELECT jsonb_build_object('signature',expected->>'signature','md5',md5(pg_get_functiondef(p.oid)),
    'owner',pg_get_userbyid(p.proowner),'security_definer',p.prosecdef,'config',to_jsonb(p.proconfig),
@@ -41,6 +47,8 @@ BEGIN
    RAISE EXCEPTION 'automations v2 rollback drift: %', expected->>'signature';
   END IF;
  END LOOP;
+ -- Turning either control back on waits until this transaction ends.
+ PERFORM 1 FROM private.automation_release_controls FOR SHARE;
  IF EXISTS (SELECT FROM private.automation_release_controls WHERE enrollment_enabled OR dispatch_enabled) THEN
   RAISE EXCEPTION 'automations v2 rollback refused: turn enrollment and message delivery off for every agency first';
  END IF;
@@ -775,10 +783,26 @@ BEGIN
   RETURN NULL;
 END $observer$;
 
+-- Whether a text in a version published while V2 was absent (from the earlier editor, so with no pinned
+-- requirement) has a weaker consent requirement than V2 pinned for the same step in an earlier version of the
+-- automation. Only stored data is read, so the answer never changes for a version.
+CREATE OR REPLACE FUNCTION private.automation_v2_loosened_text(p_org uuid, p_version uuid)
+RETURNS boolean LANGUAGE sql STABLE SET search_path = '' AS $loosened$
+  SELECT EXISTS (SELECT FROM public.workflow_versions v
+    CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(v.graph->'nodes') = 'array'
+      THEN v.graph->'nodes' ELSE '[]'::jsonb END) step
+    WHERE v.organization_id = p_org AND v.id = p_version AND step->>'type' = 'send_sms'
+      AND coalesce(step#>>'{config,purpose}', '') <> 'marketing'
+      AND NOT EXISTS (SELECT FROM private.automation_sms_purposes own WHERE own.version_id = v.id AND own.node_id = step->>'id')
+      AND EXISTS (SELECT FROM private.automation_sms_purposes earlier
+        JOIN public.workflow_versions ev ON ev.organization_id = earlier.organization_id AND ev.id = earlier.version_id
+        WHERE ev.organization_id = v.organization_id AND ev.workflow_id = v.workflow_id AND ev.published_at < v.published_at
+          AND earlier.node_id = step->>'id' AND earlier.purpose = 'marketing'))
+$loosened$;
+
 -- Whether a published version needs V2 to run as authored: a step the first-release catalog does not know, a
 -- re-entry or stop rule the first release ignores, an SMS requirement V2 pinned that differs from the purpose
--- stored on the step, or a text published without a pin after the automation was first published under V2
--- (from the earlier editor while V2 was absent) whose stored purpose is weaker than what V2 would pin.
+-- stored on the step, or a text published while V2 was absent with a weaker requirement than V2 set for it.
 -- Step names alone do not need V2.
 CREATE OR REPLACE FUNCTION private.automation_needs_v2(p_org uuid, p_version uuid)
 RETURNS boolean LANGUAGE sql STABLE SET search_path = '' AS $needs_v2$
@@ -792,15 +816,7 @@ RETURNS boolean LANGUAGE sql STABLE SET search_path = '' AS $needs_v2$
       JOIN LATERAL jsonb_array_elements(v.graph->'nodes') step ON step->>'id' = pinned.node_id
       WHERE pinned.organization_id = v.organization_id AND pinned.version_id = v.id
         AND pinned.purpose IS DISTINCT FROM step#>>'{config,purpose}')
-    OR EXISTS (SELECT FROM jsonb_array_elements(CASE WHEN jsonb_typeof(v.graph->'nodes') = 'array'
-        THEN v.graph->'nodes' ELSE '[]'::jsonb END) step
-      CROSS JOIN LATERAL private.automation_sms_resolution(v.organization_id, step) resolved
-      WHERE step->>'type' = 'send_sms'
-        AND NOT EXISTS (SELECT FROM private.automation_sms_purposes p WHERE p.version_id = v.id AND p.node_id = step->>'id')
-        AND v.published_at >= (SELECT min(pv.published_at) FROM public.workflow_versions pv
-          JOIN private.automation_sms_purposes pp ON pp.version_id = pv.id
-          WHERE pv.organization_id = v.organization_id AND pv.workflow_id = v.workflow_id)
-        AND resolved.purpose IS DISTINCT FROM step#>>'{config,purpose}')
+    OR private.automation_v2_loosened_text(v.organization_id, v.id)
   FROM public.workflow_versions v WHERE v.organization_id = p_org AND v.id = p_version
 $needs_v2$;
 
@@ -810,7 +826,10 @@ CREATE OR REPLACE FUNCTION private.automation_v2_rollback_guard()
 RETURNS trigger LANGUAGE plpgsql SET search_path = '' AS $guard$
 BEGIN
   IF private.automation_needs_v2(NEW.organization_id, NEW.version_id) THEN
-    IF TG_TABLE_NAME = 'automation_intervals' THEN
+    IF TG_TABLE_NAME = 'automation_intervals' AND private.automation_v2_loosened_text(NEW.organization_id, NEW.version_id) THEN
+      RAISE EXCEPTION 'A text in this automation needs the contact''s marketing consent, as Automations V2 set it. Choose Marketing for that text and publish again.'
+        USING ERRCODE = 'PT409';
+    ELSIF TG_TABLE_NAME = 'automation_intervals' THEN
       RAISE EXCEPTION 'This automation was published with Automations V2 and stays paused until V2 is installed again.'
         USING ERRCODE = 'PT409';
     END IF;
@@ -818,12 +837,19 @@ BEGIN
   END IF;
   RETURN NEW;
 END $guard$;
-REVOKE ALL ON FUNCTION private.automation_needs_v2(uuid, uuid), private.automation_v2_rollback_guard() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION private.automation_v2_loosened_text(uuid, uuid), private.automation_needs_v2(uuid, uuid),
+  private.automation_v2_rollback_guard() FROM PUBLIC, anon, authenticated;
+
+-- Publishing, pausing and resuming wait until this file commits, so nothing that needs V2 starts meanwhile. Runs are
+-- not locked here: replies and the worker keep writing them. Only enrollment creates runs, and the fence is held.
+LOCK TABLE public.automation_intervals IN SHARE ROW EXCLUSIVE MODE;
+-- Each published version is judged once.
+CREATE TEMPORARY TABLE automation_v2_needed ON COMMIT DROP AS
+  SELECT v.id AS version_id FROM public.workflow_versions v WHERE private.automation_needs_v2(v.organization_id, v.id);
 
 DO $rollback_data$
 DECLARE boundary timestamptz; stopped integer; paused integer; settled integer; parked integer; deferred integer;
 BEGIN
-  LOCK TABLE private.automation_runs, public.automation_intervals IN SHARE ROW EXCLUSIVE MODE;
   boundary := clock_timestamp();
   -- Runs only V2 can execute, and every unfinished run of an automation that is paused below, stop with a plain
   -- reason. A run left frozen on a paused automation would otherwise resume late when V2 returns.
@@ -831,18 +857,16 @@ BEGIN
       ended_at = boundary, updated_at = boundary, lease_token = NULL, leased_until = NULL
     WHERE r.status IN ('queued','waiting','held','unknown')
       AND (r.contact_id IS NULL OR r.contact_type IS DISTINCT FROM 'lead'
-        OR private.automation_needs_v2(r.organization_id, r.version_id)
+        OR EXISTS (SELECT FROM automation_v2_needed n WHERE n.version_id = r.version_id)
         OR NOT EXISTS (SELECT FROM private.automation_events e WHERE e.organization_id = r.organization_id
           AND e.id = r.event_id AND e.event_type IN ('lead_created','campaign_membership_created'))
-        OR EXISTS (SELECT FROM public.workflows w WHERE w.organization_id = r.organization_id AND w.id = r.workflow_id
-          AND w.status IN ('active','paused') AND w.automation_version_id IS NOT NULL
-          AND private.automation_needs_v2(w.organization_id, w.automation_version_id)));
+        OR EXISTS (SELECT FROM public.workflows w JOIN automation_v2_needed n ON n.version_id = w.automation_version_id
+          WHERE w.organization_id = r.organization_id AND w.id = r.workflow_id AND w.status IN ('active','paused')));
   GET DIAGNOSTICS stopped = ROW_COUNT;
   UPDATE public.automation_intervals i SET ends_at = boundary
-    WHERE i.ends_at IS NULL AND private.automation_needs_v2(i.organization_id, i.version_id);
+    WHERE i.ends_at IS NULL AND EXISTS (SELECT FROM automation_v2_needed n WHERE n.version_id = i.version_id);
   UPDATE public.workflows w SET status = 'paused', automation_revision = automation_revision + 1
-    WHERE w.status = 'active' AND w.automation_version_id IS NOT NULL
-      AND private.automation_needs_v2(w.organization_id, w.automation_version_id);
+    WHERE w.status = 'active' AND EXISTS (SELECT FROM automation_v2_needed n WHERE n.version_id = w.automation_version_id);
   GET DIAGNOSTICS paused = ROW_COUNT;
   UPDATE private.automation_events SET processed_at = boundary
     WHERE processed_at IS NULL AND event_type NOT IN ('lead_created','campaign_membership_created');
@@ -853,17 +877,11 @@ BEGIN
   UPDATE private.automation_deferred_admissions d SET retry_at = 'infinity'
     FROM public.automation_intervals i
     WHERE i.organization_id = d.organization_id AND i.id = d.interval_id AND d.retry_at <> 'infinity'
-      AND private.automation_needs_v2(i.organization_id, i.version_id);
+      AND EXISTS (SELECT FROM automation_v2_needed n WHERE n.version_id = i.version_id);
   GET DIAGNOSTICS deferred = ROW_COUNT;
   RAISE NOTICE 'automations v2 rollback: stopped % runs, paused % automations, settled % pending events, parked % intake repairs and % deferred admissions',
     stopped, paused, settled, parked, deferred;
 END $rollback_data$;
-
--- Last, so these two locks are held only until the commit that follows.
-CREATE TRIGGER automation_v2_rollback_guard BEFORE INSERT ON private.automation_runs
-  FOR EACH ROW EXECUTE FUNCTION private.automation_v2_rollback_guard();
-CREATE TRIGGER automation_v2_rollback_guard BEFORE INSERT ON public.automation_intervals
-  FOR EACH ROW EXECUTE FUNCTION private.automation_v2_rollback_guard();
 
 DO $rollback_postimage$
 DECLARE expected jsonb; actual jsonb; function_oid oid;
@@ -882,13 +900,27 @@ BEGIN
    WHERE position('Automations V2 was rolled back' IN pg_get_functiondef(to_regprocedure(observer.signature))) = 0) THEN
   RAISE EXCEPTION 'automations v2 rollback left an observer recording';
  END IF;
- IF (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'automation_v2_rollback_guard'
-   AND tgrelid IN ('private.automation_runs'::regclass, 'public.automation_intervals'::regclass)) <> 2 THEN
-  RAISE EXCEPTION 'automations v2 rollback guards are missing';
- END IF;
+ -- Judged afresh, once per version still in use.
  IF EXISTS (SELECT FROM private.automation_runs r WHERE r.status IN ('queued','waiting','held','unknown')
-   AND (r.contact_id IS NULL OR r.contact_type IS DISTINCT FROM 'lead' OR private.automation_needs_v2(r.organization_id, r.version_id)))
+     AND (r.contact_id IS NULL OR r.contact_type IS DISTINCT FROM 'lead'))
+  OR EXISTS (WITH live AS MATERIALIZED (SELECT DISTINCT r.organization_id, r.version_id FROM private.automation_runs r
+      WHERE r.status IN ('queued','waiting','held','unknown'))
+    SELECT FROM live WHERE private.automation_needs_v2(live.organization_id, live.version_id))
   OR EXISTS (SELECT FROM public.automation_intervals i WHERE i.ends_at IS NULL AND private.automation_needs_v2(i.organization_id, i.version_id)) THEN
   RAISE EXCEPTION 'automations v2 rollback left work only V2 can run';
  END IF;
 END $rollback_postimage$;
+
+-- Last, so private.automation_runs is locked only from here until the commit that follows.
+CREATE TRIGGER automation_v2_rollback_guard BEFORE INSERT ON public.automation_intervals
+  FOR EACH ROW EXECUTE FUNCTION private.automation_v2_rollback_guard();
+CREATE TRIGGER automation_v2_rollback_guard BEFORE INSERT ON private.automation_runs
+  FOR EACH ROW EXECUTE FUNCTION private.automation_v2_rollback_guard();
+
+DO $rollback_guards$
+BEGIN
+ IF (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgname = 'automation_v2_rollback_guard'
+   AND tgrelid IN ('private.automation_runs'::regclass, 'public.automation_intervals'::regclass)) <> 2 THEN
+  RAISE EXCEPTION 'automations v2 rollback guards are missing';
+ END IF;
+END $rollback_guards$;

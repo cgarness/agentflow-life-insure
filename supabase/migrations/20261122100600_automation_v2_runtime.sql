@@ -152,6 +152,20 @@ begin
       -- The wait this run was given has elapsed and the appointment still stands at the same time.
       advance:=true;
       step_status:='elapsed';
+    elsif r.anchor_id is not null and placed.anchor is distinct from r.anchor_id
+      and private.automation_restarts_for_new_time(r.organization_id,r.id,r.version_id,
+        nullif(origin.subject->>'appointment_id','')::uuid)
+      and exists(select 1 from private.automation_events booked where booked.organization_id=r.organization_id
+        and booked.subject->>'appointment_id'=origin.subject->>'appointment_id' and booked.event_type='appointment_booked'
+        and booked.subject->>'occurrence_id'=placed.anchor::text
+        and (booked.processed_at is null or exists(select 1 from private.automation_deferred_admissions d
+          where d.organization_id=booked.organization_id and d.workflow_id=r.workflow_id and d.event_id=booked.id))) then
+      -- The appointment moved after this run let a reminder time pass, and the new time is still to be
+      -- admitted. This run ends here and admitting the new time starts the automation again, whichever of
+      -- the two the worker reaches first.
+      next_status:='stopped';
+      step_status:='stopped';
+      p_reason:='Appointment was rescheduled';
     elsif placed.verdict='wait' then
       -- First arrival, or the appointment moved while this run slept: wait for the current time.
       next_status:='waiting';
@@ -268,7 +282,8 @@ BEGIN
     IF owner_id IS NULL THEN
       -- The caller is not a contact, or the contact has no active agent: the callback waits in Inbounds,
       -- already claimed by the agent the call was for (the direct line dialed, or a recent outbound call)
-      -- when there is one. The list shows a contact's name only to people who can see the contact.
+      -- when there is one. The list shows a contact's name, and title and notes rendered for the contact,
+      -- only to people who can see the contact.
       claimant:=private.automation_inbound_responsible(r.organization_id,inbound,NULL,NULL);
       INSERT INTO public.inbound_callbacks(organization_id,call_id,run_id,caller_phone,contact_id,contact_type,title,notes,due_at,
           status,claimed_by,claimed_at)

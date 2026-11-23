@@ -301,6 +301,22 @@ select pg_temp.ok(public.automation_process_events(25)=0,'the pending lead''s de
 select pg_temp.ok(not exists(select from private.automation_runs where workflow_id=pg_temp.id(46))
   and not exists(select from private.automation_deferred_admissions where workflow_id=pg_temp.id(46)),
   'no run exists on the pinned version and its deferred admission is gone');
+-- Publishing a weaker requirement for a text V2 held to marketing consent is refused, and the reason says what to change.
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  values (pg_temp.id(85),pg_temp.id(1),pg_temp.id(46),'Tightened text',4,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"send_sms","config":{"body":"Hello there","purpose":"informational"}}]'),clock_timestamp(),pg_temp.id(10));
+do $$
+begin
+  begin
+    insert into public.automation_intervals(organization_id,workflow_id,version_id,starts_at)
+      values (pg_temp.id(1),pg_temp.id(46),pg_temp.id(85),clock_timestamp());
+    raise exception 'Automation V2 rollback: a weaker consent requirement was published';
+  exception when sqlstate 'PT409' then
+    perform pg_temp.ok(sqlerrm like '%Choose Marketing for that text%',
+      'a refused publish names the consent requirement, not a pause: '||sqlerrm);
+  end;
+end $$;
 update public.workflows set status='paused' where id=pg_temp.id(46);
 select pg_temp.missed(63);
 select pg_temp.ok((select count(*)=(select events from kept) from private.automation_events where organization_id=pg_temp.id(1)),
@@ -319,4 +335,31 @@ begin
 end $$;
 select pg_temp.ok((select count(*)=(select tasks from kept) from public.tasks where organization_id=pg_temp.id(1)),
   'no task was created after the rollback');
+-- 6. The decision for a version depends only on stored data. Editing a saved message later never stops an automation
+-- that was allowed to run.
+insert into public.message_templates(id,organization_id,name,type,scope,content,sms_purpose,created_by)
+  values (pg_temp.id(80),pg_temp.id(1),'Visit notice','sms','agency','See you at the office','informational',pg_temp.id(10));
+select pg_temp.publish(81,82,'Visit notice',pg_temp.graph(format('[
+  {"type":"lead_created","config":{"lead_source":"Visit notice"}},
+  {"type":"send_sms","config":{"body":"See you at the office","purpose":"informational","template_id":"%s"}}]',pg_temp.id(80))::jsonb));
+insert into private.automation_sms_purposes(organization_id,version_id,node_id,purpose,basis,template_id,template_hash)
+  values (pg_temp.id(1),pg_temp.id(82),pg_temp.id(502)::text,'informational','saved_message',pg_temp.id(80),md5('See you at the office'));
+-- Republished from the first-release editor, unchanged and still informational, while V2 is absent.
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  select pg_temp.id(83),organization_id,workflow_id,name,2,graph,clock_timestamp(),published_by from public.workflow_versions where id=pg_temp.id(82);
+update public.automation_intervals set ends_at=clock_timestamp() where workflow_id=pg_temp.id(81) and ends_at is null;
+insert into public.automation_intervals(organization_id,workflow_id,version_id,starts_at)
+  values (pg_temp.id(1),pg_temp.id(81),pg_temp.id(83),clock_timestamp());
+update public.workflows set automation_version_id=pg_temp.id(83) where id=pg_temp.id(81);
+select pg_temp.ok(not private.automation_needs_v2(pg_temp.id(1),pg_temp.id(83)),'the republished saved message runs as informational');
+update public.message_templates set content='See you at our new office' where id=pg_temp.id(80);
+select pg_temp.ok(not private.automation_needs_v2(pg_temp.id(1),pg_temp.id(83)),'and editing the saved message later does not change that');
+insert into public.leads(id,organization_id,first_name,last_name,phone,assigned_agent_id,lead_source)
+  values (pg_temp.id(84),pg_temp.id(1),'Cal','Lead','+12025550184',pg_temp.id(11),'Visit notice');
+select public.automation_process_events(25);
+select pg_temp.ok(exists(select from private.automation_runs where workflow_id=pg_temp.id(81) and contact_id=pg_temp.id(84)),
+  'so a new lead still enrolls in it');
+update public.workflows set status='paused' where id=pg_temp.id(81);
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where contact_id=pg_temp.id(84) and status in ('queued','waiting','held');
 rollback;

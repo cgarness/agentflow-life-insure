@@ -134,7 +134,12 @@ BEGIN
       b.status,b.claimed_by,nullif(btrim(concat_ws(' ',claimer.first_name,claimer.last_name)),'') AS claimed_by_name,
       b.claimed_by IS NOT DISTINCT FROM actor.uid AS claimed_by_me,
       b.status='open' AND NOT viewing AS can_claim,
-      coalesce(c.started_at,c.created_at,b.created_at) AS missed_at,b.due_at,b.title,b.notes,
+      coalesce(c.started_at,c.created_at,b.created_at) AS missed_at,b.due_at,
+      -- Text the automation rendered for a known contact can carry that contact's details, so only people
+      -- who can see the contact read it. Everyone else is shown the caller's number.
+      CASE WHEN b.contact_id IS NULL OR known.visible THEN b.title
+        ELSE 'Call back '||coalesce(nullif(b.caller_phone,''),'the caller') END AS title,
+      CASE WHEN b.contact_id IS NULL OR known.visible THEN b.notes END AS notes,
       CASE WHEN c.voicemail_id IS NOT NULL AND public.can_access_voicemail(c.voicemail_id) THEN c.voicemail_id END AS voicemail_id
     FROM public.inbound_callbacks b
     JOIN public.calls c ON c.id=b.call_id AND c.organization_id=b.organization_id

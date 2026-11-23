@@ -386,4 +386,19 @@ select pg_temp.as_user(16,'select public.automation_session_context()');
 select pg_temp.ok(pg_temp.as_user(16,format('select public.claim_inbound_callback(%L)',
   (select id from public.inbound_callbacks where call_id=pg_temp.id(104))))->>'status'='claimed',
   'once the session is recorded, the same person can claim');
+-- Text an automation rendered for a known contact is read only by people who can see the contact.
+update public.inbound_callbacks set title='Call back Unowned Caller',notes='Unowned Caller asked about a term policy'
+  where call_id=pg_temp.id(101);
+do $$
+declare mine jsonb; theirs jsonb;
+begin
+  select item into mine from jsonb_array_elements(pg_temp.as_user(10,'select public.inbound_callback_queue()')->'items') item
+    where item->>'call_id'=pg_temp.id(101)::text;
+  perform pg_temp.ok(mine->>'title'='Call back Unowned Caller' and mine->>'notes' like 'Unowned Caller%',
+    'an administrator reads the title and notes rendered for the contact');
+  select item into theirs from jsonb_array_elements(pg_temp.as_user(11,'select public.inbound_callback_queue()')->'items') item
+    where item->>'call_id'=pg_temp.id(101)::text;
+  perform pg_temp.ok(theirs->>'title'='Call back +12025550131' and theirs->'notes'='null'::jsonb,
+    'an agent who cannot see the contact gets the number to call instead');
+end $$;
 rollback;

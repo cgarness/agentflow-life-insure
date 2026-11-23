@@ -36,6 +36,13 @@ grep -q 'turn enrollment and message delivery off for every agency first' <<<"$r
 "${sql[@]}" -c 'update private.automation_release_controls set enrollment_enabled=false,dispatch_enabled=false'
 if refused=$("${sql[@]}" -f "$dest/migrations/rollback/$rollback" 2>&1); then echo 'The rollback ran outside a transaction.' >&2; exit 1; fi
 grep -q 'run this file as one transaction' <<<"$refused"
+# The same without the documented flags: the file turns ON_ERROR_STOP on itself, so psql stops at the refusal and
+# nothing after it runs.
+if refused=$("${pg[@]}" psql -X -q -U postgres -d "$copy" -f "$dest/migrations/rollback/$rollback" 2>&1); then
+  echo 'The rollback carried on after refusing, when run without its flags.' >&2; exit 1
+fi
+grep -q 'run this file as one transaction' <<<"$refused"
+[[ "$("${sql[@]}" -Atc "select to_regprocedure('private.automation_v2_rollback_guard()') is null")" == t ]]
 # 4. Applies once every agency is fenced. 5. Refuses a second run because the functions are no longer the V2 ones.
 "${apply[@]}"
 if refused=$("${apply[@]}" 2>&1); then echo 'The rollback applied twice.' >&2; exit 1; fi
@@ -47,4 +54,4 @@ for file in supabase/tests/automation_{sessions,authoring,runtime,messages,backl
 done
 "${pg[@]}" dropdb -U supabase_admin "$copy"
 docker exec "$db" rm -rf "$dest"
-echo 'PASS guarded V2 rollback: refused until fenced and outside a transaction, applied once, refused a second run, stopped and paused only V2 work, kept every V2 record, and the six first-release suites pass afterwards.'
+echo 'PASS guarded V2 rollback: refused until fenced and outside a transaction (with or without psql flags), applied once, refused a second run, stopped and paused only V2 work, kept every V2 record, and the six first-release suites pass afterwards.'
