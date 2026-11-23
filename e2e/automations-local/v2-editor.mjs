@@ -349,6 +349,31 @@ try {
   await button(rows(page).nth(3), 'Wait 5 minutes').waitFor();
   await button(rows(page).nth(3), 'Remove').press('Enter');
   assert.equal(await rows(page).count(), 4);
+  {
+    // Insert field by touch on a phone: tap into the message, then tap Insert field and a field.
+    const touch = await session(browser, 'editor touch', email('one'), settings.PASSWORD, evidence,
+      { deviceScaleFactor: 2, hasTouch: true, isMobile: true, viewport: { width: 375, height: 812 } });
+    touch.page.setDefaultTimeout(20000);
+    await touch.page.goto(APP + '/automations?workflow=' + new URL(page.url()).searchParams.get('workflow'), { waitUntil: 'domcontentloaded' });
+    await button(rows(touch.page).nth(2), 'Welcome text').tap();
+    const touchSheet = touch.page.getByRole('dialog', { name: 'Send SMS' });
+    await button(touchSheet, 'Done').click({ trial: true });
+    const tapped = field(touch.page, 'Message');
+    const before = await tapped.inputValue();
+    await tapped.tap({ position: { x: 40, y: 14 } });
+    await touch.page.waitForTimeout(100);
+    const at = await tapped.evaluate(element => element.selectionStart);
+    assert.ok(at > 0 && at < before.length, 'The tap put the cursor inside the message: ' + at);
+    await (await insertMenu(touch.page, 'Message')).tap();
+    await button(touch.page.getByRole('dialog', { name: 'Insert field' }), 'First name').tap();
+    await touch.page.getByRole('dialog', { name: 'Insert field' }).waitFor({ state: 'hidden' });
+    await touch.page.waitForTimeout(100);
+    assert.equal(await tapped.inputValue(), before.slice(0, at) + '{{first_name}}' + before.slice(at), 'The field goes where the tap left the cursor');
+    assert.equal(await focused(tapped), true, 'Focus returns to the message after a touch insertion');
+    assert.equal(await tapped.evaluate(element => element.selectionStart), at + '{{first_name}}'.length);
+    await touch.page.context().close();
+    console.log('PASS touch: on a phone, a tap put the cursor inside the message, Insert field placed the field there and returned focus.');
+  }
   const result = { result: 'pass', viewports: [1440, 375], themes: ['light', 'dark'], screenshots,
     blockedOutsideRequests: [...new Set(evidence.sessions.flatMap(item => item.net.blocked))] };
   assert.deepEqual(result.blockedOutsideRequests.filter(url => !/^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(url)), []);

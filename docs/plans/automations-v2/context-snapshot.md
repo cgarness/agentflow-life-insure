@@ -24,7 +24,7 @@
 2. **Message steps deliver to leads only.** For a client, a recruit or an unmatched caller the step is skipped and the run continues. Tasks and callbacks work for every contact type.
 3. **Tasks and callbacks are not behind the message delivery switch, but they are behind enrollment.** They are created while an agency is enrolling and the automation is active. Turning enrollment off holds task steps already under way.
 4. **A task goes to the contact's current active assigned agent, for every trigger.** A known caller who rings another agent's direct line still gets a task for their own agent. With no active owner the step holds with a visible reason (a missed call becomes an Inbounds callback instead). A converted or removed contact stops the run. A repeated trigger does not stack a second open task on the same agent; a task left with a former agent does not hold back the current agent's.
-5. **A reschedule before any reminder went out moves the waiting run. After a reminder went out, the automation starts again for the new time,** so the new time gets every reminder. A cancellation or deletion stops the run, and taking a cancellation back lets it carry on. A slot a run already waited for is never handled twice. A reminder whose time has passed is skipped unless the author chose to continue.
+5. **A reschedule before any reminder went out moves the waiting run. After a reminder went out, the automation starts again for the new time when every reminder it gave would still be ahead for that time,** so the new time gets every reminder. Otherwise the run keeps its place and its next reminder moves to the new time, so a move into the first reminder's window never loses the reminders after it. The outcome is the same whichever the worker reaches first, the run or the new time. A cancellation or deletion stops the run, and taking a cancellation back lets it carry on; a plain wait keeps the time it had served. A slot a run already waited for is never handled twice. A reminder whose time has passed is skipped unless the author chose to continue.
 6. **A missed inbound call waits one minute before enrolling,** so late answer evidence can arrive. A confirmed answer stops the run. A phone that accepted the call holds the step only until its bridge result is recorded, or for ten minutes after the call ended; a recorded "unconfirmed" result leaves the call missed, as Inbounds shows it. There is at most one callback per call, claiming is one conditional update, and a callback whose call was later proven answered cannot be claimed. A person viewing as someone else cannot claim.
 7. **Only an explicit Confirm issuance starts delivery follow-up.** A sale, an effective date or a legacy issue date never does. A confirmation is permanent: there is no edit or undo yet.
 8. **A stale save, publish or session change answers HTTP 409 (`PT409`).** The first release raised SQLSTATE 40001, which PostgREST retries without limit, so the request never answered. V2 replaces those three functions.
@@ -35,6 +35,7 @@
 13. **Republishing an unchanged graph creates a version when an SMS step would now be pinned differently,** so review and publish always agree.
 14. **A super admin session the server cannot verify cannot claim callbacks or confirm issuance.** A sign-in from before the Automations upgrade keeps View As in the browser only, so it must sign in again.
 15. **The rollback never drops a trigger.** On Supabase that also locks every sign-in and storage table. It turns the six observers into no-ops instead.
+16. **The rollback decides once per version, from stored data only.** It never re-reads a saved message, it holds the lock on runs only for the moment before it commits, and it stops itself on a refusal even when psql's flags are left out.
 
 ## Migrations prepared, none executed
 
@@ -65,14 +66,25 @@ On November 22–23 nine independent reviewers, one per area, read the change an
 | Builder | Reopening waits for the current record. Unsaved changes are protected on every way out. Save & review saves an incomplete draft and says so. Each problem shows once. Focus returns to a newly added step on phones. A failed background read no longer replaces an open editor (found while fixing the others). |
 | CRM | Callback conflicts show the server's message. Callback buttons name the caller and only the pressed one shows as busy. The task list re-reads the clock and the tasks, and disables completion for anyone but the assignee or creator. Confirm issuance re-reads the status after a refusal and refuses dates before 1900. |
 
+On November 23 a second pass tested those fixes. Four checkers reported 18 findings (3 major) and a skeptic for each area confirmed 15 and refuted 3. It also completed the requirement and documentation review. One refuted finding was fixed anyway. Moving an appointment into its first reminder's window after that reminder went out lost every remaining reminder. The skeptic read that as the restart rule working as written, but it defeats the rule's purpose. The missing touch test was also added, because the requirement names touch. The 40001 finding stays refuted: the rollback restores the first-release behaviour on purpose.
+
+| Area | Fixed in the second pass |
+| --- | --- |
+| Appointments | A restart happens only when it gives the new time every reminder. Otherwise the run moves to the new time in place. The worker can no longer reach the old run first and cancel the restart. Taking back a cancellation keeps a plain wait's remaining time. An appointment change finds its runs through a new index. |
+| Callbacks | Title and notes an automation rendered for a known contact are shown only to people who can see the contact. |
+| Rollback | Judges each version once and holds the lock on runs only for the moment before it commits. Locally, 100,000 unfinished runs took about 2 seconds, where the earlier file held that lock for about 16 seconds. The decision reads only stored data, so editing a saved message later cannot stop an automation. A publish that loosens a text's consent requirement is refused with a reason that names it. A refusal stops psql even without its flags. |
+| Builder and CRM | Refusals that signing in again fixes show the server's words. The preview names a missed call's blank task after the caller's number. Fields accept the longest allowed text even as emoji. The text-step hint says only an agency saved message keeps its consent type. |
+| Verification and documents | The changed CRM screens and Insert field by touch are now checked in a real browser. The release plan says to turn the worker schedule off after a database rollback. Two wrong statements were corrected. |
+
 Accepted as they are, and stated here so they are not mistaken for fixed:
 
 - An automation task assigned to an agent who later leaves can be completed only by that agent. Opening tasks to anyone else would change the existing `public.tasks` row-level policies, which needs `#APPROVE_RLS_CHANGE`. The contact's new agent now gets their own task.
 - The worker's queue is shared by every agency and has no per-agency share. Backoff and the seven-day end bound how much a held backlog costs.
 - A task already created for a known caller is left open if proof that the call was answered arrives later. A callback in the same situation drops off the list and cannot be claimed.
 - While a save is in flight, under a second, leaving is not held. While a step is open, a problem only the server can see is hidden if the browser reports another problem for that step.
-- Two callbacks from the same number have buttons with the same accessible name. A conflict that is a permission refusal (42501) still reads "You cannot change this callback."
-- A reused issuance request with a changed date reads as a date error.
+- Two callbacks from the same number have buttons with the same accessible name. A permission refusal (42501) that signing in again does not fix still reads "You cannot change this callback."
+- A run whose reminder handoff is still unconfirmed when its appointment moves blocks the new time's admission. When it later carries on, it moves to the new time in place, so the new time can miss a reminder that run had already passed.
+- The rollback restores the first-release functions byte for byte. Afterwards a stale save, publish or session change again never answers (SQLSTATE 40001), and a held step retries every five minutes without an end. The release plan says to turn the worker schedule off after a database rollback.
 
 ## Verification
 
@@ -113,6 +125,8 @@ All runs were local, on November 22, 2026. Commits made after the runs changed d
 | Two policies on one client | `automation_v2_policies.sql`, `v2-workflows.mjs` |
 | Missing sender or consent evidence | `automation_intake_eligibility.sql`, `channel_test.ts`, `v2-workflows.mjs` |
 | The first release keeps working on the V2 database, and the rollback | `run.sh backend-first`, `rollback-rehearsal.sh`, `automation_v2_rollback.sql` |
+| The changed CRM screens in a real browser: a timed automation task, Confirm issuance and the Inbounds callback list | `v2-crm.mjs`, `tasksPanel.test.tsx`, `policyIssuance.test.tsx`, `roomCallbacks.test.tsx` |
+| Insert field by touch | `v2-editor.mjs` (a touch session at 375 px), `insertFieldHook.test.tsx` |
 
 ### Failures that exist on the base branch
 
@@ -122,6 +136,7 @@ These fail identically on `0e49940` and were not touched.
 - One Vitest assertion: `recordingRetentionVoicemail > handler wiring > byte-identical to deployed v29`.
 - `supabase/functions/_shared/sms/affinity.test.ts` needs its own loopback gateway and was not run. No file under `_shared/sms/` changed.
 - The harness prints `workflow_on_lead_created dispatch failed … http_request_queue` warnings from the legacy dispatcher, which has no URL configured in the fixture.
+- The contact screen is a fixed three-column desktop layout everywhere it is used, and V2 does not change it. At 375 px the column with Tasks is off screen and the policies column cannot be brought into view, so contact tasks and Confirm issuance cannot be used on a phone. `v2-crm.mjs` checks them at desktop width and checks the issuance dialog itself at phone width.
 
 ### Limits of this verification
 
