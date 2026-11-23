@@ -296,7 +296,8 @@ Deno.test("step details refuse the same control characters as the database, coun
   assert(validateGraph(graph).length === 0, "a description keeps its line breaks and tabs");
   graph.nodes[1].meta = { description: "Next\u0085line" };
   assert(validateGraph(graph).some((i) => i.message.includes("Description")), "a C1 control character is refused in a description");
-  assert(cleanStepText("A\tname\nhere\u0092", true) === "A name here", "a pasted name becomes one clean line");
+  assert(cleanStepText("A\tname\nhere\u0092", true) === "A name here ", "a pasted name becomes one clean line");
+  assert(cleanStepText("First\r\n\u0007line", true) === "First line", "a run of control characters becomes one space");
   assert(cleanStepText("Keep\nlines\u0085", false) === "Keep\nlines", "a pasted description keeps its line breaks");
 });
 

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Link, MemoryRouter, useLocation } from "react-router-dom";
 import WorkflowBuilder from "@/components/settings/WorkflowBuilder";
 import type { DraftRecord } from "@/lib/automation-api";
@@ -72,6 +72,23 @@ describe("reopening a saved draft", () => {
     fireEvent.click(screen.getByRole("button",{name:"Save draft"}));
     expect(await screen.findByText("Draft saved.")).toBeVisible();
     expect(h.save).toHaveBeenLastCalledWith("saved","Renamed again",expect.anything(),4,1);
+  });
+});
+
+describe("an open draft and the network", () => {
+  it("keeps the editor and its unsaved changes when the window regains focus while the network is down", async () => {
+    h.load.mockResolvedValueOnce(record("Old name",3));
+    mount("/automations?workflow=saved");
+    await waitFor(() => expect(nameField()).toHaveValue("Old name"));
+    fireEvent.change(nameField(),{target:{value:"Unsaved edit"}});
+    h.load.mockRejectedValue(new Error("offline"));
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await new Promise(done => setTimeout(done, 50));
+    focusManager.setFocused(undefined);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(nameField()).toHaveValue("Unsaved edit");
+    expect(h.load).toHaveBeenCalledTimes(1);
   });
 });
 

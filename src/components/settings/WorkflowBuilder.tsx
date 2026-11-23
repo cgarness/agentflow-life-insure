@@ -28,8 +28,9 @@ function Builder({org, session, scope}: Props) {
     queryFn: () => automationApi.load(requested!,org),
     enabled: !!requested && !local,
     // The editor seeds its draft and revision once, when it mounts. A cached copy is the record as it was when it was
-    // last opened, so it is never kept: reopening always waits for the current revision.
-    staleTime: 0, gcTime: 0, retry: false,
+    // last opened, so it is never kept: reopening always waits for the current revision. While the editor is open the
+    // record is not read again, so a failed background read can never replace an editor holding unsaved work.
+    staleTime: 0, gcTime: 0, retry: false, refetchOnWindowFocus: false,
   });
   function leave() {
     createdHere.current = null; open(null);
@@ -37,7 +38,7 @@ function Builder({org, session, scope}: Props) {
   }
   if (!requested) return <WorkflowList org={org} session={session} scope={scope} campaign={params.get("campaign")}
     onCreate={() => { createdHere.current = null; open("new"); }} onOpenWorkflow={id => { createdHere.current = null; open(id); }}/>;
-  if (!local && record.isError) return <p role="alert">Automation unavailable. <Button variant="link" onClick={() => open(null)}>Back to automations</Button></p>;
+  if (!local && record.isError && !record.data) return <p role="alert">Automation unavailable. <Button variant="link" onClick={() => open(null)}>Back to automations</Button></p>;
   if (!local && !record.data) return <p role="status">Loading automation…</p>;
   if (!local && record.data!.automation_graph === null) return <section className="space-y-4">
     <Button variant="outline" onClick={() => open(null)}>Back to automations</Button>

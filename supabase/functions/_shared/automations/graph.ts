@@ -117,13 +117,16 @@ export function stepTextHasControl(text: string, isName: boolean): boolean {
   for (const c of text) if (refusedInStep(c.codePointAt(0) ?? 0, isName)) return true;
   return false;
 }
-/** What an author typed or pasted, made acceptable: a name keeps one line, other control characters are dropped. */
+/**
+ * What an author typed or pasted, made acceptable. In a name each run of refused characters becomes one space, so
+ * the name stays on one line with its words apart. In a description they are dropped and line breaks stay.
+ */
 export function cleanStepText(text: string, isName: boolean): string {
   let out = "";
+  let gap = false;
   for (const c of text) {
-    const code = c.codePointAt(0) ?? 0;
-    if (!refusedInStep(code, isName)) out += c;
-    else if (isName && (code === 9 || code === 10 || code === 13 || code === 0x2028 || code === 0x2029)) out += " ";
+    if (!refusedInStep(c.codePointAt(0) ?? 0, isName)) { out += c; gap = false; }
+    else if (isName && !gap) { out += " "; gap = true; }
   }
   return out;
 }
