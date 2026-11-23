@@ -1,6 +1,6 @@
 # Automations V2 release and rollback plan
 
-**Status on November 22, 2026: prepared, nothing released.** No migration, Edge function, Vercel deployment, release control or schedule was changed. Every numbered step below needs Chris's own exact approval before it runs.
+**Status on November 23, 2026: prepared, nothing released.** No migration, Edge function, Vercel deployment, release control or schedule was changed. Every numbered step below needs Chris's own exact approval before it runs.
 
 ## What production holds today
 
