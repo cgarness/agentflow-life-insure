@@ -838,8 +838,11 @@ CREATE OR REPLACE FUNCTION private.automation_v2_rollback_guard()
 RETURNS trigger LANGUAGE plpgsql SET search_path = '' AS $guard$
 BEGIN
   IF private.automation_needs_v2(NEW.organization_id, NEW.version_id) THEN
-    IF TG_TABLE_NAME = 'automation_intervals' AND NOT private.automation_v2_steps_needed(NEW.organization_id, NEW.version_id) THEN
-      -- Only a text's consent requirement stands in the way, and publishing it as Marketing removes it.
+    IF TG_TABLE_NAME = 'automation_intervals' AND NOT private.automation_v2_steps_needed(NEW.organization_id, NEW.version_id)
+      AND EXISTS (SELECT FROM public.workflows w WHERE w.organization_id = NEW.organization_id AND w.id = NEW.workflow_id
+        AND private.automation_editable_graph(w.automation_graph)) THEN
+      -- Only a text's consent requirement stands in the way, the earlier editor can change the draft, and publishing
+      -- the text as Marketing removes the obstacle.
       RAISE EXCEPTION 'A text in this automation needs the contact''s marketing consent, as Automations V2 set it. Choose Marketing for that text and publish again, or wait until V2 is installed again.'
         USING ERRCODE = 'PT409';
     ELSIF TG_TABLE_NAME = 'automation_intervals' THEN

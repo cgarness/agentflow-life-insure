@@ -399,4 +399,27 @@ insert into private.automation_sms_purposes(organization_id,version_id,node_id,p
   (pg_temp.id(1),pg_temp.id(88),pg_temp.id(502)::text,'informational','saved_message');
 select pg_temp.ok(not private.automation_needs_v2(pg_temp.id(1),pg_temp.id(89)),
   'a text whose latest V2 pin was informational may be republished as informational');
+-- 8. When the earlier editor cannot change the draft (it uses V2 content, here a step name), the refusal does not
+-- suggest publishing the text as Marketing: the automation stays paused until V2 is installed again.
+insert into public.workflows(id,organization_id,name,status,trigger_type,automation_graph,automation_revision)
+  values (pg_temp.id(90),pg_temp.id(1),'Named text','paused','manual',pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"send_sms","config":{"body":"Hello there","purpose":"informational"},"meta":{"name":"Welcome text"}}]'),1);
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  values (pg_temp.id(91),pg_temp.id(1),pg_temp.id(90),'Named text',1,pg_temp.graph('[
+    {"type":"lead_created","config":{"lead_source":"Never used"}},
+    {"type":"send_sms","config":{"body":"Hello there","purpose":"informational"},"meta":{"name":"Welcome text"}}]'),clock_timestamp(),pg_temp.id(10));
+insert into private.automation_sms_purposes(organization_id,version_id,node_id,purpose,basis)
+  values (pg_temp.id(1),pg_temp.id(91),pg_temp.id(502)::text,'marketing','custom');
+do $$
+declare refusal text;
+begin
+  begin
+    insert into public.automation_intervals(organization_id,workflow_id,version_id,starts_at)
+      values (pg_temp.id(1),pg_temp.id(90),pg_temp.id(91),clock_timestamp());
+  exception when sqlstate 'PT409' then refusal:=sqlerrm;
+  end;
+  perform pg_temp.ok(refusal like '%stays paused until V2 is installed again%',
+    'a draft the earlier editor cannot change gets no advice it cannot follow: '||coalesce(refusal,'none'));
+end $$;
 rollback;
