@@ -112,25 +112,25 @@ Accepted as they are, and stated here so they are not mistaken for fixed:
 
 ## Verification
 
-All runs were local, on November 23, 2026, except the GitHub Actions row. The release and backend-first harness modes and every SQL suite ran at `29f7046`, the final code. The builder mode ran again at `406974d`, which changed only how the keyboard check takes its screenshots, and printed the same results. Later commits changed only screenshots and documents. Vitest, the build, both typechecks, lint and Deno ran at `28394a2`, and nothing those checks read changed after it. Each review fix also has its own case that fails on the earlier code.
+All runs were local, on November 23, 2026, except the GitHub Actions row. The builder and release harness modes and every SQL suite ran at `d6be5cc`, the final code, after the screenshot review's fixes. The backend-first mode ran at `c8cbec7`, which changed only how it takes its screenshots. Later commits changed only screenshots and documents. Both typechecks, the build, lint on the changed files, the Automations Deno tests and the Vitest suites for workflows, Inbounds, contacts and `src/lib` ran again at `d6be5cc`. The full Vitest suite and the SMS Deno tests last ran locally at `28394a2`; GitHub Actions runs the full suite against the base on every push, and the pull request shows the final head's results. Each review fix also has its own case that fails on the earlier code.
 
 | Check | Result |
 | --- | --- |
-| `npx tsc --noEmit` | Pass. |
-| App TypeScript, `A2P_BASE_SHA=d85434f635bbf2d4118781e6d254798eef699363 node scripts/verify-a2p-types.mjs` | 78 diagnostics on the base and on the candidate. Zero new. |
-| `npm run build` | Pass. |
-| `npx eslint` on the 89 frontend files this branch added or changed | 0 errors, 3 warnings (two effect-cleanup ref warnings, one fast-refresh warning on the shared badge). |
-| `npx vitest run` | 7,410 tests passed, 40 skipped, 1 failed. 504 files passed, 4 skipped, 9 failed. All nine failures exist on the base and are listed below. |
-| Focused Vitest: builder, tasks, Inbounds callbacks, policy issuance | 19 files, 242 passed, 5 skipped. |
-| Deno: `_shared/automations/` and three `_shared/sms/` files | 67 passed, 0 failed (38 Automations, 29 SMS). |
+| `npx tsc --noEmit` | Pass at `d6be5cc`. |
+| App TypeScript, `A2P_BASE_SHA=d85434f635bbf2d4118781e6d254798eef699363 node scripts/verify-a2p-types.mjs` | 78 diagnostics on the base and on the candidate at `d6be5cc`. Zero new. |
+| `npm run build` | Pass at `d6be5cc`. |
+| `npx eslint` on the 89 frontend files this branch added or changed | 0 errors, 3 warnings (two effect-cleanup ref warnings, one fast-refresh warning on the shared badge). The 8 files the screenshot review changed: 0 errors, 0 warnings at `d6be5cc`. |
+| `npx vitest run` at `28394a2` | 7,410 tests passed, 40 skipped, 1 failed. 504 files passed, 4 skipped, 9 failed. All nine failures exist on the base and are listed below. |
+| Vitest for workflows, Inbounds, contacts and `src/lib` at `d6be5cc` | 225 files passed; 3,711 tests passed, 16 skipped. The six failing files are among the nine inherited ones below. |
+| Deno: `_shared/automations/` and three `_shared/sms/` files | 67 passed, 0 failed (38 Automations, 29 SMS) at `28394a2`. The 38 Automations tests pass again at `d6be5cc`. |
 | Native SQL on PostgreSQL 17.6 | All 14 `supabase/tests/automation_*.sql` suites pass inside the harness modes: six first-release, five V2, the rollback rehearsal, the upgrade and intake eligibility. |
 | `concurrency.py`, `concurrency_v2.py` | Pass. One winner of two simultaneous callback claims, one task from a twice-delivered step, one callback for a call two automations reached together, and an appointment saved in 0.3 s while a publish lock was held. |
-| `bash e2e/automations-local/run.sh` | Pass in 339 s at `406974d`, including the CRM screen check and Insert field by touch. |
-| `bash e2e/automations-local/run.sh release` | Pass in 123 s, including the rollback rehearsal run without psql's flags. |
-| `bash e2e/automations-local/run.sh backend-first` | Pass in 115 s. |
+| `bash e2e/automations-local/run.sh` | Pass in 380 s at `d6be5cc`, including the CRM screen check and Insert field by touch. |
+| `bash e2e/automations-local/run.sh release` | Pass in 135 s at `d6be5cc`, including the rollback rehearsal run without psql's flags. |
+| `bash e2e/automations-local/run.sh backend-first` | Pass in 118 s at `c8cbec7`. |
 | Rollback at scale | With 100,000 unfinished runs the final file took about 1 second: 879 ms for the data phase, then 2 ms to create the guards, which is all the time the locks on runs and workflows are held before the commit. |
 | Browser | 1440 px and 375 px, light and dark: the builder with keyboard authoring and Insert field by touch, and the changed CRM screens. Screenshots are taken fully drawn at twice the pixel density. The only request that tried to leave the machine was the app's Google Fonts stylesheet, which the harness blocked. Zero provider requests. |
-| GitHub Actions at `9b6db95` | All 18 jobs passed, including Reports frontend verification, which runs both typechecks and the full Vitest suite on the base and on this branch and found no new failing test or diagnostic. Supabase Preview was skipped. The application, database and test code are the same at the final head. |
+| GitHub Actions at `9b6db95`, before the screenshot review's fixes | All 18 jobs passed, including Reports frontend verification, which runs both typechecks and the full Vitest suite on the base and on this branch and found no new failing test or diagnostic. Supabase Preview was skipped. The pull request shows the results for the final head. |
 
 ### Where each required check lives
 
