@@ -12,7 +12,7 @@ import {
 import { fetchContactFollowUpRows } from "@/lib/contactFollowUpsQueries";
 
 export const FOLLOW_UPS_REFETCH_INTERVAL_MS = 2 * 60 * 1000;
-const NOW_TICK_MS = 60 * 1000;
+export const NOW_TICK_MS = 60 * 1000;
 
 export type FollowUpsState = "loading" | "error" | "ready";
 
@@ -59,7 +59,7 @@ export function useContactFollowUps(args: {
     refetchIntervalInBackground: false,
   });
 
-  // Identical to TasksPanel's query — shares its cache entry and invalidations.
+  // Same key and queryFn as TasksPanel's query — shares its cache entry and invalidations.
   const tasksQuery = useQuery({
     queryKey: ["tasks", contactId],
     queryFn: () => tasksApi.getTasks(contactId, organizationId as string),

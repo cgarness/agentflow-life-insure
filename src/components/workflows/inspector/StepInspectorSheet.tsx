@@ -5,7 +5,10 @@ import { graphBlock } from "../../../../supabase/functions/_shared/automations/g
 import StepSettings from "./StepSettings";
 import type { StepInspectorSheetProps } from "./types";
 
-/** Step settings on a phone: a bottom sheet over the timeline. Closing it hands focus back to the step that opened it. */
+/**
+ * Step settings on a phone: a bottom sheet over the timeline. Closing it hands focus back to the control that opened it,
+ * or to the step's own row when that control no longer exists.
+ */
 export default function StepInspectorSheet({open, onOpenChange, onClose: _onClose, ...props}: StepInspectorSheetProps) {
   const opener = useRef<HTMLElement | null>(null);
   // Runs before the sheet takes focus, so the active element is still the control that opened it.
@@ -19,7 +22,9 @@ export default function StepInspectorSheet({open, onOpenChange, onClose: _onClos
       className="flex max-h-[85dvh] flex-col gap-0 rounded-t-lg p-0 data-[state=closed]:duration-200 data-[state=open]:duration-200 motion-reduce:transition-none motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none"
       onCloseAutoFocus={event => {
         event.preventDefault();
-        if (opener.current?.isConnected) opener.current.focus();
+        if (opener.current?.isConnected) { opener.current.focus(); return; }
+        // A step that was just added opened the sheet itself, and the choice that added it is gone. Its row is next best.
+        [...document.querySelectorAll<HTMLElement>("[data-step]")].find(row => row.dataset.step === props.node.id)?.focus();
       }}>
       <SheetHeader className="space-y-0 border-b px-4 py-3 pr-12 text-left">
         <SheetTitle>{label}</SheetTitle>

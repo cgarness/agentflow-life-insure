@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  CallbackTakenError, callbackQueue, claimCallback, completeCallback, releaseCallback,
-} from "@/lib/inbounds/api";
+import { callbackQueue, claimCallback, completeCallback, releaseCallback } from "@/lib/inbounds/api";
 import type { CallbackQueue, InboundCallback } from "@/lib/inbounds/contracts";
 
 const REFRESH_MS = 10_000;
-type Action = "claim" | "release" | "complete";
-const ACTIONS: Record<Action, (id: string) => Promise<unknown>> = {
+export type CallbackAction = "claim" | "release" | "complete";
+const ACTIONS: Record<CallbackAction, (id: string) => Promise<unknown>> = {
   claim: claimCallback, release: releaseCallback, complete: completeCallback,
 };
 
@@ -15,17 +13,21 @@ export function useInboundCallbacks() {
   const [queue, setQueue] = useState<CallbackQueue | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [busyId, setBusyId] = useState<string | null>(null);
+  /** The one action in flight. Every row's actions wait for it, so no press is dropped without a sign. */
+  const [busy, setBusy] = useState<{id: string; action: CallbackAction} | null>(null);
   const request = useRef(0);
   const acting = useRef(false);
 
-  const refresh = useCallback(async () => {
+  // A notice explains the list the agent is looking at, so it stays through the read that follows its action and
+  // clears once a later read succeeds.
+  const refresh = useCallback(async (keepNotice = false) => {
     const serial = ++request.current;
     try {
       const next = await callbackQueue();
       // A slower, older answer never replaces a newer one.
       if (serial !== request.current) return;
       setQueue(next); setError("");
+      if (!keepNotice) setNotice("");
     } catch (failure) {
       if (serial === request.current) setError(failure instanceof Error ? failure.message : "Callbacks could not be loaded.");
     }
@@ -37,22 +39,22 @@ export function useInboundCallbacks() {
     return () => { window.clearInterval(timer); ++request.current; };
   }, [refresh]);
 
-  const act = useCallback(async (action: Action, item: InboundCallback) => {
+  const act = useCallback(async (action: CallbackAction, item: InboundCallback) => {
     // One action at a time, so a double press never sends two requests.
     if (acting.current) return;
-    acting.current = true; setBusyId(item.id); setNotice("");
+    acting.current = true; setBusy({id: item.id, action}); setNotice("");
     try {
       await ACTIONS[action](item.id);
     } catch (failure) {
-      setNotice(failure instanceof CallbackTakenError || failure instanceof Error ? failure.message : "The callback could not be updated. Try again.");
+      setNotice(failure instanceof Error ? failure.message : "The callback could not be updated. Try again.");
     } finally {
-      await refresh();
-      acting.current = false; setBusyId(null);
+      await refresh(true);
+      acting.current = false; setBusy(null);
     }
   }, [refresh]);
 
   return {
-    items: queue?.items ?? [], admin: queue?.admin ?? false, loaded: queue !== null, error, notice, busyId, refresh,
+    items: queue?.items ?? [], admin: queue?.admin ?? false, loaded: queue !== null, error, notice, busy, refresh: () => refresh(),
     claim: (item: InboundCallback) => act("claim", item),
     release: (item: InboundCallback) => act("release", item),
     complete: (item: InboundCallback) => act("complete", item),

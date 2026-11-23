@@ -38,9 +38,10 @@ export function RoomCallbacks() {
       {callbacks.loaded && !callbacks.items.length && <p className="py-6 text-slate-300">No callbacks waiting.</p>}
       <ul className="mt-2 divide-y divide-slate-700">
         {callbacks.items.map(item => {
-          const busy = callbacks.busyId === item.id;
+          const pressed = callbacks.busy?.id === item.id ? callbacks.busy.action : null;
           const mine = item.status === "claimed" && item.claimed_by_me;
           const others = item.status === "claimed" && !item.claimed_by_me;
+          const caller = item.contact_name || item.caller_phone || "unknown caller";
           return (
             <li key={item.id} className="flex flex-wrap items-start justify-between gap-3 py-4">
               <div className="min-w-0 space-y-1">
@@ -56,13 +57,17 @@ export function RoomCallbacks() {
               </div>
               <div className="flex flex-col items-end gap-2">
                 <p className="text-sm font-semibold text-slate-100">{holder(item)}</p>
-                <div className="flex flex-wrap justify-end gap-2">
-                  {item.status === "open" && item.can_claim && <button type="button" className={primary} disabled={busy}
-                    onClick={() => { void callbacks.claim(item); }}>{busy ? "Claiming…" : "Claim"}</button>}
-                  {mine && <button type="button" className={primary} disabled={busy}
-                    onClick={() => { void callbacks.complete(item); }}>{busy ? "Saving…" : "Done"}</button>}
-                  {(mine || (others && callbacks.admin)) && <button type="button" className={button} disabled={busy}
-                    onClick={() => { void callbacks.release(item); }}>Release</button>}
+                {/* While any action is saving, every row waits, so a press is never dropped without a sign. */}
+                <div className="flex flex-wrap justify-end gap-2" aria-busy={pressed !== null}>
+                  {item.status === "open" && item.can_claim && <button type="button" className={primary} disabled={!!callbacks.busy}
+                    aria-label={"Claim callback for " + caller}
+                    onClick={() => { void callbacks.claim(item); }}>{pressed === "claim" ? "Claiming…" : "Claim"}</button>}
+                  {mine && <button type="button" className={primary} disabled={!!callbacks.busy}
+                    aria-label={"Done with callback for " + caller}
+                    onClick={() => { void callbacks.complete(item); }}>{pressed === "complete" ? "Saving…" : "Done"}</button>}
+                  {(mine || (others && callbacks.admin)) && <button type="button" className={button} disabled={!!callbacks.busy}
+                    aria-label={"Release callback for " + caller}
+                    onClick={() => { void callbacks.release(item); }}>{pressed === "release" ? "Releasing…" : "Release"}</button>}
                 </div>
               </div>
             </li>

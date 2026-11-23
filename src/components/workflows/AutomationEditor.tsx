@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useUnsavedNavigationGuard } from "@/hooks/useUnsavedNavigationGuard";
 import type { DraftRecord } from "@/lib/automation-api";
 import { triggerNode } from "../../../supabase/functions/_shared/automations/graph";
 import { AutomationActivity } from "./AutomationActivity";
@@ -24,6 +25,9 @@ interface Props {
 export default function AutomationEditor({record, session, scope, onBack, onSaved}: Props) {
   const draft = useAutomationDraft({record, session, scope, onSaved});
   const [asking, setAsking] = useState<"archive" | "leave" | null>(null);
+  // Sidebar links, browser back and forward, reload and close are held while there are unsaved changes. A save in
+  // flight is not held: saving a new automation replaces its address, and nothing can be edited until it settles.
+  const guard = useUnsavedNavigationGuard(draft.dirty && !draft.busy);
   const names = useStepNames(scope, draft.graph);
   const {mode, graph, snapshot, notice} = draft;
   const general = draft.issues.filter(issue => !issue.node_id);
@@ -70,8 +74,15 @@ export default function AutomationEditor({record, session, scope, onBack, onSave
       description="It stops enrolling, and steps still waiting for contacts already in it are cancelled. This cannot be undone here."
       confirm="Archive automation" cancel="Cancel" onOpenChange={open => { if (!open) setAsking(null); }}
       onConfirm={() => { void draft.lifecycle("archive"); }}/>
-    <ConfirmDialog open={asking === "leave"} title="Leave without saving?"
+    <ConfirmDialog open={asking === "leave" || guard.blocked} title="Leave without saving?"
       description="Your changes to this draft have not been saved. Leaving now discards them."
-      confirm="Leave without saving" cancel="Keep editing" onOpenChange={open => { if (!open) setAsking(null); }} onConfirm={onBack}/>
+      confirm="Leave without saving" cancel="Keep editing"
+      onOpenChange={open => { if (!open) { setAsking(null); guard.cancel(); } }}
+      onConfirm={() => {
+        // Confirming lets the held navigation, or this screen's own Back, through without asking again.
+        const own = asking === "leave";
+        guard.confirm();
+        if (own) onBack();
+      }}/>
   </section>;
 }

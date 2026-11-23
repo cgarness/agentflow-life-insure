@@ -30,6 +30,9 @@ beforeEach(() => {
   });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
+const CLAIM = "Claim callback for +12025550100";
+const DONE = "Done with callback for +12025550100";
+const RELEASE = "Release callback for +12025550100";
 const calls = (name: string) => rpc.mock.calls.filter(call => call[0] === name);
 
 describe("Inbounds callbacks", () => {
@@ -40,26 +43,28 @@ describe("Inbounds callbacks", () => {
     expect(within(row).getByText("Call back the missed caller")).toBeVisible();
     expect(within(row).getByText(/^Missed .* · Call back by /)).toBeVisible();
     expect(screen.getByRole("heading", {name: /Callbacks\s*1 open/})).toBeVisible();
-    expect(screen.queryByRole("button", {name: /call|dial/i})).toBeNull();
+    // Row actions name the caller ("Claim callback for …"), but none of them places a call.
+    expect(screen.queryByRole("button", {name: /\bcall\b|\bdial/i})).toBeNull();
+    expect(within(row).getByRole("button", {name: "Claim callback for +12025550100"})).toBeVisible();
     expect(screen.queryByRole("link")).toBeNull();
   });
 
   it("claims, then offers Done and Release to the agent who holds it", async () => {
     render(<RoomCallbacks/>);
-    fireEvent.click(await screen.findByRole("button", {name: "Claim"}));
+    fireEvent.click(await screen.findByRole("button", {name: CLAIM}));
     expect(await screen.findByText("Claimed by you")).toBeVisible();
     expect(calls("claim_inbound_callback")).toEqual([["claim_inbound_callback", {p_callback: ID}]]);
-    fireEvent.click(screen.getByRole("button", {name: "Release"}));
-    expect(await screen.findByRole("button", {name: "Claim"})).toBeVisible();
-    fireEvent.click(screen.getByRole("button", {name: "Claim"}));
-    fireEvent.click(await screen.findByRole("button", {name: "Done"}));
+    fireEvent.click(screen.getByRole("button", {name: RELEASE}));
+    expect(await screen.findByRole("button", {name: CLAIM})).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: CLAIM}));
+    fireEvent.click(await screen.findByRole("button", {name: DONE}));
     expect(await screen.findByText("No callbacks waiting.")).toBeVisible();
     expect(calls("complete_inbound_callback")).toHaveLength(1);
   });
 
   it("tells the agent when someone else claimed it first, and shows the current holder", async () => {
     render(<RoomCallbacks/>);
-    const claim = await screen.findByRole("button", {name: "Claim"});
+    const claim = await screen.findByRole("button", {name: CLAIM});
     failure = {code: "PT409", message: "Someone else already claimed this callback."};
     queue = {admin: false, items: [item({status: "claimed", claimed_by: "other", claimed_by_name: "Jordan Lee", can_claim: false})]};
     fireEvent.click(claim);
@@ -67,15 +72,71 @@ describe("Inbounds callbacks", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Someone else already claimed this callback.");
     expect(await screen.findByText("Claimed by Jordan Lee")).toBeVisible();
     expect(calls("claim_inbound_callback")).toHaveLength(1);
-    expect(screen.queryByRole("button", {name: "Release"})).toBeNull();
+    expect(screen.queryByRole("button", {name: RELEASE})).toBeNull();
+  });
+
+  it("says a released callback must be claimed again before Done, and clears that after the next refresh", async () => {
+    queue = {admin: false, items: [item({status: "claimed", claimed_by: "me", claimed_by_me: true, can_claim: false})]};
+    render(<RoomCallbacks/>);
+    const done = await screen.findByRole("button", {name: DONE});
+    // An administrator released it in the meantime. Nobody holds it now.
+    failure = {code: "PT409", message: "Claim this callback before completing it."};
+    queue = {admin: false, items: [item()]};
+    fireEvent.click(done);
+    expect(await screen.findByRole("status")).toHaveTextContent("Claim this callback before completing it.");
+    expect(screen.queryByText(/Someone else/)).toBeNull();
+    expect(await screen.findByRole("button", {name: CLAIM})).toBeEnabled();
+    expect(screen.getByRole("status")).toHaveTextContent("Claim this callback before completing it.");
+    fireEvent.click(screen.getByRole("button", {name: "Refresh"}));
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  });
+
+  it.each([
+    [{code: "PT409", message: "This callback is no longer waiting."}, "This callback is no longer waiting."],
+    [{code: "PT409", message: ""}, "This callback changed. The list now shows its current state."],
+    [{code: "PT404", message: "Callback not found"}, "This callback is no longer available."],
+  ])("shows the server's conflict wording, or a plain fallback (%o)", async (refusal, shown) => {
+    render(<RoomCallbacks/>);
+    const claim = await screen.findByRole("button", {name: CLAIM});
+    failure = refusal;
+    fireEvent.click(claim);
+    expect(await screen.findByRole("status")).toHaveTextContent(shown);
+  });
+
+  it("shows only the pressed action as busy and holds every row's actions until it settles", async () => {
+    const OTHER = "00000000-0000-4000-8000-000000000003";
+    queue = {admin: false, items: [
+      item({status: "claimed", claimed_by: "me", claimed_by_me: true, can_claim: false}),
+      item({id: OTHER, contact_name: "Ada Lead"}),
+    ]};
+    let settle!: () => void;
+    const base = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (name: string, args: unknown) => {
+      if (name !== "release_inbound_callback") return base(name, args);
+      await new Promise<void>(done => { settle = done; });
+      queue = {...queue, items: [item(), queue.items[1]]};
+      return {data: {id: ID, status: "open"}, error: null};
+    });
+    render(<RoomCallbacks/>);
+    fireEvent.click(await screen.findByRole("button", {name: RELEASE}));
+    const release = screen.getByRole("button", {name: RELEASE});
+    await waitFor(() => expect(release).toHaveTextContent("Releasing…"));
+    expect(release).toBeDisabled();
+    expect(screen.getByRole("button", {name: DONE})).toHaveTextContent(/^Done$/);
+    expect(screen.getByRole("button", {name: DONE})).toBeDisabled();
+    expect(screen.getByRole("button", {name: "Claim callback for Ada Lead"})).toBeDisabled();
+    settle();
+    expect(await screen.findByRole("button", {name: CLAIM})).toBeEnabled();
+    expect(screen.getByRole("button", {name: "Claim callback for Ada Lead"})).toBeEnabled();
+    expect(calls("claim_inbound_callback")).toHaveLength(0);
   });
 
   it("lets an administrator release another agent's claim", async () => {
     queue = {admin: true, items: [item({status: "claimed", claimed_by: "other", claimed_by_name: "Jordan Lee", can_claim: false})]};
     render(<RoomCallbacks/>);
-    fireEvent.click(await screen.findByRole("button", {name: "Release"}));
+    fireEvent.click(await screen.findByRole("button", {name: RELEASE}));
     await waitFor(() => expect(calls("release_inbound_callback")).toHaveLength(1));
-    expect(screen.queryByRole("button", {name: "Done"})).toBeNull();
+    expect(screen.queryByRole("button", {name: DONE})).toBeNull();
   });
 
   it("shows a known contact with the number, and the voicemail left on the same call", async () => {

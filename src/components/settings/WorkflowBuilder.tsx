@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { automationApi, useAutomationAccess } from "@/lib/automation-api";
@@ -16,6 +16,7 @@ function Builder({org, session, scope}: Props) {
   const [params, setParams] = useSearchParams();
   const requested = params.get("workflow");
   const createdHere = useRef<string | null>(null);
+  const cache = useQueryClient();
   function open(id: string | null, replace = false) {
     const next = new URLSearchParams(params);
     if (id) next.set("workflow",id); else next.delete("workflow");
@@ -26,8 +27,14 @@ function Builder({org, session, scope}: Props) {
     queryKey:["automation-draft",scope,requested],
     queryFn: () => automationApi.load(requested!,org),
     enabled: !!requested && !local,
-    staleTime: 0, retry: false,
+    // The editor seeds its draft and revision once, when it mounts. A cached copy is the record as it was when it was
+    // last opened, so it is never kept: reopening always waits for the current revision.
+    staleTime: 0, gcTime: 0, retry: false,
   });
+  function leave() {
+    createdHere.current = null; open(null);
+    cache.removeQueries({queryKey:["automation-draft",scope]});
+  }
   if (!requested) return <WorkflowList org={org} session={session} scope={scope} campaign={params.get("campaign")}
     onCreate={() => { createdHere.current = null; open("new"); }} onOpenWorkflow={id => { createdHere.current = null; open(id); }}/>;
   if (!local && record.isError) return <p role="alert">Automation unavailable. <Button variant="link" onClick={() => open(null)}>Back to automations</Button></p>;
@@ -44,7 +51,7 @@ function Builder({org, session, scope}: Props) {
       {JSON.stringify(record.data!.automation_graph,null,2)}</pre></details>
   </section>;
   return <AutomationEditor key={local ? "local" : requested} session={session} scope={scope}
-    record={local ? undefined : record.data} onBack={() => { createdHere.current = null; open(null); }}
+    record={local ? undefined : record.data} onBack={leave}
     onSaved={id => { if (requested === "new") { createdHere.current = id; open(id,true); } }}/>;
 }
 

@@ -82,18 +82,24 @@ export async function roomAddContact(
   return z.string().uuid().parse(r.data);
 }
 
-/** Another agent holds the callback, or it is no longer waiting. The list should be read again. */
+/**
+ * The callback changed since the list was read: another agent claimed it, it was released before Done, or it is no
+ * longer waiting. The message says which, and the list should be read again.
+ */
 export class CallbackTakenError extends Error {}
 const CALLBACK_FAILURES: Record<string, string> = {
-  PT409: "Someone else already claimed this callback.",
+  // The server words each conflict itself; this is only for an empty message.
+  PT409: "This callback changed. The list now shows its current state.",
   PT404: "This callback is no longer available.",
   "42501": "You cannot change this callback.",
 };
 async function callbackAction(name: RpcName, id: string, status: "claimed" | "open" | "done") {
   const r = await rpc(name, { p_callback: id });
   if (r.error) {
-    const message = CALLBACK_FAILURES[r.error.code ?? ""] ?? "The callback could not be updated. Try again.";
-    throw r.error.code === "PT409" || r.error.code === "PT404" ? new CallbackTakenError(message) : Error(message);
+    const code = r.error.code ?? "";
+    const message = (code === "PT409" && r.error.message?.trim()) || CALLBACK_FAILURES[code]
+      || "The callback could not be updated. Try again.";
+    throw code === "PT409" || code === "PT404" ? new CallbackTakenError(message) : Error(message);
   }
   return z.object({ id: z.string().uuid(), status: z.literal(status) }).parse(r.data);
 }

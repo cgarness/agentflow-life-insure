@@ -45,13 +45,12 @@ export function useAutomationDraft({record, session, scope, onSaved}: Input) {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const localIssues: Issue[] = validateGraph(graph).map(issue => ({node_id: issue.nodeId, message: issue.message}));
-  // Saved problems stay visible. The open step also shows what is still missing as the author fills it in.
-  const inlineIssues = [...issues];
-  for (const issue of localIssues) {
-    if (issue.node_id === selected && !inlineIssues.some(other => other.node_id === selected && other.message === issue.message)) {
-      inlineIssues.push(issue);
-    }
-  }
+  // Saved problems stay visible. The open step shows what is still missing as the author fills it in, in place of its
+  // saved problems: the two checks word the same problem differently, so showing both would count it twice.
+  const openLocal = localIssues.filter(issue => issue.node_id === selected);
+  const inlineIssues = openLocal.length
+    ? [...issues.filter(issue => issue.node_id !== selected), ...openLocal]
+    : issues;
   const readOnly = (revision > 0 && (!status || status === "archived")) || graph.format !== 1 || graph.nodes.some(node => !graphBlock(node));
   const revisionMatches = snapshot?.revision === revision;
   const reviewMatches = sameReleaseControls(reviewed, snapshot?.controls ?? null);
@@ -91,12 +90,14 @@ export function useAutomationDraft({record, session, scope, onSaved}: Input) {
     setNotice({tone: "status", text: "Draft saved."});
   });
   const review = () => act(async () => {
+    // A draft may be incomplete, so it is saved either way. Only a complete draft moves on to the review.
+    await save();
     if (localIssues.length) {
-      setIssues(localIssues); setMode("edit");
-      setNotice({tone: "error", text: "Resolve the highlighted steps before publishing."});
+      const saved = await automationApi.validate(id).catch(() => []);
+      setIssues(saved.length ? saved : localIssues); setMode("edit");
+      setNotice({tone: "error", text: "Draft saved. Fix the highlighted steps before publishing."});
       return;
     }
-    await save();
     const [errors, matches, latest, needs] = await Promise.all([
       automationApi.validate(id), automationApi.overlap(id), live.refetch(),
       // The consent each text will need is a review aid. A failed lookup shows as Unknown and never blocks the review.

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,9 @@ export interface TaskListItem {
   automation_run_id?: string | null;
   completed_at: string | null;
   notes: string | null;
+  assigned_to?: string | null;
+  /** Empty for a task an automation created. */
+  created_by?: string | null;
   assignee?: { first_name: string | null; last_name: string | null } | null;
 }
 interface Props {
@@ -23,12 +27,15 @@ interface Props {
   status: TaskDueStatus;
   /** A completion is being saved. */
   busy: boolean;
+  /** Only the task's assignee or the person who created it may complete it; the database refuses anyone else. */
+  canComplete: boolean;
   formatDateTime: (value: string) => string;
   onComplete: (id: string) => void;
 }
 
 /** One task on a contact. A timed task shows its actual due date and time; an all-day task keeps its relative text. */
-export default function TaskRow({task, status, busy, formatDateTime, onComplete}: Props) {
+export default function TaskRow({task, status, busy, canComplete, formatDateTime, onComplete}: Props) {
+  const reasonId = useId();
   const completed = status === "completed";
   const overdue = status === "overdue";
   const due = completed ? "Completed"
@@ -37,8 +44,8 @@ export default function TaskRow({task, status, busy, formatDateTime, onComplete}
   return <div className={cn("relative mb-2 flex items-start gap-3 overflow-hidden rounded-lg border bg-card p-3 transition-colors", completed && "opacity-60")}>
     {overdue && <div aria-hidden className="absolute bottom-0 left-0 top-0 w-1 bg-badge-warning-text"/>}
     <div className="pt-1">
-      <Checkbox aria-label={"Mark “" + task.title + "” complete"} checked={completed} disabled={completed || busy}
-        onCheckedChange={() => onComplete(task.id)}/>
+      <Checkbox aria-label={"Mark “" + task.title + "” complete"} checked={completed} disabled={completed || busy || !canComplete}
+        aria-describedby={!completed && !canComplete ? reasonId : undefined} onCheckedChange={() => onComplete(task.id)}/>
     </div>
     <div className="min-w-0 flex-1">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
@@ -58,6 +65,9 @@ export default function TaskRow({task, status, busy, formatDateTime, onComplete}
         <p className="truncate text-xs text-muted-foreground">{task.notes || "No notes"}</p>
         <p className="ml-2 shrink-0 text-xs text-muted-foreground">{task.assignee?.first_name} {task.assignee?.last_name}</p>
       </div>
+      {!completed && !canComplete && <p id={reasonId} className="mt-1 text-xs text-muted-foreground">
+        Only the assigned agent can complete this task.
+      </p>}
     </div>
   </div>;
 }

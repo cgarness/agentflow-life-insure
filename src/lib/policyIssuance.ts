@@ -21,17 +21,27 @@ const confirmedSchema = z.object({
 });
 export type PolicyIssuanceEntry = z.infer<typeof entrySchema>;
 
-/** The date field of the confirmation dialog: a real calendar date, today or earlier. */
+/** The earliest issue date the server accepts. */
+export const EARLIEST_ISSUE_DATE = "1900-01-01";
+
+/** The date field of the confirmation dialog: a real calendar date from 1900 on, today or earlier. */
 export const issueDateSchema = z.string()
   .refine(value => parseLocalDateInput(value) !== null, "Enter the date the policy was issued.")
+  .refine(value => value >= EARLIEST_ISSUE_DATE, "Enter an issue date on or after January 1, 1900.")
   .refine(value => value <= todayLocalDateInput(), "The issue date cannot be in the future.");
 
 const FAILURES: Record<string, string> = {
   "42501": "You cannot confirm issuance for this client.",
-  "22023": "Enter an issue date that is not in the future.",
+  // The server also uses this code for a date before 1900 and for a reused request, so the wording stays general.
+  "22023": "Enter a valid issue date that is not in the future.",
   PT409: "This policy is already confirmed as issued on a different date.",
   PT404: "This policy is no longer available.",
 };
+
+/** A refused confirmation. `code` is the server's error code, so the caller can tell a stale status from a failure. */
+export class PolicyIssuanceError extends Error {
+  constructor(message: string, readonly code: string) { super(message); }
+}
 
 /** One entry per stored policy of a client the signed-in person can see. */
 export async function getPolicyIssuance(clientId: string): Promise<PolicyIssuanceEntry[]> {
@@ -45,6 +55,6 @@ export async function confirmPolicyIssuance(requestId: string, policyId: string,
   const { data, error } = await supabase.rpc("confirm_policy_issuance", {
     p_request_id: requestId, p_policy_id: policyId, p_issued_on: issuedOn,
   });
-  if (error) throw new Error(FAILURES[error.code] ?? "Issuance was not confirmed. Try again.");
+  if (error) throw new PolicyIssuanceError(FAILURES[error.code] ?? "Issuance was not confirmed. Try again.", error.code ?? "");
   return confirmedSchema.parse(data);
 }

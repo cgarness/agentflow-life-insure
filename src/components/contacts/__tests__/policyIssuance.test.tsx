@@ -46,6 +46,7 @@ describe("Confirm issuance on one policy", () => {
     const dialog = within(await screen.findByRole("dialog", {name: "Confirm policy issuance"}));
     expect(dialog.getByLabelText("Issue date")).toHaveValue(today());
     expect(dialog.getByLabelText("Issue date")).toHaveAttribute("max", today());
+    expect(dialog.getByLabelText("Issue date")).toHaveAttribute("min", "1900-01-01");
     fireEvent.click(dialog.getByRole("button", {name: "Confirm issuance"}));
     expect(await first.findByText("Issued")).toBeVisible();
     expect(first.getByText("date:" + today() + " · confirmed by Alexa Stone")).toBeVisible();
@@ -75,13 +76,56 @@ describe("Confirm issuance on one policy", () => {
     expect(confirms()[1]).toMatchObject({p_policy_id: FIRST, p_issued_on: "2026-11-01"});
   });
 
-  it("explains a conflict with an earlier confirmation", async () => {
+  it("explains a conflict with an earlier confirmation and shows the confirmation that stands", async () => {
     mount();
-    fireEvent.click(await within(await screen.findByRole("region", {name: "second"})).findByRole("button", {name: "Confirm issuance"}));
+    const second = within(await screen.findByRole("region", {name: "second"}));
+    fireEvent.click(await second.findByRole("button", {name: "Confirm issuance"}));
     confirmFailures = [{code: "PT409", message: "different date"}];
+    // Someone else confirmed it on another date in the meantime.
+    listed = [entry(FIRST), entry(SECOND, {issued_on: "2026-10-01", confirmed_at: "2026-11-22T15:00:00Z", confirmed_by_name: "Jordan Lee", can_confirm: false})];
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(dialog.getByRole("button", {name: "Confirm issuance"}));
     expect(await dialog.findByRole("alert")).toHaveTextContent("This policy is already confirmed as issued on a different date.");
+    // The explanation stays readable, and nothing can be confirmed again from it.
+    await waitFor(() => expect(dialog.getByRole("button", {name: "Confirm issuance"})).toBeDisabled());
+    expect(dialog.getByRole("alert")).toHaveTextContent("already confirmed");
+    fireEvent.click(dialog.getByRole("button", {name: "Cancel"}));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(second.getByText("date:2026-10-01 · confirmed by Jordan Lee")).toBeVisible();
+    expect(second.queryByRole("button", {name: "Confirm issuance"})).toBeNull();
+    expect(confirms()).toHaveLength(1);
+  });
+
+  it("reads the status again when the policy is gone", async () => {
+    mount();
+    const first = within(await screen.findByRole("region", {name: "first"}));
+    fireEvent.click(await first.findByRole("button", {name: "Confirm issuance"}));
+    confirmFailures = [{code: "PT404", message: "Policy not found"}];
+    listed = [entry(SECOND)];
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.click(dialog.getByRole("button", {name: "Confirm issuance"}));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("This policy is no longer available.");
+    await waitFor(() => expect(dialog.getByRole("button", {name: "Confirm issuance"})).toBeDisabled());
+    expect(rpc.mock.calls.filter(call => call[0] === "get_policy_issuance")).toHaveLength(2);
+    fireEvent.click(dialog.getByRole("button", {name: "Cancel"}));
+    await waitFor(() => expect(screen.getByRole("region", {name: "first"})).toBeEmptyDOMElement());
+  });
+
+  it("refuses a date before 1900 in the browser and words the server's date refusal neutrally", async () => {
+    mount();
+    fireEvent.click(await within(await screen.findByRole("region", {name: "first"})).findByRole("button", {name: "Confirm issuance"}));
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Issue date"), {target: {value: "1899-12-31"}});
+    fireEvent.click(dialog.getByRole("button", {name: "Confirm issuance"}));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Enter an issue date on or after January 1, 1900.");
+    expect(confirms()).toHaveLength(0);
+    fireEvent.change(dialog.getByLabelText("Issue date"), {target: {value: "1900-01-01"}});
+    confirmFailures = [{code: "22023", message: "This request was already used for another policy"}];
+    fireEvent.click(dialog.getByRole("button", {name: "Confirm issuance"}));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Enter a valid issue date that is not in the future.");
+    expect(confirms()).toEqual([expect.objectContaining({p_issued_on: "1900-01-01"})]);
+    // A refused value is not a stale status, so nothing is read again.
+    expect(rpc.mock.calls.filter(call => call[0] === "get_policy_issuance")).toHaveLength(1);
   });
 
   it("offers nothing to someone who may not confirm, or while viewing as another person", async () => {

@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tasksApi } from '@/lib/tasksApi';
 import { Button } from '@/components/ui/button';
 import { Plus, CheckCircle2 } from 'lucide-react';
 import { AddTaskModal } from './AddTaskModal';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { useBranding } from '@/contexts/BrandingContext';
+import { FOLLOW_UPS_REFETCH_INTERVAL_MS, NOW_TICK_MS } from '@/hooks/useContactFollowUps';
 import { getTaskDueStatus, isTimedTask, type TaskDueStatus } from '@/lib/taskDates';
 import TaskRow, { type TaskListItem } from './TaskRow';
 
@@ -27,12 +29,22 @@ export function TasksPanel({ contactId, contactType, organizationId, agents }: T
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const { toast } = useToast();
   const { formatDateTime } = useBranding();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  // A timed task moves from Upcoming to Due Today to Overdue as the clock passes it, as on the Follow-ups card.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), NOW_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const { data: tasks, isLoading } = useQuery<TaskListItem[]>({
     queryKey: ['tasks', contactId],
     queryFn: () => tasksApi.getTasks(contactId, organizationId),
-    enabled: !!contactId && !!organizationId
+    enabled: !!contactId && !!organizationId,
+    // Tasks an automation creates while the contact is open appear on the same schedule as the Follow-ups card.
+    refetchInterval: FOLLOW_UPS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   });
 
   const completeMutation = useMutation({
@@ -51,7 +63,9 @@ export function TasksPanel({ contactId, contactType, organizationId, agents }: T
   }
 
   // Shared with the Follow-ups card so both surfaces always agree. Only an automation task carries a time of day.
-  const statusOf = (task: TaskListItem) => getTaskDueStatus(task.due_date, task.completed_at, new Date(), !isTimedTask(task));
+  const statusOf = (task: TaskListItem) => getTaskDueStatus(task.due_date, task.completed_at, now, !isTimedTask(task));
+  // Row security lets only the assignee or the creator update a task. An automation task has no creator.
+  const canComplete = (task: TaskListItem) => !!user && (task.assigned_to === user.id || task.created_by === user.id);
 
   return (
     <div className="flex flex-col h-full bg-card rounded-xl border">
@@ -80,7 +94,7 @@ export function TasksPanel({ contactId, contactType, organizationId, agents }: T
             <div key={status} className="mb-4">
               <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{title}</h4>
               <div>
-                {listed.map(task => <TaskRow key={task.id} task={task} status={status} busy={completeMutation.isPending}
+                {listed.map(task => <TaskRow key={task.id} task={task} status={status} busy={completeMutation.isPending} canComplete={canComplete(task)}
                   formatDateTime={formatDateTime} onComplete={id => completeMutation.mutate(id)} />)}
               </div>
             </div>

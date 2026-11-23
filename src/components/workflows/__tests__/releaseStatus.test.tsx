@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { automationApi, type DraftRecord } from "@/lib/automation-api";
 import { readReleaseControls } from "@/lib/automation-release";
@@ -85,7 +86,7 @@ describe("workflow release settings", () => {
       return {...current,version_id:id,release_controls:current.controls};
     });
     render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>
-      <AutomationEditor record={document} scope="fixture" session={3} onBack={vi.fn()} onSaved={vi.fn()}/>
+      <MemoryRouter><AutomationEditor record={document} scope="fixture" session={3} onBack={vi.fn()} onSaved={vi.fn()}/></MemoryRouter>
     </QueryClientProvider>);
     const review = async () => fireEvent.click(await screen.findByRole("button",{name:"Save & review"}));
     await review();

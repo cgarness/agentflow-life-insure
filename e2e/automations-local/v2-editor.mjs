@@ -171,11 +171,14 @@ try {
   await page.keyboard.press('Enter');
   await menu.waitFor({ state: 'hidden' });
   assert.equal(await message.inputValue(), 'Reach me at {{phone}}');
-  // A field automations cannot fill is caught before anything is saved, with what to do about it.
+  // A field automations cannot fill is reported with what to do about it. Save & review still keeps the
+  // draft, says plainly that it cannot be published yet, and publishes nothing.
   await message.fill('From {{agent_name}}');
   await button(page, 'Save & review').click();
   await page.getByText(/Message uses a field automations can't fill: .*Remove it or choose one from Insert field\./).first().waitFor();
-  assert.equal(count(`public.workflows where organization_id='${agency}' and automation_draft_name='${title}'`), 0);
+  await page.getByText('Draft saved. Fix the highlighted steps before publishing.', { exact: true }).waitFor();
+  assert.equal(count(`public.workflows where organization_id='${agency}' and automation_draft_name='${title}'
+    and status='draft' and automation_version_id is null`), 1, 'The incomplete draft is saved and nothing is published');
   await message.fill('Hello {{first_name}}, welcome to the agency.');
   await button(page, 'Step details').click();
   await field(page, 'Step name').fill('Welcome text');

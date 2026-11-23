@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Issue } from "@/lib/automation-api";
 import { cn } from "@/lib/utils";
 import {
-  graphBlock, STEP_DESCRIPTION_MAX, STEP_NAME_MAX, type AutomationNode, type StepMeta,
+  cleanStepText, graphBlock, STEP_DESCRIPTION_MAX, STEP_NAME_MAX, type AutomationNode, type StepMeta,
 } from "../../../../supabase/functions/_shared/automations/graph";
 import Field from "./Field";
 import { describedBy, fieldIssues } from "./stepConfig";
@@ -19,13 +19,12 @@ interface Props {
   onChange: (node: AutomationNode) => void;
 }
 
-// A name is one line of plain text. A description may keep its line breaks.
-// eslint-disable-next-line no-control-regex
-const NAME_CONTROL = /[\u0000-\u001F\u007F]+/g;
-// eslint-disable-next-line no-control-regex
-const TEXT_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]+/g;
 
-/** Optional name and internal note for any step. They live beside the configuration, never inside it. */
+/**
+ * Optional name and internal note for any step. They live beside the configuration, never inside it.
+ * A name is one line of plain text; a description may keep its line breaks. The shared rule removes the
+ * control characters the database refuses as they are typed or pasted.
+ */
 export default function StepDetailsFields({node, issues, readOnly, onChange}: Props) {
   const id = useId();
   const name = node.meta?.name ?? "", description = node.meta?.description ?? "";
@@ -53,12 +52,12 @@ export default function StepDetailsFields({node, issues, readOnly, onChange}: Pr
         <Field id={id + "name"} label="Step name" errors={nameIssues}>
           <Input id={id + "name"} value={name} maxLength={STEP_NAME_MAX} placeholder={graphBlock(node)?.label}
             aria-invalid={nameIssues.length > 0 || undefined} aria-describedby={describedBy(id + "name", false, nameIssues)}
-            onChange={event => write("name", event.target.value.replace(NAME_CONTROL, " "))}/>
+            onChange={event => write("name", cleanStepText(event.target.value, true))}/>
         </Field>
         <Field id={id + "description"} label="Description" hint="Only your team sees this." errors={descriptionIssues}>
           <Textarea id={id + "description"} value={description} maxLength={STEP_DESCRIPTION_MAX} className="text-base md:text-sm"
             aria-invalid={descriptionIssues.length > 0 || undefined} aria-describedby={describedBy(id + "description", true, descriptionIssues)}
-            onChange={event => write("description", event.target.value.replace(TEXT_CONTROL, ""))}/>
+            onChange={event => write("description", cleanStepText(event.target.value, false))}/>
         </Field>
       </fieldset>
     </CollapsibleContent>
