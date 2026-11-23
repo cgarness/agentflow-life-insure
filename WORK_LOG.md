@@ -1,3 +1,32 @@
+## November 23, 2026 — Automations V2 hardened through four review passes; nothing released
+
+Independent reviewers tried to break [draft pull request 536](https://github.com/cgarness/agentflow-life-insure/pull/536) on scratch databases in four passes. Each pass after the first checked the fixes from the round before:
+
+- First pass: 42 findings, 12 major.
+- Second pass: 15 more.
+- Third pass: 10.
+- Fourth pass: 4, against the redesigned reschedule logic.
+
+Every confirmed finding was reproduced and fixed on `claude/cool-maxwell-15hyq7`, each with a test that fails on the earlier code. No production migration, Edge function, Vercel deployment, release control or schedule was changed, and production was not read again.
+
+Behaviour that changed:
+
+- Appointments. After a reminder went out, a reschedule starts the automation again only when that gives the new time every reminder, and only when the new time is admitted. Until then the worker leaves the old run alone. Otherwise the run moves to the new time in place. Taking back a cancellation revives the runs it stopped, and a cancelled appointment moved to a new time starts nothing.
+- Tasks and holds. Turning enrollment off holds task steps. Holds back off and end after seven days.
+- Missed calls. A known caller's missed-call task goes to the contact's own agent. A callback whose call was later proven answered cannot be claimed. A contact's details in a callback are hidden from people who cannot see that contact.
+- Sign-in. A super admin session the server cannot verify cannot claim callbacks or confirm issuance, and is told to sign in again.
+- Builder. A reopened draft waits for its current record, unsaved changes are protected on every way out, and Save & review saves an incomplete draft and says so. A step's name and description stay within their limits as they are typed.
+
+The rollback file no longer drops triggers, because on Supabase that locks the sign-in and storage tables. It judges each version once from stored data, and holds its locks on runs and workflows only for the moment before it commits. It stops itself on a refusal even without psql's flags. Three guards keep anything that needs V2 from starting again, and each refusal says what the author can do. The release plan now covers migration locks, open callbacks, and turning the worker schedule off after a database rollback.
+
+A new browser check, `v2-crm.mjs`, opens the CRM screens V2 changed at 1440 and 375 px in both themes. Insert field is checked by touch. The contact screen is a fixed desktop layout everywhere, which V2 did not change. On a phone its policies column is off screen, so Confirm issuance cannot be reached there; this is recorded as inherited.
+
+All checks were rerun at the final code. The three harness modes passed: builder in 344 s, release in 123 s and backend-first in 115 s. All 14 native SQL suites passed inside them. Root TypeScript and the production build passed. App TypeScript diagnostics stayed at 78, with zero new. ESLint found 0 errors. Vitest passed 7,410 tests; the nine failing files fail identically on the base. Deno passed 67 tests. With 100,000 unfinished runs the rollback took about 1 second. Every provider was an in-memory transport.
+
+Execution still needs its own approvals: a worker release, an owned schedule, the receipt endpoint, a verified email sender, recipient eligibility evidence, enrollment and message delivery. The complete production schema was not rehearsed.
+
+[Context snapshot](docs/plans/automations-v2/context-snapshot.md) · [Release and rollback plan](docs/plans/automations-v2/release-plan.md) · [Screenshots](docs/plans/automations-v2/evidence/)
+
 ## November 22, 2026 — Automations V2 built and verified locally; nothing released
 
 Automations V2 is ready for review as [draft pull request 536](https://github.com/cgarness/agentflow-life-insure/pull/536), from `claude/cool-maxwell-15hyq7` into `feat/self-service-automations`. No production migration, Edge function, Vercel deployment, release control or schedule was changed. Production was read only: the ledger still holds 395 entries ending `20261122001044`, one agency sees the builder, and no agency is enrolling or delivering.

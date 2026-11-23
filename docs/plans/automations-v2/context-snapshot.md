@@ -72,7 +72,7 @@ On November 23 a second pass tested those fixes. Four checkers reported 18 findi
 | --- | --- |
 | Appointments | A restart happens only when it gives the new time every reminder. Otherwise the run moves to the new time in place. The worker can no longer reach the old run first and cancel the restart. Taking back a cancellation keeps a plain wait's remaining time. An appointment change finds its runs through a new index. |
 | Callbacks | Title and notes an automation rendered for a known contact are shown only to people who can see the contact. |
-| Rollback | Judges each version once and holds the lock on runs only for the moment before it commits. Locally, 100,000 unfinished runs took about 2 seconds, where the earlier file held that lock for about 16 seconds. The decision reads only stored data, so editing a saved message later cannot stop an automation. A publish that loosens a text's consent requirement is refused with a reason that names it. A refusal stops psql even without its flags. |
+| Rollback | Judges each version once and holds the lock on runs only for the moment before it commits. Locally, 100,000 unfinished runs took about 1 second, where the earlier file held that lock for about 16 seconds. The decision reads only stored data, so editing a saved message later cannot stop an automation. A publish that loosens a text's consent requirement is refused with a reason that names it. A refusal stops psql even without its flags. |
 | Builder and CRM | Refusals that signing in again fixes show the server's words. The preview names a missed call's blank task after the caller's number. Fields accept the longest allowed text even as emoji. The text-step hint says only an agency saved message keeps its consent type. |
 | Verification and documents | The changed CRM screens and Insert field by touch are now checked in a real browser. Every result under Verification was produced again at the fixed code. The release plan says to turn the worker schedule off after a database rollback. Two wrong statements were corrected. |
 
@@ -104,7 +104,7 @@ Accepted as they are, and stated here so they are not mistaken for fixed:
 
 ## Verification
 
-All runs were local, on November 23, 2026, at `5808914`. That commit has the same code as the pull request head. Later commits changed only screenshots and documents. Each review fix also has its own case that fails on the earlier code; those runs are recorded with the fixes.
+All runs were local, on November 23, 2026. The three harness modes and every SQL suite ran at `29f7046`, the final code; later commits changed only screenshots and documents. Vitest, the build, both typechecks, lint and Deno ran at `28394a2`, and nothing those checks read changed after it. Each review fix also has its own case that fails on the earlier code.
 
 | Check | Result |
 | --- | --- |
@@ -112,15 +112,15 @@ All runs were local, on November 23, 2026, at `5808914`. That commit has the sam
 | App TypeScript, `A2P_BASE_SHA=d85434f635bbf2d4118781e6d254798eef699363 node scripts/verify-a2p-types.mjs` | 78 diagnostics on the base and on the candidate. Zero new. |
 | `npm run build` | Pass. |
 | `npx eslint` on the 89 frontend files this branch added or changed | 0 errors, 3 warnings (two effect-cleanup ref warnings, one fast-refresh warning on the shared badge). |
-| `npx vitest run` | 7,409 tests passed, 40 skipped, 1 failed. 504 files passed, 4 skipped, 9 failed. All nine failures exist on the base and are listed below. |
-| Focused Vitest: builder, tasks, Inbounds callbacks, policy issuance | 19 files, 241 passed, 5 skipped. |
+| `npx vitest run` | 7,410 tests passed, 40 skipped, 1 failed. 504 files passed, 4 skipped, 9 failed. All nine failures exist on the base and are listed below. |
+| Focused Vitest: builder, tasks, Inbounds callbacks, policy issuance | 19 files, 242 passed, 5 skipped. |
 | Deno: `_shared/automations/` and three `_shared/sms/` files | 67 passed, 0 failed (38 Automations, 29 SMS). |
 | Native SQL on PostgreSQL 17.6 | All 14 `supabase/tests/automation_*.sql` suites pass inside the harness modes: six first-release, five V2, the rollback rehearsal, the upgrade and intake eligibility. |
 | `concurrency.py`, `concurrency_v2.py` | Pass. One winner of two simultaneous callback claims, one task from a twice-delivered step, one callback for a call two automations reached together, and an appointment saved in 0.3 s while a publish lock was held. |
-| `bash e2e/automations-local/run.sh` | Pass in 319 s, including the new CRM screen check and Insert field by touch. |
-| `bash e2e/automations-local/run.sh release` | Pass in 121 s, including the rollback rehearsal run without psql's flags. |
+| `bash e2e/automations-local/run.sh` | Pass in 344 s, including the CRM screen check and Insert field by touch. |
+| `bash e2e/automations-local/run.sh release` | Pass in 123 s, including the rollback rehearsal run without psql's flags. |
 | `bash e2e/automations-local/run.sh backend-first` | Pass in 115 s. |
-| Rollback at scale | 100,000 unfinished runs: about 2 seconds in all, with the lock on runs held only for creating its guard and the commit. |
+| Rollback at scale | With 100,000 unfinished runs the final file took about 1 second: 879 ms for the data phase, then 2 ms to create the guards, which is all the time the locks on runs and workflows are held before the commit. |
 | Browser | 1440 px and 375 px, light and dark: the builder with keyboard authoring and Insert field by touch, and the changed CRM screens. Screenshots are taken fully drawn at twice the pixel density. The only request that tried to leave the machine was the app's Google Fonts stylesheet, which the harness blocked. Zero provider requests. |
 
 ### Where each required check lives
