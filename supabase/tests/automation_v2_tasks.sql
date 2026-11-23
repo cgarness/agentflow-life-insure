@@ -116,6 +116,44 @@ begin
   perform pg_temp.ok((select count(*)=1 from public.tasks where contact_id=pg_temp.id(31)),'a replayed step created exactly one task');
 end $$;
 
+-- A, as the agency configures it: "Lead added to selected campaign -> create a call task due in five minutes".
+-- The same attachment arriving twice is one event, and handling that event again starts no second run.
+select pg_temp.publish(90,91,'Campaign callback','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"campaign_membership_created","version":1,"config":{"campaign_id":"7a5c0000-0000-4000-8000-000000000092"}},
+    {"id":"task","type":"create_task","version":1,
+     "config":{"title":"Call the campaign lead","task_type":"Follow Up","due_amount":5,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"task"}]}');
+insert into public.campaigns(id,name,organization_id,user_id) values (pg_temp.id(92),'Selected campaign',pg_temp.id(1),pg_temp.id(10));
+insert into public.leads(id,organization_id,first_name,assigned_agent_id) values (pg_temp.id(93),pg_temp.id(1),'Campaign',pg_temp.id(11));
+select pg_temp.ok(public.automation_process_events(25)=1,'the new lead first enrolls in the new-lead callback');
+select pg_temp.ok(pg_temp.work()->>'result'='created','the new-lead callback creates its task');
+insert into public.campaign_leads(id,campaign_id,lead_id,organization_id) values
+  (pg_temp.id(94),pg_temp.id(92),pg_temp.id(93),pg_temp.id(1)) on conflict do nothing;
+insert into public.campaign_leads(id,campaign_id,lead_id,organization_id) values
+  (pg_temp.id(95),pg_temp.id(92),pg_temp.id(93),pg_temp.id(1)) on conflict do nothing;
+select pg_temp.ok((select count(*)=1 from private.automation_events where event_type='campaign_membership_created'
+  and contact_id=pg_temp.id(93)),'the same attachment arriving twice is one event');
+select pg_temp.ok(public.automation_process_events(25)=1,'joining the selected campaign enrolls once');
+update private.automation_events set processed_at=null,interval_cursor=null
+  where event_type='campaign_membership_created' and contact_id=pg_temp.id(93);
+select pg_temp.ok(public.automation_process_events(25)=0,'handling the same event again starts no second run');
+do $$
+declare turn jsonb:=pg_temp.work(); made public.tasks;
+begin
+  perform pg_temp.ok(turn->>'result'='created' and turn->>'workflow_id'=pg_temp.id(90)::text,'the campaign task step reports created');
+  select * into strict made from public.tasks where automation_run_id=(turn->>'run_id')::uuid;
+  perform pg_temp.ok(made.contact_id=pg_temp.id(93) and made.assigned_to=pg_temp.id(11) and made.title='Call the campaign lead'
+    and not made.all_day and made.due_date between clock_timestamp()+interval '4 minutes' and clock_timestamp()+interval '6 minutes',
+    'one call task for the lead''s assigned agent, due five minutes out');
+  perform pg_temp.ok((select count(*)=1 from private.automation_runs where workflow_id=pg_temp.id(90)),'one run for the campaign');
+  perform pg_temp.ok((select count(*)=1 from public.tasks t join private.automation_runs r on r.id=t.automation_run_id
+    where r.workflow_id=pg_temp.id(90)),'one task from the campaign automation');
+  perform pg_temp.ok(not exists(select from public.calls where organization_id=pg_temp.id(1)),'creating the task placed no call');
+  perform pg_temp.ok(pg_temp.work() is null,'nothing else is due');
+end $$;
+update public.workflows set status='paused' where id=pg_temp.id(90);
+
 -- No owner is stated plainly, retried, and resolved when an owner appears.
 insert into public.leads(id,organization_id,first_name) values (pg_temp.id(32),pg_temp.id(1),'Unowned');
 insert into public.leads(id,organization_id,first_name,assigned_agent_id) values (pg_temp.id(33),pg_temp.id(1),'Former',pg_temp.id(15));
