@@ -169,6 +169,9 @@ insert into public.leads(id,organization_id,first_name,lead_source,assigned_agen
 select pg_temp.ok((select count(*)=1 from private.automation_events where source_id=pg_temp.id(32) and processed_at is null),
   'the pending lead''s event waits for the worker');
 
+-- A late-answer cleanup a busy row held up, waiting for the worker.
+insert into private.automation_answer_settlements(organization_id,call_id,last_sqlstate) values (pg_temp.id(1),pg_temp.id(99),'55P03');
+
 create temporary table kept on commit drop as select
   (select count(*) from public.tasks where organization_id=pg_temp.id(1)) as tasks,
   (select count(*) from public.inbound_callbacks where organization_id=pg_temp.id(1)) as callbacks,
@@ -178,10 +181,12 @@ create temporary table kept on commit drop as select
   (select count(*) from private.automation_runs where organization_id=pg_temp.id(1)) as runs,
   (select count(*) from private.automation_intake_recovery where organization_id=pg_temp.id(1)) as repairs,
   (select count(*) from public.workflow_versions where organization_id=pg_temp.id(1)) as versions,
+  (select jsonb_agg(to_jsonb(x) order by call_id) from private.automation_answer_settlements x where organization_id=pg_temp.id(1)) as cleanups,
   (select jsonb_agg(graph order by id) from public.workflow_versions where organization_id=pg_temp.id(1)) as graphs,
   (select due_at from private.automation_runs where workflow_id=pg_temp.id(40) and contact_id=pg_temp.id(30)) as first_due;
-select pg_temp.ok((select callbacks=1 and receipts=1 and purposes=1 and runs=7 and repairs=1 and versions=8 from kept),
-  'the fixture holds a callback, its receipt, a pinned requirement, four runs and an intake repair');
+select pg_temp.ok((select callbacks=1 and receipts=1 and purposes=1 and runs=7 and repairs=1 and versions=8
+    and jsonb_array_length(cleanups)=1 from kept),
+  'the fixture holds a callback, its receipt, a pinned requirement, four runs, an intake repair and a late-answer cleanup');
 
 -- The operator turns enrollment and delivery off everywhere, then runs the file.
 update private.automation_release_controls set enrollment_enabled=false,dispatch_enabled=false;
@@ -250,7 +255,9 @@ select pg_temp.ok((select k.tasks=(select count(*) from public.tasks where organ
     and k.repairs=(select count(*) from private.automation_intake_recovery where organization_id=pg_temp.id(1))
     and k.versions=(select count(*) from public.workflow_versions where organization_id=pg_temp.id(1))
     and k.graphs=(select jsonb_agg(graph order by id) from public.workflow_versions where organization_id=pg_temp.id(1))
-  from kept k),'every task, callback, receipt, pinned requirement, event, run, repair and published graph is retained');
+    and k.cleanups=(select jsonb_agg(to_jsonb(x) order by call_id) from private.automation_answer_settlements x
+      where organization_id=pg_temp.id(1))
+  from kept k),'every task, callback, receipt, pinned requirement, event, run, repair, late-answer cleanup and published graph is retained unchanged');
 do $$
 declare target uuid:=(select id from public.inbound_callbacks where organization_id=pg_temp.id(1));
 begin
@@ -384,6 +391,8 @@ select pg_temp.ok(exists(select from private.automation_runs where workflow_id=p
 update public.workflows set status='paused' where id=pg_temp.id(81);
 update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
   where contact_id=pg_temp.id(84) and status in ('queued','waiting','held');
+select pg_temp.ok((select cleanups from kept)=(select jsonb_agg(to_jsonb(x) order by call_id) from private.automation_answer_settlements x
+    where organization_id=pg_temp.id(1)),'the restored worker leaves the late-answer cleanup for V2 to finish');
 -- 7. Only the most recent pin of a text counts. V2 pinned it to marketing as custom wording, then to informational
 -- once it became an unchanged agency saved message, so a first-release republish of that informational text may run.
 insert into public.workflows(id,organization_id,name,status,trigger_type,automation_graph,automation_revision)

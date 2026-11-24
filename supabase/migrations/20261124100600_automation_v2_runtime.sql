@@ -13,7 +13,8 @@ DO $v2_guard$ BEGIN
 END $v2_guard$;
 
 -- A lease covers one node. A run whose stop condition already happened ends here instead of running,
--- and the claim keeps looking, so a page of stopped runs never reads as an empty queue.
+-- and the claim keeps looking, so a page of stopped runs never reads as an empty queue. A lease records
+-- the appointment slot its facts describe, which the provider handoff checks again.
 CREATE OR REPLACE FUNCTION public.automation_claim_work(p_limit integer default 10)
 returns setof jsonb language plpgsql security definer set search_path='' as $$
 declare
@@ -21,6 +22,8 @@ declare
   graph jsonb;
   node jsonb;
   origin private.automation_events;
+  slot_id uuid;
+  slot_start timestamptz;
   token uuid;
   previous_intent text;
   cutoff timestamptz := clock_timestamp();
@@ -52,9 +55,26 @@ begin
         where v.id=run.version_id and v.organization_id=run.organization_id and v.workflow_id=run.workflow_id;
       select n into node from jsonb_array_elements(graph->'nodes') n where n->>'id'=run.current_node_id;
       select * into origin from private.automation_events ev where ev.id=run.event_id and ev.organization_id=run.organization_id;
+      slot_id:=null;
+      slot_start:=null;
+      if origin.event_type='appointment_booked' then
+        select s.occurrence_id,s.starts_at into slot_id,slot_start
+          from private.automation_appointment_state(run.organization_id,nullif(origin.subject->>'appointment_id','')::uuid) s;
+      end if;
       token:=gen_random_uuid();
-      update private.automation_runs set lease_token=token,leased_until=clock_timestamp()+interval '2 minutes'
+      update private.automation_runs set lease_token=token,leased_until=clock_timestamp()+interval '2 minutes',leased_for=slot_id
         where id=run.id;
+      -- A reminder is written for the time it became due for. When the appointment has moved since and the
+      -- automation is not starting again for the new time, that reminder is not sent, and the run goes on to
+      -- its next step, which follows the current time. A message that may already be with a provider is
+      -- reconciled instead.
+      if node->>'type' in ('send_sms','send_email') and run.reminded_for is not null
+          and run.reminded_for is distinct from slot_id
+          and not exists (select 1 from private.automation_intents i where i.organization_id=run.organization_id
+            and i.run_id=run.id and i.node_id=run.current_node_id and i.status<>'prepared') then
+        perform public.automation_finish_node(run.id,token,'skipped','The appointment moved after this reminder was due');
+        continue;
+      end if;
       previous_intent:=null;
       if node->>'type' in ('send_sms','send_email') then
         insert into private.automation_intents(organization_id,run_id,node_id,status)
@@ -70,8 +90,7 @@ begin
         'trigger',origin.event_type,
         'context',jsonb_strip_nulls(jsonb_build_object(
           'appointment_start',case origin.event_type
-            when 'appointment_booked' then (select s.starts_at from private.automation_appointment_state(
-              run.organization_id,nullif(origin.subject->>'appointment_id','')::uuid) s)
+            when 'appointment_booked' then slot_start
             when 'appointment_outcome_recorded' then (select o.scheduled_start from private.appointment_occurrences o
               where o.organization_id=run.organization_id and o.id=nullif(origin.subject->>'occurrence_id','')::uuid) end,
           'agency_timezone',private.automation_agency_time_zone(run.organization_id),
@@ -230,6 +249,77 @@ begin
     ended_at=case when next_status in ('completed','failed','unknown','stopped') then clock_timestamp() end
     where id=p_run;
   return true;
+end $$;
+
+-- What would keep a leased message from going out now, or null. Nothing that ends the run has happened since the
+-- lease, and a message about a booking still describes the appointment's current time: the slot its lease's facts
+-- came from, the slot its reminders were for, and the time the calendar itself shows (a move whose slot record
+-- could not be written in time still counts as a move).
+CREATE FUNCTION private.automation_message_issue(r private.automation_runs)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE origin private.automation_events; reason text; appointment uuid; current_slot uuid; slot_start timestamptz; booked_start timestamptz;
+BEGIN
+  SELECT s.stop_reason INTO reason FROM private.automation_stop_check(r) s WHERE s.stop_reason IS NOT NULL LIMIT 1;
+  IF reason IS NOT NULL THEN RETURN reason; END IF;
+  SELECT * INTO origin FROM private.automation_events e WHERE e.organization_id=r.organization_id AND e.id=r.event_id;
+  IF origin.event_type IS DISTINCT FROM 'appointment_booked' THEN RETURN NULL; END IF;
+  appointment:=nullif(origin.subject->>'appointment_id','')::uuid;
+  SELECT s.occurrence_id,s.starts_at INTO current_slot,slot_start
+    FROM private.automation_appointment_state(r.organization_id,appointment) s;
+  SELECT a.start_time INTO booked_start FROM public.appointments a WHERE a.organization_id=r.organization_id AND a.id=appointment;
+  IF current_slot IS NULL OR r.leased_for IS DISTINCT FROM current_slot
+      OR (r.reminded_for IS NOT NULL AND r.reminded_for IS DISTINCT FROM current_slot)
+      OR booked_start IS DISTINCT FROM slot_start THEN
+    RETURN 'The appointment moved after this message was prepared';
+  END IF;
+  RETURN NULL;
+END $$;
+
+-- Asked by the worker before it reserves a provider request, so a change already made holds the message without
+-- spending that request. Only an answer sooner: the handoff checks again under lock. A message already handed to a
+-- provider is left to its own record, so a replay still finds its original receipt.
+CREATE FUNCTION public.automation_message_check(p_run uuid,p_token uuid,p_node text)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM private.automation_intents i WHERE i.run_id=p_run AND i.node_id=p_node
+        AND i.status<>'prepared') THEN NULL
+    WHEN r.id IS NULL THEN 'This step is no longer leased to this worker'
+    ELSE private.automation_message_issue(r) END
+  FROM (SELECT 1) one LEFT JOIN private.automation_runs r ON r.id=p_run AND r.lease_token=p_token AND r.current_node_id=p_node
+    AND r.leased_until>=clock_timestamp() AND r.status IN ('queued','held','waiting')
+$$;
+
+-- Linearize the last local authorization against pause, stop, revocation and release gates, and against the
+-- appointment the message is about (automation_message_issue). The appointment row is share-locked before it is
+-- read, so a move or cancellation either committed first and refuses the handoff, or waits until the handoff is
+-- recorded. One still in progress refuses it too; the worker holds the message and the next lease sees the change.
+CREATE OR REPLACE FUNCTION public.automation_authorize_handoff(p_run uuid,p_token uuid,p_node text)
+returns boolean language plpgsql security definer set search_path='' as $$
+declare scope record; run private.automation_runs; origin private.automation_events;
+begin
+  select r.organization_id,r.workflow_id,v.published_by,e.campaign_id into scope
+    from private.automation_runs r
+    join public.workflows w on w.id=r.workflow_id and w.organization_id=r.organization_id
+    join public.workflow_versions v on v.id=r.version_id and v.workflow_id=w.id and v.organization_id=w.organization_id
+    join private.automation_events e on e.id=r.event_id and e.organization_id=r.organization_id
+    join private.automation_release_controls ctl on ctl.organization_id=w.organization_id
+    where r.id=p_run and r.lease_token=p_token and r.current_node_id=p_node and r.leased_until>=clock_timestamp()
+      and r.status in ('queued','held','waiting') and w.status='active' and ctl.dispatch_enabled
+    for update of w,r for share of ctl;
+  if not found or not private.automation_audience_allowed(scope.organization_id,scope.published_by,scope.campaign_id)
+    then return false; end if;
+  select * into run from private.automation_runs where id=p_run;
+  select * into origin from private.automation_events ev where ev.id=run.event_id and ev.organization_id=run.organization_id;
+  if origin.event_type in ('appointment_booked','appointment_outcome_recorded') then
+    begin
+      perform 1 from public.appointments a where a.organization_id=run.organization_id
+        and a.id=nullif(origin.subject->>'appointment_id','')::uuid for share nowait;
+    exception when lock_not_available then return false;
+    end;
+  end if;
+  if private.automation_message_issue(run) is not null then return false; end if;
+  update private.automation_intents set status='handed_off'
+    where organization_id=scope.organization_id and run_id=p_run and node_id=p_node and status='prepared';
+  return found;
 end $$;
 
 -- Create the task for a "Create task" step exactly once. The worker supplies the rendered text.
@@ -446,7 +536,8 @@ begin
 end $$;
 
 REVOKE ALL ON FUNCTION public.automation_create_task(uuid,uuid,text,text,text),
-  public.automation_message_timezone(uuid,text,text) FROM PUBLIC,anon,authenticated;
+  public.automation_message_timezone(uuid,text,text),public.automation_message_check(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.automation_message_issue(private.automation_runs) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.automation_create_task(uuid,uuid,text,text,text),
-  public.automation_message_timezone(uuid,text,text) TO service_role;
+  public.automation_message_timezone(uuid,text,text),public.automation_message_check(uuid,uuid,text) TO service_role;
 COMMIT;

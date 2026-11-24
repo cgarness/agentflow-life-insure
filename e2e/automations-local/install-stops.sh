@@ -39,7 +39,7 @@ apply() { psql_on "$1" -f "$dest/migrations/$2" >/dev/null; }
 catalog() { psql_on "$1" -f "$dest/install-catalog.sql"; }
 state() { psql_on "$1" -At -f "$dest/ops/automation_v2_install_state.sql" | grep '^{'; }
 first_release() {
-  # The sixteen first-release functions V2 replaces, as digests, in a fixed order.
+  # The seventeen first-release functions V2 replaces, as digests, in a fixed order.
   psql_on "$1" -At -c "select string_agg(sig||'='||md5(pg_get_functiondef(to_regprocedure(sig))),' ' order by sig)
     from unnest(array['private.automation_block_fields(text,jsonb)','private.automation_trigger(jsonb)',
       'private.automation_editable_graph(jsonb)','private.automation_channel_issue(uuid,uuid,jsonb)',
@@ -48,7 +48,8 @@ first_release() {
       'public.automation_session_transition(bigint,uuid)','private.automation_capture_event()',
       'private.automation_admit_event(private.automation_events,uuid)','public.automation_process_events(integer)',
       'public.automation_claim_work(integer)','public.automation_finish_node(uuid,uuid,text,text)',
-      'public.automation_activity(bigint,uuid,uuid,uuid,text,timestamp with time zone,uuid)','public.automation_stop_run(uuid,bigint)']) sig"
+      'public.automation_activity(bigint,uuid,uuid,uuid,text,timestamp with time zone,uuid)','public.automation_stop_run(uuid,bigint)',
+      'public.automation_authorize_handoff(uuid,uuid,text)']) sig"
 }
 inert_observers() {
   # Every V2 observer that exists says it does nothing.
@@ -95,7 +96,7 @@ for name in "${names[0]}" "${names[6]}"; do
   if apply "clean_rollback_$run_id" "$name" 2>/dev/null; then echo "$name installed over the full rollback" >&2; exit 1; fi
 done
 same "$(catalog "clean_rollback_$run_id")" "$rolled" "a refused install over the full rollback changed the catalog"
-echo "Reference: a clean installation of all seven files and its guarded rollback, which restores the 16 first-release functions."
+echo "Reference: a clean installation of all seven files and its guarded rollback, which restores the 17 first-release functions."
 
 for k in 0 1 2 3 4 5 6; do
   stop="stop_${k}_$run_id"

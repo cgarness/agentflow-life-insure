@@ -80,6 +80,15 @@ export async function dispatchChannel(
   const subject = renderedSubject.text;
   const origin = dependencies.env("SUPABASE_URL")?.replace(/\/+$/, "");
   if (!origin || !body.trim()) return { status: "held", reason: "Message configuration is incomplete." };
+  // Asked before a provider request is reserved: an appointment moved or cancelled since the lease holds the
+  // message without spending that request. The handoff checks the same again under lock.
+  const check = await db.rpc("automation_message_check", {
+    p_run: claim.run_id, p_token: claim.lease_token, p_node: claim.node_id,
+  });
+  if (check.error) return { status: "held", reason: "Message eligibility could not be verified." };
+  if (check.data !== null) {
+    return { status: "held", reason: typeof check.data === "string" && check.data ? check.data : "Message eligibility could not be verified." };
+  }
   let handedOff = false;
   let messageId: string | undefined;
 

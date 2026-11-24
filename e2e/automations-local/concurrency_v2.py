@@ -2,6 +2,9 @@
 
 Independent PostgreSQL connections race for one callback claim, one task step, and one callback per
 missed call. A final check holds the lock a publish takes and proves a CRM save still commits at once.
+Real row locks held by another session show that late-answer cleanup never holds up the call and finishes later,
+that a reopened appointment seen by two workers at once gets one run, and that an appointment save in flight
+refuses a reminder's provider handoff while a handoff in progress keeps the save waiting only until it commits.
 """
 import json
 import os
@@ -28,7 +31,10 @@ org, admin, first, second = [str(uuid.uuid4()) for _ in range(4)]
 ids = {name: str(uuid.uuid4()) for name in ["lead_flow", "lead_version", "call_flow_a", "call_version_a", "call_flow_b",
                                              "call_version_b", "lead", "call", "callback", "callback_call", "appointment",
                                              "late_lead", "late_task_call", "late_callback_call",
-                                             "appt_flow", "appt_version", "appt_lead", "reopened"]}
+                                             "appt_flow", "appt_version", "appt_lead", "reopened",
+                                             "busy_lead", "busy_call", "bridge_call", "bridge_attempt",
+                                             "first_seen_flow", "first_seen_version", "first_seen_lead", "first_seen",
+                                             "text_flow", "text_version", "text_moved", "text_kept"]}
 
 def query(sql, timeout=25):
     return subprocess.check_output(psql, input=sql, text=True, timeout=timeout).strip()
@@ -128,6 +134,19 @@ def late_answer(call, made):
     # The other automation's step finds the call answered and stops.
     other = query(f"select public.automation_create_task('{runs[1]['run_id']}','{runs[1]['lease_token']}','task','Call back',null);")
     assert '"stopped"' in other and "Call was answered" in other, other
+
+def run(sql, timeout=15):
+    """Run statements in a fresh session and report how long they took, with the server's warnings."""
+    started = time.monotonic()
+    done = subprocess.run(psql, input=sql, capture_output=True, text=True, timeout=timeout)
+    return done, time.monotonic() - started
+
+def as_agent(user, sql):
+    return f"begin; {identity(user)} {sql} commit;"
+
+def pending(call):
+    return query(f"select coalesce((select attempts||':'||last_sqlstate||':'||(retry_at>clock_timestamp())::text "
+                 f"from private.automation_answer_settlements where call_id='{call}'),'none')")
 
 def graph(trigger):
     return json.dumps({"format": 1, "settings": {"reentry": "once", "stop_on_reply": False}, "nodes": [
@@ -246,6 +265,165 @@ try:
     assert query(f"""select status||':'||closed_reason from public.inbound_callbacks
         where call_id='{ids['late_callback_call']}'""") == "dismissed:answered"
 
+    # Nothing was left for the worker: the direct path closed both items while the answers committed.
+    assert query(f"select count(*) from private.automation_answer_settlements where organization_id='{org}'") == "0"
+
+    # 7. An answer recorded while another session holds the task it closes. The call update is not held up, the
+    #    cleanup is recorded, retried while the row is still busy, and finished by the worker once the row is free.
+    query(f"""insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id)
+        values ('{ids['busy_lead']}','{org}','Busy','+12025550175','{first}');
+      insert into public.calls(id,organization_id,direction,status,contact_id,contact_type,contact_phone,caller_id_used,twilio_call_sid)
+        values ('{ids['busy_call']}','{org}','inbound','ringing','{ids['busy_lead']}','lead','+12025550175','+15550001000',
+          'CA{uuid.uuid4().hex}');
+      update public.calls set status='no-answer' where id='{ids['busy_call']}';
+      update private.automation_events set available_at=clock_timestamp()-interval '1 second'
+        where organization_id='{org}' and event_type='inbound_call_missed' and source_id='{ids['busy_call']}';
+      select public.automation_process_events(25);""")
+    for item in claims():
+        query(f"select public.automation_create_task('{item['run_id']}','{item['lease_token']}','task','Call back',null);")
+    task = query(f"""select t.id from public.tasks t join private.automation_task_receipts x on x.record_id=t.id
+        where x.scope_key='call:{ids['busy_call']}'""")
+    assert task, "The missed call made no task"
+    with hold(f"select 1 from public.tasks where id='{task}' for update;"):
+        answered, took = run(f"update public.calls set agent_id='{first}' where id='{ids['busy_call']}';")
+        assert answered.returncode == 0, answered.stderr
+        assert took < 3, f"The answer waited {took:.1f}s behind a busy task"
+        assert "requires investigation" not in answered.stderr, answered.stderr
+        assert query(f"select agent_id from public.calls where id='{ids['busy_call']}'") == first
+        assert query(f"select completed_at is null from public.tasks where id='{task}'") == "t"
+        assert pending(ids['busy_call']) == "1:55P03:false", pending(ids['busy_call'])
+        retried, _ = run("select public.automation_process_events(25);")
+        assert retried.returncode == 0, retried.stderr
+        assert pending(ids['busy_call']) == "2:55P03:true", pending(ids['busy_call'])
+    query(f"""update private.automation_answer_settlements set retry_at=clock_timestamp()-interval '1 second'
+        where call_id='{ids['busy_call']}'; select public.automation_process_events(25);""")
+    assert query(f"""select completed_at is not null and notes like '%Closed automatically: the call was answered.'
+        from public.tasks where id='{task}'""") == "t"
+    assert pending(ids['busy_call']) == "none"
+
+    # 8. A phone bridge confirmed while another session holds the callback it dismisses, with the call row's summary
+    #    not caught up. The list and a claim already treat the call as answered; the worker dismisses the callback later.
+    query(f"""insert into public.calls(id,organization_id,direction,status,contact_phone,caller_id_used,twilio_call_sid)
+        values ('{ids['bridge_call']}','{org}','inbound','ringing','+12025550176','+15550001000','CA{uuid.uuid4().hex}');
+      insert into public.inbound_route_attempts(id,call_id,organization_id,mode,owner_agent_id,eligibility_reason,stage,
+          mobile_accepted_at,mobile_accept_result,mobile_bridge_evidence)
+        values ('{ids['bridge_attempt']}','{ids['bridge_call']}','{org}','owner','{first}','owner_offline_mobile','owner_mobile',
+          clock_timestamp(),'accepted','not_bridged');
+      update public.calls set status='completed' where id='{ids['bridge_call']}';
+      update private.automation_events set available_at=clock_timestamp()-interval '1 second'
+        where organization_id='{org}' and event_type='inbound_call_missed' and source_id='{ids['bridge_call']}';
+      select public.automation_process_events(25);""")
+    for item in claims():
+        query(f"select public.automation_create_task('{item['run_id']}','{item['lease_token']}','task','Call back',null);")
+    callback = query(f"select id from public.inbound_callbacks where call_id='{ids['bridge_call']}' and status='open'")
+    assert callback, "The missed call made no callback"
+    listed = json.loads(query(as_agent(first, "select public.inbound_callback_queue();")).splitlines()[-1])
+    open_before = listed["open_count"]
+    assert any(item["call_id"] == ids['bridge_call'] for item in listed["items"])
+    with hold(f"select 1 from public.inbound_callbacks where id='{callback}' for update;"):
+        bridged, took = run(f"""update public.inbound_route_attempts set mobile_bridge_evidence='dial_bridged',
+            mobile_bridged_at=clock_timestamp() where id='{ids['bridge_attempt']}';""")
+        assert bridged.returncode == 0, bridged.stderr
+        assert took < 3, f"The bridge waited {took:.1f}s behind a busy callback"
+        assert "requires investigation" not in bridged.stderr, bridged.stderr
+        assert query(f"""select (agent_id is null and outcome is distinct from 'forwarded_answered'
+            and answered_by_agent_id is null)::text from public.calls where id='{ids['bridge_call']}'""") == "true"
+        assert query(f"select status from public.inbound_callbacks where id='{callback}'") == "open"
+        assert pending(ids['bridge_call']) == "1:55P03:false", pending(ids['bridge_call'])
+        listed = json.loads(query(as_agent(first, "select public.inbound_callback_queue();")).splitlines()[-1])
+        assert not any(item["call_id"] == ids['bridge_call'] for item in listed["items"])
+        assert listed["open_count"] == open_before - 1, (open_before, listed["open_count"])
+        refused, took = run(as_agent(first, f"set local statement_timeout='5s'; select public.claim_inbound_callback('{callback}');"))
+        assert refused.returncode != 0 and "This call was answered, so no callback is needed." in refused.stderr, refused.stderr
+        assert took < 3, f"The claim waited {took:.1f}s behind a busy callback"
+    query(f"""update private.automation_answer_settlements set retry_at=clock_timestamp()-interval '1 second'
+        where call_id='{ids['bridge_call']}'; select public.automation_process_events(25);""")
+    assert query(f"select status||':'||closed_reason from public.inbound_callbacks where id='{callback}'") == "dismissed:answered"
+    assert pending(ids['bridge_call']) == "none"
+    caught_up, _ = run(f"update public.calls set outcome='forwarded_answered' where id='{ids['bridge_call']}';")
+    assert caught_up.returncode == 0 and "requires investigation" not in caught_up.stderr, caught_up.stderr
+    assert query(f"select status from public.inbound_callbacks where id='{callback}'") == "dismissed"
+    assert pending(ids['bridge_call']) == "none"
+
+    # 9. A booking first processed while the appointment was cancelled has no run. Two workers see it reopened at the
+    #    same moment: the second waits for the first, and one run follows the appointment.
+    def reminder_graph(step):
+        return json.dumps({"format": 1, "settings": {"reentry": "once", "stop_on_reply": False}, "nodes": [
+            {"id": "start", "type": "appointment_booked", "version": 1, "config": {}},
+            {"id": "until", "type": "wait_until_before_appointment", "version": 1, "config": {"amount": 1, "unit": "hours"}},
+            step], "edges": [{"id": "a", "source": "start", "target": "until"}, {"id": "b", "source": "until", "target": step["id"]}]})
+    def publish_graph(flow, version, title, body):
+        return f"""insert into public.workflows(id,organization_id,name,status,trigger_type,automation_graph,automation_revision)
+            values ('{ids[flow]}','{org}','{title}','active','manual','{body}',1);
+          insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+            values ('{ids[version]}','{org}','{ids[flow]}','{title}',1,'{body}',clock_timestamp(),'{admin}');
+          update public.workflows set automation_version_id='{ids[version]}' where id='{ids[flow]}';
+          insert into public.automation_intervals(organization_id,workflow_id,version_id,starts_at)
+            values ('{org}','{ids[flow]}','{ids[version]}',clock_timestamp());"""
+    task_step = {"id": "task", "type": "create_task", "version": 1,
+                 "config": {"title": "Synthetic reminder", "task_type": "Follow Up", "due_amount": 0, "due_unit": "minutes"}}
+    query(f"""update public.workflows set status='paused' where organization_id='{org}' and status='active';
+      {publish_graph('first_seen_flow', 'first_seen_version', 'Concurrency first seen cancelled', reminder_graph(task_step))}
+      insert into public.leads(id,organization_id,first_name,assigned_agent_id) values ('{ids['first_seen_lead']}','{org}','First seen','{first}');
+      insert into public.appointments(id,organization_id,title,contact_id,user_id,start_time,sync_source)
+        values ('{ids['first_seen']}','{org}','First seen cancelled','{ids['first_seen_lead']}','{first}',now()+interval '3 days','internal');
+      update public.appointments set status='Cancelled' where id='{ids['first_seen']}';
+      select public.automation_process_events(25);
+      update public.appointments set start_time=now()+interval '5 days' where id='{ids['first_seen']}';
+      update public.appointments set status='Scheduled' where id='{ids['first_seen']}';""")
+    first_seen_runs = f"select count(*) from private.automation_runs where workflow_id='{ids['first_seen_flow']}'"
+    assert query(first_seen_runs) == "0", "A booking processed while cancelled started a run"
+    refresh = f"select private.automation_refresh_appointment_runs('{org}','{ids['first_seen']}');"
+    with hold(refresh):
+        twin = contender("v2-first-seen", refresh)
+    assert twin.wait(timeout=15) == 0, twin.stderr.read()
+    assert query(first_seen_runs) == "1", "Two workers seeing the reopening started more than one run"
+    query("select public.automation_process_events(25);")
+    assert query(first_seen_runs) == "1", "Processing the reopening afterwards started another run"
+
+    # 10. A reminder text at its final authorization. An appointment save still in flight refuses the handoff at once,
+    #     without waiting; a handoff in progress keeps a save of its appointment waiting only until it commits.
+    text_step = {"id": "text", "type": "send_sms", "version": 1,
+                 "config": {"body": "Reminder {{appointment_time}}", "purpose": "informational"}}
+    query(f"""update public.workflows set status='paused' where organization_id='{org}' and status='active';
+      update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,
+        leased_until=null where organization_id='{org}' and status in ('queued','waiting','held');
+      {publish_graph('text_flow', 'text_version', 'Concurrency reminder text', reminder_graph(text_step))}
+      update private.automation_release_controls set dispatch_enabled=true where organization_id='{org}';
+      insert into public.appointments(id,organization_id,title,contact_id,user_id,start_time,sync_source) values
+        ('{ids['text_moved']}','{org}','Moved during the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal'),
+        ('{ids['text_kept']}','{org}','Saved after the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal');
+      select public.automation_process_events(25);""")
+    for item in claims():
+        assert query(f"select public.automation_finish_node('{item['run_id']}','{item['lease_token']}','wait')") == "t"
+    query(f"update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where workflow_id='{ids['text_flow']}'")
+    for item in claims():
+        assert query(f"select public.automation_finish_node('{item['run_id']}','{item['lease_token']}','elapsed')") == "t"
+    texts = {}
+    for item in claims():
+        appointment = query(f"""select e.subject->>'appointment_id' from private.automation_runs r
+            join private.automation_events e on e.id=r.event_id where r.id='{item['run_id']}'""")
+        assert item["node_id"] == "text", item
+        texts[appointment] = item
+    assert set(texts) == {ids['text_moved'], ids['text_kept']}, texts
+    def authorize(item):
+        return f"select public.automation_authorize_handoff('{item['run_id']}','{item['lease_token']}','text');"
+    moved = texts[ids['text_moved']]
+    with hold(f"update public.appointments set start_time=start_time+interval '1 day' where id='{ids['text_moved']}';"):
+        refused, took = run(authorize(moved))
+        assert refused.returncode == 0 and refused.stdout.strip() == "f", refused.stdout + refused.stderr
+        assert took < 1.5, f"The handoff waited {took:.1f}s for a save in flight"
+    assert query(authorize(moved)) == "f", "A reminder for the old time was authorized after the move"
+    assert query(f"select status from private.automation_intents where run_id='{moved['run_id']}' and node_id='text'") == "prepared"
+    kept = texts[ids['text_kept']]
+    with hold(authorize(kept)):
+        saved = contender("v2-save-after-handoff",
+                          f"update public.appointments set title='Saved after the handoff' where id='{ids['text_kept']}';")
+        assert query(f"select status from private.automation_intents where run_id='{kept['run_id']}' and node_id='text'") == "prepared"
+    assert saved.wait(timeout=15) == 0, saved.stderr.read()
+    assert query(f"select status from private.automation_intents where run_id='{kept['run_id']}' and node_id='text'") == "handed_off"
+    query(f"update private.automation_release_controls set dispatch_enabled=false where organization_id='{org}';")
+
     # 6. An appointment cancelled, moved while cancelled and reopened, while the new time's booking is admitted at the
     #    same moment: carrying the old run on waits for that admission, so one run follows the appointment, not two.
     reminder = json.dumps({"format": 1, "settings": {"reentry": "once", "stop_on_reply": False}, "nodes": [
@@ -284,7 +462,10 @@ try:
         and status in ('queued','waiting','held')""") == "1", "Two runs follow the reopened appointment"
     print("PASS one winner of two simultaneous callback claims; one task from a twice-delivered step; one callback for a call "
           f"two automations reached together; an appointment saved in {waited:.2f}s during a held publish lock and its event recovered; "
-          "an answer confirmed while a missed call's task or callback was being made closed it; a reopened appointment "
+          "an answer confirmed while a missed call's task or callback was being made closed it; an answer recorded while "
+          "its task or callback was held elsewhere did not wait, was hidden from the list and refused for claiming, and was "
+          "finished by the worker; a reopening two workers saw at once started one run; a save in flight refused a "
+          "reminder's handoff at once and a handoff in progress held a save only until it committed; a reopened appointment "
           "carried on while its new time was admitted at the same moment has one run")
 finally:
     cleanup()

@@ -744,6 +744,136 @@ select public.automation_process_events(25);
 select pg_temp.ok(public.automation_process_events(25)=0,'nothing more enrolls');
 select pg_temp.reopened_reminder_fires_once(58,'the move and the reopening handled together');
 
+-- A booking the worker first processes while the appointment is cancelled starts no run, so nothing is stopped for a
+-- reopening to carry on. Opening the appointment again still starts its reminders, exactly once. Only the reminder
+-- automation stays active for these cases, so each one follows a single automation.
+update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active' and id<>pg_temp.id(48);
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where organization_id=pg_temp.id(1) and status in ('queued','waiting','held');
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(70,74) n;
+create function pg_temp.reminder_runs(lead_n integer) returns bigint language sql as $$
+  select count(*) from private.automation_runs where workflow_id=pg_temp.id(48) and contact_id=pg_temp.id(lead_n)
+$$;
+create function pg_temp.first_seen_cancelled(appointment_n integer, lead_n integer) returns void language plpgsql as $$
+declare appointment uuid;
+begin
+  insert into booked select lead_n,pg_temp.book(appointment_n,lead_n,date_trunc('minute',clock_timestamp())+interval '3 days'),
+    date_trunc('minute',clock_timestamp())+interval '3 days';
+  appointment:=(select id from booked where n=lead_n);
+  perform pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',appointment));
+  perform pg_temp.ok(public.automation_process_events(25)=0,'a booking first processed while cancelled enrolls nothing');
+  perform pg_temp.ok((select processed_at is not null from private.automation_events where event_type='appointment_booked'
+    and subject->>'appointment_id'=appointment::text),'the booking was processed');
+  perform pg_temp.ok(pg_temp.reminder_runs(lead_n)=0,'and no run was ever started for it');
+end $$;
+
+-- Moved while cancelled, then opened again at the new time.
+select pg_temp.first_seen_cancelled(120,70);
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '5 days',(select id from booked where n=70)));
+select pg_temp.ok(public.automation_process_events(25)=0 and pg_temp.reminder_runs(70)=0,
+  'the move while cancelled starts nothing');
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=70)));
+select public.automation_process_events(25);
+select pg_temp.ok(pg_temp.reminder_runs(70)=1,'reopening at the new time starts one reminder run');
+select pg_temp.ok((select r.paced_from=(select max(x.observed_at) from private.appointment_evidence_observations x
+    where x.appointment_id=(select id from booked where n=70) and x.op='UPDATE'
+      and private.appointment_status_key(x.prev->>'status')='cancelled' and private.appointment_status_key(x.next->>'status')='open')
+  from private.automation_runs r where r.workflow_id=pg_temp.id(48) and r.contact_id=pg_temp.id(70)),
+  'it counts from the recorded reopening, not from the move made while cancelled or from when the worker saw it');
+-- Seeing the reopening again, or the worker processing the booking again, starts nothing more.
+select private.automation_refresh_appointment_runs(pg_temp.id(1),(select id::text from booked where n=70));
+select private.automation_refresh_appointment_runs(pg_temp.id(1),(select id::text from booked where n=70));
+select pg_temp.ok((select count(*)=0 from (select private.automation_admit_event(e,i.id) admitted
+    from private.automation_events e join public.automation_intervals i on i.organization_id=e.organization_id
+      and i.workflow_id=pg_temp.id(48)
+    where e.event_type='appointment_booked' and e.subject->>'appointment_id'=(select id::text from booked where n=70)) a
+  where a.admitted<>0),'admitting the bookings again starts nothing');
+select pg_temp.ok(pg_temp.reminder_runs(70)=1,'still one run after the reopening is seen again');
+select pg_temp.reopened_reminder_fires_once(70,'a booking first processed while cancelled, moved and reopened');
+
+-- Opened again at the same time it had when it was cancelled.
+select pg_temp.first_seen_cancelled(121,71);
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=71)));
+select public.automation_process_events(25);
+select pg_temp.reopened_reminder_fires_once(71,'a booking first processed while cancelled, then reopened at its time');
+
+-- Opened again at a time that has already passed: nothing to remind about.
+select pg_temp.first_seen_cancelled(122,72);
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())-interval '2 hours',(select id from booked where n=72)));
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=72)));
+select public.automation_process_events(25);
+select pg_temp.ok(pg_temp.reminder_runs(72)=0,'an appointment reopened at a past time starts no reminders');
+
+-- Booked, cancelled, moved and reopened before the worker sees any of it: one run, for the new time.
+insert into booked select 73,pg_temp.book(123,73,date_trunc('minute',clock_timestamp())+interval '3 days'),
+  date_trunc('minute',clock_timestamp())+interval '3 days';
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=73)));
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '5 days',(select id from booked where n=73)));
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=73)));
+select public.automation_process_events(25);
+select pg_temp.reopened_reminder_fires_once(73,'every change made before the worker saw the booking');
+
+-- Paused when the appointment reopens: the booking waits for the automation, which starts once when it resumes.
+select pg_temp.first_seen_cancelled(124,74);
+update public.workflows set status='paused' where id=pg_temp.id(48);
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '5 days',(select id from booked where n=74)));
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=74)));
+select public.automation_process_events(25);
+select pg_temp.ok(pg_temp.reminder_runs(74)=0 and exists(select from private.automation_deferred_admissions d
+    join private.automation_events e on e.id=d.event_id where d.workflow_id=pg_temp.id(48)
+      and e.subject->>'appointment_id'=(select id::text from booked where n=74)),
+  'a paused automation keeps the booking for when it resumes');
+update public.workflows set status='active' where id=pg_temp.id(48);
+select public.automation_process_events(25);
+select pg_temp.reopened_reminder_fires_once(74,'the automation resumed after the reopening');
+
+-- An automation that stops on a reply starts nothing when the contact replied after the appointment was first booked,
+-- as a run that a cancellation stopped would not carry on. The other reminder still starts.
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(75,76) n;
+select pg_temp.publish(60,61,'Reminder that stops on a reply','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":true},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"until","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"task","type":"create_task","version":1,"config":{"title":"Reply-aware reminder","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"until"},{"id":"b","source":"until","target":"task"}]}');
+select pg_temp.first_seen_cancelled(125,75);
+insert into private.automation_reply_watermarks(organization_id,contact_type,contact_id,latest_reply_at)
+  values(pg_temp.id(1),'lead',pg_temp.id(75),clock_timestamp());
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=75)));
+select public.automation_process_events(25);
+select pg_temp.ok(not exists(select from private.automation_runs where workflow_id=pg_temp.id(60) and contact_id=pg_temp.id(75)),
+  'a reply after the booking keeps the stop-on-reply automation from starting');
+select pg_temp.reopened_reminder_fires_once(75,'the reminder without stop on reply still starts');
+update public.workflows set status='paused' where id=pg_temp.id(60);
+
+-- An ordinary move of an appointment that stood, for an automation with no run for it: the new slot's booking is
+-- admitted by its own processing and counts from that booking, however late the worker reaches it.
+insert into booked select 76,pg_temp.book(126,76,date_trunc('minute',clock_timestamp())+interval '3 days'),
+  date_trunc('minute',clock_timestamp())+interval '3 days';
+select public.automation_process_events(25);
+select pg_temp.publish(62,63,'Reminder published after the booking','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"until","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"task","type":"create_task","version":1,"config":{"title":"Later reminder","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"until"},{"id":"b","source":"until","target":"task"}]}');
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '5 days',(select id from booked where n=76)));
+select pg_sleep(0.05);
+select public.automation_process_events(25);
+select pg_temp.ok((select count(*)=1 from private.automation_runs r join private.automation_events e on e.id=r.event_id
+    where r.workflow_id=pg_temp.id(62) and r.contact_id=pg_temp.id(76) and r.paced_from=e.occurred_at),
+  'the moved booking starts the later automation once, counted from the booking');
+update public.workflows set status='paused' where id=pg_temp.id(62);
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where organization_id=pg_temp.id(1) and status in ('queued','waiting','held');
+
 -- Live texts and emails go to leads only in this release (the worker skips them for anyone else, see runtime_test.ts).
 -- An internal task still works for a client or a recruit with an active agent.
 update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active';
@@ -934,4 +1064,206 @@ select public.automation_process_events(25);
 select pg_temp.ok(not exists(select from private.automation_runs where workflow_id=pg_temp.id(58) and status in ('queued','waiting','held')),
   'the run a reply ended stays ended when the appointment is reopened');
 select pg_temp.ok(pg_temp.work() is null and not exists(select from public.tasks where contact_id=pg_temp.id(65)),'and no reminder is given');
+-- The last check before a text goes to a provider. A reminder the worker has already picked up is not handed off
+-- once its appointment has moved or been cancelled, and a text about a booking always describes the appointment's
+-- current time. The worker holds a refused message, and the next lease settles what happened.
+update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active';
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where organization_id=pg_temp.id(1) and status in ('queued','waiting','held');
+update private.automation_release_controls set dispatch_enabled=true where organization_id=pg_temp.id(1);
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(80,85) n;
+select pg_temp.publish(140,141,'Text reminders','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"hour","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"hours"}},
+    {"id":"text","type":"send_sms","version":1,"config":{"body":"See you at {{appointment_time}}","purpose":"informational"}},
+    {"id":"soon","type":"wait_until_before_appointment","version":1,"config":{"amount":10,"unit":"minutes"}},
+    {"id":"last","type":"send_sms","version":1,"config":{"body":"Starting soon","purpose":"informational"}}],
+  "edges":[{"id":"a","source":"start","target":"hour"},{"id":"b","source":"hour","target":"text"},
+    {"id":"c","source":"text","target":"soon"},{"id":"d","source":"soon","target":"last"}]}');
+create temporary table leases(n integer primary key, lease jsonb) on commit drop;
+create function pg_temp.slot(lead_n integer) returns uuid language sql as $$
+  select s.occurrence_id from private.automation_appointment_state(pg_temp.id(1),(select id from booked where n=lead_n)) s
+$$;
+create function pg_temp.texts(lead_n integer) returns private.automation_runs language sql as $$
+  select r from private.automation_runs r where r.workflow_id=pg_temp.id(140) and r.contact_id=pg_temp.id(lead_n)
+    order by r.ended_at is null desc,r.started_at desc limit 1
+$$;
+create function pg_temp.hand_off(lead_n integer) returns boolean language sql as $$
+  select public.automation_authorize_handoff((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,lease->>'node_id')
+  from leases where n=lead_n
+$$;
+create function pg_temp.check(lead_n integer) returns text language sql as $$
+  select public.automation_message_check((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,lease->>'node_id')
+  from leases where n=lead_n
+$$;
+create function pg_temp.intent(lead_n integer) returns text language sql as $$
+  select i.status from private.automation_intents i join leases l on l.n=lead_n
+  where i.run_id=(l.lease->>'run_id')::uuid and i.node_id=l.lease->>'node_id'
+$$;
+-- The worker holds a message whose handoff was refused, as it does for any refusal.
+create function pg_temp.held(lead_n integer) returns void language plpgsql as $$
+begin
+  perform pg_temp.ok(public.automation_finish_node((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,'held',
+    'Run no longer permits a provider handoff.'),'lead '||lead_n||': the worker holds the message') from leases where n=lead_n;
+  update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where id=(select (lease->>'run_id')::uuid from leases where n=lead_n);
+end $$;
+-- Book, wait for the hour before, and let the worker pick up the reminder text.
+create function pg_temp.text_picked_up(appointment_n integer, lead_n integer, starts timestamptz) returns void language plpgsql as $$
+declare lease jsonb; run private.automation_runs;
+begin
+  insert into booked select lead_n,pg_temp.book(appointment_n,lead_n,starts),starts;
+  perform pg_temp.ok(public.automation_process_events(25)=1,'lead '||lead_n||': the booking enrolls');
+  perform pg_temp.ok(pg_temp.work()->>'result'='wait','lead '||lead_n||': it waits for the hour before');
+  update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where workflow_id=pg_temp.id(140) and contact_id=pg_temp.id(lead_n);
+  perform pg_temp.ok(pg_temp.work()->>'result'='elapsed','lead '||lead_n||': the hour before arrives');
+  select * into lease from public.automation_claim_work(1);
+  run:=pg_temp.texts(lead_n);
+  perform pg_temp.ok(lease->>'run_id'=run.id::text and lease->>'node_id'='text'
+    and (lease#>>'{context,appointment_start}')::timestamptz=starts and run.leased_for=pg_temp.slot(lead_n)
+    and run.reminded_for=pg_temp.slot(lead_n),'lead '||lead_n||': the worker picks up the reminder for the appointment''s time');
+  insert into leases values (lead_n,lease);
+end $$;
+
+-- Moved after the worker picked up its reminder: the reminder for the old time is never handed off, and the
+-- automation starts over for the new time.
+select pg_temp.text_picked_up(150,80,date_trunc('minute',clock_timestamp())+interval '3 hours');
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '2 days',(select id from booked where n=80)));
+select pg_temp.ok(pg_temp.check(80)='The appointment moved after this message was prepared',
+  'asked before a provider request is reserved, the worker learns the appointment moved');
+select pg_temp.ok(not pg_temp.hand_off(80) and pg_temp.intent(80)='prepared',
+  'a reminder picked up before its appointment moved is refused, and nothing is recorded as handed off');
+select pg_temp.held(80);
+select pg_temp.ok(pg_temp.work() is null and (pg_temp.texts(80)).status='held'
+  and (pg_temp.texts(80)).due_at>clock_timestamp(),'the held reminder waits while the new time is still to be admitted');
+select public.automation_process_events(25);
+select pg_temp.ok((select count(*)=1 from private.automation_runs where workflow_id=pg_temp.id(140) and contact_id=pg_temp.id(80)
+    and status='stopped' and reason='Appointment was rescheduled' and current_node_id='text')
+  and (select count(*)=1 from private.automation_runs where workflow_id=pg_temp.id(140) and contact_id=pg_temp.id(80)
+    and status in ('queued','waiting','held')),'the run for the old time ended and one run follows the new time');
+do $$
+declare turn jsonb:=pg_temp.work();
+begin
+  perform pg_temp.ok(turn->>'result'='wait' and (turn#>>'{context,appointment_start}')::timestamptz=(select a.start_time
+      from public.appointments a join booked b on b.id=a.id where b.n=80)
+    and (pg_temp.texts(80)).due_at=(select a.start_time-interval '1 hour' from public.appointments a join booked b on b.id=a.id where b.n=80),
+    'the new run waits until an hour before the new time');
+end $$;
+
+-- Cancelled after the worker picked up its reminder: refused, and the next lease ends the run.
+select pg_temp.text_picked_up(151,81,date_trunc('minute',clock_timestamp())+interval '3 hours');
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=81)));
+select pg_temp.ok(pg_temp.check(81)='Appointment was cancelled','asked first, the worker learns the appointment was cancelled');
+select pg_temp.ok(not pg_temp.hand_off(81) and pg_temp.intent(81)='prepared',
+  'a reminder picked up before its appointment was cancelled is refused, and nothing is recorded as handed off');
+select pg_temp.held(81);
+select pg_temp.ok(pg_temp.work() is null and (pg_temp.texts(81)).status='stopped' and (pg_temp.texts(81)).reason='Appointment was cancelled',
+  'the next lease ends the run because the appointment was cancelled');
+
+-- Moved closer, past the hour before the new time: the automation does not start over, so the run keeps its place.
+-- The reminder written for the old time is skipped, and the run goes on to the next reminder for the new time.
+select pg_temp.text_picked_up(152,82,date_trunc('minute',clock_timestamp())+interval '3 hours');
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '30 minutes',(select id from booked where n=82)));
+select pg_temp.ok(not pg_temp.hand_off(82),'a reminder picked up before its appointment moved closer is refused');
+select pg_temp.held(82);
+select public.automation_process_events(25);
+select pg_temp.ok((select count(*)=1 from private.automation_runs where workflow_id=pg_temp.id(140) and contact_id=pg_temp.id(82)),
+  'the automation does not start over when the new time is inside the hour already passed');
+do $$
+declare turn jsonb:=pg_temp.work(); run private.automation_runs:=pg_temp.texts(82);
+begin
+  perform pg_temp.ok(turn is null and (select status='skipped' and reason='The appointment moved after this reminder was due'
+      from private.automation_steps where run_id=run.id and node_id='text'),
+    'the reminder for the old time is skipped instead of being handed to the worker');
+  turn:=pg_temp.work();
+  perform pg_temp.ok(turn->>'result'='wait' and turn->>'node_id'='soon','the run goes on to its next step');
+  run:=pg_temp.texts(82);
+  perform pg_temp.ok(run.status='waiting' and run.anchor_id=pg_temp.slot(82)
+    and run.due_at=(select a.start_time-interval '10 minutes' from public.appointments a join booked b on b.id=a.id where b.n=82),
+    'which waits until ten minutes before the new time');
+  perform pg_temp.ok(not exists(select from private.automation_messages where run_id=run.id),'no text was written for either time');
+end $$;
+
+-- Not moved: the reminder is handed off.
+select pg_temp.text_picked_up(153,83,date_trunc('minute',clock_timestamp())+interval '3 hours');
+select pg_temp.ok(pg_temp.check(83) is null,'nothing keeps a reminder for the appointment''s current time from going out');
+select pg_temp.ok(pg_temp.hand_off(83) and pg_temp.intent(83)='handed_off','a reminder for the appointment''s current time is handed off');
+update private.automation_runs set leased_until=clock_timestamp()-interval '1 second' where id=(pg_temp.texts(83)).id;
+select pg_temp.ok(pg_temp.check(83) is null,
+  'once handed off, the early check leaves the message to its own record, so a replay finds its receipt');
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where id=(pg_temp.texts(83)).id;
+
+-- The calendar moved the appointment but its slot record could not be written in time (a capture gap). The message
+-- still describes the old time, so it is not handed off.
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  values (pg_temp.id(86),pg_temp.id(1),'Lead 86','+12025550086',pg_temp.id(11),pg_temp.id(11));
+select pg_temp.text_picked_up(156,86,date_trunc('minute',clock_timestamp())+interval '3 hours');
+alter table public.appointments disable trigger appointments_v3_evidence_capture;
+update public.appointments set start_time=start_time+interval '1 day',end_time=end_time+interval '1 day'
+  where id=(select id from booked where n=86);
+alter table public.appointments enable trigger appointments_v3_evidence_capture;
+select pg_temp.ok(pg_temp.slot(86)=(pg_temp.texts(86)).leased_for
+  and pg_temp.check(86)='The appointment moved after this message was prepared' and not pg_temp.hand_off(86),
+  'a move the slot record missed still refuses the old time''s reminder');
+
+-- A message that may already be with a provider is reconciled, not skipped, when its appointment moves.
+select pg_temp.text_picked_up(154,84,date_trunc('minute',clock_timestamp())+interval '3 hours');
+select pg_temp.ok(pg_temp.hand_off(84),'the reminder is handed off');
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '30 minutes',(select id from booked where n=84)));
+update private.automation_runs set leased_until=clock_timestamp()-interval '1 second' where id=(pg_temp.texts(84)).id;
+do $$
+declare lease jsonb;
+begin
+  select * into lease from public.automation_claim_work(1);
+  perform pg_temp.ok(lease->>'run_id'=(pg_temp.texts(84)).id::text and lease->>'node_id'='text'
+    and (lease->>'uncertain_handoff')::boolean
+    and not exists(select from private.automation_steps where run_id=(pg_temp.texts(84)).id and node_id='text'),
+    'a lease that ended after the handoff comes back for reconciliation, not as a skipped reminder');
+  perform pg_temp.ok(public.automation_finish_node((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,'unknown',
+    'Awaiting the provider receipt'),'it waits for the provider receipt');
+end $$;
+
+-- A booking confirmation, sent without waiting, follows the appointment too: a move after it was picked up is
+-- refused, and the next lease describes the new time and is handed off.
+update public.workflows set status='paused' where id=pg_temp.id(140);
+select pg_temp.publish(142,143,'Booking confirmation text','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"text","type":"send_sms","version":1,"config":{"body":"Booked for {{appointment_time}}","purpose":"informational"}}],
+  "edges":[{"id":"a","source":"start","target":"text"}]}');
+insert into booked select 85,pg_temp.book(155,85,date_trunc('minute',clock_timestamp())+interval '2 days'),
+  date_trunc('minute',clock_timestamp())+interval '2 days';
+select pg_temp.ok(public.automation_process_events(25)=1,'the booking enrolls the confirmation');
+do $$
+declare lease jsonb; run private.automation_runs;
+begin
+  select * into lease from public.automation_claim_work(1);
+  select * into strict run from private.automation_runs where id=(lease->>'run_id')::uuid;
+  perform pg_temp.ok(run.contact_id=pg_temp.id(85) and run.reminded_for is null and run.leased_for=pg_temp.slot(85),
+    'the confirmation is picked up for the booked time');
+  insert into leases values (85,lease);
+end $$;
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '4 days',(select id from booked where n=85)));
+select pg_temp.ok(not pg_temp.hand_off(85),'a confirmation picked up before the appointment moved is refused');
+select pg_temp.held(85);
+select public.automation_process_events(25);
+update leases set n=185 where n=85;
+do $$
+declare lease jsonb;
+begin
+  select * into lease from public.automation_claim_work(1);
+  perform pg_temp.ok(lease->>'node_id'='text' and (lease#>>'{context,appointment_start}')::timestamptz=(select a.start_time
+      from public.appointments a join booked b on b.id=a.id where b.n=85),'the next lease describes the new time');
+  insert into leases values (85,lease);
+end $$;
+select pg_temp.ok(pg_temp.check(185)='This step is no longer leased to this worker' and not pg_temp.hand_off(185),
+  'the earlier lease is reported as ended and can hand nothing off');
+select pg_temp.ok(pg_temp.check(85) is null and pg_temp.hand_off(85) and pg_temp.intent(85)='handed_off',
+  'and that confirmation is handed off');
 rollback;

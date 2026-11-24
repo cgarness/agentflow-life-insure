@@ -27,9 +27,17 @@ let permitted = true;
 export function allowConsent(value: boolean) {
   permitted = value;
 }
+const interceptors: { match: (url: URL, body: string) => boolean; action: () => Promise<void> }[] = [];
+/** Runs `action` once, just before the first local database request that `match` accepts is sent. */
+export function interceptOnce(match: (url: URL, body: string) => boolean, action: () => Promise<void>) {
+  interceptors.push({ match, action });
+}
+export const pendingInterceptors = () => interceptors.length;
 export const testFetch: typeof fetch = async (input, init) => {
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input : input.url);
   if (url.origin === endpoint) {
+    const due = interceptors.findIndex((item) => item.match(url, typeof init?.body === "string" ? init.body : ""));
+    if (due >= 0) await interceptors.splice(due, 1)[0].action();
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : {}));
     headers.set("Connection", "close");
     if (typeof init?.body === "string") {

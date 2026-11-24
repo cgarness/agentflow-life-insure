@@ -27,6 +27,7 @@ function database(onCall: (name: string, args: Record<string, unknown>) => void,
     rpc: async (name: string, args: Record<string, unknown>) => {
       onCall(name, args);
       if (name === fail) return { data: null, error: { message: "fixture hold" } };
+      if (name === "automation_message_check") return { data: null, error: null };
       return {
         error: null,
         data: {
@@ -59,7 +60,7 @@ Deno.test("email uses edited content, scoped sender, stable intent and one evide
     env: fakeEnv,
     fetch: async (_url, init) => {
       sends++;
-      assert(names.join() === "automation_begin_message", "provider reached before admission");
+      assert(names.join() === "automation_message_check,automation_begin_message", "provider reached before admission");
       const body = JSON.parse(String(init?.body));
       assert(body.subject === "Hello Alex" && body.text === "Edited copy", "authored content changed");
       assert(
@@ -75,9 +76,31 @@ Deno.test("email uses edited content, scoped sender, stable intent and one evide
     },
   });
   assert(
-    result.status === "accepted" && sends === 1 && names.length === 2,
+    result.status === "accepted" && sends === 1 && names.length === 3,
     "did not persist accepted receipt",
   );
+});
+
+Deno.test("a change after the lease holds the message before any provider request is reserved", async () => {
+  const sms = { type: "send_sms" as const, config: { body: "Reminder {{first_name}}", purpose: "informational" } };
+  for (const [step, answer, reason] of [
+    [node, { data: "Appointment was cancelled", error: null }, "Appointment was cancelled"],
+    [sms, { data: "The appointment moved after this message was prepared", error: null }, "The appointment moved after this message was prepared"],
+    [sms, { data: null, error: { message: "fixture outage" } }, "Message eligibility could not be verified."],
+  ] as const) {
+    const names: string[] = [];
+    const db = {
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        names.push(name);
+        assert(args.p_run === claim.run_id && args.p_token === claim.lease_token && args.p_node === claim.node_id, "check scope");
+        return answer;
+      },
+      from: () => { names.push("from"); throw Error("no table read expected"); },
+    };
+    const result = await dispatchChannel(db, claim, step, { ...contact, phone: "+12025550123" }, { env: fakeEnv, fetch: noTransport });
+    assert(result.status === "held" && result.reason === reason, String(result.reason));
+    assert(names.join() === "automation_message_check", "nothing else was asked or reserved: " + names.join());
+  }
 });
 
 Deno.test("held eligibility and missing provider config cause zero provider calls", async () => {
@@ -161,6 +184,7 @@ Deno.test("appointment wording uses the recipient's verified time zone and holds
         assert(args.p_run === claim.run_id && args.p_channel === "email" && args.p_recipient === "alex@example.invalid", "scope");
         return { data: "America/Los_Angeles", error: null };
       }
+      if (name === "automation_message_check") return { data: null, error: null };
       return { error: null, data: { id: messageId, from_email: "verified@example.invalid", reply_to: "monitored@example.invalid", unsubscribe_token: receiptId } };
     },
   };

@@ -50,6 +50,9 @@ ALTER TABLE private.automation_runs
   ADD COLUMN held_since timestamptz,
   -- The appointment slot the reminders this run already gave were for.
   ADD COLUMN reminded_for uuid,
+  -- The appointment slot the facts handed out with the current lease describe. A message is handed to a
+  -- provider only while this is still the appointment's current slot.
+  ADD COLUMN leased_for uuid,
   -- The moment a step's own timing counts from: the event that started the run, then the time the last
   -- wait was scheduled to end. A due time measured from it does not move when the worker runs late.
   ADD COLUMN paced_from timestamptz;
@@ -381,7 +384,7 @@ END $$;
 CREATE OR REPLACE FUNCTION private.automation_admit_event(e private.automation_events,p_interval uuid)
 returns integer language plpgsql security definer set search_path='' as $$
 declare candidate record; trigger_node jsonb; first_node text; replied boolean; scope text; lock_scope text; reentry text;
-  prior private.automation_runs; slot record;
+  prior private.automation_runs; slot record; stood_again timestamptz;
 begin
   select i.workflow_id,i.version_id,v.graph,v.published_by,w.status into candidate
     from public.automation_intervals i
@@ -431,6 +434,12 @@ begin
     -- Only the appointment's current slot, still ahead and without an outcome, starts a run.
     if not found or slot.occurrence_id::text is distinct from e.subject->>'occurrence_id'
       or coalesce(slot.head_outcome,'retracted')<>'retracted' or slot.starts_at<=e.occurred_at then return 0; end if;
+    -- A booking admitted after its appointment was opened again counts from that reopening, as the appointment's own
+    -- change log records it, never from a moment while it was cancelled. A recorded time, so a late worker moves nothing.
+    select max(x.observed_at) into stood_again from private.appointment_evidence_observations x
+      where x.organization_id=e.organization_id and x.appointment_id=(e.subject->>'appointment_id')::uuid and x.op='UPDATE'
+        and x.observed_at>e.occurred_at and private.appointment_status_key(x.prev->>'status')='cancelled'
+        and private.appointment_status_key(x.next->>'status')='open';
     -- A run whose reminders were for an earlier time starts over for the new time when that gives the new
     -- time every reminder the automation gives (automation_restarts_for_new_time). A run waiting to hear
     -- whether its last message was accepted is included, so it never holds the new time back.
@@ -474,7 +483,8 @@ begin
     values(e.organization_id,candidate.workflow_id,candidate.version_id,e.id,e.contact_id,
       case when e.contact_id is null then null else coalesce(e.contact_type,'lead') end,scope,first_node,
       case when replied then 'stopped' else 'queued' end,
-      case when replied then 'Verified reply received' end,case when replied then clock_timestamp() end,e.occurred_at)
+      case when replied then 'Verified reply received' end,case when replied then clock_timestamp() end,
+      greatest(e.occurred_at,stood_again))
     on conflict do nothing;
   return case when found then 1 else 0 end;
 end $$;
@@ -501,6 +511,8 @@ BEGIN
   -- reminder it passed is still ahead for the new time (automation_restarts_for_new_time), the automation starts over
   -- for the new time through the normal admission of the new slot's booking, so the new time gets every reminder,
   -- whenever the worker sees the changes. If that admission refuses, the run carries on as above.
+  -- When the worker first saw the booking while the appointment was cancelled, there is no run to carry on. Each
+  -- automation with no run for the appointment then admits the current slot's booking normally, once.
   SELECT s.occurrence_id,s.starts_at,s.head_outcome INTO current_slot
     FROM private.automation_appointment_state(p_org,p_appointment::uuid) s;
   IF FOUND AND coalesce(current_slot.head_outcome,'retracted')='retracted' AND current_slot.starts_at>clock_timestamp() THEN
@@ -564,6 +576,37 @@ BEGIN
           workflow_paused=(SELECT w.status='paused' FROM public.workflows w WHERE w.organization_id=r.organization_id AND w.id=r.workflow_id)
         WHERE r.id=prior.id AND r.organization_id=p_org;
     END LOOP;
+    -- A booking the worker first saw while the appointment was cancelled started no run, so nothing above carries on.
+    -- Once the appointment's own change log shows it opened again after the current slot was booked, every automation
+    -- with no run for the appointment admits that booking through the normal admission. Admission applies every
+    -- eligibility rule (an active automation whose window covers the booking, its filters, the slot still ahead
+    -- without an outcome, re-entry), takes the same locks, defers it for a paused automation, counts it from the
+    -- reopening, and starts at most one run per automation and booking however often the reopening is seen. An
+    -- automation that stops on a reply is passed over when the contact replied after the appointment was first booked,
+    -- as a stopped run would be. An ordinary move of an appointment that stood is left to the booking's own admission.
+    IF booked.id IS NOT NULL AND EXISTS (SELECT 1 FROM private.appointment_evidence_observations x
+        WHERE x.organization_id=p_org AND x.appointment_id=p_appointment::uuid AND x.op='UPDATE'
+          AND x.observed_at>=booked.occurred_at
+          AND private.appointment_status_key(x.prev->>'status')='cancelled'
+          AND private.appointment_status_key(x.next->>'status')='open') THEN
+      FOR flow IN SELECT i.id AS window_id,i.workflow_id FROM public.automation_intervals i
+          JOIN public.workflow_versions v ON v.organization_id=i.organization_id AND v.workflow_id=i.workflow_id AND v.id=i.version_id
+          WHERE i.organization_id=p_org AND i.starts_at<=booked.occurred_at
+            AND (i.ends_at IS NULL OR i.ends_at>booked.occurred_at)
+            AND private.automation_trigger(v.graph)->>'type'='appointment_booked'
+            AND NOT EXISTS (SELECT 1 FROM private.automation_runs r JOIN private.automation_events origin
+                ON origin.organization_id=r.organization_id AND origin.id=r.event_id
+              WHERE r.organization_id=p_org AND r.workflow_id=i.workflow_id
+                AND origin.subject ? 'appointment_id' AND origin.subject->>'appointment_id'=p_appointment)
+            AND NOT (v.graph#>>'{settings,stop_on_reply}'='true' AND EXISTS (SELECT 1 FROM private.automation_reply_watermarks m
+              WHERE m.organization_id=p_org AND m.contact_type=coalesce(booked.contact_type,'lead')
+                AND m.contact_id=booked.contact_id AND m.latest_reply_at>=(SELECT min(first.occurred_at)
+                  FROM private.automation_events first WHERE first.organization_id=p_org
+                    AND first.event_type='appointment_booked' AND first.subject->>'appointment_id'=p_appointment)))
+          ORDER BY i.workflow_id,i.id LOOP
+        PERFORM private.automation_admit_event(booked,flow.window_id);
+      END LOOP;
+    END IF;
   END IF;
   FOR prior IN SELECT r.* FROM private.automation_runs r JOIN private.automation_events origin
       ON origin.organization_id=r.organization_id AND origin.id=r.event_id
@@ -683,6 +726,12 @@ begin
     update private.automation_events set processed_at=case when visited<25 then clock_timestamp() end,
       available_at=clock_timestamp(),interval_cursor=last_interval where id=e.id;
   end loop;
+  -- Late-answer cleanup that a busy callback or task held up when the answer was recorded. Last, so the rows it
+  -- closes stay locked only until this pass commits. It is installed by the inbound callbacks migration, so an
+  -- installation stopped before that file has nothing to finish.
+  if to_regprocedure('private.automation_retry_answer_settlements(integer)') is not null then
+    perform private.automation_retry_answer_settlements(bounded);
+  end if;
   return count_enrolled;
 end $$;
 

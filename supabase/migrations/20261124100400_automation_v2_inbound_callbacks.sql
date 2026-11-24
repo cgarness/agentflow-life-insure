@@ -63,9 +63,11 @@ CREATE TRIGGER automation_capture_missed_inbound AFTER UPDATE OF status ON publi
     AND NEW.outcome IS DISTINCT FROM 'forwarded_answered')
   EXECUTE FUNCTION private.automation_capture_missed_inbound();
 
--- Whether anyone answered an inbound call, from the call row and its one route attempt.
--- answered: a computer claimed the call, the agent's phone bridged it after a genuine acceptance, or a forward was
---   answered with no phone evidence against it. Nothing is created and an unfinished run stops.
+-- Whether anyone answered an inbound call, from the call row and its one route attempt. This is the one answer rule:
+-- the task step, the stop check, the callback list and its counts, a claim and the late-answer cleanup all use it.
+-- answered: a computer claimed the call, the agent's phone bridged it after a genuine acceptance (even while the call
+--   row's own summary has not caught up), or a forward was answered with no phone evidence against it. Nothing is
+--   created and an unfinished run stops.
 -- missed: nobody answered. Only this creates a callback or a task.
 -- ambiguous: not settled yet. The call is still live, the phone accepted it and its bridge result has not arrived,
 --   or the result arrived unconfirmed. The step holds; a result that never arrives never turns into a missed call.
@@ -77,9 +79,11 @@ RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
   SELECT CASE
     WHEN c.id IS NULL THEN 'unknown'
     WHEN c.agent_id IS NOT NULL THEN 'answered'
+    -- The phone accepted the call and bridged it, so a conversation happened, whatever the call row's status,
+    -- outcome or answering agent says so far.
+    WHEN a.mobile_bridge_evidence='dial_bridged' AND a.mobile_accept_result='accepted' THEN 'answered'
     WHEN c.status NOT IN ('completed','no-answer','failed') THEN 'ambiguous'
-    WHEN a.mobile_bridge_evidence='dial_bridged' THEN
-      CASE WHEN a.mobile_accept_result='accepted' THEN 'answered' ELSE 'conflicting' END
+    WHEN a.mobile_bridge_evidence='dial_bridged' THEN 'conflicting'
     WHEN a.mobile_bridge_evidence='unconfirmed'
       OR (a.mobile_accept_result='accepted' AND a.mobile_bridge_evidence IS NULL) THEN 'ambiguous'
     -- From here the phone shows no conversation, or was never reached.
@@ -98,7 +102,8 @@ $$;
 -- Unfinished runs for the call stop at their next step (automation_stop_check). A task or callback being made for the
 -- call at this moment holds a share lock on the call row (automation_create_task), so the answer's own write waits for
 -- it to commit and the updates below then see it. Like every observer it waits at most 200 ms for a lock, so a
--- telephony update is never held up; on a conflict the observer logs it and moves on.
+-- telephony update is never held up; when a row stays busy, the observer records the cleanup and the worker finishes
+-- it (automation_retry_answer_settlements). Running it again changes nothing.
 CREATE FUNCTION private.automation_settle_answered_call(p_org uuid,p_call uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='200ms' AS $$
 BEGIN
@@ -113,17 +118,67 @@ BEGIN
       AND t.organization_id=x.organization_id AND t.id=x.record_id AND t.completed_at IS NULL;
 END $$;
 
+-- Late-answer cleanup that could not finish when the answer was recorded, because a callback or task it closes was
+-- busy. The worker finishes it (automation_retry_answer_settlements, run by automation_process_events), so the call
+-- update is never held up and the cleanup is never lost. One row per call; the cleanup is the same however often it runs.
+CREATE TABLE private.automation_answer_settlements (
+  -- No foreign keys: recording a cleanup takes no lock on another table during the call update.
+  organization_id uuid NOT NULL,
+  call_id uuid NOT NULL,
+  first_attempt_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  attempts integer NOT NULL DEFAULT 1,
+  retry_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  last_sqlstate text,
+  PRIMARY KEY (organization_id,call_id)
+);
+CREATE INDEX automation_answer_settlements_due ON private.automation_answer_settlements(retry_at);
+ALTER TABLE private.automation_answer_settlements ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.automation_answer_settlements FROM PUBLIC,anon,authenticated;
+
+-- Records a cleanup for the worker to finish. It also waits at most 200 ms, so it cannot hold up the call update either.
+CREATE FUNCTION private.automation_note_answer_settlement(p_org uuid,p_call uuid,p_sqlstate text)
+RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path='' SET lock_timeout='200ms' AS $$
+  INSERT INTO private.automation_answer_settlements(organization_id,call_id,last_sqlstate) VALUES(p_org,p_call,p_sqlstate)
+  ON CONFLICT (organization_id,call_id) DO UPDATE SET last_sqlstate=excluded.last_sqlstate,
+    retry_at=least(private.automation_answer_settlements.retry_at,clock_timestamp())
+$$;
+
+-- The worker finishes each recorded cleanup that is due. One still blocked is tried again later, less often the longer
+-- it waits (one minute, doubling, at most an hour), and no more after seven days; its row stays as the record.
+CREATE FUNCTION private.automation_retry_answer_settlements(p_limit integer)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE pending private.automation_answer_settlements; settled integer:=0; cutoff timestamptz:=clock_timestamp();
+BEGIN
+  FOR pending IN SELECT * FROM private.automation_answer_settlements WHERE retry_at<=cutoff
+      ORDER BY retry_at,organization_id,call_id LIMIT least(25,greatest(1,coalesce(p_limit,10))) FOR UPDATE SKIP LOCKED LOOP
+    BEGIN
+      PERFORM private.automation_settle_answered_call(pending.organization_id,pending.call_id);
+      DELETE FROM private.automation_answer_settlements
+        WHERE organization_id=pending.organization_id AND call_id=pending.call_id;
+      settled:=settled+1;
+    EXCEPTION WHEN OTHERS THEN
+      UPDATE private.automation_answer_settlements SET attempts=attempts+1,last_sqlstate=SQLSTATE,
+          retry_at=CASE WHEN clock_timestamp()-first_attempt_at>interval '7 days' THEN 'infinity'::timestamptz
+            ELSE clock_timestamp()+least(interval '1 hour',interval '1 minute'*power(2,least(attempts,6))) END
+        WHERE organization_id=pending.organization_id AND call_id=pending.call_id;
+    END;
+  END LOOP;
+  RETURN settled;
+END $$;
+
 -- Observes the answer proofs on the call row and the phone's bridge result. Like the other observers it never
--- blocks the call update that fired it.
+-- blocks the call update that fired it. When a row the cleanup closes is busy, it records the cleanup for the worker.
 CREATE FUNCTION private.automation_observe_answered_call()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE call uuid;
 BEGIN
-  -- One statement per table: a call row has no call_id field and a route attempt's own id is not the call.
-  IF TG_TABLE_NAME='calls' THEN
-    PERFORM private.automation_settle_answered_call(NEW.organization_id,NEW.id);
-  ELSE
-    PERFORM private.automation_settle_answered_call(NEW.organization_id,NEW.call_id);
-  END IF;
+  -- A call row has no call_id field and a route attempt's own id is not the call.
+  IF TG_TABLE_NAME='calls' THEN call:=NEW.id; ELSE call:=NEW.call_id; END IF;
+  BEGIN
+    PERFORM private.automation_settle_answered_call(NEW.organization_id,call);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM private.automation_note_answer_settlement(NEW.organization_id,call,SQLSTATE);
+  END;
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING 'Automation answered-call settlement requires investigation (SQLSTATE %)', SQLSTATE;
@@ -195,8 +250,8 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
 $$;
 
 -- The callbacks waiting in this agency. Open ones come first, the one due soonest at the top, then claimed ones,
--- newest first. The counts cover every waiting callback, however many the list shows. A call answered after the
--- fact drops out.
+-- newest first. The counts cover every waiting callback, however many the list shows. A call proven answered after the
+-- fact drops out by the same answer rule a claim uses (automation_inbound_evidence), even before its cleanup has run.
 CREATE FUNCTION public.inbound_callback_queue()
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
 DECLARE actor record; viewing boolean:=private.automation_viewing_as() OR private.automation_mode_unverified(); listed jsonb;
@@ -209,7 +264,7 @@ BEGIN
   SELECT count(*) FILTER (WHERE b.status='open') AS open,count(*) FILTER (WHERE b.status='claimed') AS claimed INTO counts
     FROM public.inbound_callbacks b JOIN public.calls c ON c.id=b.call_id AND c.organization_id=b.organization_id
     WHERE b.organization_id=actor.org AND b.status IN ('open','claimed')
-      AND c.agent_id IS NULL AND c.outcome IS DISTINCT FROM 'forwarded_answered';
+      AND private.automation_inbound_evidence(b.organization_id,b.call_id) IS DISTINCT FROM 'answered';
   SELECT coalesce(jsonb_agg(to_jsonb(item) - 'queue_order' ORDER BY item.queue_order),'[]'::jsonb) INTO listed FROM (
     SELECT b.id,b.call_id,b.caller_phone,
       CASE WHEN known.visible THEN b.contact_id END AS contact_id,
@@ -234,7 +289,7 @@ BEGIN
             CASE WHEN b.status='claimed' AND b.claimed_by IS NOT DISTINCT FROM actor.uid THEN 0 WHEN b.status='open' THEN 1 ELSE 2 END AS grp
           FROM public.inbound_callbacks b JOIN public.calls c ON c.id=b.call_id AND c.organization_id=b.organization_id
           WHERE b.organization_id=actor.org AND b.status IN ('open','claimed')
-            AND c.agent_id IS NULL AND c.outcome IS DISTINCT FROM 'forwarded_answered') w) picked
+            AND private.automation_inbound_evidence(b.organization_id,b.call_id) IS DISTINCT FROM 'answered') w) picked
     JOIN public.inbound_callbacks b ON b.id=picked.id
     JOIN public.calls c ON c.id=b.call_id AND c.organization_id=b.organization_id
     LEFT JOIN public.profiles claimer ON claimer.id=b.claimed_by AND claimer.organization_id=b.organization_id
@@ -264,11 +319,10 @@ BEGIN
     RAISE EXCEPTION 'Callbacks cannot be claimed while viewing as another person' USING ERRCODE='42501'; END IF;
   IF private.automation_mode_unverified() THEN
     RAISE EXCEPTION 'Sign in again to claim callbacks.' USING ERRCODE='42501',HINT='automation_session_reauth'; END IF;
-  -- Proof that the call was answered can arrive after its callback was made. The list hides it, and
-  -- nobody can take it on.
-  IF EXISTS (SELECT 1 FROM public.inbound_callbacks b JOIN public.calls c ON c.id=b.call_id AND c.organization_id=b.organization_id
-      WHERE b.id=p_callback AND b.organization_id=actor.org
-        AND (c.agent_id IS NOT NULL OR c.outcome IS NOT DISTINCT FROM 'forwarded_answered')) THEN
+  -- Proof that the call was answered can arrive after its callback was made, before the call row's own summary
+  -- catches up and before the cleanup has dismissed it. The list hides it by the same rule, and nobody can take it on.
+  IF EXISTS (SELECT 1 FROM public.inbound_callbacks b WHERE b.id=p_callback AND b.organization_id=actor.org
+      AND private.automation_inbound_evidence(b.organization_id,b.call_id)='answered') THEN
     RAISE EXCEPTION 'This call was answered, so no callback is needed.' USING ERRCODE='PT409'; END IF;
   UPDATE public.inbound_callbacks b SET status='claimed',claimed_by=actor.uid,claimed_at=clock_timestamp(),updated_at=clock_timestamp()
     WHERE b.id=p_callback AND b.organization_id=actor.org AND b.status='open' RETURNING b.* INTO item;
@@ -336,6 +390,7 @@ END $$;
 
 REVOKE ALL ON FUNCTION private.automation_capture_missed_inbound(),private.automation_inbound_evidence(uuid,uuid),
   private.automation_settle_answered_call(uuid,uuid),private.automation_observe_answered_call(),
+  private.automation_note_answer_settlement(uuid,uuid,text),private.automation_retry_answer_settlements(integer),
   private.automation_callbacks_available(uuid),
   private.automation_inbound_responsible(uuid,uuid,text,uuid),private.automation_visible_contact(uuid,uuid,text,uuid),
   private.automation_viewing_as(),private.automation_mode_unverified(),public.inbound_callback_queue(),public.claim_inbound_callback(uuid),

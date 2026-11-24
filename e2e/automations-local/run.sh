@@ -209,8 +209,13 @@ export AUTOMATION_TEST_SETTINGS="$AUTOMATIONS_LOCAL_SETTINGS"
 export AUTOMATION_TEST_ACCOUNT_SUFFIX=a1
 export PGOPTIONS="-c agentflow.synthetic_channels=on"
 docker exec -i -e PGOPTIONS -e PGPASSWORD "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < scripts/tests/automations/channel-fixture.sql
-for script in scripts/tests/automations/{channel-native,receipt-native}.ts; do
-  "${DENO_BIN:-deno}" cache --node-modules-dir=manual --no-lock --import-map="$AUTOMATION_IMPORT_MAP" "$script"
+native() {
+  "${DENO_BIN:-deno}" cache --node-modules-dir=manual --no-lock --import-map="$AUTOMATION_IMPORT_MAP" "$1"
   "${DENO_BIN:-deno}" run --cached-only --node-modules-dir=manual --no-lock --import-map="$AUTOMATION_IMPORT_MAP" \
-    --allow-env --allow-read --allow-net=127.0.0.1:54340,127.0.0.1:54334 "$script"
-done
+    --allow-env --allow-read --allow-net=127.0.0.1:54340,127.0.0.1:54334 "$1"
+}
+for script in scripts/tests/automations/{channel-native,receipt-native}.ts; do native "$script"; done
+# Appointment reminders the worker has picked up, then moved or cancelled before the provider handoff.
+docker exec -i -e PGOPTIONS -e PGPASSWORD "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < scripts/tests/automations/appointment-handoff-fixture.sql
+native scripts/tests/automations/appointment-handoff-native.ts
+docker exec -i -e PGPASSWORD "$db" psql -Xq -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < scripts/tests/automations/appointment-handoff-check.sql

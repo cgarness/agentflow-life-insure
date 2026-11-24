@@ -541,6 +541,124 @@ select pg_temp.ok((select status='stopped' and reason='Call was answered' from p
   join private.automation_events e on e.id=r.event_id where e.source_id=pg_temp.id(128))
   and not exists(select from public.inbound_callbacks where call_id=pg_temp.id(128)),'the run stopped with no callback');
 
+-- A confirmed phone bridge whose call row summary has not caught up: the call row still says nobody answered, and the
+-- cleanup has not run yet (here the answer is recorded with the observer off, the state a busy row leaves behind).
+-- The list, its counts and a claim all go by the same answer rule, so the callback is hidden and cannot be taken.
+select pg_temp.ring(129,'+12025559129','+15550001000');
+insert into public.inbound_route_attempts(id,call_id,organization_id,mode,owner_agent_id,eligibility_reason,stage,
+    mobile_accepted_at,mobile_accept_result,mobile_bridge_evidence)
+  values (pg_temp.id(90),pg_temp.id(129),pg_temp.id(1),'owner',pg_temp.id(11),'owner_offline_mobile','owner_mobile',clock_timestamp(),
+    'accepted','not_bridged');
+select pg_temp.ok(pg_temp.ended(129,'completed')=1,'a call the phone did not seem to connect enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='created','its callback is created');
+create temporary table callback_counts on commit drop as
+  select (pg_temp.as_user(11,'select public.inbound_callback_queue()')->>'open_count')::integer as open_before;
+alter table public.inbound_route_attempts disable trigger automation_observe_answered_call;
+update public.inbound_route_attempts set mobile_bridge_evidence='dial_bridged',mobile_bridged_at=clock_timestamp() where id=pg_temp.id(90);
+alter table public.inbound_route_attempts enable trigger automation_observe_answered_call;
+insert into private.automation_answer_settlements(organization_id,call_id,last_sqlstate) values (pg_temp.id(1),pg_temp.id(129),'55P03');
+do $$
+declare listed jsonb:=pg_temp.as_user(11,'select public.inbound_callback_queue()');
+begin
+  perform pg_temp.ok((select c.agent_id is null and c.outcome is distinct from 'forwarded_answered' and c.answered_by_agent_id is null
+      from public.calls c where c.id=pg_temp.id(129))
+    and (select status='open' from public.inbound_callbacks where call_id=pg_temp.id(129))
+    and private.automation_inbound_evidence(pg_temp.id(1),pg_temp.id(129))='answered',
+    'the bridge proves the answer while the call row and the callback have not caught up');
+  perform pg_temp.ok(not exists(select from jsonb_array_elements(listed->'items') item where item->>'call_id'=pg_temp.id(129)::text)
+    and (listed->>'open_count')::integer=(select open_before-1 from callback_counts),
+    'the list leaves out the answered call, and the open count drops by exactly that callback');
+  perform pg_temp.as_user(11,format('select public.claim_inbound_callback(%L)',
+    (select id from public.inbound_callbacks where call_id=pg_temp.id(129))));
+  raise exception 'Automation V2 inbound: an answered call''s callback was claimed';
+exception when others then
+  perform pg_temp.ok(sqlstate='PT409' and sqlerrm='This call was answered, so no callback is needed.',
+    'claiming it says the call was answered ('||sqlstate||' '||sqlerrm||')');
+end $$;
+select public.automation_process_events(25);
+select pg_temp.ok((select status='dismissed' and closed_reason='answered' from public.inbound_callbacks where call_id=pg_temp.id(129))
+  and not exists(select from private.automation_answer_settlements where call_id=pg_temp.id(129)),
+  'the worker finishes the cleanup: the callback is dismissed and the record of it is gone');
+-- The same rule holds while the call row still says the call is in progress.
+select pg_temp.ring(130,'+12025559130','+15550001000');
+insert into public.inbound_route_attempts(id,call_id,organization_id,mode,owner_agent_id,eligibility_reason,stage,
+    mobile_accepted_at,mobile_accept_result,mobile_bridge_evidence)
+  values (pg_temp.id(91),pg_temp.id(130),pg_temp.id(1),'owner',pg_temp.id(11),'owner_offline_mobile','owner_mobile',clock_timestamp(),
+    'accepted','dial_bridged');
+update public.calls set status='connected' where id=pg_temp.id(130);
+select pg_temp.ok(private.automation_inbound_evidence(pg_temp.id(1),pg_temp.id(130))='answered',
+  'an accepted, bridged phone leg is an answer even while the call row still says it is connected');
+-- Records that disagree are not an answer. A later "answered elsewhere" on a call whose phone leg shows no
+-- conversation leaves the callback listed, counted and claimable, the same as the automation treats it.
+select pg_temp.ring(132,'+12025559132','+15550001000');
+insert into public.inbound_route_attempts(id,call_id,organization_id,mode,owner_agent_id,eligibility_reason,stage,
+    mobile_accepted_at,mobile_accept_result,mobile_bridge_evidence)
+  values (pg_temp.id(92),pg_temp.id(132),pg_temp.id(1),'owner',pg_temp.id(11),'owner_offline_mobile','owner_mobile',clock_timestamp(),
+    'accepted','not_bridged');
+select pg_temp.ok(pg_temp.ended(132,'completed')=1,'a call whose phone leg did not connect enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='created','its callback is created');
+update callback_counts set open_before=(pg_temp.as_user(11,'select public.inbound_callback_queue()')->>'open_count')::integer;
+update public.calls set outcome='forwarded_answered' where id=pg_temp.id(132);
+do $$
+declare listed jsonb:=pg_temp.as_user(11,'select public.inbound_callback_queue()');
+begin
+  perform pg_temp.ok(private.automation_inbound_evidence(pg_temp.id(1),pg_temp.id(132))='conflicting'
+    and (select status='open' from public.inbound_callbacks where call_id=pg_temp.id(132))
+    and not exists(select from private.automation_answer_settlements where call_id=pg_temp.id(132)),
+    'conflicting records leave the callback open with nothing to clean up');
+  perform pg_temp.ok(exists(select from jsonb_array_elements(listed->'items') item where item->>'call_id'=pg_temp.id(132)::text)
+    and (listed->>'open_count')::integer=(select open_before from callback_counts),
+    'the callback stays on the list and in the open count');
+  perform pg_temp.as_user(11,format('select public.claim_inbound_callback(%L)',
+    (select id from public.inbound_callbacks where call_id=pg_temp.id(132))));
+  perform pg_temp.ok((select status='claimed' and claimed_by=pg_temp.id(11) from public.inbound_callbacks where call_id=pg_temp.id(132)),
+    'an agent can still take it');
+end $$;
+update public.inbound_callbacks set status='done',closed_at=clock_timestamp() where call_id=pg_temp.id(132);
+
+-- Cleanup that cannot finish when the answer is recorded is kept and finished later. Here the task it closes refuses
+-- the update, as a row another session holds would after 200 ms. The call update itself still goes through.
+select pg_temp.ring(131,'+12025550130','+15550001000',30);
+select pg_temp.ok(pg_temp.ended(131)=1,'a missed call from the known caller enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='created','it makes the owner a task');
+create function pg_temp.busy_task() returns trigger language plpgsql as $$
+begin raise exception 'task row is busy' using errcode='55P03'; end $$;
+create trigger busy_task before update on public.tasks for each row execute function pg_temp.busy_task();
+update public.calls set agent_id=pg_temp.id(11) where id=pg_temp.id(131);
+select pg_temp.ok((select agent_id=pg_temp.id(11) from public.calls where id=pg_temp.id(131)),'the call update itself is saved');
+select pg_temp.ok((select attempts=1 and last_sqlstate='55P03' and retry_at<=clock_timestamp()
+    from private.automation_answer_settlements where call_id=pg_temp.id(131)),
+  'the cleanup that could not finish is recorded for the worker');
+select pg_temp.ok((select t.completed_at is null from public.tasks t join private.automation_task_receipts x on x.record_id=t.id
+  where x.scope_key='call:'||pg_temp.id(131)::text),'the task is still open meanwhile');
+select public.automation_process_events(25);
+select pg_temp.ok((select attempts=2 and retry_at>clock_timestamp()+interval '1 minute' and retry_at<clock_timestamp()+interval '5 minutes'
+    from private.automation_answer_settlements where call_id=pg_temp.id(131)),
+  'a retry that still cannot finish waits longer before the next one');
+drop trigger busy_task on public.tasks;
+update private.automation_answer_settlements set retry_at=clock_timestamp()-interval '1 second' where call_id=pg_temp.id(131);
+select public.automation_process_events(25);
+select pg_temp.ok((select t.completed_at is not null
+    and t.notes like '%Closed automatically: the call was answered.' from public.tasks t
+    join private.automation_task_receipts x on x.record_id=t.id where x.scope_key='call:'||pg_temp.id(131)::text)
+  and not exists(select from private.automation_answer_settlements where call_id=pg_temp.id(131)),
+  'once the row is free the worker closes the task and the record is gone');
+select public.automation_process_events(25);
+select pg_temp.ok((select count(*)=1 from public.tasks t join private.automation_task_receipts x on x.record_id=t.id
+  where x.scope_key='call:'||pg_temp.id(131)::text and t.completed_at is not null),'running it again changes nothing');
+-- A cleanup still blocked after seven days is not tried again; its record stays.
+insert into private.automation_answer_settlements(organization_id,call_id,first_attempt_at,attempts,retry_at,last_sqlstate)
+  values (pg_temp.id(1),pg_temp.id(130),clock_timestamp()-interval '8 days',12,clock_timestamp()-interval '1 second','55P03');
+create trigger busy_task before update on public.inbound_callbacks for each row execute function pg_temp.busy_task();
+insert into public.inbound_callbacks(organization_id,call_id,caller_phone,title,status,due_at)
+  values (pg_temp.id(1),pg_temp.id(130),'+12025559130','Call back','open',clock_timestamp());
+select public.automation_process_events(25);
+select pg_temp.ok((select retry_at='infinity' and attempts=13 from private.automation_answer_settlements where call_id=pg_temp.id(130)),
+  'after seven days the cleanup stops being retried and its record stays');
+drop trigger busy_task on public.inbound_callbacks;
+delete from public.inbound_callbacks where call_id=pg_temp.id(130);
+delete from private.automation_answer_settlements where call_id=pg_temp.id(130);
+
 -- 14. The list takes up to 100 from each group, so no group pushes another off it: newer claims never hide an older
 -- open callback, open callbacks never hide the viewer's own claim, and the counts cover every waiting callback.
 update public.inbound_callbacks set status='done',closed_at=clock_timestamp() where organization_id=pg_temp.id(1) and status in ('open','claimed');
