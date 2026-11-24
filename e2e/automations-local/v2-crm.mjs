@@ -220,6 +220,11 @@ try {
     await button(dialog, 'Confirm issuance').tap();
     await dialog.getByRole('alert').getByText('Enter the date the policy was issued.', { exact: true }).waitFor();
     const issuedOn = await date.getAttribute('max');
+    // Count only what this tap adds. Workflow E confirmed the client's other policy as the same agent, dated in
+    // Chicago, and from 06:00 UTC on that date matches the browser's own date, so the same filter finds that row too.
+    const phoneConfirmation = `public.policy_issuance_confirmations where organization_id='${agency}' and client_id='${client}'
+      and issued_on='${issuedOn}' and confirmed_by=(select id from public.profiles where email='${email('one')}')`;
+    const confirmedBefore = count(phoneConfirmation);
     await date.fill(issuedOn);
     await button(dialog, 'Confirm issuance').tap();
     await dialog.waitFor({ state: 'hidden' });
@@ -228,8 +233,7 @@ try {
     if (await rows.nth(0).getAttribute('aria-expanded') !== 'true') await rows.nth(0).tap();
     await touch.getByText('Issued', { exact: true }).nth(1).waitFor();
     assert.equal(await button(touch, 'Confirm issuance').count(), 0, 'Both policies now show as issued');
-    assert.equal(count(`public.policy_issuance_confirmations where organization_id='${agency}' and client_id='${client}'
-      and issued_on='${issuedOn}' and confirmed_by=(select id from public.profiles where email='${email('one')}')`), 1,
+    assert.equal(count(phoneConfirmation) - confirmedBefore, 1,
       'The phone confirmation was saved once, with its date and the agent who confirmed it');
   }
 
