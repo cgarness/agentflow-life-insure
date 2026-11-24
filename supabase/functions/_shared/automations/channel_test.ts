@@ -103,6 +103,33 @@ Deno.test("a change after the lease holds the message before any provider reques
   }
 });
 
+Deno.test("a text is held without reserving when its earlier refused reservation cannot be released", async () => {
+  const sms = { type: "send_sms" as const, config: { body: "Reminder {{first_name}}", purpose: "informational" } };
+  for (const answer of [{ data: null, error: { message: "fixture outage" } }, { data: false, error: null }]) {
+    const names: string[] = [];
+    const db = {
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        names.push(name);
+        assert(args.p_run === claim.run_id && args.p_token === claim.lease_token && args.p_node === claim.node_id, "lease scope");
+        return name === "automation_message_check" ? { data: null, error: null } : answer;
+      },
+      from: (table: string) => {
+        names.push(table);
+        const query = {
+          select: () => query,
+          eq: () => query,
+          maybeSingle: async () => ({ data: { organization_id: claim.organization_id, enforced: true }, error: null }),
+        };
+        return query;
+      },
+    };
+    const result = await dispatchChannel(db, claim, sms, { ...contact, phone: "+12025550123" }, { env: fakeEnv, fetch: noTransport });
+    assert(result.status === "held" && result.reason === "Message eligibility could not be verified.", String(result.reason));
+    assert(names.join() === "automation_message_check,sms_agency_policies,automation_release_refused_dispatch",
+      "nothing was reserved: " + names.join());
+  }
+});
+
 Deno.test("held eligibility and missing provider config cause zero provider calls", async () => {
   let sends = 0;
   const transport = async () => {

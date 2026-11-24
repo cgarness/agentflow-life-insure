@@ -3,8 +3,9 @@
 Independent PostgreSQL connections race for one callback claim, one task step, and one callback per
 missed call. A final check holds the lock a publish takes and proves a CRM save still commits at once.
 Real row locks held by another session show that late-answer cleanup never holds up the call and finishes later,
-that a reopened appointment seen by two workers at once gets one run, and that an appointment save in flight
-refuses a reminder's provider handoff while a handoff in progress keeps the save waiting only until it commits.
+that a reopened appointment seen by two workers at once gets one run, that an appointment save in flight refuses a
+reminder's provider handoff while a handoff in progress keeps the save waiting only until it commits, and that an
+unrelated save in flight is waited out briefly and never costs the reminder.
 """
 import json
 import os
@@ -34,7 +35,8 @@ ids = {name: str(uuid.uuid4()) for name in ["lead_flow", "lead_version", "call_f
                                              "appt_flow", "appt_version", "appt_lead", "reopened",
                                              "busy_lead", "busy_call", "bridge_call", "bridge_attempt",
                                              "first_seen_flow", "first_seen_version", "first_seen_lead", "first_seen",
-                                             "text_flow", "text_version", "text_moved", "text_kept"]}
+                                             "text_flow", "text_version", "text_moved", "text_kept", "text_busy",
+                                             "text_long"]}
 
 def query(sql, timeout=25):
     return subprocess.check_output(psql, input=sql, text=True, timeout=timeout).strip()
@@ -381,8 +383,8 @@ try:
     query("select public.automation_process_events(25);")
     assert query(first_seen_runs) == "1", "Processing the reopening afterwards started another run"
 
-    # 10. A reminder text at its final authorization. An appointment save still in flight refuses the handoff at once,
-    #     without waiting; a handoff in progress keeps a save of its appointment waiting only until it commits.
+    # 10. A reminder text at its final authorization. An appointment move still in flight refuses the handoff after a
+    #     brief wait; a handoff in progress keeps a save of its appointment waiting only until it commits.
     text_step = {"id": "text", "type": "send_sms", "version": 1,
                  "config": {"body": "Reminder {{appointment_time}}", "purpose": "informational"}}
     query(f"""update public.workflows set status='paused' where organization_id='{org}' and status='active';
@@ -392,7 +394,9 @@ try:
       update private.automation_release_controls set dispatch_enabled=true where organization_id='{org}';
       insert into public.appointments(id,organization_id,title,contact_id,user_id,start_time,sync_source) values
         ('{ids['text_moved']}','{org}','Moved during the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal'),
-        ('{ids['text_kept']}','{org}','Saved after the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal');
+        ('{ids['text_kept']}','{org}','Saved after the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal'),
+        ('{ids['text_busy']}','{org}','Edited during the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal'),
+        ('{ids['text_long']}','{org}','Edited at length during the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal');
       select public.automation_process_events(25);""")
     for item in claims():
         assert query(f"select public.automation_finish_node('{item['run_id']}','{item['lease_token']}','wait')") == "t"
@@ -405,7 +409,7 @@ try:
             join private.automation_events e on e.id=r.event_id where r.id='{item['run_id']}'""")
         assert item["node_id"] == "text", item
         texts[appointment] = item
-    assert set(texts) == {ids['text_moved'], ids['text_kept']}, texts
+    assert set(texts) == {ids['text_moved'], ids['text_kept'], ids['text_busy'], ids['text_long']}, texts
     def authorize(item):
         return f"select public.automation_authorize_handoff('{item['run_id']}','{item['lease_token']}','text');"
     moved = texts[ids['text_moved']]
@@ -422,6 +426,44 @@ try:
         assert query(f"select status from private.automation_intents where run_id='{kept['run_id']}' and node_id='text'") == "prepared"
     assert saved.wait(timeout=15) == 0, saved.stderr.read()
     assert query(f"select status from private.automation_intents where run_id='{kept['run_id']}' and node_id='text'") == "handed_off"
+
+    # 11. An unrelated save of the appointment (its notes) in flight at the final authorization. A short one is waited
+    #     out and the reminder is handed off. One that lasts longer refuses the handoff without recording anything, and
+    #     the worker's next lease hands the same reminder off, once.
+    def intent(item):
+        return query(f"select status from private.automation_intents where run_id='{item['run_id']}' and node_id='text'")
+    worker, _ = session("v2-busy-worker")
+    busy = texts[ids['text_busy']]
+    saver = subprocess.Popen(psql, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    saver.stdin.write(f"begin; update public.appointments set title='Notes edited' where id='{ids['text_busy']}';\n"
+                      "\\echo LOCK_HELD\nselect pg_sleep(0.3);\ncommit;\n")
+    saver.stdin.flush()
+    for line in saver.stdout:
+        if line.rstrip() == "LOCK_HELD":
+            break
+    started = time.monotonic()
+    answer = send(worker, authorize(busy), "BUSY_DONE")
+    took = time.monotonic() - started
+    saver.stdin.close()
+    assert saver.wait(timeout=15) == 0, saver.stderr.read()
+    assert answer == ["t"], answer
+    assert 0.1 < took < 1.5, f"The handoff did not wait out a short save ({took:.2f}s)"
+    assert intent(busy) == "handed_off"
+    long = texts[ids['text_long']]
+    with hold(f"update public.appointments set title='Notes edited at length' where id='{ids['text_long']}';"):
+        started = time.monotonic()
+        answer = send(worker, authorize(long), "LONG_DONE")
+        took = time.monotonic() - started
+    assert answer == ["f"], answer
+    assert 0.4 < took < 1.5, f"The handoff gave up on a long save after {took:.2f}s"
+    assert intent(long) == "prepared", "A refused handoff recorded something"
+    assert query(f"select public.automation_finish_node('{long['run_id']}','{long['lease_token']}','held','Run no longer permits a provider handoff.')") == "t"
+    query(f"update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where id='{long['run_id']}'")
+    again = [item for item in claims() if item["run_id"] == long["run_id"]]
+    assert len(again) == 1 and again[0]["node_id"] == "text", again
+    assert query(authorize(again[0])) == "t" and intent(long) == "handed_off", "The next lease did not hand the reminder off"
+    worker.stdin.close()
+    worker.wait(timeout=15)
     query(f"update private.automation_release_controls set dispatch_enabled=false where organization_id='{org}';")
 
     # 6. An appointment cancelled, moved while cancelled and reopened, while the new time's booking is admitted at the
@@ -464,8 +506,9 @@ try:
           f"two automations reached together; an appointment saved in {waited:.2f}s during a held publish lock and its event recovered; "
           "an answer confirmed while a missed call's task or callback was being made closed it; an answer recorded while "
           "its task or callback was held elsewhere did not wait, was hidden from the list and refused for claiming, and was "
-          "finished by the worker; a reopening two workers saw at once started one run; a save in flight refused a "
-          "reminder's handoff at once and a handoff in progress held a save only until it committed; a reopened appointment "
-          "carried on while its new time was admitted at the same moment has one run")
+          "finished by the worker; a reopening two workers saw at once started one run; a move in flight refused a "
+          "reminder's handoff after a brief wait and a handoff in progress held a save only until it committed; a reopened appointment "
+          "carried on while its new time was admitted at the same moment has one run; a short unrelated save was waited out "
+          "and a long one refused the handoff without cost, the next lease handing the reminder off once")
 finally:
     cleanup()

@@ -128,6 +128,14 @@ export async function dispatchChannel(
       if (!smsPolicy?.enforced) {
         return { status: "held", reason: "Agency automated texting policy is unavailable." };
       }
+      // A text refused before its handoff on an earlier lease tries again: the reservation that refusal cancelled is
+      // released, since no provider has seen it, and this attempt reserves afresh.
+      const released = await db.rpc("automation_release_refused_dispatch", {
+        p_run: claim.run_id, p_token: claim.lease_token, p_node: claim.node_id,
+      });
+      if (released.error || released.data !== true) {
+        return { status: "held", reason: "Message eligibility could not be verified." };
+      }
       const destination = phone(contact.phone);
       const result = await dispatch(db, {
         org: claim.organization_id,

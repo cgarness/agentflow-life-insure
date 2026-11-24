@@ -80,6 +80,13 @@ begin
   reset role;
   perform pg_temp.nobody();
 end $$;
+-- The Admin pauses or resumes an automation the way the builder does: a pause ends its activation, a resume opens one.
+create function pg_temp.lifecycle(workflow_n integer, operation text) returns void language plpgsql as $$
+begin
+  perform pg_temp.act(10);
+  perform public.automation_lifecycle(pg_temp.id(workflow_n),operation,(public.automation_session_context()->>'revision')::bigint);
+  perform pg_temp.nobody();
+end $$;
 -- After an appointment was cancelled, moved while cancelled and opened again: one run follows it, placed against the
 -- new time, and gives its reminder once.
 create function pg_temp.reopened_reminder_fires_once(lead_n integer, story text) returns void language plpgsql as $$
@@ -817,9 +824,10 @@ select pg_temp.as_agent(format('update public.appointments set status=''Schedule
 select public.automation_process_events(25);
 select pg_temp.reopened_reminder_fires_once(73,'every change made before the worker saw the booking');
 
--- Paused when the appointment reopens: the booking waits for the automation, which starts once when it resumes.
+-- Paused when the appointment reopens: the booking waits for the automation, which starts once when it resumes. The
+-- automation is paused and resumed the way the builder does it, so it was off when the appointment moved and reopened.
 select pg_temp.first_seen_cancelled(124,74);
-update public.workflows set status='paused' where id=pg_temp.id(48);
+select pg_temp.lifecycle(48,'pause');
 select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
   date_trunc('minute',clock_timestamp())+interval '5 days',(select id from booked where n=74)));
 select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=74)));
@@ -828,7 +836,7 @@ select pg_temp.ok(pg_temp.reminder_runs(74)=0 and exists(select from private.aut
     join private.automation_events e on e.id=d.event_id where d.workflow_id=pg_temp.id(48)
       and e.subject->>'appointment_id'=(select id::text from booked where n=74)),
   'a paused automation keeps the booking for when it resumes');
-update public.workflows set status='active' where id=pg_temp.id(48);
+select pg_temp.lifecycle(48,'resume');
 select public.automation_process_events(25);
 select pg_temp.reopened_reminder_fires_once(74,'the automation resumed after the reopening');
 
@@ -847,8 +855,11 @@ insert into private.automation_reply_watermarks(organization_id,contact_type,con
   values(pg_temp.id(1),'lead',pg_temp.id(75),clock_timestamp());
 select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=75)));
 select public.automation_process_events(25);
-select pg_temp.ok(not exists(select from private.automation_runs where workflow_id=pg_temp.id(60) and contact_id=pg_temp.id(75)),
-  'a reply after the booking keeps the stop-on-reply automation from starting');
+select pg_temp.ok((select count(*)=1 and bool_and(status='stopped' and reason='Verified reply received')
+    from private.automation_runs where workflow_id=pg_temp.id(60) and contact_id=pg_temp.id(75)),
+  'a reply after the booking keeps the stop-on-reply automation from starting, and its activity says why');
+select pg_temp.ok(not exists(select from public.tasks t join private.automation_runs r on r.id=t.automation_run_id
+  where r.workflow_id=pg_temp.id(60) and t.contact_id=pg_temp.id(75)),'and it gives no reminder');
 select pg_temp.reopened_reminder_fires_once(75,'the reminder without stop on reply still starts');
 update public.workflows set status='paused' where id=pg_temp.id(60);
 
@@ -871,6 +882,255 @@ select pg_temp.ok((select count(*)=1 from private.automation_runs r join private
     where r.workflow_id=pg_temp.id(62) and r.contact_id=pg_temp.id(76) and r.paced_from=e.occurred_at),
   'the moved booking starts the later automation once, counted from the booking');
 update public.workflows set status='paused' where id=pg_temp.id(62);
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where organization_id=pg_temp.id(1) and status in ('queued','waiting','held');
+
+-- A booking taken up because its appointment was reopened counts its stop rules from when the automation began
+-- following the appointment, so the same facts give the same answer whether or not the worker saw the booking before
+-- the cancellation, and whatever order it sees the changes in. A pause around the changes keeps the booking, and a run
+-- that already finished for the old time leaves the new time its reminders.
+update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active';
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where organization_id=pg_temp.id(1) and status in ('queued','waiting','held');
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(87,99) n;
+create function pg_temp.runs_for(workflow_n integer, lead_n integer) returns text language sql as $$
+  select coalesce(string_agg(r.status||':'||coalesce(r.reason,'-'),'; ' order by r.started_at,r.id),'none')
+  from private.automation_runs r join private.automation_events e on e.organization_id=r.organization_id and e.id=r.event_id
+  where r.workflow_id=pg_temp.id(workflow_n) and e.subject->>'appointment_id'=(select id::text from booked where n=lead_n)
+$$;
+create function pg_temp.tasks_for(workflow_n integer, lead_n integer) returns bigint language sql as $$
+  select count(*) from public.tasks t join private.automation_runs r on r.id=t.automation_run_id
+    join private.automation_events e on e.organization_id=r.organization_id and e.id=r.event_id
+  where r.workflow_id=pg_temp.id(workflow_n) and e.subject->>'appointment_id'=(select id::text from booked where n=lead_n)
+$$;
+-- The worker runs every active automation until nothing is left, each wait ending as soon as it is checked.
+create function pg_temp.drive() returns void language plpgsql as $$
+begin
+  for i in 1..12 loop
+    update private.automation_runs r set due_at=clock_timestamp()-interval '1 second'
+      from public.workflows w where w.id=r.workflow_id and w.status='active' and r.status='waiting';
+    exit when pg_temp.work() is null;
+  end loop;
+end $$;
+create function pg_temp.booking(appointment_n integer, lead_n integer, days integer) returns void language sql as $$
+  insert into booked select lead_n,pg_temp.book(appointment_n,lead_n,date_trunc('minute',clock_timestamp())+make_interval(days=>days)),
+    date_trunc('minute',clock_timestamp())+make_interval(days=>days)
+$$;
+create function pg_temp.save(lead_n integer, changes text) returns void language plpgsql as $$
+begin
+  perform pg_temp.as_agent(format('update public.appointments set %s where id=%L',changes,(select id from booked where n=lead_n)));
+end $$;
+create function pg_temp.later(days integer) returns text language sql as $$
+  select format('start_time=%L',date_trunc('minute',clock_timestamp())+make_interval(days=>days))
+$$;
+-- A conversation on a later call.
+create function pg_temp.talk(lead_n integer) returns void language sql as $$
+  insert into public.calls(id,organization_id,agent_id,contact_id,contact_type,contact_phone,direction,status,duration,started_at,
+      dialer_admission_required)
+    values(gen_random_uuid(),pg_temp.id(1),pg_temp.id(11),pg_temp.id(lead_n),'lead','+1202555'||lpad(lead_n::text,4,'0'),
+      'outbound','completed',180,clock_timestamp(),false)
+$$;
+create function pg_temp.reply(lead_n integer) returns void language sql as $$
+  select private.automation_cancel_reply(pg_temp.id(1),pg_temp.id(lead_n),'lead',clock_timestamp())
+$$;
+
+-- An automation that stops on a reply.
+select pg_temp.publish(170,171,'Reminder that stops on a reply (lineage)','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":true},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"until","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"task","type":"create_task","version":1,"config":{"title":"Reminder (reply)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"until"},{"id":"b","source":"until","target":"task"}]}');
+-- First seen cancelled, the contact replies, and one calendar save moves and reopens the appointment.
+select pg_temp.booking(160,87,3);
+select pg_temp.save(87,'status=''Cancelled''');
+select pg_temp.ok(public.automation_process_events(25)=0,'lead 87: the booking first processed while cancelled starts nothing');
+select pg_temp.reply(87);
+select pg_temp.save(87,pg_temp.later(5)||',status=''Scheduled''');
+select public.automation_process_events(25);
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(170,87)='stopped:Verified reply received' and pg_temp.tasks_for(170,87)=0,
+  'a reply since the booking ends the reminders for an appointment moved and reopened in one save: '||pg_temp.runs_for(170,87));
+-- The worker saw the booking while it stood. The contact replies after the cancellation, then one save moves and reopens.
+select pg_temp.booking(161,88,3);
+select pg_temp.ok(public.automation_process_events(25)=1 and pg_temp.work()->>'result'='wait','lead 88: the reminder run waits');
+select pg_temp.save(88,'status=''Cancelled''');
+select public.automation_process_events(25);
+select pg_temp.reply(88);
+select pg_temp.save(88,pg_temp.later(5)||',status=''Scheduled''');
+select public.automation_process_events(25);
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(170,88)='stopped:Appointment was cancelled' and pg_temp.tasks_for(170,88)=0,
+  'the run a cancellation stopped stays ended after a reply, and nothing starts for the new time: '||pg_temp.runs_for(170,88));
+-- Two saves the worker sees in one pass: moved while cancelled, then reopened.
+select pg_temp.booking(162,89,3);
+select pg_temp.save(89,'status=''Cancelled''');
+select public.automation_process_events(25);
+select pg_temp.reply(89);
+select pg_temp.save(89,pg_temp.later(5));
+select pg_temp.save(89,'status=''Scheduled''');
+select public.automation_process_events(25);
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(170,89)='stopped:Verified reply received' and pg_temp.tasks_for(170,89)=0,
+  'a reply since the booking ends the reminders when the worker sees the move and the reopening together: '||pg_temp.runs_for(170,89));
+-- An ordinary move of an appointment that stood, after a reply ended its reminders, starts the automation again for the
+-- new time, counted from the move, as every booking does. (Whether stop rules should outlive a reschedule is a product
+-- decision recorded in the release plan; this pins the behavior this round keeps.)
+select pg_temp.booking(163,90,3);
+select pg_temp.ok(public.automation_process_events(25)=1 and pg_temp.work()->>'result'='wait','lead 90: the reminder run waits');
+select pg_temp.reply(90);
+select pg_temp.save(90,pg_temp.later(5));
+select public.automation_process_events(25);
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(170,90)='stopped:Verified reply received; completed:-' and pg_temp.tasks_for(170,90)=1,
+  'an ordinary move after a reply starts the reminders again for the new time: '||pg_temp.runs_for(170,90));
+select pg_temp.lifecycle(170,'pause');
+
+-- An automation that stops when the contact is reached on a later call.
+select pg_temp.publish(172,173,'Reminder that stops on contact','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false,"stop_on_contact":true},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"until","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"task","type":"create_task","version":1,"config":{"title":"Reminder (contact)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"until"},{"id":"b","source":"until","target":"task"}]}');
+-- The same facts, seen in two orders: a conversation after the booking, then a cancellation, a move and a reopening.
+select pg_temp.booking(164,91,3);
+select pg_temp.ok(public.automation_process_events(25)=1 and pg_temp.work()->>'result'='wait','lead 91: the reminder run waits');
+select pg_temp.talk(91);
+select pg_temp.save(91,'status=''Cancelled''');
+select public.automation_process_events(25);
+select pg_temp.save(91,pg_temp.later(5));
+select public.automation_process_events(25);
+select pg_temp.save(91,'status=''Scheduled''');
+select public.automation_process_events(25);
+select pg_temp.booking(165,92,3);
+select pg_temp.talk(92);
+select pg_temp.save(92,'status=''Cancelled''');
+select pg_temp.ok(public.automation_process_events(25)=0,'lead 92: the booking first processed while cancelled starts nothing');
+select pg_temp.save(92,pg_temp.later(5));
+select public.automation_process_events(25);
+select pg_temp.save(92,'status=''Scheduled''');
+select public.automation_process_events(25);
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(172,91)='stopped:Contact was reached' and pg_temp.tasks_for(172,91)=0
+    and pg_temp.runs_for(172,92)='stopped:Contact was reached' and pg_temp.tasks_for(172,92)=0,
+  'a conversation since the booking ends the reminders whichever way the worker saw the booking: '
+    ||pg_temp.runs_for(172,91)||' / '||pg_temp.runs_for(172,92));
+-- An ordinary move after the contact was reached starts the automation again for the new time, as above.
+select pg_temp.booking(166,93,3);
+select pg_temp.ok(public.automation_process_events(25)=1 and pg_temp.work()->>'result'='wait','lead 93: the reminder run waits');
+select pg_temp.talk(93);
+update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where workflow_id=pg_temp.id(172) and status='waiting';
+select pg_temp.ok(pg_temp.work() is null and pg_temp.runs_for(172,93)='stopped:Contact was reached','lead 93: the conversation ends the run');
+select pg_temp.save(93,pg_temp.later(5));
+select public.automation_process_events(25);
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(172,93)='stopped:Contact was reached; completed:-' and pg_temp.tasks_for(172,93)=1,
+  'an ordinary move after a conversation starts the reminders again for the new time: '||pg_temp.runs_for(172,93));
+select pg_temp.lifecycle(172,'pause');
+
+-- An automation that stops when the contact books another appointment.
+select pg_temp.publish(174,175,'Reminder that stops on another booking','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false,"stop_on_booking":true},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"until","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"task","type":"create_task","version":1,"config":{"title":"Reminder (booking)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"until"},{"id":"b","source":"until","target":"task"}]}');
+select pg_temp.booking(167,94,3);
+select pg_temp.book(168,94,date_trunc('minute',clock_timestamp())+interval '4 days');
+select pg_temp.save(94,'status=''Cancelled''');
+select public.automation_process_events(25);
+select pg_temp.save(94,pg_temp.later(5));
+select public.automation_process_events(25);
+select pg_temp.save(94,'status=''Scheduled''');
+select public.automation_process_events(25);
+select pg_temp.ok(pg_temp.runs_for(174,94)='stopped:Appointment booked',
+  'another appointment booked since the first booking ends the reminders for the reopened one: '||pg_temp.runs_for(174,94));
+select pg_temp.lifecycle(174,'pause');
+
+-- A plain reminder: a run that finished for the old time, a pause around the move, and a restart counted from the
+-- reopening.
+select pg_temp.publish(176,177,'Plain reminder (lineage)','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"until","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"task","type":"create_task","version":1,"config":{"title":"Reminder (plain)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"until"},{"id":"b","source":"until","target":"task"}]}');
+-- The reminder for the old time was given, then the appointment was cancelled, moved while cancelled and reopened,
+-- with the worker seeing each change: the new time gets its reminder too.
+select pg_temp.booking(169,95,3);
+select pg_temp.ok(public.automation_process_events(25)=1,'lead 95: the booking enrolls');
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(176,95)='completed:-' and pg_temp.tasks_for(176,95)=1,'lead 95: the reminder for the old time was given');
+select pg_temp.save(95,'status=''Cancelled''');
+select public.automation_process_events(25);
+select pg_temp.save(95,pg_temp.later(14));
+select public.automation_process_events(25);
+select pg_temp.save(95,'status=''Scheduled''');
+select public.automation_process_events(25);
+select public.automation_process_events(25);
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(176,95)='completed:-; completed:-' and pg_temp.tasks_for(176,95)=2,
+  'a run that finished for the old time leaves the reopened new time its reminder: '||pg_temp.runs_for(176,95));
+-- Booked five hours out, so the day-before reminder was skipped as too late; then cancelled, moved and reopened.
+insert into booked select 96,pg_temp.book(181,96,date_trunc('minute',clock_timestamp())+interval '5 hours'),
+  date_trunc('minute',clock_timestamp())+interval '5 hours';
+select pg_temp.ok(public.automation_process_events(25)=1,'lead 96: the booking enrolls');
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(176,96)='completed:The reminder time had already passed','lead 96: the reminder was too late');
+select pg_temp.save(96,'status=''Cancelled''');
+select public.automation_process_events(25);
+select pg_temp.save(96,pg_temp.later(7));
+select public.automation_process_events(25);
+select pg_temp.save(96,'status=''Scheduled''');
+select public.automation_process_events(25);
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.tasks_for(176,96)=1,
+  'a reminder skipped as too late for the old time is given for the reopened new time: '||pg_temp.runs_for(176,96));
+-- First seen cancelled, the automation paused only while the appointment was moved, and resumed before the reopening.
+select pg_temp.booking(182,97,3);
+select pg_temp.save(97,'status=''Cancelled''');
+select pg_temp.ok(public.automation_process_events(25)=0,'lead 97: the booking first processed while cancelled starts nothing');
+select pg_temp.lifecycle(176,'pause');
+select pg_temp.save(97,pg_temp.later(5));
+select public.automation_process_events(25);
+select pg_temp.lifecycle(176,'resume');
+select pg_temp.save(97,'status=''Scheduled''');
+select public.automation_process_events(25);
+select pg_temp.drive();
+select pg_temp.ok(pg_temp.runs_for(176,97)='completed:-' and pg_temp.tasks_for(176,97)=1,
+  'an automation paused only while the appointment moved still reminds about the reopened time: '||pg_temp.runs_for(176,97));
+select pg_temp.lifecycle(176,'pause');
+
+-- A run that started over for the reopened new time counts from the recorded reopening, however late the worker is.
+select pg_temp.publish(178,179,'Two reminders (lineage)','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"day","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"first","type":"create_task","version":1,"config":{"title":"Day-before reminder (lineage)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}},
+    {"id":"hour","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"hours"}},
+    {"id":"second","type":"create_task","version":1,"config":{"title":"Hour-before reminder (lineage)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"day"},{"id":"b","source":"day","target":"first"},
+    {"id":"c","source":"first","target":"hour"},{"id":"d","source":"hour","target":"second"}]}');
+select pg_temp.booking(183,98,3);
+select pg_temp.ok(public.automation_process_events(25)=1 and pg_temp.work()->>'result'='wait','lead 98: it waits for the day before');
+update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where workflow_id=pg_temp.id(178);
+select pg_temp.ok(pg_temp.work()->>'result'='elapsed' and pg_temp.work()->>'result'='created'
+  and pg_temp.work()->>'result'='wait','lead 98: the day-before reminder is given and the run waits for the hour before');
+select pg_temp.save(98,'status=''Cancelled''');
+select public.automation_process_events(25);
+select pg_temp.save(98,pg_temp.later(14));
+select public.automation_process_events(25);
+select pg_temp.save(98,'status=''Scheduled''');
+select pg_sleep(0.5);
+select public.automation_process_events(25);
+select pg_temp.ok((select count(*)=1 from private.automation_runs r where r.workflow_id=pg_temp.id(178) and r.contact_id=pg_temp.id(98)
+    and r.status in ('queued','waiting') and r.paced_from=(select max(x.observed_at) from private.appointment_evidence_observations x
+      where x.appointment_id=(select id from booked where n=98) and x.op='UPDATE'
+        and private.appointment_status_key(x.prev->>'status')='cancelled' and private.appointment_status_key(x.next->>'status')='open')),
+  'the run that starts over for the new time counts from the recorded reopening, not from when the worker saw it');
+select pg_temp.lifecycle(178,'pause');
 update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
   where organization_id=pg_temp.id(1) and status in ('queued','waiting','held');
 
@@ -1207,8 +1467,8 @@ update public.appointments set start_time=start_time+interval '1 day',end_time=e
   where id=(select id from booked where n=86);
 alter table public.appointments enable trigger appointments_v3_evidence_capture;
 select pg_temp.ok(pg_temp.slot(86)=(pg_temp.texts(86)).leased_for
-  and pg_temp.check(86)='The appointment moved after this message was prepared' and not pg_temp.hand_off(86),
-  'a move the slot record missed still refuses the old time''s reminder');
+  and pg_temp.check(86)='The appointment''s new time is not recorded yet' and not pg_temp.hand_off(86),
+  'a move the slot record missed still refuses the old time''s reminder, and says why');
 
 -- A message that may already be with a provider is reconciled, not skipped, when its appointment moves.
 select pg_temp.text_picked_up(154,84,date_trunc('minute',clock_timestamp())+interval '3 hours');
@@ -1266,4 +1526,118 @@ select pg_temp.ok(pg_temp.check(185)='This step is no longer leased to this work
   'the earlier lease is reported as ended and can hand nothing off');
 select pg_temp.ok(pg_temp.check(85) is null and pg_temp.hand_off(85) and pg_temp.intent(85)='handed_off',
   'and that confirmation is handed off');
+
+-- A reminder for the time the appointment is at again, after it moved away and back, still goes out.
+-- Bookings a paused automation kept from earlier cases are not part of these.
+update public.workflows set status='paused' where id=pg_temp.id(142);
+delete from private.automation_deferred_admissions where workflow_id=pg_temp.id(140);
+update public.workflows set status='active' where id=pg_temp.id(140);
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where organization_id=pg_temp.id(1) and status in ('queued','waiting','held','unknown');
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(100,103) n;
+insert into booked select 100,pg_temp.book(184,100,date_trunc('minute',clock_timestamp())+interval '3 hours'),
+  date_trunc('minute',clock_timestamp())+interval '3 hours';
+select pg_temp.ok(public.automation_process_events(25)=1 and pg_temp.work()->>'result'='wait','lead 100: it waits for the hour before');
+update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where workflow_id=pg_temp.id(140) and contact_id=pg_temp.id(100);
+select pg_temp.ok(pg_temp.work()->>'result'='elapsed','lead 100: the hour before arrives');
+select pg_temp.as_agent(format('update public.appointments set start_time=start_time+interval ''1 day'',end_time=end_time+interval ''1 day'' where id=%L',
+  (select id from booked where n=100)));
+select pg_temp.as_agent(format('update public.appointments set start_time=%L,end_time=%L where id=%L',
+  (select starts from booked where n=100),(select starts+interval '30 minutes' from booked where n=100),(select id from booked where n=100)));
+select public.automation_process_events(25);
+do $$
+declare lease jsonb; run private.automation_runs;
+begin
+  select * into lease from public.automation_claim_work(1);
+  run:=pg_temp.texts(100);
+  perform pg_temp.ok(lease->>'run_id'=run.id::text and lease->>'node_id'='text' and run.reminded_for=pg_temp.slot(100)
+      and run.leased_for=pg_temp.slot(100) and run.anchor_id=pg_temp.slot(100)
+      and (lease#>>'{context,appointment_start}')::timestamptz=(select starts from booked where n=100),
+    'a reminder for the time the appointment moved back to is handed to the worker, not skipped');
+  insert into leases values (100,lease);
+end $$;
+select pg_temp.ok(pg_temp.check(100) is null and pg_temp.hand_off(100) and pg_temp.intent(100)='handed_off',
+  'and it is handed off');
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where id=(pg_temp.texts(100)).id;
+
+-- A cancelled-before-handoff text reservation is cleared by the worker holding the step's lease, and only that one.
+select pg_temp.text_picked_up(185,101,date_trunc('minute',clock_timestamp())+interval '3 hours');
+create function pg_temp.reservation(lead_n integer, reservation_state text, code text, sid text) returns void language sql as $$
+  insert into public.sms_dispatches(organization_id,request_key,payload_hash,phone_e164,from_number,body,purpose,evidence_ids,state,
+      error_code,provider_sid)
+    select pg_temp.id(1),'automation:'||(lease->>'run_id')||':text','fixture','+1202555'||lpad(lead_n::text,4,'0'),'+12025550999',
+      'Reminder','informational','{}'::uuid[],reservation_state,code,sid
+    from leases where n=lead_n
+$$;
+create function pg_temp.release(lead_n integer, token uuid default null) returns boolean language sql as $$
+  select public.automation_release_refused_dispatch((lease->>'run_id')::uuid,coalesce(token,(lease->>'lease_token')::uuid),
+    lease->>'node_id') from leases where n=lead_n
+$$;
+create function pg_temp.reserved(lead_n integer) returns text language sql as $$
+  select coalesce((select d.state||':'||coalesce(d.error_code,'-') from public.sms_dispatches d join leases l on l.n=lead_n
+    where d.request_key='automation:'||(l.lease->>'run_id')||':text'),'none')
+$$;
+select pg_temp.ok(pg_temp.release(101) and pg_temp.reserved(101)='none','with nothing reserved there is nothing to clear');
+select pg_temp.reservation(101,'failed','pre_handoff_cancelled',null);
+select pg_temp.ok(not pg_temp.release(101,gen_random_uuid()) and pg_temp.reserved(101)='failed:pre_handoff_cancelled',
+  'a worker without the step''s lease clears nothing');
+select pg_temp.ok(pg_temp.release(101) and pg_temp.reserved(101)='none',
+  'the lease holder clears a reservation cancelled before any handoff, so the text can try again');
+select pg_temp.reservation(101,'failed','provider_rejected','SM00000000000000000000000000000001');
+select pg_temp.ok(pg_temp.release(101) and pg_temp.reserved(101)='failed:provider_rejected',
+  'a text a provider saw is never cleared');
+delete from public.sms_dispatches where request_key like 'automation:'||(select lease->>'run_id' from leases where n=101)||':%';
+select pg_temp.reservation(101,'attempting',null,null);
+select pg_temp.ok(pg_temp.release(101) and pg_temp.reserved(101)='attempting:-','an attempt in progress is never cleared');
+delete from public.sms_dispatches where request_key like 'automation:'||(select lease->>'run_id' from leases where n=101)||':%';
+select pg_temp.ok(pg_temp.hand_off(101),'the text is handed off');
+select pg_temp.reservation(101,'failed','pre_handoff_cancelled',null);
+select pg_temp.ok(pg_temp.release(101) and pg_temp.reserved(101)='failed:pre_handoff_cancelled',
+  'nor is one whose step was already handed off');
+delete from public.sms_dispatches where request_key like 'automation:'||(select lease->>'run_id' from leases where n=101)||':%';
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where id=(pg_temp.texts(101)).id;
+
+-- A text timed before its appointment is not sent once the appointment has started: one held past the start is
+-- skipped, and a step timed after the start still goes out.
+update public.workflows set status='paused' where id=pg_temp.id(140);
+delete from private.automation_deferred_admissions where workflow_id=pg_temp.id(142);
+update public.workflows set status='active' where id=pg_temp.id(142);
+insert into booked select 102,pg_temp.book(186,102,clock_timestamp()+interval '3 seconds'),clock_timestamp()+interval '3 seconds';
+insert into booked select 103,pg_temp.book(187,103,clock_timestamp()+interval '3 seconds'),clock_timestamp()+interval '3 seconds';
+select pg_temp.ok(public.automation_process_events(25)=2,'leads 102 and 103: the bookings enroll the confirmation');
+update private.automation_runs set due_at=clock_timestamp()+interval '1 hour' where workflow_id=pg_temp.id(142) and contact_id=pg_temp.id(103);
+do $$
+declare lease jsonb;
+begin
+  select * into lease from public.automation_claim_work(1);
+  perform pg_temp.ok(lease->>'node_id'='text' and lease->>'contact_id'=pg_temp.id(102)::text,'lead 102: the confirmation is picked up');
+  insert into leases values (102,lease);
+end $$;
+select pg_sleep(greatest(0,extract(epoch from (select max(starts) from booked where n in (102,103))-clock_timestamp()))+0.2);
+select pg_temp.ok(pg_temp.check(102)='The appointment had already started' and not pg_temp.hand_off(102)
+    and pg_temp.intent(102)='prepared','a confirmation picked up before the appointment started is refused once it has');
+select pg_temp.held(102);
+-- The other run's step is timed after the start, as one after a wait that ended then would be.
+update private.automation_runs set paced_from=(select starts+interval '1 second' from booked where n=103),
+    due_at=clock_timestamp()-interval '1 second'
+  where workflow_id=pg_temp.id(142) and contact_id=pg_temp.id(103);
+do $$
+declare lease jsonb; first jsonb; second jsonb;
+begin
+  select * into first from public.automation_claim_work(1);
+  select * into second from public.automation_claim_work(1);
+  lease:=coalesce(first,second);
+  perform pg_temp.ok(first is not null and second is null and first->>'contact_id'=pg_temp.id(103)::text,
+    'only the step timed after the start is handed to the worker');
+  insert into leases values (103,lease);
+  perform pg_temp.ok((select status='completed' from private.automation_runs where workflow_id=pg_temp.id(142) and contact_id=pg_temp.id(102))
+      and (select s.status='skipped' and s.reason='The appointment had already started' from private.automation_steps s
+        join private.automation_runs r on r.id=s.run_id where r.workflow_id=pg_temp.id(142) and r.contact_id=pg_temp.id(102)
+          and s.node_id='text'),
+    'the confirmation held past the start is skipped, and its run ends');
+end $$;
+select pg_temp.ok(pg_temp.check(103) is null and pg_temp.hand_off(103),'a step timed after the start still goes out');
 rollback;

@@ -1,6 +1,7 @@
 -- Explicit, disposable native test of the last check before an appointment reminder reaches a provider.
 -- Run after channel-fixture.sql on the same fresh local database, with isolated dummy credentials and the
--- loopback-only channel transport. Five reminder texts are due, each one hour before its appointment.
+-- loopback-only channel transport. Five reminder texts are due, each one hour before its appointment. A sixth is not
+-- due yet: appointment-refusal.sql makes it due for the sending-hours case that follows.
 \set ON_ERROR_STOP on
 BEGIN;
 DO $$ BEGIN
@@ -23,7 +24,7 @@ BEGIN
  INSERT INTO public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
  VALUES(pg_temp.cid(7),pg_temp.cid(1),pg_temp.cid(6),'Synthetic appointment reminder',1,g,clock_timestamp(),pg_temp.cid(2));
  UPDATE public.workflows SET automation_version_id=pg_temp.cid(7) WHERE id=pg_temp.cid(6);
- FOR n IN 3..7 LOOP
+ FOR n IN 3..8 LOOP
    destination:='+1202555014'||(n+1);
    INSERT INTO public.leads(id,organization_id,first_name,phone,user_id) VALUES(pg_temp.cid(10+n),pg_temp.cid(1),'Alex',destination,pg_temp.cid(2));
    -- The booking records its slot and the booked event through the CRM's own observers.
@@ -39,7 +40,8 @@ BEGIN
    INSERT INTO private.automation_runs(id,organization_id,workflow_id,version_id,event_id,contact_id,contact_type,scope_key,
      current_node_id,status,due_at,anchor_id,anchor_at,reminded_for,paced_from)
     VALUES(pg_temp.cid(20+n),pg_temp.cid(1),pg_temp.cid(6),pg_temp.cid(7),booked.id,pg_temp.cid(10+n),'lead',booked.scope_key,
-     'text','queued','2001-01-01',slot,starts,slot,starts-interval '1 hour');
+     'text','queued',CASE WHEN n=8 THEN timestamptz 'infinity' ELSE timestamptz '2001-01-01' END,slot,starts,slot,
+     starts-interval '1 hour');
    INSERT INTO private.automation_steps(organization_id,run_id,node_id,status) VALUES(pg_temp.cid(1),pg_temp.cid(20+n),'hour','elapsed');
    INSERT INTO private.automation_recipient_facts(organization_id,contact_id,contact_type,channel,destination,timezone_name,valid_until,evidence_reference)
     VALUES(pg_temp.cid(1),pg_temp.cid(10+n),'lead','sms',destination,'UTC',now()+interval '1 hour','Synthetic verified timezone');
