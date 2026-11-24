@@ -2,10 +2,12 @@
 """Check schema fingerprints and the independent production receipts that a release-full run is measured against.
 
 compare EXPECTED ACTUAL LABEL      both are schema-fingerprint.sql format 2 output; every family must match exactly
-restored EXPECTED ACTUAL LABEL     ACTUAL is a dump and restore of EXPECTED's source: every family must match, with
-                                   the parentheses PostgreSQL drops when it parses stored expressions again ignored
-validate ARCHIVE RECEIPTS TOC COPY the receipts come from outside the archive, from another channel, in its window;
-                                   COPY holds the archive files as checksummed, which are the bytes read
+restored EXPECTED ACTUAL LABEL     ACTUAL is a dump and restore of EXPECTED's source: every family must match exactly,
+                                   except that the families holding parsed expressions may instead match on their
+                                   precedence-aware printing, which a restore's flattening of AND and OR chains leaves
+                                   unchanged and any regrouping changes
+validate ARCHIVE RECEIPTS TOC COPY the receipts come from outside the archive, from another connection and moment,
+                                   in its window; COPY holds the archive files as checksummed, which are the bytes read
 connector-sql FILE                 a query in the form a connector that returns only the last result can run
 auth-receipt READING VERSION DIGEST PROJECT OUT
                                    the Auth receipt from auth-receipt.sql's reading, the health version and the
@@ -20,6 +22,9 @@ import sys
 from pathlib import Path
 
 FORMAT = "agentflow-schema-fingerprint/2"
+# The families whose definitions hold expressions PostgreSQL parses again on restore (schema-fingerprint.sql gives each
+# a precedence-aware printing). Every other family is stored as written, so a restore reproduces it exactly.
+REPARSED = frozenset({"columns", "constraints", "indexes", "views", "triggers", "policies", "rules"})
 CANONICAL_KEYS = {"row_script_sha256", "rollup_script_sha256", "rows_sha256", "rollup_sha256", "bucket_sha256"}
 AUTH_KEYS = {"project_ref", "database", "observed_at", "version_count", "versions_sha256", "gotrue_version",
              "image_index_digest"}
@@ -60,21 +65,31 @@ def fingerprint(path, what):
     by_kind = {row["kind"]: row for row in families}
     if len(by_kind) != len(families) or "session" not in by_kind:
         fail(f"{what} has duplicate families or no session family")
+    client = value.get("client")
+    if not (isinstance(client, dict) and set(client) == {"application_name", "session_user"}
+            and all(isinstance(v, str) for v in client.values())):
+        fail(f"{what} does not name the connection that read it; capture it again with the current file")
     return when(value.get("captured_at"), what), by_kind
 
 
 def compare(expected_path, actual_path, label, restored=False):
     _, expected = fingerprint(expected_path, "The expected fingerprint")
     _, actual = fingerprint(actual_path, f"The fingerprint of {label}")
-    keys = ("objects", "loose") if restored else ("objects", "sha256", "loose")
+    def exact(kind):
+        return all(expected[kind][k] == actual[kind][k] for k in ("objects", "sha256", "loose"))
     def same(kind):
-        return kind in expected and kind in actual and all(expected[kind][k] == actual[kind][k] for k in keys)
+        if kind not in expected or kind not in actual:
+            return False
+        if exact(kind):
+            return True
+        return (restored and kind in REPARSED and expected[kind]["objects"] == actual[kind]["objects"]
+                and expected[kind]["loose"] == actual[kind]["loose"])
     changed = sorted(kind for kind in expected.keys() | actual.keys() if not same(kind))
     if changed:
         fail(f"{label} differs from the expected schema in: " + ", ".join(changed))
-    reparsed = sorted(kind for kind in expected if expected[kind]["sha256"] != actual[kind]["sha256"])
-    note = (" Restoring parsed the stored expressions again, so these print with fewer parentheses: "
-            + ", ".join(reparsed) + ".") if reparsed else ""
+    reparsed = sorted(kind for kind in expected if not exact(kind))
+    note = (" Restoring parsed their stored expressions again, so these match on their precedence-aware printing "
+            "rather than exactly: " + ", ".join(reparsed) + ".") if reparsed else ""
     print(f"{label} matches the expected schema in all {len(expected)} fingerprint families.{note}")
 
 
@@ -90,13 +105,20 @@ def validate(archive, receipts, toc, copy):
         fail("The receipts must come from a directory outside the archive, and the archive from outside the receipts.")
     bundle = {name: Path(copy) / name for name in BUNDLE_FILES}
     taken = {name: (bundle[name].read_bytes(), regular(archive / name, name)) for name in BUNDLE_FILES}
+    def parsed(data):
+        try:
+            return json.loads(data)
+        except (UnicodeError, json.JSONDecodeError):
+            return None
     found = {}
     for name in RECEIPT_FILES:
         path = receipts / name
         info = regular(path, name)
         data = path.read_bytes()
         for other, (content, stat) in taken.items():
-            if (info.st_dev, info.st_ino) == (stat.st_dev, stat.st_ino) or data == content:
+            # A copy of one of the archive's own files, byte for byte or reformatted, is not an independent reading.
+            if ((info.st_dev, info.st_ino) == (stat.st_dev, stat.st_ino) or data == content
+                    or (parsed(data) is not None and parsed(data) == parsed(content))):
                 fail(f"Receipt {name} is the archive's own {other}, not an independent reading.")
         found[name] = path
     # The schema: two readings around the dump, and the independent receipt, in one window.
@@ -105,6 +127,14 @@ def validate(archive, receipts, toc, copy):
     captured, receipt_families = fingerprint(found["schema-fingerprint.json"], "The independent schema receipt")
     if before_families != after_families:
         fail("The source changed while it was being dumped; dump it again.")
+    # Independent: read at another moment, through another connection than the bundle's own readings.
+    receipt_reading = json.loads(found["schema-fingerprint.json"].read_text())
+    bundle_readings = [json.loads(bundle[name].read_text()) for name in ("source-fingerprint-before.json", "source-fingerprint.json")]
+    if any(captured == when(reading["captured_at"], "The archive's reading") for reading in bundle_readings):
+        fail("The schema receipt was taken at the same moment as one of the archive's own readings; it is a copy of it.")
+    if any(receipt_reading["client"] == reading["client"] for reading in bundle_readings):
+        fail("The schema receipt was read through the same connection as the archive's readings "
+             f"({receipt_reading['client']['application_name']}); read it through the other channel.")
     if not before <= after or after - before > DUMP_LIMIT:
         fail("The archive's two readings do not bracket one dump of at most 30 minutes.")
     created = re.search(r"^;\s+Archive created at (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) UTC$", Path(toc).read_text(), re.M)
@@ -121,6 +151,8 @@ def validate(archive, receipts, toc, copy):
     source_canonical = json.loads(bundle["canonical-source.json"].read_text())
     if not isinstance(source_canonical, dict) or set(source_canonical) != CANONICAL_KEYS | {"captured_at", "kinds"}:
         fail("The archive's canonical reading must hold the five digests, the per-kind digests and its capture time.")
+    if canonical["captured_at"] == source_canonical["captured_at"]:
+        fail("The canonical receipt was taken at the same moment as the archive's own canonical reading; it is a copy of it.")
     auth = json.loads(found["auth.json"].read_text())
     if not isinstance(auth, dict) or set(auth) != AUTH_KEYS:
         fail("The independent Auth receipt has unexpected fields.")
@@ -146,6 +178,8 @@ def validate(archive, receipts, toc, copy):
     digests = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in found.items()}
     print(json.dumps({"archive_created_at": made.isoformat().replace("+00:00", "Z"),
                       "receipt_captured_at": times["the schema receipt"].isoformat().replace("+00:00", "Z"),
+                      "receipt_client": receipt_reading["client"]["application_name"],
+                      "archive_client": bundle_readings[1]["client"]["application_name"],
                       "families": len(receipt_families), "receipt_sha256": digests, "project_ref": project}))
 
 

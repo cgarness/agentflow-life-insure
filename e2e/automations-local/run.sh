@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
+# Bash 4.4 or newer (macOS ships 3.2: brew install bash, then open a new terminal so bash resolves to it).
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  echo 'Run this with bash 4.4 or newer. On macOS: brew install bash, then open a new terminal.' >&2; exit 2
+fi
 # Run from a checkout with npm ci, docker, node, Playwright, Chromium and Deno installed.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+abspath() { python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }  # realpath, without coreutils
 umask 077
 mode=${1:-builder}
 case "$mode" in
@@ -20,8 +25,8 @@ rest="$prefix-rest"
 processes=()
 created=()
 cleanup() {
-  for p in "${processes[@]}"; do kill "$p" 2>/dev/null || true; done
-  for c in "${created[@]}"; do docker rm -fv "$c" >/dev/null || true; done
+  for p in ${processes[@]+"${processes[@]}"}; do kill "$p" 2>/dev/null || true; done
+  for c in ${created[@]+"${created[@]}"}; do docker rm -fv "$c" >/dev/null || true; done
   docker network rm "$network" >/dev/null || true
   rm -rf -- "$dir"
 }
@@ -107,7 +112,7 @@ fi
 # to while it is copied. The services stop, and the cluster restarts without the pg_cron and pg_net workers, which
 # keep a session on postgres. The copy keeps their catalogs: only the background processes are left out.
 faithful_base() {
-  kill "${processes[@]}" 2>/dev/null || true
+  kill ${processes[@]+"${processes[@]}"} 2>/dev/null || true
   docker stop "$auth" "$rest" >/dev/null
   local keep
   keep=$(docker exec -e PGPASSWORD "$db" psql -XAtq -U supabase_admin -d postgres -c "select string_agg(quote_literal(btrim(x)),', ')
@@ -140,18 +145,19 @@ if [[ $mode == synthetic-source ]]; then
   # A stand-in for production (its migrations up to today), the bundle its operator would make, and the receipts read
   # separately afterwards, for testing release-full end to end without production. Kept in the directory given.
   bash e2e/automations-local/upgrade.sh pilot
-  synthetic=$(realpath -m -- "$2")
+  synthetic=$(abspath "$2")
   mkdir -m 700 -p "$synthetic"
   # PostgreSQL 17 client tools in the disposable cluster, used as the operator uses theirs, as the postgres role.
   mkdir "$dir/pg-bin"
   for tool in psql pg_dump pg_dumpall pg_restore; do
-    printf '#!/usr/bin/env bash\nexec docker exec -i -e PGPASSWORD -e PGOPTIONS -e PGDATABASE -e PGCONNECT_TIMEOUT -e TZ -e PGSSLMODE=disable -e PGUSER=postgres %q %s "$@"\n' \
+    printf '#!/usr/bin/env bash\nexec docker exec -i -e PGPASSWORD -e PGOPTIONS -e PGDATABASE -e PGCONNECT_TIMEOUT -e PGAPPNAME -e TZ -e PGSSLMODE=disable -e PGUSER=postgres %q %s "$@"\n' \
       "$db" "$tool" >"$dir/pg-bin/$tool"
     chmod +x "$dir/pg-bin/$tool"
   done
   PG_BIN="$dir/pg-bin" bash e2e/automations-local/make-schema-bundle.sh "$synthetic/bundle"
   mkdir -m 700 "$synthetic/receipts"
-  reader=(docker exec -i -e PGPASSWORD "$db" psql -XqAt -U postgres -d postgres -v ON_ERROR_STOP=1 -f -)
+  # The receipts are read through another connection than the bundle's, as the Management API reads production's.
+  reader=(docker exec -i -e PGPASSWORD -e PGAPPNAME=agentflow-receipt-channel "$db" psql -XqAt -U postgres -d postgres -v ON_ERROR_STOP=1 -f -)
   "${reader[@]}" <e2e/automations-local/schema-fingerprint.sql >"$synthetic/receipts/schema-fingerprint.json"
   python3 e2e/automations-local/canonical-receipt.py query | "${reader[@]}" >"$synthetic/receipts/canonical.json"
   # The same reading through a channel that kept its own search_path, as a connector might: it must not pass.
@@ -179,7 +185,7 @@ if [[ $mode == release-full ]] && [[ $(docker exec -e PGPASSWORD "$db" psql -XAt
     "select to_regclass('private.automation_runs') is not null") == t ]]; then
   # The current production schema already holds the first release. Every migration and rollback target is a faithful
   # copy of the restored database, checked against the independent receipt before anything is applied to it.
-  receipt=$(realpath -- "$3")/schema-fingerprint.json
+  receipt=$(abspath "$3")/schema-fingerprint.json
   faithful_base install_base
   python3 e2e/automations-local/receipts.py restored "$receipt" "$dir/install_base.json" 'The migration and rollback target (install_base)'
   AUTOMATIONS_BASE_RECEIPT="$receipt" bash e2e/automations-local/install-stops.sh install_base
@@ -206,9 +212,16 @@ import hashlib, json, pathlib, sys
 work, receipt, evidence, image = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]), sys.argv[4]
 stops = json.loads((evidence / 'automations-v2-install-stops.json').read_text())
 families = json.loads(receipt.read_text())
+target = {row['kind']: row for row in json.loads((work / 'install_base.json').read_text())['families']}
+# Families the target matched only on PostgreSQL's precedence-aware printing (receipts.py restored allows that only for
+# the families holding parsed expressions); every other family matched the receipt exactly.
+reprinted = sorted(row['kind'] for row in families['families'] if row['sha256'] != target[row['kind']]['sha256'])
 (evidence / 'automations-v2-release-full.json').write_text(json.dumps({
     'result': 'pass', 'postgres_image': image, 'receipt_sha256': hashlib.sha256(receipt.read_bytes()).hexdigest(),
-    'receipt_captured_at': families['captured_at'], 'fingerprint_families': len(families['families']),
+    'receipt_captured_at': families['captured_at'], 'receipt_client': families['client']['application_name'],
+    'fingerprint_families': len(families['families']),
+    'families_matched_exactly': len(families['families']) - len(reprinted),
+    'families_matched_on_precedence_aware_printing': reprinted,
     'matched_receipt': ['restored primary', 'after Auth start', 'install_base', 'rollback rehearsal target',
                         'install_base after the rehearsals'],
     'install_stop_targets_verified': stops['targets_verified'], 'install_stops': stops['result'],
@@ -311,10 +324,19 @@ docker exec -i -e PGOPTIONS -e PGPASSWORD "$db" psql -U postgres -d postgres -v 
 native() {
   "${DENO_BIN:-deno}" cache --node-modules-dir=manual --no-lock --import-map="$AUTOMATION_IMPORT_MAP" "$1"
   "${DENO_BIN:-deno}" run --cached-only --node-modules-dir=manual --no-lock --import-map="$AUTOMATION_IMPORT_MAP" \
-    --allow-env --allow-read --allow-net=127.0.0.1:54340,127.0.0.1:54334 "$1"
+    --allow-env --allow-read --allow-net=127.0.0.1:54340,127.0.0.1:54334 "$@"
 }
 for script in scripts/tests/automations/{channel-native,receipt-native}.ts; do native "$script"; done
 # Appointment reminders the worker has picked up, then moved or cancelled before the provider handoff.
 docker exec -i -e PGOPTIONS -e PGPASSWORD "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < scripts/tests/automations/appointment-handoff-fixture.sql
 native scripts/tests/automations/appointment-handoff-native.ts
 docker exec -i -e PGPASSWORD "$db" psql -Xq -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < scripts/tests/automations/appointment-handoff-check.sql
+# A reminder refused at its final authorization (outside sending hours) is held without spending its step: once the
+# window opens, the next lease sends it exactly once.
+refusal() { docker exec -i -e PGOPTIONS -e PGPASSWORD "$db" psql -Xq -U postgres -d postgres -v ON_ERROR_STOP=1 -v phase="$1" -f - \
+  < scripts/tests/automations/appointment-refusal.sql; }
+refusal refuse
+native scripts/tests/automations/appointment-refusal-native.ts refuse
+refusal open
+native scripts/tests/automations/appointment-refusal-native.ts send
+refusal check

@@ -4,10 +4,11 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
+abspath() { python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }  # realpath, without coreutils
 fail() { echo "$1" >&2; exit 1; }
 [[ $# == 2 && -d $1 && -d $2 ]] || fail 'A schema-only bundle directory and an independent receipts directory are required.'
-bundle=$(realpath -- "$1")
-receipts=$(realpath -- "$2")
+bundle=$(abspath "$1")
+receipts=$(abspath "$2")
 db=${AUTOMATIONS_DB_CONTAINER:?dedicated release-full test container required}
 : "${PGPASSWORD:?disposable PostgreSQL password required}"
 prefix="af-auto-test-$PPID"

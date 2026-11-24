@@ -5,6 +5,10 @@
 # they are not first on PATH. The password comes from ~/.pgpass or the PGSERVICE's passfile, never from arguments,
 # chat or Git. Everything is read-only, and only checksums and counts are printed; the files stay on this machine.
 # Usage: make-schema-bundle.sh NEW_DIRECTORY
+# Bash 4.4 or newer (macOS ships 3.2: brew install bash, then open a new terminal so bash resolves to it).
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  echo 'Run this with bash 4.4 or newer. On macOS: brew install bash, then open a new terminal.' >&2; exit 2
+fi
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
@@ -16,22 +20,31 @@ for tool in psql pg_dump pg_dumpall pg_restore; do
   "${bin}$tool" --version | grep -Eq '\(PostgreSQL\) 17\.' || fail "PostgreSQL 17 $tool is required (PG_BIN selects it)."
 done
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || fail 'Python 3.11 or newer is required.'
-export PGDATABASE=postgres PGCONNECT_TIMEOUT=10 TZ=UTC
+# The bundle's readings name their connection, so a receipt read through another channel is told apart from them.
+export PGDATABASE=postgres PGCONNECT_TIMEOUT=10 TZ=UTC PGAPPNAME=agentflow-schema-bundle
 export PGSSLMODE=${PGSSLMODE:-verify-full}
 # Read-only and quick to give way: a dump that would wait on a lock stops, so it can simply be run again.
 [[ ${AGENTFLOW_NO_PGOPTIONS:-} == 1 ]] || export PGOPTIONS='-c default_transaction_read_only=on -c lock_timeout=2s -c statement_timeout=120s'
 out=$1
 mkdir -m 700 -- "$out"
 sql() { "${bin}psql" -XqAt --no-password -v ON_ERROR_STOP=1 -f - "$@"; }
+# A time limit where the system has one: GNU timeout, or gtimeout from Homebrew's coreutils. pg_dump already gives up
+# on a lock after two seconds.
+bounded() {
+  local seconds=$1; shift
+  if command -v timeout >/dev/null 2>&1; then timeout "$seconds" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$seconds" "$@"
+  else "$@"; fi
+}
 sql <<<'SELECT 1' >/dev/null || fail 'Could not connect read-only. Check ~/.pgpass and the libpq settings (a pooler that refuses startup options needs AGENTFLOW_NO_PGOPTIONS=1).'
 [[ $(sql <<<'SELECT current_database()') == postgres ]] || fail 'The connection must select database postgres.'
 # The same reading on both sides of the dump shows nothing changed while it ran.
 sql <e2e/automations-local/schema-fingerprint.sql >"$out/source-fingerprint-before.json"
-timeout 600 "${bin}pg_dump" --no-password --schema-only --format=custom --lock-wait-timeout=2s >"$out/agentflow-schema.dump"
+bounded 600 "${bin}pg_dump" --no-password --schema-only --format=custom --lock-wait-timeout=2s >"$out/agentflow-schema.dump"
 sql <e2e/automations-local/schema-fingerprint.sql >"$out/source-fingerprint.json"
 python3 e2e/automations-local/canonical-receipt.py query | sql >"$out/canonical-source.json"
 sql <e2e/automations-local/auth-versions.sql >"$out/auth-schema-migrations.txt"
-timeout 120 "${bin}pg_dumpall" --no-password --roles-only --no-role-passwords >"$out/roles.sql"
+bounded 120 "${bin}pg_dumpall" --no-password --roles-only --no-role-passwords >"$out/roles.sql"
 "${bin}pg_restore" --list <"$out/agentflow-schema.dump" >"$out/toc.list"
 if grep -Eq '^[0-9]+; [0-9]+ [0-9]+ (TABLE DATA|FOREIGN TABLE DATA|MATERIALIZED VIEW DATA|SEQUENCE SET|STATISTICS DATA|BLOB(S)?|LARGE OBJECT|SUBSCRIPTION|USER MAPPING|SERVER)( |$)' "$out/toc.list"; then
   fail 'The archive has a data-bearing or external connection entry. Do not use or transfer it.'
@@ -47,6 +60,14 @@ if json.loads((out / 'canonical-source.json').read_text()).get('captured_at') is
     sys.exit('The canonical reading has no capture time.')
 print(f"Read {len(after['families'])} fingerprint families before and after the dump; they match.")
 PY
-(cd "$out" && sha256sum agentflow-schema.dump roles.sql source-fingerprint-before.json source-fingerprint.json \
-  canonical-source.json auth-schema-migrations.txt >SHA256SUMS && cat SHA256SUMS)
+# Checksums in sha256sum's own format, computed in Python so no GNU tool is needed.
+python3 - "$out" agentflow-schema.dump roles.sql source-fingerprint-before.json source-fingerprint.json \
+  canonical-source.json auth-schema-migrations.txt <<'PY'
+import hashlib, sys
+from pathlib import Path
+out = Path(sys.argv[1])
+lines = [f"{hashlib.sha256((out / name).read_bytes()).hexdigest()}  {name}\n" for name in sys.argv[2:]]
+(out / 'SHA256SUMS').write_text(''.join(lines))
+print(''.join(lines), end='')
+PY
 echo "Bundle ready: $(grep -c '^[0-9]' "$out/toc.list") archive entries, $(grep -c . "$out/auth-schema-migrations.txt") Auth versions."

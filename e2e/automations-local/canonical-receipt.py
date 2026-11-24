@@ -11,10 +11,11 @@ ROW_SCRIPT = ROOT / "scripts/fingerprint.sql"
 ROLLUP_SCRIPT = ROOT / "scripts/fingerprint_rollup.sql"
 KEYS = {"row_script_sha256", "rollup_script_sha256", "rows_sha256", "rollup_sha256", "bucket_sha256"}
 # Row kinds a dump and restore can store differently without changing them: their detail hashes an expression
-# PostgreSQL stores parsed (parsed again on restore, which can drop parentheses), or a raw privilege array (rebuilt
-# from GRANT statements on restore, which can store the same entries in another order). A restored copy must match
-# their row counts exactly; their content is compared through the schema fingerprint, which sorts privileges and
-# ignores those parentheses (receipts.py restored). Every other kind must match exactly.
+# PostgreSQL stores parsed (parsed again on restore, which can flatten AND and OR chains), or a raw privilege array
+# (rebuilt from GRANT statements on restore, which can store the same entries in another order). A restored copy must
+# match their row counts exactly; their content is compared through the schema fingerprint (receipts.py restored),
+# which sorts privileges and compares functions, privileges and every other family exactly, and the expression families
+# on PostgreSQL's precedence-aware printing, so a regrouped condition still fails. Every other kind must match exactly.
 RESTORE_SENSITIVE_KINDS = {"column", "constraint", "index", "policy", "trigger", "function", "view", "type",
                            "grants", "sequence", "colacl", "defacl"}
 

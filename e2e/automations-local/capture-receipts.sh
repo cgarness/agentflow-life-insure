@@ -6,6 +6,10 @@
 # Needs SUPABASE_ACCESS_TOKEN (a personal access token, never printed or stored), SUPABASE_PUBLISHABLE_KEY (the
 # project's public client key, for the Auth health endpoint), Docker with buildx (for the Auth image's registry digest),
 # curl and Python 3.11 or newer. Usage: capture-receipts.sh NEW_DIRECTORY
+# Bash 4.4 or newer (macOS ships 3.2: brew install bash, then open a new terminal so bash resolves to it).
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  echo 'Run this with bash 4.4 or newer. On macOS: brew install bash, then open a new terminal.' >&2; exit 2
+fi
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
@@ -26,7 +30,13 @@ read_one() { # read_one QUERY_FILE OUTPUT
   curl --fail-with-body --silent --show-error --max-time 60 \
     -H @- -H 'Content-Type: application/json' --data-binary @"$work/body.json" \
     "https://api.supabase.com/v1/projects/$project/database/query" >"$work/response.json" \
-    <<<"Authorization: Bearer $SUPABASE_ACCESS_TOKEN" || fail "The Management API refused the reading (see $work/response.json)."
+    <<<"Authorization: Bearer $SUPABASE_ACCESS_TOKEN" || fail "The Management API refused the reading: $(python3 -c '
+import json, sys
+try:
+    body = json.load(open(sys.argv[1]))
+    print(str(body.get("message", "no reason given") if isinstance(body, dict) else "no reason given")[:300])
+except Exception:
+    print("no readable reason")' "$work/response.json")"
   python3 - "$work/response.json" "$2" <<'PY'
 import json, sys
 rows = json.load(open(sys.argv[1]))

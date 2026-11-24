@@ -3,12 +3,13 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
+abspath() { python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }  # realpath, without coreutils
 fail() { echo "$1" >&2; exit 1; }
 [[ $# == 3 && -d $2 && -d $3 ]] || fail 'Use prepare or verify with a schema bundle directory and its receipts directory.'
 phase=$1
 case "$phase" in prepare|verify) ;; *) fail 'Unknown Auth rehearsal phase.' ;; esac
-bundle=$(realpath -- "$2")
-receipt="$(realpath -- "$3")/auth.json"
+bundle=$(abspath "$2")
+receipt="$(abspath "$3")/auth.json"
 db=${AUTOMATIONS_DB_CONTAINER:?dedicated release-full database required}
 : "${PGPASSWORD:?disposable PostgreSQL password required}"
 prefix="af-auto-test-$PPID"

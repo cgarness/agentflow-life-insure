@@ -67,5 +67,22 @@ cp -a "$bundle" "$work/tampered"
 echo '-- changed after the checksums were taken' >>"$work/tampered/roles.sql"
 refused 'a bundle file changed after its checksums' 'Bundle checksum mismatch' "$work/tampered" "$receipts"
 
+# The bundle's own reading, reformatted, is still the bundle's own reading.
+reformatted=$(variant reformatted)
+python3 -c 'import json,sys; json.dump(json.load(open(sys.argv[1])), open(sys.argv[2], "w"), indent=2)' \
+  "$bundle/source-fingerprint.json" "$reformatted/schema-fingerprint.json"
+refused "the bundle's own reading, reformatted, offered as the receipt" 'not an independent reading' "$bundle" "$reformatted"
+
+# A receipt read through the same connection as the bundle's readings is not from another channel.
+same_channel=$(variant same-channel)
+edit "$same_channel/schema-fingerprint.json" "d['client'] = json.load(open('$bundle/source-fingerprint.json'))['client']"
+refused 'a receipt read through the same connection as the bundle' 'through the same connection' "$bundle" "$same_channel"
+
+# An archive whose policy was regrouped after its readings were taken, with its checksums taken again: the receipt and
+# the bundle's readings agree, but the restored database does not, so the run stops before anything is applied.
+cp -a "$bundle" "$work/regrouped"
+python3 e2e/automations-local/regroup-policy.py "$work/regrouped"
+refused 'an archive whose policy was regrouped after it was read' 'differs from the expected schema in: policies' "$work/regrouped" "$receipts"
+
 bash e2e/automations-local/run.sh release-full "$bundle" "$receipts"
-echo 'PASS release-full synthetic: nine refusals, then the restored database, its installation base and every migration and rollback target matched the independent receipt.'
+echo 'PASS release-full synthetic: twelve refusals, then the restored database, its installation base and every migration and rollback target matched the independent receipt.'

@@ -3,11 +3,12 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
+abspath() { python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }  # realpath, without coreutils
 fail() { echo "$1" >&2; exit 1; }
 [[ $# == 2 && -d $1 && -d $2 ]] || fail 'A schema-only bundle directory and its independent receipts directory are required.'
-bundle=$(realpath -- "$1")
+bundle=$(abspath "$1")
 # restore-full.sh has already checked that the receipts are independent of the bundle and from its window.
-expected="$(realpath -- "$2")/canonical.json"
+expected="$(abspath "$2")/canonical.json"
 source_receipt="$bundle/canonical-source.json"
 [[ ! "$expected" -ef "$source_receipt" ]] || fail 'Supply the independently captured repository fingerprint receipt.'
 gate=e2e/automations-local/canonical-receipt.py
@@ -26,7 +27,7 @@ pg=(docker exec -i -e PGPASSWORD "$db" psql -XqAt -U supabase_admin -d postgres 
 [[ $("${pg[@]}" -c "select current_setting('server_version_num')::int/10000,current_setting('cron.launch_active_jobs')") == '17|off' ]] || fail 'Expected isolated PostgreSQL 17 with scheduled jobs disabled.'
 bucket_args=()
 if [[ -n ${AUTOMATIONS_BUCKET_CONFIG:-} ]]; then bucket_args=(--reviewed-config "$AUTOMATIONS_BUCKET_CONFIG"); fi
-python3 "$gate" buckets "${bucket_args[@]}" > "$scratch/bucket-config.sql"
+python3 "$gate" buckets ${bucket_args[@]+"${bucket_args[@]}"} > "$scratch/bucket-config.sql"
 "${pg[@]}" -f - < "$scratch/bucket-config.sql" > "$scratch/local-output" 2> "$scratch/local-error" || fail 'Reviewed storage bucket configuration did not apply to the isolated restore.'
 python3 "$gate" query > "$scratch/canonical.sql"
 "${pg[@]}" -f - < "$scratch/canonical.sql" > "$scratch/restored.json" 2> "$scratch/local-error" || fail 'Canonical repository queries failed on restored schema.'

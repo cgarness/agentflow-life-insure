@@ -49,11 +49,12 @@ The full mode takes two directories, which must not contain each other.
   - the canonical reading;
   - the Auth version list;
   - `SHA256SUMS` over all six.
-- **RECEIPTS** holds the three readings `capture-receipts.sh` (or Claude's read-only connector) takes from the source through another channel: `schema-fingerprint.json`, `canonical.json` and `auth.json`.
+- **RECEIPTS** holds the three readings `capture-receipts.sh` takes from the source through the Supabase Management API, another channel than the bundle's database connection: `schema-fingerprint.json`, `canonical.json` and `auth.json`. Each fingerprint reading names the connection that took it (`mgmt-api` for the Management API, `agentflow-schema-bundle` for the bundle).
 
 `receipts.py` refuses the run before anything is restored when:
 
-- a receipt sits inside the bundle or is one of its files;
+- a receipt sits inside the bundle, or is one of its files, byte for byte or reformatted;
+- the schema receipt was read through the bundle's own connection, or at the same moment as one of its readings;
 - a fingerprint is not format 2;
 - a canonical reading has no capture time;
 - a reading is more than two hours from the dump, or the receipts are more than 72 hours old;
@@ -72,11 +73,13 @@ After that, every database the migrations and rollbacks touch is checked against
 - every non-system schema, including the managed ones;
 - roles, memberships, and database and role settings;
 - default, initial and catalog-object privileges, and parameter grants;
-- security labels and sequence ownership.
+- security labels, sequence ownership, partition keys and replica identity.
 
-Its "session" family records the settings the reading ran under. A dump and restore parses stored expressions again and can drop parentheses, so a restored copy is compared on a digest without them, and the output names the families affected. Readings of the source itself, and template copies, are compared exactly.
+Its "session" family records the settings the reading ran under. A dump and restore parses stored expressions again, and PostgreSQL flattens nested AND and OR chains when it does. So `receipts.py restored` compares a restored copy exactly in 27 families. In the seven that hold parsed expressions (columns, constraints, indexes, views, triggers, policies, rules), it accepts a match on PostgreSQL's precedence-aware printing (`pg_get_constraintdef(oid, true)` and the like). That printing reads the same for a flattened chain and its nested original, but differs for any regrouping. The output and the evidence file name the families that matched this way. Readings of the source itself, and template copies, are compared exactly in every family.
 
 The default image is `supabase/postgres:17.6.1.063`; the session family fails the run if production's server version differs. The [operator handoff](../../docs/plans/automations-v2/complete-schema-handoff.md) has the steps.
+
+Besides Linux, `release-full` and the two operator scripts before it (`capture-receipts.sh`, `make-schema-bundle.sh`) are written for macOS 13 or newer with Docker Desktop. They need bash 4.4 or newer (Homebrew's `bash`; each script refuses an older one) and PostgreSQL 17 client tools, but no GNU coreutils: checksums and paths are computed in Python, and the containers are reached only through `docker exec`. They have not been run end to end on a Mac.
 
 ```bash
 bash e2e/automations-local/release-full-synthetic.sh
@@ -86,7 +89,7 @@ bash e2e/automations-local/release-full-synthetic.sh
 
 1. `run.sh synthetic-source` builds a stand-in from production's migrations, makes the bundle with `make-schema-bundle.sh` through the cluster's own PostgreSQL 17 tools, and reads the receipts afterwards in a separate session.
 2. It shows that a plain template copy fails the target check.
-3. Nine runs then must be refused: receipts inside the bundle, the bundle's own reading as the receipt, the old format, a reading three hours from the dump, a reading under another `search_path`, a changed source, a canonical reading without its time, a missing Auth receipt, and a changed bundle file.
+3. Twelve runs then must be refused: receipts inside the bundle, the bundle's own reading as the receipt (as is and reformatted), a receipt read through the bundle's connection, the old format, a reading three hours from the dump, a reading under another `search_path`, a changed source, a canonical reading without its time, a missing Auth receipt, a changed bundle file, and an archive with one policy regrouped after its readings were taken (`regroup-policy.py`), which only the restored database shows.
 4. The full run must pass.
 
 ## Installation that stops part way
