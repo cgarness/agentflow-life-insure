@@ -5,9 +5,9 @@ cd "$(dirname "$0")/../.."
 umask 077
 mode=${1:-builder}
 case "$mode" in
-  builder|release|backend-first) [[ $# -le 1 ]] ;;
+  builder|release|backend-first|install-stops) [[ $# -le 1 ]] ;;
   release-full) [[ $# -eq 2 && -d "$2" ]] || { echo 'A verified schema-only archive directory is required.' >&2; exit 2; } ;;
-  *) echo 'Choose builder, release, backend-first, or release-full ARCHIVE_DIRECTORY.' >&2; exit 2 ;;
+  *) echo 'Choose builder, release, backend-first, install-stops, or release-full ARCHIVE_DIRECTORY.' >&2; exit 2 ;;
 esac
 dir=$(mktemp -d)
 prefix="af-auto-test-$$"
@@ -94,6 +94,29 @@ import json, sys
 if json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])):
     raise SystemExit('Full-schema fingerprint changed after local Auth startup')
 PYTHON
+fi
+# A copy of the main database nobody is connected to, as the base for the installation-stop rehearsal.
+base_copy() {
+  local dest
+  dest=$(docker exec "$db" mktemp -d /tmp/automation-base.XXXXXX)
+  docker exec -e PGPASSWORD "$db" pg_dump -U supabase_admin -Fc -d postgres -f "$dest/base.dump"
+  docker exec -e PGPASSWORD "$db" createdb -U supabase_admin -O postgres -T template0 "$1"
+  docker exec "$db" sh -eu -c 'pg_restore -l "$1/base.dump" | awk "!/ (pg_cron|cron)( |$)/ && !/ACL graphql_public FUNCTION graphql/" > "$1/toc"' -- "$dest"
+  docker exec -e PGPASSWORD "$db" pg_restore -L "$dest/toc" -U supabase_admin -d "$1" --exit-on-error "$dest/base.dump"
+}
+if [[ $mode == install-stops ]]; then
+  # Production's order up to today, then the seven V2 files stopped after each one, resumed and backed out.
+  bash e2e/automations-local/upgrade.sh pilot
+  base_copy install_base
+  bash e2e/automations-local/install-stops.sh install_base
+  exit
+fi
+if [[ $mode == release-full ]] && [[ $(docker exec -e PGPASSWORD "$db" psql -XAtq -U postgres -d postgres -c \
+    "select to_regclass('private.automation_runs') is not null") == t ]]; then
+  # The current production schema already holds the first release: rehearse the V2 installation on the restored copy.
+  base_copy install_base
+  bash e2e/automations-local/install-stops.sh install_base
+  exit
 fi
 if [[ $mode == backend-first ]]; then
   # The release order rehearsed end to end: the database first, the clients afterwards, then the rollback.
