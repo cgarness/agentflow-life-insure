@@ -767,4 +767,159 @@ select pg_temp.ok((select count(*)=2 and bool_and(t.assigned_to=pg_temp.id(11)) 
     and array_agg(t.contact_type order by t.contact_type)=array['client','recruit']
   from public.tasks t join private.automation_runs r on r.id=t.automation_run_id where r.workflow_id=pg_temp.id(50)),
   'the client and the recruit each get the reminder task, assigned to their agent');
+-- A run that carries on after its appointment stood again never dates its next task to a moment while the appointment
+-- was cancelled.
+update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active';
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(61,62) n;
+create temporary table reopened(n integer primary key, at timestamptz) on commit drop;
+select pg_temp.publish(52,53,'Late reminder after a reopening','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"until","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days","late":"continue"}},
+    {"id":"task","type":"create_task","version":1,"config":{"title":"Confirm (M)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"until"},{"id":"b","source":"until","target":"task"}]}');
+-- Booked days ago for three days out, cancelled, moved while cancelled to 20 hours from now (so the day-before time has
+-- already passed), then reopened.
+insert into booked select 61,pg_temp.book(92,61,date_trunc('minute',clock_timestamp())+interval '3 days'),
+  date_trunc('minute',clock_timestamp())+interval '3 days';
+select pg_temp.ok(public.automation_process_events(25)=1,'the booking enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='wait','it waits for the day before');
+update private.automation_runs set paced_from=clock_timestamp()-interval '2 days' where workflow_id=pg_temp.id(52);
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=61)));
+select public.automation_process_events(25);
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '20 hours',(select id from booked where n=61)));
+select public.automation_process_events(25);
+insert into reopened values (61,clock_timestamp());
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=61)));
+select public.automation_process_events(25);
+select pg_temp.ok((select status='queued' from private.automation_runs where workflow_id=pg_temp.id(52)),'the run carries on');
+select pg_temp.ok(pg_temp.work()->>'result'='wait','the day-before time has passed and the author lets it go out late');
+select pg_temp.ok(pg_temp.work()->>'result'='created','the task is created');
+select pg_temp.ok((select t.due_date>=o.at from public.tasks t join private.automation_runs r on r.id=t.automation_run_id, reopened o
+  where r.workflow_id=pg_temp.id(52) and o.n=61),
+  'it is due from the reopening, not from the passed reminder time while the appointment was cancelled');
+
+update public.workflows set status='paused' where id=pg_temp.id(52);
+select pg_temp.publish(54,55,'Wait across a cancellation','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"pause","type":"wait","version":1,"config":{"duration":2,"unit":"days"}},
+    {"id":"confirm","type":"create_task","version":1,"config":{"title":"Confirm (N)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"pause"},{"id":"b","source":"pause","target":"confirm"}]}');
+-- The plain wait's end passes while the appointment is cancelled.
+insert into booked select 62,pg_temp.book(93,62,date_trunc('minute',clock_timestamp())+interval '5 days'),
+  date_trunc('minute',clock_timestamp())+interval '5 days';
+select pg_temp.ok(public.automation_process_events(25)=1,'the booking enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='wait','the plain wait starts');
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=62)));
+select public.automation_process_events(25);
+select pg_temp.ok((select status='stopped' and reason='Appointment was cancelled' from private.automation_runs
+  where workflow_id=pg_temp.id(54)),'cancelling ends the run');
+update private.automation_runs set due_at=clock_timestamp()-interval '1 hour',paced_from=clock_timestamp()-interval '2 days'
+  where workflow_id=pg_temp.id(54);
+insert into reopened values (62,clock_timestamp());
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=62)));
+select pg_temp.ok(public.automation_process_events(25)=0,'reopening starts no second run');
+select pg_temp.ok((select r.status='waiting' and r.due_at>=o.at from private.automation_runs r,reopened o
+  where r.workflow_id=pg_temp.id(54) and o.n=62),'the wait whose end passed while cancelled ends on reopening');
+select pg_temp.ok(pg_temp.work()->>'result'='elapsed','the wait ends');
+select pg_temp.ok(pg_temp.work()->>'result'='created','the task is created');
+select pg_temp.ok((select t.due_date>=o.at from public.tasks t join private.automation_runs r on r.id=t.automation_run_id, reopened o
+  where r.workflow_id=pg_temp.id(54) and o.n=62),'it is due from the reopening, not from the wait''s end while cancelled');
+-- A run whose first reminder already went out, cancelled, moved while cancelled and reopened: as with a move of an
+-- appointment that stood, the automation starts over for the new time and gives it both reminders, once each, whether
+-- the worker sees each change as it happens or all three afterwards.
+update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active';
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(63,65) n;
+select pg_temp.publish(56,57,'Two reminders across a cancellation','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"day","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"first","type":"create_task","version":1,"config":{"title":"Day-before reminder (P)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}},
+    {"id":"hour","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"hours"}},
+    {"id":"second","type":"create_task","version":1,"config":{"title":"Hour-before reminder (P)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"day"},{"id":"b","source":"day","target":"first"},
+    {"id":"c","source":"first","target":"hour"},{"id":"d","source":"hour","target":"second"}]}');
+create function pg_temp.first_reminder_given(lead_n integer) returns void language plpgsql as $$
+begin
+  perform pg_temp.ok(public.automation_process_events(25)=1,'lead '||lead_n||': the booking enrolls');
+  perform pg_temp.ok(pg_temp.work()->>'result'='wait','lead '||lead_n||': it waits for the day before');
+  update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where workflow_id=pg_temp.id(56) and contact_id=pg_temp.id(lead_n);
+  perform pg_temp.ok(pg_temp.work()->>'result'='elapsed','lead '||lead_n||': the day before arrives');
+  perform pg_temp.ok(pg_temp.work()->>'result'='created','lead '||lead_n||': the day-before reminder is given for the first time');
+  perform pg_temp.ok(pg_temp.work()->>'result'='wait','lead '||lead_n||': the run waits for the hour before');
+end $$;
+create function pg_temp.new_time_gets_both(lead_n integer, story text) returns void language plpgsql as $$
+declare starts timestamptz; live private.automation_runs;
+begin
+  select a.start_time into strict starts from public.appointments a join booked b on b.id=a.id where b.n=lead_n;
+  perform pg_temp.ok((select count(*)=1 from private.automation_runs where workflow_id=pg_temp.id(56) and contact_id=pg_temp.id(lead_n)
+    and status='stopped' and reason in ('Appointment was cancelled','Appointment was rescheduled')),
+    story||': the run that reminded for the old time has ended');
+  perform pg_temp.ok((select count(*)=1 from private.automation_runs where workflow_id=pg_temp.id(56) and contact_id=pg_temp.id(lead_n)
+    and status in ('queued','waiting','held')),story||': exactly one run follows the new time');
+  select * into strict live from private.automation_runs where workflow_id=pg_temp.id(56) and contact_id=pg_temp.id(lead_n)
+    and status in ('queued','waiting','held');
+  if live.status='queued' then perform pg_temp.ok(pg_temp.work()->>'result'='wait',story||': the new run is placed'); end if;
+  select * into strict live from private.automation_runs where id=live.id;
+  perform pg_temp.ok(live.current_node_id='day' and live.status='waiting' and live.anchor_at=starts
+    and live.due_at=((starts at time zone 'America/New_York')-interval '1 day') at time zone 'America/New_York',
+    story||': it waits for the new time''s day-before reminder');
+  update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where id=live.id;
+  perform pg_temp.ok(pg_temp.work()->>'result'='elapsed' and pg_temp.work()->>'result'='created',story||': the day-before reminder for the new time');
+  perform pg_temp.ok(pg_temp.work()->>'result'='wait',story||': then it waits for the hour before');
+  update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where id=live.id;
+  perform pg_temp.ok(pg_temp.work()->>'result'='elapsed' and pg_temp.work()->>'result'='created',story||': the hour-before reminder for the new time');
+  perform pg_temp.ok(public.automation_process_events(25)=0 and pg_temp.work() is null,story||': nothing else is due');
+  perform pg_temp.ok((select count(*) filter (where t.title='Day-before reminder (P)')=2 and count(*) filter (where t.title='Hour-before reminder (P)')=1
+    from public.tasks t join private.automation_runs r on r.id=t.automation_run_id where r.workflow_id=pg_temp.id(56) and t.contact_id=pg_temp.id(lead_n)),
+    story||': one day-before reminder for each time and one hour-before reminder for the new time');
+end $$;
+insert into booked select 63,pg_temp.book(94,63,date_trunc('minute',clock_timestamp())+interval '3 days'),
+  date_trunc('minute',clock_timestamp())+interval '3 days';
+select pg_temp.first_reminder_given(63);
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=63)));
+select public.automation_process_events(25);
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '10 days',(select id from booked where n=63)));
+select public.automation_process_events(25);
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=63)));
+select public.automation_process_events(25);
+select pg_temp.new_time_gets_both(63,'each change seen as it happened');
+
+insert into booked select 64,pg_temp.book(95,64,date_trunc('minute',clock_timestamp())+interval '3 days'),
+  date_trunc('minute',clock_timestamp())+interval '3 days';
+select pg_temp.first_reminder_given(64);
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=64)));
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '10 days',(select id from booked where n=64)));
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=64)));
+select public.automation_process_events(25);
+select public.automation_process_events(25);
+select pg_temp.new_time_gets_both(64,'all three changes seen afterwards');
+
+-- A verified reply while the appointment was cancelled ends the run for an automation that stops on a reply, so
+-- reopening the appointment does not bring it back.
+update public.workflows set status='paused' where id=pg_temp.id(56);
+select pg_temp.publish(58,59,'Reminder that stops on a reply','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":true},"nodes":[
+    {"id":"start","type":"appointment_booked","version":1,"config":{}},
+    {"id":"until","type":"wait_until_before_appointment","version":1,"config":{"amount":1,"unit":"days"}},
+    {"id":"task","type":"create_task","version":1,"config":{"title":"Reminder (Q)","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"until"},{"id":"b","source":"until","target":"task"}]}');
+insert into booked select 65,pg_temp.book(96,65,date_trunc('minute',clock_timestamp())+interval '3 days'),
+  date_trunc('minute',clock_timestamp())+interval '3 days';
+select pg_temp.ok(public.automation_process_events(25)=1,'the booking enrolls');
+select pg_temp.ok(pg_temp.work()->>'result'='wait','it waits for the day before');
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=65)));
+select public.automation_process_events(25);
+select private.automation_cancel_reply(pg_temp.id(1),pg_temp.id(65),'lead',clock_timestamp());
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=65)));
+select public.automation_process_events(25);
+select pg_temp.ok(not exists(select from private.automation_runs where workflow_id=pg_temp.id(58) and status in ('queued','waiting','held')),
+  'the run a reply ended stays ended when the appointment is reopened');
+select pg_temp.ok(pg_temp.work() is null and not exists(select from public.tasks where contact_id=pg_temp.id(65)),'and no reminder is given');
 rollback;

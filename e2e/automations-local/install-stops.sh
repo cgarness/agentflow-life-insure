@@ -6,6 +6,8 @@
 #             reach exactly the clean rollback;
 #   back out: run rollback/20261124100600_automation_v2_stopped_install.rollback.sql and get the first-release functions
 #             back byte for byte, with every added observer inert, while the full rollback refuses the partial state.
+#             The probe then reports the back-out with no next file, and installing the next file anyway is refused.
+# After the full rollback the probe reports rolled_back, and every V2 file refuses to install again.
 # Usage: install-stops.sh BASE_DATABASE   (a database nobody is connected to, holding the state V2 is installed onto)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -75,9 +77,10 @@ run_id=$$
 summary=()
 
 # The two reference points every path must land on exactly.
+[[ $(state "$base") == *'"state": "not_installed"'* ]]
 copy "$base" "clean_install_$run_id"
 for name in "${names[@]}"; do apply "clean_install_$run_id" "$name"; done
-[[ $(state "clean_install_$run_id") == *'"installed": 7'* ]]
+[[ $(state "clean_install_$run_id") == *'"installed": 7'* && $(state "clean_install_$run_id") == *'"state": "installed"'* ]]
 crm_saves "clean_install_$run_id"
 full=$(catalog "clean_install_$run_id")
 copy "clean_install_$run_id" "clean_rollback_$run_id"
@@ -85,6 +88,13 @@ psql_on "clean_rollback_$run_id" -1 -f "$dest/migrations/rollback/20261124100600
 rolled=$(catalog "clean_rollback_$run_id")
 base_functions=$(first_release "$base")
 [[ $(first_release "clean_rollback_$run_id") == "$base_functions" ]]
+# After the full rollback the probe says so and offers no next file, and no V2 file installs again.
+after=$(state "clean_rollback_$run_id")
+[[ $after == *'"state": "rolled_back"'* && $after == *'"next": null'* ]]
+for name in "${names[0]}" "${names[6]}"; do
+  if apply "clean_rollback_$run_id" "$name" 2>/dev/null; then echo "$name installed over the full rollback" >&2; exit 1; fi
+done
+same "$(catalog "clean_rollback_$run_id")" "$rolled" "a refused install over the full rollback changed the catalog"
 echo "Reference: a clean installation of all seven files and its guarded rollback, which restores the 16 first-release functions."
 
 for k in 0 1 2 3 4 5 6; do
@@ -95,6 +105,7 @@ for k in 0 1 2 3 4 5 6; do
   crm_saves "$stop"
   stopped=$(catalog "$stop")
   next=${names[$k]}
+  ((k == 0)) || [[ $(state "$stop") == *'"state": "stopped"'* && $(state "$stop") == *"\"next\": \"$next\""* ]]
 
   # The next file fails at its very end: none of it stays.
   copy "$stop" "fail_${k}_$run_id"
@@ -136,10 +147,15 @@ for k in 0 1 2 3 4 5 6; do
       echo "A second back-out after $k files was accepted" >&2; exit 1
     fi
     same "$(catalog "back_${k}_$run_id")" "$backed" "a refused second back-out changed the catalog"
+    # The probe reports the back-out and offers no next file. Installing the next file anyway is refused.
+    after=$(state "back_${k}_$run_id")
+    [[ $after == *'"state": "backed_out"'* && $after == *'"next": null'* ]]
+    if apply "back_${k}_$run_id" "$next" 2>/dev/null; then echo "$next installed over a back-out after $k files" >&2; exit 1; fi
+    same "$(catalog "back_${k}_$run_id")" "$backed" "a refused install over a back-out changed the catalog"
     backout=restored
   else backout=nothing-installed; fi
   echo "PASS stopped after $k of 7 ($next next): CRM saves work; a failure inside $next left nothing; re-applying the last file $again and changed nothing; resuming reached the clean installation and its rollback; backing out: $backout."
-  summary+=("{\"installed\":$k,\"next\":\"$next\",\"crm_saves\":\"pass\",\"failed_next_file_left_nothing\":true,\"reapply_last\":\"$again\",\"resume\":\"matches clean install and rollback\",\"back_out\":\"$backout\"}")
+  summary+=("{\"installed\":$k,\"next\":\"$next\",\"crm_saves\":\"pass\",\"failed_next_file_left_nothing\":true,\"reapply_last\":\"$again\",\"resume\":\"matches clean install and rollback\",\"back_out\":\"$backout\",\"after_back_out\":\"$([[ $backout == restored ]] && echo 'probe backed_out, next file refused' || echo none)\"}")
 done
 
 # Every file installed: the back-out sends the operator to the full rollback.
@@ -148,5 +164,5 @@ if refused=$(psql_on "clean_install_$run_id" -1 -f "$dest/migrations/rollback/20
 fi
 grep -q 'all seven files are installed, use 20261124100600_automation_v2.rollback.sql' <<<"$refused"
 same "$(catalog "clean_install_$run_id")" "$full" "the refused back-out changed a complete installation"
-printf '{"result":"pass","base":"%s","stops":[%s]}\n' "$base" "$(IFS=,; echo "${summary[*]}")" > "$out/automations-v2-install-stops.json"
-echo 'PASS installation stops: after each of 0-6 files, resuming reaches the clean installation and its rollback, and backing out restores the first release.'
+printf '{"result":"pass","base":"%s","after_full_rollback":"probe rolled_back, files refused","stops":[%s]}\n' "$base" "$(IFS=,; echo "${summary[*]}")" > "$out/automations-v2-install-stops.json"
+echo 'PASS installation stops: after each of 0-6 files, resuming reaches the clean installation and its rollback, and backing out restores the first release; after a back-out or the full rollback the probe says so and no V2 file installs again.'

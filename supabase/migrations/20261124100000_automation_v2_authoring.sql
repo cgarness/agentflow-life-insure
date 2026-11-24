@@ -2,6 +2,14 @@
 -- SMS purpose that is pinned at publish. Installs no definitions, versions, enrollments or sends.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
+-- Never installed over a database where Automations V2 was rolled back, or where a stopped installation was backed
+-- out: the files after a back-out would run beside restored first-release functions. That takes a new migration.
+DO $v2_guard$ BEGIN
+  IF to_regprocedure('private.automation_v2_rollback_guard()') IS NOT NULL
+      OR to_regprocedure('private.automation_v2_backed_out()') IS NOT NULL THEN
+    RAISE EXCEPTION 'Automations V2 was rolled back or backed out on this database. Installing it again takes a new migration.';
+  END IF;
+END $v2_guard$;
 
 CREATE FUNCTION private.automation_block_category(p_type text)
 RETURNS text LANGUAGE sql IMMUTABLE SET search_path='' AS $$

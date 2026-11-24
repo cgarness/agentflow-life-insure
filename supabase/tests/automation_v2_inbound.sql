@@ -541,7 +541,8 @@ select pg_temp.ok((select status='stopped' and reason='Call was answered' from p
   join private.automation_events e on e.id=r.event_id where e.source_id=pg_temp.id(128))
   and not exists(select from public.inbound_callbacks where call_id=pg_temp.id(128)),'the run stopped with no callback');
 
--- 14. The list: newer claimed callbacks never hide an older open one, and the counts cover every waiting callback.
+-- 14. The list takes up to 100 from each group, so no group pushes another off it: newer claims never hide an older
+-- open callback, open callbacks never hide the viewer's own claim, and the counts cover every waiting callback.
 update public.inbound_callbacks set status='done',closed_at=clock_timestamp() where organization_id=pg_temp.id(1) and status in ('open','claimed');
 select pg_temp.ring(n,'+1202557'||lpad(n::text,4,'0'),'+15550001000') from generate_series(400,501) n;
 insert into public.inbound_callbacks(organization_id,call_id,caller_phone,title,status,claimed_by,claimed_at,due_at,created_at)
@@ -556,10 +557,36 @@ declare listed jsonb:=pg_temp.as_user(11,'select public.inbound_callback_queue()
 begin
   perform pg_temp.ok((listed->>'available')::boolean and (listed->>'open_count')::integer=1 and (listed->>'claimed_count')::integer=101,
     'the counts cover all 102 waiting callbacks: 1 open and 101 claimed');
-  perform pg_temp.ok(jsonb_array_length(listed->'items')=100 and listed->'items'->0->>'call_id'=pg_temp.id(400)::text
+  perform pg_temp.ok(jsonb_array_length(listed->'items')=101 and listed->'items'->0->>'call_id'=pg_temp.id(400)::text
     and listed->'items'->0->>'status'='open','the older open callback heads the list ahead of 101 newer claimed ones');
-  perform pg_temp.ok((select bool_and(item->>'status'='claimed') from jsonb_array_elements(listed->'items') with ordinality i(item,n) where n>1),
-    'claimed callbacks follow it');
+  perform pg_temp.ok((select bool_and(item->>'status'='claimed' and item->>'claimed_by_me'='false')
+      from jsonb_array_elements(listed->'items') with ordinality i(item,n) where n>1),
+    'the 100 newest of the other agent''s claims follow it');
+end $$;
+-- 120 more open callbacks, all due before the one the viewer claimed last.
+select pg_temp.ring(n,'+1202557'||lpad(n::text,4,'0'),'+15550001000') from generate_series(502,622) n;
+insert into public.inbound_callbacks(organization_id,call_id,caller_phone,title,status,due_at,created_at)
+  select pg_temp.id(1),pg_temp.id(n),'+1202557'||lpad(n::text,4,'0'),'Call back','open',clock_timestamp()+make_interval(mins=>n-500),
+    clock_timestamp()-make_interval(secs=>700-n)
+  from generate_series(502,621) n;
+insert into public.inbound_callbacks(organization_id,call_id,caller_phone,title,status,claimed_by,claimed_at,due_at,created_at)
+  values (pg_temp.id(1),pg_temp.id(622),'+12025570622','Call back the caller I claimed','claimed',pg_temp.id(11),clock_timestamp(),
+    clock_timestamp()+interval '1 day',clock_timestamp());
+do $$
+declare listed jsonb:=pg_temp.as_user(11,'select public.inbound_callback_queue()');
+begin
+  perform pg_temp.ok((listed->>'open_count')::integer=121 and (listed->>'claimed_count')::integer=102,
+    'the counts cover all 223 waiting callbacks: 121 open and 102 claimed');
+  perform pg_temp.ok(listed->'items'->0->>'call_id'=pg_temp.id(622)::text and listed->'items'->0->>'claimed_by_me'='true',
+    'the viewer''s own claim heads the list, ahead of 121 open callbacks');
+  perform pg_temp.ok(listed->'items'->1->>'call_id'=pg_temp.id(400)::text,'then the open callback due soonest');
+  perform pg_temp.ok(jsonb_array_length(listed->'items')=201
+    and (select count(*) from jsonb_array_elements(listed->'items') item where item->>'status'='open')=100
+    and (select count(*) from jsonb_array_elements(listed->'items') item where item->>'status'='claimed' and item->>'claimed_by_me'='false')=100,
+    'then 100 open callbacks and 100 of the other agent''s claims');
+  perform pg_temp.ok((select bool_and(item->>'status'='open') from jsonb_array_elements(listed->'items') with ordinality i(item,n) where n between 2 and 101)
+    and (select bool_and(item->>'status'='claimed') from jsonb_array_elements(listed->'items') with ordinality i(item,n) where n>101),
+    'in that order');
 end $$;
 
 -- 15. The callback list belongs to the Automations pilot. An agency without the builder has none.

@@ -2,6 +2,14 @@
 -- adds an agency callback list that agents claim from Inbounds. Nothing here places a call.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
+-- Never installed over a database where Automations V2 was rolled back, or where a stopped installation was backed
+-- out: the files after a back-out would run beside restored first-release functions. That takes a new migration.
+DO $v2_guard$ BEGIN
+  IF to_regprocedure('private.automation_v2_rollback_guard()') IS NOT NULL
+      OR to_regprocedure('private.automation_v2_backed_out()') IS NOT NULL THEN
+    RAISE EXCEPTION 'Automations V2 was rolled back or backed out on this database. Installing it again takes a new migration.';
+  END IF;
+END $v2_guard$;
 
 -- At most one callback per inbound call. Reached only through the functions below.
 CREATE TABLE public.inbound_callbacks (
@@ -87,11 +95,18 @@ $$;
 
 -- An answer confirmed after the callback or task for the call was made: the shared callback is dismissed and an
 -- automated task still open for the call is closed with a note. A task an agent already finished is left as it is.
--- Unfinished runs for the call stop at their next step (automation_stop_check).
+-- Unfinished runs for the call stop at their next step (automation_stop_check). Like every observer it waits at most
+-- 200 ms for a lock, so a telephony update is never held up; on a conflict the observer logs it and moves on.
 CREATE FUNCTION private.automation_settle_answered_call(p_org uuid,p_call uuid)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='200ms' AS $$
 BEGIN
   IF private.automation_inbound_evidence(p_org,p_call)<>'answered' THEN RETURN; END IF;
+  -- Only a call that became a missed-call event can have a callback or task to close.
+  IF NOT EXISTS (SELECT 1 FROM private.automation_events e WHERE e.organization_id=p_org
+      AND e.event_type='inbound_call_missed' AND e.source_id=p_call) THEN RETURN; END IF;
+  -- A task or callback being made for this call right now (automation_create_task holds this lock while it reads the
+  -- call and writes) commits first, so the updates below see it.
+  PERFORM pg_advisory_xact_lock(hashtextextended('automation-callback:'||p_call::text,0));
   UPDATE public.inbound_callbacks b SET status='dismissed',closed_reason='answered',closed_at=clock_timestamp(),
       updated_at=clock_timestamp()
     WHERE b.organization_id=p_org AND b.call_id=p_call AND b.status IN ('open','claimed');
@@ -214,10 +229,17 @@ BEGIN
         ELSE 'Call back '||coalesce(nullif(b.caller_phone,''),'the caller') END AS title,
       CASE WHEN b.contact_id IS NULL OR known.visible THEN b.notes END AS notes,
       CASE WHEN c.voicemail_id IS NOT NULL AND public.can_access_voicemail(c.voicemail_id) THEN c.voicemail_id END AS voicemail_id,
-      row_number() OVER (ORDER BY b.status='open' DESC,
-        CASE WHEN b.status='open' THEN coalesce(b.due_at,b.created_at) END ASC,
-        CASE WHEN b.status='claimed' THEN b.created_at END DESC,b.id) AS queue_order
-    FROM public.inbound_callbacks b
+      row_number() OVER (ORDER BY picked.grp,picked.rank) AS queue_order
+    -- Up to 100 from each group, in this order: the viewer's own claimed callbacks, open callbacks with the one due
+    -- soonest first, then other agents' claims, newest first. No group can push another off the list.
+    FROM (SELECT w.id,w.grp,row_number() OVER (PARTITION BY w.grp ORDER BY
+          CASE WHEN w.grp<2 THEN coalesce(w.due_at,w.created_at) END ASC,CASE WHEN w.grp=2 THEN w.created_at END DESC,w.id) AS rank
+        FROM (SELECT b.id,b.due_at,b.created_at,
+            CASE WHEN b.status='claimed' AND b.claimed_by IS NOT DISTINCT FROM actor.uid THEN 0 WHEN b.status='open' THEN 1 ELSE 2 END AS grp
+          FROM public.inbound_callbacks b JOIN public.calls c ON c.id=b.call_id AND c.organization_id=b.organization_id
+          WHERE b.organization_id=actor.org AND b.status IN ('open','claimed')
+            AND c.agent_id IS NULL AND c.outcome IS DISTINCT FROM 'forwarded_answered') w) picked
+    JOIN public.inbound_callbacks b ON b.id=picked.id
     JOIN public.calls c ON c.id=b.call_id AND c.organization_id=b.organization_id
     LEFT JOIN public.profiles claimer ON claimer.id=b.claimed_by AND claimer.organization_id=b.organization_id
     LEFT JOIN LATERAL (
@@ -228,10 +250,7 @@ BEGIN
           UNION ALL SELECT r.first_name,r.last_name FROM public.recruits r WHERE b.contact_type='recruit' AND r.organization_id=b.organization_id AND r.id=b.contact_id
         ) person LIMIT 1) AS name
       WHERE b.contact_id IS NOT NULL) known ON true
-    WHERE b.organization_id=actor.org AND b.status IN ('open','claimed')
-      AND c.agent_id IS NULL AND c.outcome IS DISTINCT FROM 'forwarded_answered'
-    ORDER BY b.status='open' DESC,CASE WHEN b.status='open' THEN coalesce(b.due_at,b.created_at) END ASC,
-      CASE WHEN b.status='claimed' THEN b.created_at END DESC,b.id LIMIT 100
+    WHERE picked.rank<=100
   ) item;
   RETURN jsonb_build_object('admin',actor.admin,'available',true,'open_count',counts.open,'claimed_count',counts.claimed,
     'items',listed);

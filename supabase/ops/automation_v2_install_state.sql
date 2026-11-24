@@ -2,6 +2,9 @@
 -- right file or backed out with rollback/20261124100600_automation_v2_stopped_install.rollback.sql.
 -- Each file runs as one transaction, so it is either wholly present or wholly absent. Each is recognised by an object
 -- that only it creates. A healthy result is a prefix: files 1..installed present, the rest absent.
+-- Both rollbacks keep those objects, so the state comes from the marker each one leaves: rolled_back (the full
+-- rollback's guards) or backed_out (the stopped-install back-out). Neither is resumed: next is null, and every V2 file
+-- refuses to install there. Otherwise the state is not_installed, stopped (resume from next) or installed.
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL statement_timeout = '5s';
 WITH files(n, version, name, present) AS (VALUES
@@ -12,12 +15,17 @@ WITH files(n, version, name, present) AS (VALUES
   (5, '20261124100400', 'automation_v2_inbound_callbacks', to_regclass('public.inbound_callbacks') IS NOT NULL),
   (6, '20261124100500', 'automation_v2_policy_issuance', to_regclass('public.policy_issuance_confirmations') IS NOT NULL),
   (7, '20261124100600', 'automation_v2_runtime', to_regprocedure('public.automation_create_task(uuid,uuid,text,text,text)') IS NOT NULL)
-)
+), marker(state) AS (SELECT CASE
+    WHEN to_regprocedure('private.automation_v2_rollback_guard()') IS NOT NULL THEN 'rolled_back'
+    WHEN to_regprocedure('private.automation_v2_backed_out()') IS NOT NULL THEN 'backed_out' END)
 SELECT jsonb_build_object(
+  'state', coalesce((SELECT state FROM marker), CASE count(*) FILTER (WHERE present) WHEN 0 THEN 'not_installed'
+    WHEN 7 THEN 'installed' ELSE 'stopped' END),
   'installed', count(*) FILTER (WHERE present),
   -- Files 1..installed and nothing after them.
   'prefix', bool_and(present = (n <= (SELECT count(*) FROM files f WHERE f.present))),
-  'next', (SELECT version || '_' || name || '.sql' FROM files f WHERE NOT f.present ORDER BY n LIMIT 1),
+  'next', CASE WHEN (SELECT state FROM marker) IS NULL
+    THEN (SELECT version || '_' || name || '.sql' FROM files f WHERE NOT f.present ORDER BY n LIMIT 1) END,
   'files', jsonb_agg(jsonb_build_object('version', version, 'name', name, 'present', present) ORDER BY n)
 ) FROM files;
 COMMIT;

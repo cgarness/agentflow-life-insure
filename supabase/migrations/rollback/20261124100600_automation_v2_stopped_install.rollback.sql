@@ -12,7 +12,10 @@
 -- give it, or, for a file not installed, from the first release.
 -- It restores the first-release body of every function the installed files replaced, byte for byte, and turns the
 -- observers they added into no-ops whose triggers stay attached. Every table, column, index and function they added
--- stays, unused, and no row is changed. Installing V2 afterwards is a new migration, as after the full rollback.
+-- stays, unused, and no row is changed. It then records the back-out in private.automation_v2_backed_out(): the
+-- install-state probe reports it, a second back-out refuses, and every V2 file refuses to install over it, because the
+-- files after the ones backed out would run beside the restored first-release functions. Installing V2 afterwards is
+-- a new migration, as after the full rollback.
 \set ON_ERROR_STOP on
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '60s';
@@ -22,6 +25,12 @@ DECLARE installed integer; prefix boolean; item jsonb; expected jsonb; actual js
 BEGIN
  IF current_setting('lock_timeout') <> '3s' THEN
   RAISE EXCEPTION 'automations v2 stopped-install back-out refused: run this file as one transaction (psql -X -1 -v ON_ERROR_STOP=1 -f)';
+ END IF;
+ IF to_regprocedure('private.automation_v2_backed_out()') IS NOT NULL THEN
+  RAISE EXCEPTION 'automations v2 stopped-install back-out refused: this installation was already backed out';
+ END IF;
+ IF to_regprocedure('private.automation_v2_rollback_guard()') IS NOT NULL THEN
+  RAISE EXCEPTION 'automations v2 stopped-install back-out refused: Automations V2 was rolled back here';
  END IF;
  WITH files(n, present) AS (VALUES
     (1, to_regprocedure('public.automation_sms_requirements(uuid)') IS NOT NULL),
@@ -901,3 +910,23 @@ BEGIN
   RAISE EXCEPTION 'automations v2 stopped-install back-out left an observer recording';
  END IF;
 END $stopped_postimage$;
+
+-- The durable record of this back-out: how many of the seven files had been installed.
+DO $stopped_marker$
+DECLARE installed integer;
+BEGIN
+ SELECT count(*) FILTER (WHERE present) INTO installed FROM (VALUES
+    (1, to_regprocedure('public.automation_sms_requirements(uuid)') IS NOT NULL),
+    (2, to_regprocedure('private.automation_stop_check(private.automation_runs)') IS NOT NULL),
+    (3, to_regclass('private.automation_task_receipts') IS NOT NULL),
+    (4, to_regprocedure('private.automation_capture_appointment_slot()') IS NOT NULL),
+    (5, to_regclass('public.inbound_callbacks') IS NOT NULL),
+    (6, to_regclass('public.policy_issuance_confirmations') IS NOT NULL),
+    (7, to_regprocedure('public.automation_create_task(uuid,uuid,text,text,text)') IS NOT NULL)) files(n, present);
+ EXECUTE format('CREATE FUNCTION private.automation_v2_backed_out() RETURNS integer LANGUAGE sql IMMUTABLE SET search_path TO %L AS %L',
+  '', 'SELECT ' || installed);
+ REVOKE ALL ON FUNCTION private.automation_v2_backed_out() FROM PUBLIC, anon, authenticated;
+ IF private.automation_v2_backed_out() IS DISTINCT FROM installed THEN
+  RAISE EXCEPTION 'automations v2 stopped-install back-out could not record itself';
+ END IF;
+END $stopped_marker$;

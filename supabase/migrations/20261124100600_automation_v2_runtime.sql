@@ -3,6 +3,14 @@
 -- from the version that ran. Installs no job, definition, enrollment or send.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
+-- Never installed over a database where Automations V2 was rolled back, or where a stopped installation was backed
+-- out: the files after a back-out would run beside restored first-release functions. That takes a new migration.
+DO $v2_guard$ BEGIN
+  IF to_regprocedure('private.automation_v2_rollback_guard()') IS NOT NULL
+      OR to_regprocedure('private.automation_v2_backed_out()') IS NOT NULL THEN
+    RAISE EXCEPTION 'Automations V2 was rolled back or backed out on this database. Installing it again takes a new migration.';
+  END IF;
+END $v2_guard$;
 
 -- A lease covers one node. A run whose stop condition already happened ends here instead of running,
 -- and the claim keeps looking, so a page of stopped runs never reads as an empty queue.
@@ -276,6 +284,10 @@ BEGIN
 
   IF origin.event_type='inbound_call_missed' THEN
     inbound:=nullif(origin.subject->>'call_id','')::uuid;
+    -- At most one callback per inbound call, whichever automation reaches it first. The same lock orders this step
+    -- against an answer confirmed at this moment (automation_settle_answered_call): either the answer is read below,
+    -- or the answer waits for this step to commit and then closes what it made.
+    PERFORM pg_advisory_xact_lock(hashtextextended('automation-callback:'||inbound::text,0));
     evidence:=private.automation_inbound_evidence(r.organization_id,inbound);
     IF evidence='unknown' THEN RETURN jsonb_build_object('status','stopped','reason','Call record no longer exists'); END IF;
     IF evidence='answered' THEN RETURN jsonb_build_object('status','stopped','reason','Call was answered'); END IF;
@@ -285,8 +297,6 @@ BEGIN
       RETURN jsonb_build_object('status','held','reason','The call''s answer records disagree. Waiting until they agree'); END IF;
     IF evidence<>'missed' THEN
       RETURN jsonb_build_object('status','held','reason','Waiting for confirmation of whether the call was answered'); END IF;
-    -- At most one callback per inbound call, whichever automation reaches it first.
-    PERFORM pg_advisory_xact_lock(hashtextextended('automation-callback:'||inbound::text,0));
     IF EXISTS (SELECT 1 FROM private.automation_task_receipts x
         WHERE x.organization_id=r.organization_id AND x.scope_key='call:'||inbound::text) THEN
       RETURN jsonb_build_object('status','skipped','reason','A callback already exists for this call'); END IF;
