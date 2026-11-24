@@ -90,8 +90,8 @@ def send(process, sql, marker):
 def late_answer(call, made):
     """Make a missed call's task or callback in one transaction while another commits an answer for the call.
 
-    The answer waits for the step to commit, so it closes what the step made. The step's session sees the answer
-    waiting and commits at once, well inside the 200 ms an observer may wait."""
+    The step holds a share lock on the call row, so the answer's own update waits for the step to commit and its
+    settlement then closes what the step made. The step's session commits as soon as it sees the answer waiting."""
     query(f"""update private.automation_events set available_at=clock_timestamp()-interval '1 second'
         where organization_id='{org}' and event_type='inbound_call_missed' and source_id='{call}';
       select public.automation_process_events(25);""")
@@ -105,8 +105,8 @@ def late_answer(call, made):
         answer.stdin.write(f"update public.calls set outcome='forwarded_answered' where id='{call}';\n\\echo ANSWERED\n")
         answer.stdin.flush()
         for _ in range(2000):
-            waiting = send(maker, f"select count(*) from pg_locks where pid={answer_pid} and locktype='advisory' and not granted;", "LOOKED")
-            if waiting == ["1"]:
+            waiting = send(maker, f"select count(*) from pg_locks where pid={answer_pid} and not granted;", "LOOKED")
+            if waiting != ["0"]:
                 break
         else:
             raise AssertionError("The answer never waited for the step making its " + made)

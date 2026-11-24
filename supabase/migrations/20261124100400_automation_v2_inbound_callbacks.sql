@@ -95,18 +95,14 @@ $$;
 
 -- An answer confirmed after the callback or task for the call was made: the shared callback is dismissed and an
 -- automated task still open for the call is closed with a note. A task an agent already finished is left as it is.
--- Unfinished runs for the call stop at their next step (automation_stop_check). Like every observer it waits at most
--- 200 ms for a lock, so a telephony update is never held up; on a conflict the observer logs it and moves on.
+-- Unfinished runs for the call stop at their next step (automation_stop_check). A task or callback being made for the
+-- call at this moment holds a share lock on the call row (automation_create_task), so the answer's own write waits for
+-- it to commit and the updates below then see it. Like every observer it waits at most 200 ms for a lock, so a
+-- telephony update is never held up; on a conflict the observer logs it and moves on.
 CREATE FUNCTION private.automation_settle_answered_call(p_org uuid,p_call uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='200ms' AS $$
 BEGIN
   IF private.automation_inbound_evidence(p_org,p_call)<>'answered' THEN RETURN; END IF;
-  -- Only a call that became a missed-call event can have a callback or task to close.
-  IF NOT EXISTS (SELECT 1 FROM private.automation_events e WHERE e.organization_id=p_org
-      AND e.event_type='inbound_call_missed' AND e.source_id=p_call) THEN RETURN; END IF;
-  -- A task or callback being made for this call right now (automation_create_task holds this lock while it reads the
-  -- call and writes) commits first, so the updates below see it.
-  PERFORM pg_advisory_xact_lock(hashtextextended('automation-callback:'||p_call::text,0));
   UPDATE public.inbound_callbacks b SET status='dismissed',closed_reason='answered',closed_at=clock_timestamp(),
       updated_at=clock_timestamp()
     WHERE b.organization_id=p_org AND b.call_id=p_call AND b.status IN ('open','claimed');

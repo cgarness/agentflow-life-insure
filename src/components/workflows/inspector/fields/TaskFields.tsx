@@ -11,7 +11,7 @@ const UNITS = ["minutes", "hours", "days"] as const;
 // The two selects always show a choice, so that choice is stored with the author's first edit.
 const SHOWN = {task_type: "Follow Up", due_unit: "days"};
 
-/** A task for the contact's assigned agent, due a set time after the event that started the run or the end of the last wait. */
+/** A task for the contact's assigned agent, due a set time after the event that started the run or the end the last wait was given. */
 export default function TaskFields({graph, node, issues, onChange}: EditorProps) {
   const id = useId();
   const trigger = triggerNode(graph)?.type;
@@ -40,7 +40,7 @@ export default function TaskFields({graph, node, issues, onChange}: EditorProps)
       </div>
       <p id={id + "when"} className="text-xs text-muted-foreground">
         {amount === 0 && <span className="font-medium text-foreground">Due right away. </span>}Counted from the event that started
-        the automation, or from the end of the last wait before this step. A step that runs late does not move it.
+        the automation or, after a wait, from the time that wait was set to end. A late or held step after that does not move it.
       </p>
     </div>
     <PersonalizedField label="Notes" multiline value={textValue(node, "notes")} maxLength={2000} trigger={trigger} issues={issues}

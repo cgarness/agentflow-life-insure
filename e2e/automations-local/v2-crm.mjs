@@ -65,6 +65,17 @@ async function inside(page, control, what) {
   assert.equal(await panned(page), before, what + ' could only be reached by panning the screen sideways');
   await onScreen(page, control, what);
 }
+/** The phone contact screen's sideways position once a fling has stopped moving it. */
+async function settled(page) {
+  let last = await panned(page);
+  for (let wait = 0; wait < 30; wait++) {
+    await page.waitForTimeout(100);
+    const now = await panned(page);
+    if (now === last) return now;
+    last = now;
+  }
+  return last;
+}
 /** A finger drag through the browser's own touch input, in small steps. */
 async function drag(page, from, to) {
   const cdp = await page.context().newCDPSession(page);
@@ -171,8 +182,15 @@ try {
     await onScreen(touch, button(touch, 'Call'), 'Call on the first view');
     await onScreen(touch, button(touch, 'Schedule'), 'Schedule on the first view');
     await shot(touch, 'client-first-view');
-    for (let drags = 0; drags < 6 && !await atDetails(touch); drags++) await drag(touch, { x: 60, y: 420 }, { x: 330, y: 420 });
+    // Drag with a finger until the details column is in view, letting each fling settle before the next drag. (A drag
+    // begun with the surface already at its end is taken by desktop Chromium as swipe-to-go-back, which phones lack.)
+    const where = touch.url();
+    for (let drags = 0; drags < 8 && !await atDetails(touch); drags++) {
+      await drag(touch, { x: 150, y: 420 }, { x: 350, y: 420 });
+      await settled(touch);
+    }
     assert.ok(await atDetails(touch), 'Dragging with a finger brings the details column into view');
+    assert.equal(touch.url(), where, 'Panning stayed on the client page');
     const rows = policyRows(touch);
     await rows.first().waitFor();
     // From here only the details column scrolls, downwards. Every tap below happens without another sideways pan.

@@ -833,7 +833,7 @@ select pg_temp.ok((select t.due_date>=o.at from public.tasks t join private.auto
 -- the worker sees each change as it happens or all three afterwards.
 update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active';
 insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
-  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(63,65) n;
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(63,66) n;
 select pg_temp.publish(56,57,'Two reminders across a cancellation','{
   "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
     {"id":"start","type":"appointment_booked","version":1,"config":{}},
@@ -900,6 +900,18 @@ select pg_temp.as_agent(format('update public.appointments set status=''Schedule
 select public.automation_process_events(25);
 select public.automation_process_events(25);
 select pg_temp.new_time_gets_both(64,'all three changes seen afterwards');
+
+insert into booked select 66,pg_temp.book(97,66,date_trunc('minute',clock_timestamp())+interval '3 days'),
+  date_trunc('minute',clock_timestamp())+interval '3 days';
+select pg_temp.first_reminder_given(66);
+select pg_temp.as_agent(format('update public.appointments set status=''Cancelled'' where id=%L',(select id from booked where n=66)));
+select public.automation_process_events(25);
+select pg_temp.as_agent(format('update public.appointments set start_time=%L where id=%L',
+  date_trunc('minute',clock_timestamp())+interval '10 days',(select id from booked where n=66)));
+select pg_temp.as_agent(format('update public.appointments set status=''Scheduled'' where id=%L',(select id from booked where n=66)));
+select public.automation_process_events(25);
+select public.automation_process_events(25);
+select pg_temp.new_time_gets_both(66,'the cancellation seen at once, the move and the reopening together');
 
 -- A verified reply while the appointment was cancelled ends the run for an automation that stops on a reply, so
 -- reopening the appointment does not bring it back.

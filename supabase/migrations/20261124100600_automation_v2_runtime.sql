@@ -284,10 +284,10 @@ BEGIN
 
   IF origin.event_type='inbound_call_missed' THEN
     inbound:=nullif(origin.subject->>'call_id','')::uuid;
-    -- At most one callback per inbound call, whichever automation reaches it first. The same lock orders this step
-    -- against an answer confirmed at this moment (automation_settle_answered_call): either the answer is read below,
-    -- or the answer waits for this step to commit and then closes what it made.
-    PERFORM pg_advisory_xact_lock(hashtextextended('automation-callback:'||inbound::text,0));
+    -- Every writer of an answer updates or locks this call row, so an answer is ordered against this step: either it
+    -- committed first and is read below, or it waits for this step to commit and automation_settle_answered_call then
+    -- closes what this step made.
+    PERFORM 1 FROM public.calls c WHERE c.organization_id=r.organization_id AND c.id=inbound FOR SHARE;
     evidence:=private.automation_inbound_evidence(r.organization_id,inbound);
     IF evidence='unknown' THEN RETURN jsonb_build_object('status','stopped','reason','Call record no longer exists'); END IF;
     IF evidence='answered' THEN RETURN jsonb_build_object('status','stopped','reason','Call was answered'); END IF;
@@ -297,6 +297,8 @@ BEGIN
       RETURN jsonb_build_object('status','held','reason','The call''s answer records disagree. Waiting until they agree'); END IF;
     IF evidence<>'missed' THEN
       RETURN jsonb_build_object('status','held','reason','Waiting for confirmation of whether the call was answered'); END IF;
+    -- At most one callback per inbound call, whichever automation reaches it first.
+    PERFORM pg_advisory_xact_lock(hashtextextended('automation-callback:'||inbound::text,0));
     IF EXISTS (SELECT 1 FROM private.automation_task_receipts x
         WHERE x.organization_id=r.organization_id AND x.scope_key='call:'||inbound::text) THEN
       RETURN jsonb_build_object('status','skipped','reason','A callback already exists for this call'); END IF;
