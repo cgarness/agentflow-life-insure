@@ -2,6 +2,7 @@
   "git": {
     "deploymentEnabled": {
       "feat/self-service-automations": false,
+      "feat/contact-local-presence-20261123": false,
       "claude/cool-maxwell-15hyq7": false
     }
   },

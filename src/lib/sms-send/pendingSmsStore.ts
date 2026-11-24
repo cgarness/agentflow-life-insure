@@ -1,5 +1,5 @@
 import { SmsIntent } from "@/lib/sms-intent";
-import type { CanonicalSmsRow, SmsReceipt, SmsSendOutcome } from "./smsSendResult";
+import { FIRST_CONTACT_REJECTED, type CanonicalSmsRow, type SmsReceipt, type SmsSendOutcome } from "./smsSendResult";
 
 /**
  * Manual-SMS pending sends for ONE browser tab, held in memory only.
@@ -26,6 +26,11 @@ export interface SmsIdentityScope {
   contactId: string;
 }
 
+interface FirstUseSender {
+  readonly senderId: string;
+  readonly generation: number;
+}
+
 export interface SmsSnapshot extends SmsIdentityScope {
   readonly requestId: string;
   readonly to: string;
@@ -34,6 +39,7 @@ export interface SmsSnapshot extends SmsIdentityScope {
   readonly senderPreference: string | null;
   readonly expectedSenderId?: string | null;
   readonly overrideSenderId?: string | null;
+  readonly firstUse?: FirstUseSender;
   /** Display only (never part of the request identity): names the contact in an off-screen toast. */
   readonly contactLabel: string | null;
 }
@@ -95,6 +101,7 @@ export interface BeginInput extends SmsIdentityScope {
   senderPreference: string | null;
   expectedSenderId?: string | null;
   overrideSenderId?: string | null;
+  firstUse?: FirstUseSender;
   contactLabel?: string | null;
 }
 
@@ -110,12 +117,16 @@ export function smsScopeKey(scope: SmsIdentityScope): string {
 
 /** Sending, or no acceptance evidence yet. Never pruned, never forgotten while the tab lives. */
 export function isUnresolved(record: PendingSmsRecord): boolean {
-  return record.state === "sending" || record.state === "not_sent" || record.state === "uncertain";
+  return record.state === "sending" || record.state === "uncertain" ||
+    (record.state === "not_sent" && !(record.snapshot.firstUse && record.code === FIRST_CONTACT_REJECTED));
 }
 
 /** The pre-existing SmsIntent identity, field for field: actor, org, type, contact, to, sender, body. */
 function intentPayload(s: BeginInput | SmsSnapshot): unknown[] {
-  return [s.actorId, s.organizationId, s.contactType, s.contactId, s.to, s.expectedSenderId === undefined ? (s.senderPreference ?? null) : ["sticky-v1", s.overrideSenderId ?? null], s.body];
+  const sender = s.firstUse
+    ? ["first-use-v1", s.firstUse.senderId, s.firstUse.generation]
+    : s.expectedSenderId === undefined ? (s.senderPreference ?? null) : ["sticky-v1", s.overrideSenderId ?? null];
+  return [s.actorId, s.organizationId, s.contactType, s.contactId, s.to, sender, s.body];
 }
 
 export interface PendingSmsStoreOptions {
@@ -244,7 +255,10 @@ export function createPendingSmsStore(options: PendingSmsStoreOptions = {}) {
           (r.state === "uncertain" || r.uncertainty !== null) &&
           r.snapshot.to === input.to &&
           r.snapshot.body === input.body &&
-          (r.snapshot.senderPreference !== input.senderPreference || (r.snapshot.overrideSenderId ?? null) !== (input.overrideSenderId ?? null)),
+          (r.snapshot.senderPreference !== input.senderPreference ||
+            (r.snapshot.overrideSenderId ?? null) !== (input.overrideSenderId ?? null) ||
+            r.snapshot.firstUse?.senderId !== input.firstUse?.senderId ||
+            r.snapshot.firstUse?.generation !== input.firstUse?.generation),
       );
       if (mayHaveSent) return { ok: false, refusal: "duplicate_unresolved" };
 
@@ -265,6 +279,7 @@ export function createPendingSmsStore(options: PendingSmsStoreOptions = {}) {
         senderPreference: input.senderPreference ?? null,
         expectedSenderId: input.expectedSenderId,
         overrideSenderId: input.overrideSenderId,
+        ...(input.firstUse ? { firstUse: Object.freeze({ ...input.firstUse }) } : {}),
         contactLabel: input.contactLabel ?? null,
         requestId: intents.id(payload),
       });
@@ -339,6 +354,10 @@ export function createPendingSmsStore(options: PendingSmsStoreOptions = {}) {
         completeIntent(r);
       } else if (outcome.state === "accepted_review") {
         next = { ...r, state: "accepted_review", reason: "accepted_review", code: outcome.code, message: outcome.message };
+        completeIntent(r);
+      } else if (outcome.state === "not_sent" && r.snapshot.firstUse && outcome.code === FIRST_CONTACT_REJECTED) {
+        // This response resolves the whole first-use request, including any earlier timeout.
+        next = { ...r, state: "not_sent", reason: outcome.reason, code: outcome.code, message: outcome.message, uncertainty: null };
         completeIntent(r);
       } else if (outcome.state === "not_sent") {
         next = r.uncertainty

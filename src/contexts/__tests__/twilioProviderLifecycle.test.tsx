@@ -6,7 +6,7 @@
  * deferred while a call is ringing and resumes when the call ends; sign-out tears the Device down.
  */
 import React from "react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const USER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -23,6 +23,12 @@ type Handlers = {
 
 const ring = vi.hoisted(() => ({ calls: [] as unknown[] }));
 const toastErrors = vi.hoisted(() => [] as string[]);
+const routingFixture = vi.hoisted(() => ({
+  numbers: [] as Array<Record<string, unknown>>,
+  groupMembers: [] as string[],
+  localPresenceEnabled: true,
+  states: new Map<string, string>(),
+}));
 const outbound = vi.hoisted(() => ({
   current:true, caller:"+15550001111", failures: [] as unknown[],
   expectedCaller: undefined as string | undefined,
@@ -61,10 +67,16 @@ vi.mock("@/integrations/supabase/client", () => {
   function makeBuilder(table: string) {
     let inserted = false;
     let recordId: unknown;
+    let areaCode = "";
+    let numberIds: unknown[] | null = null;
     const b: Record<string, unknown> = {
       select() { return b; }, update() { return b; }, insert(payload: unknown) { inserted = true; if (table === "calls") { outbound.events.push("insert"); outbound.inserts.push(payload); } return b; }, upsert() { return b; },
-      eq(key: string,value: unknown) { if(key === "id")recordId=value;return b; }, in() { return b; }, or() { return b; }, order() { return b; }, limit() { return b; }, neq() { return b; }, is() { return b; },
+      eq(key: string,value: unknown) { if(key === "id")recordId=value; if(key === "area_code")areaCode=String(value);return b; },
+      in(key: string, values: unknown[]) { if (key === "id") numberIds = values; return b; },
+      or() { return b; }, order() { return b; }, limit() { return b; }, neq() { return b; }, is() { return b; },
       maybeSingle() {
+        if (table === "phone_settings") return Promise.resolve({ data: { api_secret: JSON.stringify({ local_presence_enabled: routingFixture.localPresenceEnabled }) }, error: null });
+        if (table === "area_code_mapping") return Promise.resolve({ data: { state: routingFixture.states.get(areaCode) }, error: null });
         const row=outbound.inserts.at(-1) as {id:string}|undefined;
         if(table === "calls" && inserted){outbound.afterInsert?.();return Promise.resolve(outbound.insertMode === "ok"?{data:{id:row!.id},error:null}:{data:null,error:{message:"insert response lost"}});}
         if(table === "calls" && recordId && outbound.insertMode === "ambiguous"){
@@ -73,7 +85,12 @@ vi.mock("@/integrations/supabase/client", () => {
         return Promise.resolve({data:null,error:null});
       },
       single() { return Promise.resolve({ data: table === "calls" && inserted ? { id: "55555555-5555-4555-8555-555555555555" } : null, error: null }); },
-      then(resolve: (v: unknown) => unknown) { return Promise.resolve({ data: table === "phone_numbers" ? [{ phone_number: "+15550001111", status: "active", assignment_type: "agency", is_default: true }] : [], error: null }).then(resolve); },
+      then(resolve: (v: unknown) => unknown) {
+        let data: Record<string, unknown>[] = [];
+        if (table === "phone_numbers") data = routingFixture.numbers.filter(row => !numberIds || numberIds.includes(row.id));
+        if (table === "number_group_members") data = routingFixture.groupMembers.map(id => ({ phone_number_id: id }));
+        return Promise.resolve({ data, error: null }).then(resolve);
+      },
     };
     return b;
   }
@@ -126,6 +143,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { TwilioProvider, useTwilio } from "@/contexts/TwilioContext";
+import { ContactCallerRoutingContext } from "@/contexts/ContactCallerRoutingContext";
 
 const Probe: React.FC = () => {
   const t = useTwilio();
@@ -202,6 +220,10 @@ const callState = () => screen.getByTestId("callState").textContent;
 const settle = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 beforeEach(() => {
+  routingFixture.numbers = [{ phone_number: "+15550001111", status: "active", assignment_type: "agency", is_default: true }];
+  routingFixture.groupMembers = [];
+  routingFixture.localPresenceEnabled = true;
+  routingFixture.states.clear();
   toastErrors.length = 0;
   outbound.events = []; outbound.inserts = []; outbound.pending = null;
   outbound.current=true;outbound.failures=[];outbound.caller="+15550001111";
@@ -233,6 +255,65 @@ beforeEach(() => {
   authState.real = profileRow(ORG1);
 });
 afterEach(cleanup);
+
+describe("Full Contact View local caller selection", () => {
+  const agency = (id: string, phone_number: string, extra: Record<string, unknown> = {}) => ({
+    id, phone_number, area_code: phone_number.slice(2, 5), status: "active",
+    organization_id: ORG1, assignment_type: "agency", ...extra,
+  });
+  const local = agency("local", "+12135550100");
+  const fallback = agency("default", "+17025550100", { is_default: true });
+  const mountRouting = () => renderHook(() => ({
+    routing: React.useContext(ContactCallerRoutingContext)!,
+    voice: useTwilio(),
+  }), { wrapper: TwilioProvider }).result;
+
+  it("ranks only ready agency numbers by area, state and fallback without changing or using the manual preference", async () => {
+    const sameState = agency("other-ca", "+14155550100");
+    const personal = agency("personal", "+12135550101", { assignment_type: "personal", assigned_to: USER });
+    const ineligible = [
+      agency("capped", "+12135550102", { daily_call_count: 1, daily_call_limit: 1 }),
+      agency("inbound", "+12135550103", { inbounds_only: true }),
+      agency("foreign", "+12135550104", { organization_id: ORG2 }),
+      agency("someone-else", "+12135550105", { assignment_type: "personal", assigned_to: ROW }),
+    ];
+    routingFixture.numbers = [local, fallback, sameState, personal, ...ineligible];
+    routingFixture.states = new Map([["213", "CA"], ["415", "CA"], ["702", "NV"]]);
+    const result = mountRouting();
+    await waitFor(() => expect(result.current.routing.getContactCallerRole(local.id, local.phone_number)).toBe("agency"));
+    act(() => result.current.voice.setSelectedCallerNumber(personal.phone_number));
+    const { resolveContactLocalCaller, getContactCallerRole } = result.current.routing;
+    const resolve = (ready: string[]) => resolveContactLocalCaller("+12135550999", ready);
+    const all = routingFixture.numbers.map(n => String(n.phone_number));
+    expect(await resolve(all)).toBe(local.phone_number);
+    expect(await resolve([sameState.phone_number, fallback.phone_number])).toBe(sameState.phone_number);
+    expect(await resolve([fallback.phone_number])).toBe(fallback.phone_number);
+    expect(await resolve([personal.phone_number, ...ineligible.map(n => n.phone_number)])).toBe("");
+    expect(getContactCallerRole(personal.id, personal.phone_number)).toBe("personal");
+    expect(getContactCallerRole(local.id, personal.phone_number)).toBeNull();
+    expect(getContactCallerRole("someone-else", ineligible[3].phone_number)).toBeNull();
+    expect(getContactCallerRole("foreign", ineligible[2].phone_number)).toBeNull();
+    expect(result.current.voice.selectedCallerNumber).toBe(personal.phone_number);
+    expect(outbound.authorizations).toEqual([]);
+    expect(outbound.inserts).toEqual([]);
+    expect(outbound.events).toEqual([]);
+    act(() => result.current.voice.setSelectedCallerNumber(""));
+  });
+
+  it("honors the agency local-presence setting and the active group's membership", async () => {
+    routingFixture.numbers = [local, fallback];
+    routingFixture.localPresenceEnabled = false;
+    const result = mountRouting();
+    const resolve = () => result.current.routing.resolveContactLocalCaller("+12135550999", [local.phone_number, fallback.phone_number]);
+    await waitFor(async () => expect(await resolve()).toBe(fallback.phone_number));
+    routingFixture.groupMembers = [local.id];
+    await act(async () => { result.current.voice.setCallerIdCampaignGroupId("local-only"); });
+    await waitFor(async () => expect(await resolve()).toBe(local.phone_number));
+    routingFixture.groupMembers = [];
+    await act(async () => { result.current.voice.setCallerIdCampaignGroupId("empty"); });
+    expect(await resolve()).toBe("");
+  });
+});
 
 describe("TwilioProvider — Device lifecycle wiring (behavioral)", () => {
   it("refuses a changed bound FROM before call insertion or provider connect, then releases the dial guard", async () => {

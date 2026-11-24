@@ -1,6 +1,7 @@
 import { affinityGuard, isGuarded } from "../_shared/sms/affinity.ts";
 import { describeSender } from "../_shared/sms/readiness.ts";
 import { dispatch } from "../_shared/sms/dispatch.ts";
+import type { FirstContactSender } from "../_shared/sms/dispatch.ts";
 import { policy } from "../_shared/sms/consent.ts";
 import { contactScope } from "../_shared/sms/scope.ts";
 import { manualSender } from "../_shared/sms/manual.ts";
@@ -45,6 +46,20 @@ function samePhone(a: string, b: string): boolean {
   const na = da.length === 10 ? `1${da}` : da;
   const nb = db.length === 10 ? `1${db}` : db;
   return na === nb;
+}
+
+function firstContactText(request: Record<string, unknown>): (FirstContactSender & { body: string }) | undefined {
+  if (!("first_use" in request)) return;
+  const value = request.first_use;
+  if (value && typeof value === "object" && !Array.isArray(value) &&
+      !("body" in request) && !("override_sender_id" in request) &&
+      "sender_id" in value && typeof value.sender_id === "string" && UUID.test(value.sender_id) &&
+      value.sender_id === request.expected_sender_id && typeof request.from === "string" && request.from.trim() &&
+      "generation" in value && typeof value.generation === "number" && Number.isSafeInteger(value.generation) &&
+      value.generation >= 0 && "body" in value && typeof value.body === "string" && value.body.trim()) {
+    return { senderId: value.sender_id, generation: value.generation, body: value.body };
+  }
+  throw new SmsError("SMS_INPUT", "Refresh the contact and review the selected sending number.", 400);
 }
 
 function jsonResponse(
@@ -125,7 +140,6 @@ Deno.serve(async (req) => {
 
     const toRaw = typeof bodyJson.to === "string" ? bodyJson.to.trim() : "";
     const fromRaw = typeof bodyJson.from === "string" ? bodyJson.from.trim() : "";
-    const bodyText = typeof bodyJson.body === "string" ? bodyJson.body : "";
     const contactId =
       typeof bodyJson.contact_id === "string" && bodyJson.contact_id.trim()
         ? bodyJson.contact_id.trim()
@@ -146,6 +160,10 @@ Deno.serve(async (req) => {
       const result = await describeSender(supabase, { org: organizationId, actor: user.id, contactId: contactId!, contactType: contactType! });
       return jsonResponse(result, 200); // Early return even when a message body was supplied.
     }
+    // The message is nested only in this versioned intent. An older endpoint sees a missing
+    // body and refuses it even if the agency has rolled back its texting configuration.
+    const first = firstContactText(bodyJson);
+    const bodyText = first?.body ?? (typeof bodyJson.body === "string" ? bodyJson.body : "");
     const guard = await affinityGuard(supabase, organizationId);
     if (!toRaw || !bodyText.trim()) {
       return jsonResponse(
@@ -156,17 +174,24 @@ Deno.serve(async (req) => {
 
     const to = toE164Plus(toRaw);
     const textingPolicy = await policy(supabase, organizationId);
-    if (isGuarded(guard.sms) && !textingPolicy?.enforced) throw new SmsError("SMS_POLICY", "Texting settings need review.", 503);
-    if (textingPolicy?.enforced) {
+    if (!first && isGuarded(guard.sms) && !textingPolicy?.enforced) throw new SmsError("SMS_POLICY", "Texting settings need review.", 503);
+    if (first || textingPolicy?.enforced) {
       if (bodyJson.view_as === true || bodyJson.actor_id !== user.id || bodyJson.organization_id !== organizationId || typeof bodyJson.request_id !== "string" || !UUID.test(bodyJson.request_id)) throw new SmsError("SEND_SCOPE", "Reload your own account before sending.", 403);
       await contactScope(caller, organizationId, contactId, contactType, to);
-      const described = isGuarded(guard.sms) ? await describeSender(supabase, { org: organizationId, actor: user.id, contactId: contactId!, contactType: contactType!, overrideId: typeof bodyJson.override_sender_id === "string" && UUID.test(bodyJson.override_sender_id) ? bodyJson.override_sender_id : undefined }) : null;
-      const from = described?.sms?.number ?? await manualSender(supabase, textingPolicy, fromRaw);
       const expectedSenderId = typeof bodyJson.expected_sender_id === "string" && UUID.test(bodyJson.expected_sender_id) ? bodyJson.expected_sender_id : undefined;
       const overrideSenderId = typeof bodyJson.override_sender_id === "string" && UUID.test(bodyJson.override_sender_id) ? bodyJson.override_sender_id : undefined;
+      let from = fromRaw;
+      if (!first && textingPolicy) {
+        const described = isGuarded(guard.sms) ? await describeSender(supabase, {
+          org: organizationId, actor: user.id, contactId: contactId!, contactType: contactType!, overrideId: overrideSenderId,
+        }) : null;
+        from = described?.sms?.number ?? await manualSender(supabase, textingPolicy, fromRaw);
+      }
       // This authenticated endpoint sends human-composed messages. Browser purpose
       // flags cannot grant consent or select an automated/confirmation send path.
-      const result = await dispatch(supabase, { org: organizationId, key: `manual:${user.id}:${bodyJson.request_id}`, to, from, body: bodyText, verifyRecipient: async () => { await contactScope(caller, organizationId, contactId, contactType, to); }, manual: true, expectedSenderId, overrideSenderId, purpose: "manual", actor: user.id, contactId, contactType });
+      const result = await dispatch(supabase, { org: organizationId, key: `manual:${user.id}:${bodyJson.request_id}`, to, from, body: bodyText, verifyRecipient: async () => { await contactScope(caller, organizationId, contactId, contactType, to); },
+        manual: true, expectedSenderId, overrideSenderId, firstContact: first && { senderId: first.senderId, generation: first.generation },
+        purpose: "manual", actor: user.id, contactId, contactType });
       if (!result) throw new SmsError("SMS_POLICY", "Texting settings changed. Please retry.", 503);
       return jsonResponse({ ...result }, 200);
     }
