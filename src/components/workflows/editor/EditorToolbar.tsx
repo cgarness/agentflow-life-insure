@@ -25,9 +25,12 @@ export default function EditorToolbar({draft, onBack, onArchive}: Props) {
   const {mode, revision, status, readOnly, dirty, notice} = draft;
   const badge = lifecycleBadge(draft);
   // One line for the saved state. A save that just succeeded says so here instead of in a second notice, so on a
-  // phone the steps start right under the toolbar. A refusal still gets its own alert below.
-  const saved = dirty ? "Unsaved changes" : notice?.tone === "status" ? notice.text
-    : revision > 0 ? "All changes saved" : "Nothing saved yet";
+  // phone the steps start right under the toolbar. A pause, resume or archive is reported here too, with any unsaved
+  // edits still named: an edit clears an earlier notice, so a notice shown beside unsaved edits is newer than they are.
+  // A refusal still gets its own alert below.
+  const done = notice?.tone === "status" ? notice.text : "";
+  const saved = dirty ? (done ? done + " Unsaved changes." : "Unsaved changes")
+    : done || (revision > 0 ? "All changes saved" : "Nothing saved yet");
   const tab = (target: EditorMode, label: string) => <Button type="button" variant="outline" className="h-11 md:h-10"
     aria-pressed={mode === target} onClick={() => draft.setMode(target)}>{label}</Button>;
   return <header className="space-y-3">

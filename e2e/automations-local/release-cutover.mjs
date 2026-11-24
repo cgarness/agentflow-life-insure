@@ -115,7 +115,7 @@ try {
   assert.equal(legacyHash(),priorDigest);
   assert.deepEqual(counts(oldTables),pre);
   assert.deepEqual(Object.values(counts(newTables)),newTables.map(()=>0));
-  console.log('PASS eleven ordered migrations in '+((performance.now()-start)/1000).toFixed(2)+' s; unchanged six-table legacy hash '+priorDigest+
+  console.log('PASS twelve ordered migrations (the first release, the first-text sender and the seven V2 files) in '+((performance.now()-start)/1000).toFixed(2)+' s; unchanged six-table legacy hash '+priorDigest+
     '; install deltas zero for definitions, enrollments, messages, contacts and control rows.');
   const duringInstall=await login('Super Admin');
   const gapContext=await contextResult(duringInstall);

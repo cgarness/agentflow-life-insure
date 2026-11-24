@@ -10,7 +10,7 @@ import { emptyGraph, validateGraph, type AutomationGraph } from "../../../../sup
 
 vi.mock("@/hooks/useMinWidth", () => ({useMinWidth: () => false}));
 vi.mock("@/lib/automation-api", () => ({automationApi:{
-  status:vi.fn(), save:vi.fn(), validate:vi.fn(async () => []), overlap:vi.fn(async () => []), publish:vi.fn(),
+  status:vi.fn(), save:vi.fn(), validate:vi.fn(async () => []), overlap:vi.fn(async () => []), publish:vi.fn(), lifecycle:vi.fn(),
   smsRequirements:vi.fn(async () => []), campaigns:vi.fn(), dispositions:vi.fn(),
 }}));
 vi.mock("../AutomationReview", () => ({default:() => null}));
@@ -73,6 +73,18 @@ describe("Save & review", () => {
     expect(screen.queryByText("All changes saved")).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("reports a pause made with unsaved edits, and still says the edits are unsaved", async () => {
+    vi.mocked(automationApi.status).mockResolvedValue({id,status:"active",revision:1,trigger_type:"lead_created",controls:null});
+    vi.mocked(automationApi.lifecycle).mockResolvedValue({});
+    await mount(complete);
+    fireEvent.change(screen.getByLabelText("Automation name"),{target:{value:"Follow-up call"}});
+    expect(screen.getByText("Unsaved changes")).toBeVisible();
+    vi.mocked(automationApi.status).mockResolvedValue({id,status:"paused",revision:2,trigger_type:"lead_created",controls:null});
+    fireEvent.click(await screen.findByRole("button",{name:"Pause"}));
+    expect(await screen.findByText("Automation updated. Unsaved changes.")).toBeVisible();
+    expect(automationApi.lifecycle).toHaveBeenCalledWith(id,"pause",3);
   });
 
   it("moves a complete draft to the review", async () => {

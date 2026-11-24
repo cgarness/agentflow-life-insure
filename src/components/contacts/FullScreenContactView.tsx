@@ -40,6 +40,7 @@ import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePolicyIssuanceAvailable } from "@/hooks/usePolicyIssuanceAvailable";
 import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
 import { useContactAssigneeOptions } from "@/hooks/useContactAssigneeOptions";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
@@ -197,6 +198,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const { profile, user, isImpersonating } = useAuth();
+  const phonePan = usePolicyIssuanceAvailable(profile?.organization_id);
   const { viewer } = useEffectiveViewer();
   const { formatDate, formatDateTime, branding } = useBranding();
   // Contacts Build 5: gate edit/delete by the Contacts catalog. Conversion stays ungated.
@@ -873,13 +875,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       : allStatuses as string[];
 
   return (
-    <div className={cn(
-      // Below 768 px the desktop layout pans sideways as one surface, so every column (the policies included) can be reached.
-      "fixed top-16 left-0 right-0 bottom-0 bg-background z-40 flex flex-col animate-in slide-in-from-right-2 duration-300 h-[calc(100vh-4rem)] overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity md:overflow-hidden md:snap-none",
+    <div data-phone-pan={phonePan || undefined} className={cn(
+      "fixed top-16 right-0 bottom-0 bg-background z-40 flex flex-col animate-in slide-in-from-right-2 duration-300 h-[calc(100vh-4rem)]",
+      // Automations pilot agencies only: below 768 px the desktop layout becomes one surface that pans sideways. It opens
+      // on the same right-hand view as before (Call, Schedule, follow-ups) and pans left to the details and policies, so
+      // Confirm issuance can be reached on a phone. Every other agency keeps the layout exactly as it was.
+      phonePan
+        ? "left-0 overflow-x-auto overflow-y-hidden overscroll-x-contain [direction:rtl] md:overflow-hidden md:[direction:ltr]"
+        : "overflow-hidden",
       collapsed ? "md:left-16" : "md:left-60"
     )}>
       {/* HEADER */}
-      <div className="h-16 w-[66rem] md:w-auto border-b border-border bg-card flex items-center shrink-0 z-20 shadow-sm relative px-6">
+      <div className={cn("h-16 border-b border-border bg-card flex items-center shrink-0 z-20 shadow-sm relative px-6",
+        phonePan && "w-[66rem] md:w-auto [direction:ltr]")}>
         {/* LEFT SECTION - aligned with Left Column */}
         <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] flex items-center gap-4 shrink-0 px-2">
           <button onClick={tryClose} className="p-2 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors shrink-0">
@@ -1006,10 +1014,11 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       </div>
 
       {/* 3 COLUMN LAYOUT - "Island" Style matching Dialer */}
-      <div className="flex flex-1 overflow-hidden min-w-0 w-[66rem] md:w-full p-3 gap-3 bg-accent/5">
+      <div className={cn("flex flex-1 overflow-hidden min-w-0 p-3 gap-3 bg-accent/5",
+        phonePan ? "w-[66rem] md:w-full [direction:ltr]" : "w-full")}>
 
         {/* LEFT DOCK - Contacts Overview */}
-        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-sm snap-start">
+        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-sm">
           <div className="px-4 h-14 border-b border-border flex items-center justify-between shrink-0 bg-muted/10">
             <div className="flex items-center gap-3">
               <div className={cn(
@@ -1161,7 +1170,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
 
         {/* CENTER COLUMN — Conversation History (extracted to ./conversation-history) */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden snap-start">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <ConversationTimeline
               key={contact.id}
@@ -1206,7 +1215,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
 
         {/* RIGHT COLUMN - compact Follow-ups card above the existing Activity/Notes/Campaigns card */}
-        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] flex flex-col gap-3 min-h-0 shrink-0 snap-start">
+        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] flex flex-col gap-3 min-h-0 shrink-0">
         <ContactFollowUpsCard
           contactId={contact.id}
           contactType={type}

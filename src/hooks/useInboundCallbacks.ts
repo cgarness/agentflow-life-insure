@@ -17,6 +17,8 @@ export function useInboundCallbacks() {
   const [busy, setBusy] = useState<{id: string; action: CallbackAction} | null>(null);
   const request = useRef(0);
   const acting = useRef(false);
+  /** The server said this agency has no callback list (outside the Automations pilot), so the timer stops asking. */
+  const unavailable = useRef(false);
 
   // A notice explains the list the agent is looking at, so it stays through the read that follows its action and
   // clears once a later read succeeds.
@@ -26,7 +28,7 @@ export function useInboundCallbacks() {
       const next = await callbackQueue();
       // A slower, older answer never replaces a newer one.
       if (serial !== request.current) return;
-      setQueue(next); setError("");
+      setQueue(next); setError(""); unavailable.current = !next.available;
       if (!keepNotice) setNotice("");
     } catch (failure) {
       if (serial === request.current) setError(failure instanceof Error ? failure.message : "Callbacks could not be loaded.");
@@ -35,7 +37,9 @@ export function useInboundCallbacks() {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => { if (!document.hidden && !acting.current) void refresh(); }, REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (!document.hidden && !acting.current && !unavailable.current) void refresh();
+    }, REFRESH_MS);
     return () => { window.clearInterval(timer); ++request.current; };
   }, [refresh]);
 

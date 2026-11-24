@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RoomCallbacks } from "../RoomCallbacks";
 
@@ -162,22 +162,53 @@ describe("Inbounds callbacks", () => {
       items: [item({status: "claimed", claimed_by: "other", claimed_by_name: "Jordan Lee", can_claim: false})]};
     render(<RoomCallbacks/>);
     expect(await screen.findByRole("heading", {name: /Callbacks\s*3 open · 120 claimed/})).toBeVisible();
-    expect(screen.getByText(/Open callbacks come first, the one due soonest at the top\. Showing 1 of 123\./)).toBeVisible();
+    expect(screen.getByText(/Yours come first, then open callbacks with the one due soonest at the top, then other agents' claims\. Showing 1 of 123\./))
+      .toBeVisible();
   });
 
-  it("shows nothing for an agency outside the Automations pilot", async () => {
-    queue = {admin: true, available: false, open_count: 0, claimed_count: 0, items: []};
-    const {container} = render(<RoomCallbacks/>);
-    await waitFor(() => expect(calls("inbound_callback_queue").length).toBeGreaterThan(0));
-    await waitFor(() => expect(container).toBeEmptyDOMElement());
-    expect(screen.queryByRole("heading", {name: /Callbacks/})).toBeNull();
+  it("shows nothing for an agency outside the Automations pilot at any point, and stops asking", async () => {
+    vi.useFakeTimers();
+    try {
+      queue = {admin: true, available: false, open_count: 0, claimed_count: 0, items: []};
+      const {container} = render(<RoomCallbacks/>);
+      // Not even a heading or a loading line while the first read is on its way.
+      expect(container).toBeEmptyDOMElement();
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(calls("inbound_callback_queue")).toHaveLength(1);
+      expect(container).toBeEmptyDOMElement();
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+      expect(calls("inbound_callback_queue")).toHaveLength(1);
+      expect(container).toBeEmptyDOMElement();
+    } finally { vi.useRealTimers(); }
   });
 
-  it("offers a retry when the list cannot be loaded", async () => {
-    rpc.mockImplementationOnce(async () => ({data: null, error: {code: "42501", message: "Room access unavailable"}}));
+  it("shows nothing while a first read fails, and appears once a later read says the agency has callbacks", async () => {
+    vi.useFakeTimers();
+    try {
+      const base = rpc.getMockImplementation()!;
+      let first = true;
+      rpc.mockImplementation(async (name: string, args: unknown) => {
+        if (name === "inbound_callback_queue" && first) { first = false; return {data: null, error: {code: "57014", message: "canceling statement"}}; }
+        return base(name, args);
+      });
+      const {container} = render(<RoomCallbacks/>);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(container).toBeEmptyDOMElement();
+      expect(screen.queryByRole("alert")).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(screen.getByText("+12025550100")).toBeVisible();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("offers a retry when a later read fails, and keeps the list it had", async () => {
     render(<RoomCallbacks/>);
+    await screen.findByText("+12025550100");
+    rpc.mockImplementationOnce(async () => ({data: null, error: {code: "42501", message: "Room access unavailable"}}));
+    fireEvent.click(screen.getByRole("button", {name: "Refresh"}));
     expect(await screen.findByRole("alert")).toHaveTextContent("Callbacks could not be loaded.");
+    expect(screen.getByText("+12025550100")).toBeVisible();
     fireEvent.click(screen.getByRole("button", {name: "Retry"}));
-    expect(await screen.findByText("+12025550100")).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByText("+12025550100")).toBeVisible();
   });
 });

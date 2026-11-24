@@ -19,16 +19,17 @@ const tone = (item: InboundCallback) => item.status === "open" ? "info" : "neutr
  */
 export function RoomCallbacks() {
   const callbacks = useInboundCallbacks();
-  // Outside the Automations pilot the agency has no callback list, so the room shows nothing for it.
-  if (callbacks.loaded && !callbacks.available) return null;
+  // Outside the Automations pilot the agency has no callback list, so the room shows nothing for it. Nothing shows
+  // until a read has said the agency has a list, so a slow or failed first read never shows it to another agency.
+  if (!callbacks.loaded || !callbacks.available) return null;
   const waiting = callbacks.openCount + callbacks.claimedCount;
   return (
     <section aria-labelledby="room-callbacks-title" className={panel + " p-5"}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="room-callbacks-title" className="text-lg font-bold text-white">
-          Callbacks{callbacks.loaded && <span className="ml-2 text-sm font-semibold text-slate-300">
+          Callbacks<span className="ml-2 text-sm font-semibold text-slate-300">
             {callbacks.openCount} open{callbacks.claimedCount > 0 ? " · " + callbacks.claimedCount + " claimed" : ""}
-          </span>}
+          </span>
         </h2>
         <button type="button" className={textButton + " text-sm text-slate-200"} onClick={() => { void callbacks.refresh(); }}>
           Refresh
@@ -42,8 +43,7 @@ export function RoomCallbacks() {
         <span>{callbacks.error}</span>
         <button type="button" className={button} onClick={() => { void callbacks.refresh(); }}>Retry</button>
       </div>}
-      {!callbacks.loaded && !callbacks.error && <p role="status" className="py-6 text-slate-300">Loading callbacks…</p>}
-      {callbacks.loaded && !callbacks.items.length && <p className="py-6 text-slate-300">No callbacks waiting.</p>}
+      {!callbacks.items.length && <p className="py-6 text-slate-300">No callbacks waiting.</p>}
       <ul className="mt-2 divide-y divide-slate-700">
         {callbacks.items.map(item => {
           const pressed = callbacks.busy?.id === item.id ? callbacks.busy.action : null;
@@ -83,9 +83,10 @@ export function RoomCallbacks() {
           );
         })}
       </ul>
-      {callbacks.loaded && callbacks.items.length > 0 && <p className="pt-3 text-xs text-slate-300">
-        Claim a callback, call back from your dialer, then mark it done. Open callbacks come first, the one due soonest at the
-        top.{waiting > callbacks.items.length ? " Showing " + callbacks.items.length + " of " + waiting + "." : ""}
+      {callbacks.items.length > 0 && <p className="pt-3 text-xs text-slate-300">
+        Claim a callback, call back from your dialer, then mark it done. Yours come first, then open callbacks with the one due
+        soonest at the top, then other agents' claims.
+        {waiting > callbacks.items.length ? " Showing " + callbacks.items.length + " of " + waiting + "." : ""}
       </p>}
     </section>
   );

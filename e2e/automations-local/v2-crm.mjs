@@ -44,13 +44,37 @@ async function shot(page, name) {
   await page.screenshot({ path: join(dir, file), animations: 'disabled' });
   screenshots.push(file);
 }
-/** The control is wholly inside the window, so nobody has to scroll sideways to reach it. */
-async function inside(page, control, what) {
-  await control.scrollIntoViewIfNeeded();
+/** How far a pilot agency's phone contact screen is panned from its first view (0 when there is none). */
+const panned = page => page.evaluate(() => document.querySelector('[data-phone-pan]')?.scrollLeft ?? 0);
+/** The phone contact screen is panned all the way to its details column. */
+const atDetails = page => page.evaluate(() => {
+  const surface = document.querySelector('[data-phone-pan]');
+  return !!surface && surface.scrollLeft <= -(surface.scrollWidth - surface.clientWidth) + 1;
+});
+/** The control is wholly on screen as the page stands, before anything scrolls. */
+async function onScreen(page, control, what) {
   const box = await control.boundingBox();
   const { width, height } = page.viewportSize();
   assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= width + 0.5 && box.y + box.height <= height + 0.5,
     what + ' is not inside the ' + width + ' px window: ' + JSON.stringify(box));
+}
+/** The control is wholly inside the window once scrolled to, and reaching it never pans the screen sideways. */
+async function inside(page, control, what) {
+  const before = await panned(page);
+  await control.scrollIntoViewIfNeeded();
+  assert.equal(await panned(page), before, what + ' could only be reached by panning the screen sideways');
+  await onScreen(page, control, what);
+}
+/** A finger drag through the browser's own touch input, in small steps. */
+async function drag(page, from, to) {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+  for (let step = 1; step <= 8; step++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from.x + (to.x - from.x) * step / 8,
+      y: from.y + (to.y - from.y) * step / 8 }] });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await cdp.detach();
 }
 /** The page itself never scrolls sideways. */
 async function noSideScroll(page, what) {
@@ -78,15 +102,18 @@ try {
   const page = await login('one');
   const tones = ['light', 'dark'];
 
-  // 1. A contact's timed automation task shows its date and time of day, with the Automation badge. The contact
-  // screen is a fixed desktop layout anchored to the right edge, so on a phone its right column, with the Tasks tab,
-  // is the part on screen.
+  // 1. A contact's timed automation task shows its date and time of day, with the Automation badge. On a phone the
+  // contact screen opens on its right-hand view, so the right column with the Tasks tab is on screen without panning.
   const [lead, title] = sql(`select contact_id||'|'||title from public.tasks where organization_id='${agency}' and contact_type='lead'
     and automation_run_id is not null and not all_day and completed_at is null order by created_at limit 1`).split('|');
   assert.ok(lead && title, 'v2-workflows.mjs leaves an open timed automation task on a lead');
   for (const size of [wide, phone]) for (const tone of tones) {
     await open(page, '/leads/' + lead, tone, size);
     await page.getByText('First Name', { exact: true }).waitFor();
+    if (size === phone) {
+      assert.equal(await panned(page), 0, 'The phone contact screen opens on its first view');
+      await onScreen(page, button(page, 'Tasks'), 'The Tasks tab on the first view');
+    }
     await button(page, 'Tasks').click();
     const done = page.getByRole('checkbox', { name: 'Mark “' + title + '” complete' });
     await done.waitFor();
@@ -100,8 +127,9 @@ try {
   }
 
   // 2. Confirm issuance on the client's own page: one policy already issued, the other offered for confirmation.
-  // On a desktop the policies sit in the left column. On a phone the contact screen pans sideways as one surface and
-  // opens on that column, so the agent scrolls down to the policy row and taps it, then taps Confirm issuance.
+  // On a desktop the policies sit in the left column. On a phone, for an agency in the pilot, the contact screen opens
+  // on the same right-hand view as before, with Call and Schedule; the agent drags it sideways with a finger to the
+  // details column, taps the policy row, then taps Confirm issuance.
   const client = sql(`select id from public.clients where organization_id='${agency}' and first_name='Pat' and last_name='Holder'
     order by created_at desc limit 1`);
   assert.ok(client, 'v2-workflows.mjs leaves a client with two policies');
@@ -138,12 +166,16 @@ try {
   for (const tone of ['dark', 'light']) {
     await open(touch, '/clients/' + client, tone, phone);
     await touch.getByText('First Name', { exact: true }).waitFor();
+    await touch.locator('[data-phone-pan]').waitFor();
+    assert.equal(await panned(touch), 0, 'The client page opens on its first view');
+    await onScreen(touch, button(touch, 'Call'), 'Call on the first view');
+    await onScreen(touch, button(touch, 'Schedule'), 'Schedule on the first view');
+    await shot(touch, 'client-first-view');
+    for (let drags = 0; drags < 6 && !await atDetails(touch); drags++) await drag(touch, { x: 60, y: 420 }, { x: 330, y: 420 });
+    assert.ok(await atDetails(touch), 'Dragging with a finger brings the details column into view');
     const rows = policyRows(touch);
     await rows.first().waitFor();
-    // The policies column is on screen without any sideways scrolling: only the column itself scrolls down.
-    await rows.nth(1).scrollIntoViewIfNeeded();
-    assert.equal(await touch.evaluate(() => [...document.querySelectorAll('.snap-x')].every(element => element.scrollLeft === 0)), true,
-      'The policy row is reached without panning sideways');
+    // From here only the details column scrolls, downwards. Every tap below happens without another sideways pan.
     await inside(touch, rows.nth(1), 'The second policy row');
     await shot(touch, 'client-policies');
     if (await rows.nth(1).getAttribute('aria-expanded') !== 'true') await rows.nth(1).tap();
@@ -206,12 +238,22 @@ try {
   assert.match(outsidePolicy, /^[\da-f-]{36}$/, 'The outside sale stored a policy');
   for (const size of [wide, phone]) {
     const listed = outsider.waitForResponse(response => response.url().includes('/rpc/get_policy_issuance'));
+    const pilot = outsider.waitForResponse(response => response.url().includes('/rpc/policy_issuance_available'));
     await open(outsider, '/clients/' + outsideClient, 'light', size);
     await outsider.getByText('First Name', { exact: true }).waitFor();
     const answer = await listed;
     assert.deepEqual(await answer.json(), [], 'An agency outside the pilot is given no issuance list');
+    assert.equal(await (await pilot).json(), false, 'and is told issuance is not available to it');
     assert.equal(await button(outsider, 'Confirm issuance').count(), 0, 'and is offered no Confirm issuance');
     assert.equal(await outsider.getByText('Issued', { exact: true }).count(), 0);
+    if (size === phone) {
+      // Outside the pilot the phone contact screen keeps its production layout: no sideways surface, Call and Schedule
+      // on screen as before.
+      assert.equal(await outsider.locator('[data-phone-pan]').count(), 0, 'An agency outside the pilot keeps its phone layout');
+      await onScreen(outsider, button(outsider, 'Call'), 'Call outside the pilot');
+      await onScreen(outsider, button(outsider, 'Schedule'), 'Schedule outside the pilot');
+      await shot(outsider, 'outside-pilot-client');
+    }
   }
   const refused = await rpc(outsider, 'confirm_policy_issuance', { p_request_id: randomUUID(), p_policy_id: outsidePolicy, p_issued_on: today });
   assert.equal(refused.status, 403, 'The server refuses an outside confirmation: ' + JSON.stringify(refused));
@@ -276,12 +318,15 @@ try {
   const blocked = [...new Set(evidence.sessions.flatMap(item => item.net.blocked))];
   assert.deepEqual(blocked.filter(url => !/^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(url)), []);
   writeFileSync(join(dir, 'automations-v2-crm.json'), JSON.stringify({ result: 'pass', viewports: [1440, 375], themes: tones,
-    phoneTouch: true, outsidePilot: { issuanceList: [], confirmation: 403, callbacksAvailable: false }, screenshots,
+    phoneTouch: { firstView: ['Call', 'Schedule', 'Tasks'], fingerPanToPolicies: true, tapsWithoutSidewaysPan: true },
+    outsidePilot: { issuanceList: [], confirmation: 403, callbacksAvailable: false, phoneLayout: 'unchanged' }, screenshots,
     blockedOutsideRequests: blocked }, null, 2) + '\n');
-  console.log('PASS CRM screens: a timed automation task, Confirm issuance tapped through from the policy row on a 375 px touch ' +
-    'phone and saved once, and the Inbounds callback list, at 1440 px and 375 px in both themes; cancelling confirmed nothing, ' +
-    'a callback was claimed and finished without a call, and an agency outside the pilot had no issuance control, a refused ' +
-    'confirmation and no callback list. ' + screenshots.length + ' screenshots.');
+  console.log('PASS CRM screens: a timed automation task, Confirm issuance on a 375 px touch phone (the client page opened with ' +
+    'Call and Schedule on screen, a finger drag reached the policies, the policy row and Confirm issuance were tapped without ' +
+    'another sideways pan, and the confirmation saved once), and the Inbounds callback list, at 1440 px and 375 px in both ' +
+    'themes; cancelling confirmed nothing, a callback was claimed and finished without a call, and an agency outside the pilot ' +
+    'had no issuance control, a refused confirmation, its phone contact layout unchanged and no callback list. ' +
+    screenshots.length + ' screenshots.');
 } catch (error) {
   for (const context of browser.contexts()) for (const page of context.pages()) {
     await page.screenshot({ path: join(dir, 'automations-v2-crm-failure.png') }).catch(() => {});
