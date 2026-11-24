@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Restore a reviewed PG17 schema-only bundle into run.sh's single, fresh, offline DB.
+# Restore a PG17 schema-only bundle into run.sh's single, fresh, offline DB, measured against receipts read from the
+# source through another channel in the same window (receipts.py). Usage: restore-full.sh ARCHIVE RECEIPTS
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
 fail() { echo "$1" >&2; exit 1; }
-[[ $# == 1 && -d $1 ]] || fail 'A schema-only bundle directory is required.'
+[[ $# == 2 && -d $1 && -d $2 ]] || fail 'A schema-only bundle directory and an independent receipts directory are required.'
 bundle=$(realpath -- "$1")
-receipt=${AUTOMATIONS_SOURCE_RECEIPT:-docs/plans/2026-11-21-automations/production-schema-fingerprint.json}
-[[ -f $receipt && ! $receipt -ef $bundle/source-fingerprint.json ]] || fail 'An independent source fingerprint is required.'
+receipts=$(realpath -- "$2")
 db=${AUTOMATIONS_DB_CONTAINER:?dedicated release-full test container required}
 : "${PGPASSWORD:?disposable PostgreSQL password required}"
 prefix="af-auto-test-$PPID"
@@ -24,14 +24,16 @@ psql=("${pg[@]}" psql -XqAt -U supabase_admin -v ON_ERROR_STOP=1)
 [[ $("${psql[@]}" -d template1 -c "select current_setting('server_version_num')::int/10000, current_setting('cron.launch_active_jobs')") == '17|off' ]] || fail 'PG17 with cron execution disabled is required.'
 
 # Copy the exact checked inputs privately before restoring. Never print DDL or role settings.
-for name in agentflow-schema.dump roles.sql source-fingerprint.json SHA256SUMS; do
+for name in agentflow-schema.dump roles.sql source-fingerprint-before.json source-fingerprint.json canonical-source.json \
+    auth-schema-migrations.txt SHA256SUMS; do
   [[ -f "$bundle/$name" && ! -L "$bundle/$name" ]] || fail "Missing regular input file: $name"
   cp -- "$bundle/$name" "$work/$name"
 done
-python3 - "$work" "$receipt" <<'PY'
-import hashlib, json, pathlib, re, sys
+python3 - "$work" <<'PY'
+import hashlib, pathlib, re, sys
 work = pathlib.Path(sys.argv[1])
-files = {'agentflow-schema.dump', 'roles.sql', 'source-fingerprint.json'}
+files = {'agentflow-schema.dump', 'roles.sql', 'source-fingerprint-before.json', 'source-fingerprint.json',
+         'canonical-source.json', 'auth-schema-migrations.txt'}
 seen = set()
 for line in (work / 'SHA256SUMS').read_text().splitlines():
     match = re.fullmatch(r'([a-f0-9]{64})  ([a-zA-Z0-9.-]+)', line)
@@ -44,17 +46,11 @@ for line in (work / 'SHA256SUMS').read_text().splitlines():
     seen.add(match[2])
 if seen != files:
     sys.exit('Bundle checksum manifest incomplete')
-source = json.loads((work / 'source-fingerprint.json').read_text())
-def valid(row):
-    return (isinstance(row, dict) and set(row) == {'kind', 'objects', 'sha256'}
-            and isinstance(row['kind'], str) and type(row['objects']) is int and row['objects'] > 0
-            and isinstance(row['sha256'], str) and re.fullmatch('[0-9a-f]{64}',row['sha256']))
-if (not isinstance(source,list) or not source or not all(valid(row) for row in source)
-        or len({row['kind'] for row in source}) != len(source)
-        or source != json.loads(pathlib.Path(sys.argv[2]).read_text())):
-    sys.exit('Source fingerprint does not match the independently supplied receipt')
 PY
 "${pg[@]}" pg_restore --list --create <"$work/agentflow-schema.dump" >"$work/toc" 2>"$work/error" || fail 'Invalid custom archive.'
+# The receipts come from outside the bundle, through another channel, in the dump's own window, and match it.
+python3 e2e/automations-local/receipts.py validate "$bundle" "$receipts" "$work/toc" "$work" >"$work/receipts-summary.json"
+echo "Receipts accepted: $(cat "$work/receipts-summary.json")"
 grep -Eq '^;[[:space:]]+dbname: postgres$' "$work/toc" &&
   grep -Eq '^;[[:space:]]+Format: CUSTOM$' "$work/toc" &&
   grep -Eq '^;[[:space:]]+Dumped from database version: 17\.' "$work/toc" &&
@@ -148,14 +144,6 @@ if [[ -f "$work/remainder.list" ]]; then
   "${pg[@]}" pg_restore --exit-on-error -U supabase_admin -d postgres --use-list="$dest/remainder.list" <"$work/agentflow-schema.dump" >"$work/output" 2>"$work/error" || fail 'Native restore of remaining managed archive entries failed.'
 fi
 "${psql[@]}" -d postgres -f - <e2e/automations-local/schema-fingerprint.sql >"$work/restored.json" 2>"$work/error" || fail 'Restored schema fingerprint failed.'
-python3 - "$work" <<'PY'
-import json, pathlib, sys
-work = pathlib.Path(sys.argv[1])
-def load(name):
-    return {row['kind']: row for row in json.loads((work / name).read_text())}
-source = load('source-fingerprint.json'); restored = load('restored.json')
-changed = sorted(key for key in source.keys() | restored.keys() if source.get(key) != restored.get(key))
-if changed:
-    sys.exit('Restored catalog differs in: '+', '.join(changed))
-print(f'Restored the full supplied archive; all {len(source)} catalog fingerprint families match.')
-PY
+python3 e2e/automations-local/receipts.py restored "$receipts/schema-fingerprint.json" "$work/restored.json" 'The restored primary database'
+python3 e2e/automations-local/receipts.py restored "$work/source-fingerprint.json" "$work/restored.json" 'The restored primary database (against the archive)'
+echo 'Restored the full supplied archive.'

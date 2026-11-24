@@ -37,6 +37,11 @@ SELECT count(*) AS version_count,
 FROM auth.schema_migrations;
 ```
 
-Read `/auth/v1/health` at the production project URL with its existing public publishable API key. Record only the `version` field. Resolve the corresponding official Docker registry tag using `docker buildx imagetools inspect supabase/gotrue:<version>` and record the index digest. The reviewed values appear in [the Auth receipt](production-auth-receipt.json). If any value changed, use a newly verified receipt outside the bundle via `AUTOMATIONS_AUTH_SOURCE_RECEIPT`.
+Read `/auth/v1/health` at the production project URL with its existing public publishable API key. Record only the `version` field. Resolve the corresponding official Docker registry tag using `docker buildx imagetools inspect supabase/gotrue:<version>` and record the index digest. The November 21 values appear in [the Auth receipt](production-auth-receipt.json).
+
+**Updated November 24, 2026.** These steps are scripted:
+- `make-schema-bundle.sh` writes the version list with [`auth-versions.sql`](../../../e2e/automations-local/auth-versions.sql).
+- `capture-receipts.sh` writes the receipt as `auth.json` in the receipts directory, from [`auth-receipt.sql`](../../../e2e/automations-local/auth-receipt.sql), the health version and the registry digest.
+- `run.sh release-full ARCHIVE RECEIPTS` reads it there, and refuses one read more than two hours from the dump. No receipt comes from this checkout any more.
 
 Before launching Auth, `restore-auth-state.sh prepare` verifies the manifest shape, sort order, uniqueness and independent checksum. It atomically fills an empty local ledger or verifies an existing exact match. A partial ledger fails intact. After startup, `restore-auth-state.sh verify` verifies the actual container image reference, the local health response and every persisted version. The harness separately recomputes the complete schema fingerprint after startup. A failed check leaves the production-equivalent rehearsal pending.

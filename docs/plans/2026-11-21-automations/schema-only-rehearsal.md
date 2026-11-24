@@ -12,68 +12,59 @@ The production fingerprint matched in two independent reads on November 21, 2026
 
 ## Obtain an approved source
 
-An operator with an existing authorized libpq service can produce this input. Use a private temporary directory on the operator's approved machine. Keep passwords, complete connection strings, globals containing credentials, row backups and generated archives out of Git, terminal output and chat. Verify that the service selects the named project and database. Use TLS server verification for the production connection.
+**Updated November 24, 2026.** The procedure that was here is now scripted. The operator's steps are in the [complete-schema handoff](../automations-v2/complete-schema-handoff.md):
 
-Run these commands from a release checkout using PostgreSQL 17 clients and GNU Coreutils. Supply the name of the approved service as `PGSERVICE`. The service carries the connection settings. The output files remain on that machine until cleared for transfer.
+- **[`make-schema-bundle.sh`](../../../e2e/automations-local/make-schema-bundle.sh)** writes the bundle on the operator's computer:
+  - two fingerprint readings around a PostgreSQL 17 `pg_dump --schema-only --format=custom` (made with `TZ=UTC`, so the archive records its creation time in UTC);
+  - the canonical reading and the Auth version list;
+  - `pg_dumpall --roles-only --no-role-passwords`;
+  - a table-of-contents check for data-bearing entries;
+  - `SHA256SUMS` over the six files.
 
-```bash
-set -euo pipefail
-umask 077
-: "${PGSERVICE:?Select the existing read-only AgentFlow production libpq service}"
-export PGSSLMODE=verify-full
-export PGDATABASE=postgres
-export PGCONNECT_TIMEOUT=5
-export PGOPTIONS='-c default_transaction_read_only=on -c lock_timeout=2s -c statement_timeout=30s'
-schema_dir=$(mktemp -d)
-fingerprint_sql=e2e/automations-local/schema-fingerprint.sql
-python3 e2e/automations-local/canonical-receipt.py query > "$schema_dir/canonical-query.sql"
-psql -XqAt -v ON_ERROR_STOP=1 -f "$schema_dir/canonical-query.sql" > "$schema_dir/canonical-before.json"
-psql -XqAt -v ON_ERROR_STOP=1 -f "$fingerprint_sql" > "$schema_dir/before.json"
-timeout 120s pg_dump --no-password --schema-only --format=custom --lock-wait-timeout=2s \
-  --file="$schema_dir/agentflow-schema.dump"
-psql -XqAt -v ON_ERROR_STOP=1 -f "$fingerprint_sql" > "$schema_dir/after.json"
-cmp "$schema_dir/before.json" "$schema_dir/after.json"
-cp "$schema_dir/after.json" "$schema_dir/source-fingerprint.json"
-psql -XqAt -v ON_ERROR_STOP=1 -f "$schema_dir/canonical-query.sql" > "$schema_dir/canonical-source.json"
-python3 e2e/automations-local/canonical-receipt.py check "$schema_dir/canonical-before.json" "$schema_dir/canonical-source.json"
-timeout 60s pg_dumpall --roles-only --no-role-passwords --no-password > "$schema_dir/roles.sql"
-pg_restore --list "$schema_dir/agentflow-schema.dump" > "$schema_dir/toc.list"
-if grep -Eq ' (TABLE DATA|FOREIGN TABLE DATA|MATERIALIZED VIEW DATA|SEQUENCE SET|STATISTICS DATA|BLOB|BLOBS|LARGE OBJECT|SUBSCRIPTION|USER MAPPING|SERVER)( |$)' "$schema_dir/toc.list"; then
-  echo 'Data-bearing archive entry detected' >&2
-  exit 1
-fi
-(cd "$schema_dir" && sha256sum agentflow-schema.dump roles.sql source-fingerprint.json > SHA256SUMS)
-```
+  It connects read-only through the operator's own libpq settings and `~/.pgpass`, and prints checksums and counts only.
+- **[`capture-receipts.sh`](../../../e2e/automations-local/capture-receipts.sh)** reads the three independent receipts through the Supabase Management API, a channel separate from the database connection the dump uses. Claude's read-only connector can read them instead.
 
-Confirm PostgreSQL reported a successful dump. A small lock timeout permits a clean retry if concurrent DDL blocks it. The same fingerprint on both sides of the dump checks drift during its consistent snapshot. Review any difference from the historical receipt recorded with the PR.
-
-Cluster roles and memberships are separate from a database dump. Capture the source role **names, non-password attributes, memberships, role/database settings and grantors** using the approved administrator's password-free role inventory. PostgreSQL 17 provides `pg_dumpall --roles-only --no-role-passwords --no-password` for an operator to prepare that inventory in the same private directory. Reconcile it against the matching Supabase image on the isolated cluster. Use local synthetic passwords for fixture logins. Database-level ownership, locale, privileges and settings also need to match the source. The source role must have catalog access sufficient to capture this metadata. A permission failure leaves this step open.
-
-The operator's existing secret and content review must cover routine bodies, view definitions, defaults, comments, role settings and any other DDL that can embed literal credentials or private content. Use the organization's approved private transfer process for the cleared schema, the password-free role inventory and checksums. Report a redacted or excluded object by name/class and reason, then account for its effect on the scope claim. A PostgreSQL data backup, Supabase Restore action, production database branch and raw cron job export each exceed this procedure.
+The bundle now stays on the operator's computer. `run.sh release-full` runs there, and only its pass lines and evidence files (counts, digests, timings) are sent back. If a bundle ever has to leave that computer, first review it for secrets and private content: routine bodies, view definitions, defaults, comments, and role and database settings, including `ALTER ROLE … SET` and `ALTER DATABASE … SET` values in `roles.sql`. A PostgreSQL data backup, a Supabase Restore action, a production database branch and a raw cron job export each exceed this procedure.
 
 ## Restore and verify
 
-The archive input directory must contain `agentflow-schema.dump`, `roles.sql`, `source-fingerprint.json`, `SHA256SUMS`, `canonical-source.json` and `auth-schema-migrations.txt`. The canonical catalog and Auth version list each have an independent receipt. Capture the Auth version IDs with the read-only export in the [Auth rehearsal procedure](auth-runtime-rehearsal.md), then compare its SHA-256 with [the Auth source receipt](production-auth-receipt.json). The observed version list checksum is `d82ee2c062ac0b3dd65235df4976c9cd10b55c2e3d7534dd3a4227d133a534d9`. The runner compares the supplied receipt with the independently captured production receipt in this checkout. If the source has changed, set `AUTOMATIONS_SOURCE_RECEIPT` to a current receipt obtained through a separate, authorized catalog read. Verify its capture time, database and project through that channel. Never choose the bundle's copy as the independent receipt. Set `LOCAL_POSTGRES_IMAGE` to the previously validated managed image with matching server, extensions and locale.
-
 ```bash
-bash e2e/automations-local/run.sh release-full "$schema_dir"
+bash e2e/automations-local/run.sh release-full ARCHIVE RECEIPTS
 ```
 
-1. Start a dedicated isolated cluster with matching managed Postgres and extension versions. Run cron with `cron.launch_active_jobs=off` and block outbound network. Preserve the primary database name `postgres` required by the pg_cron installation. The runner validates the three checksums, archive TOC and role-file shape, retains existing managed roles by name, and applies the source role attributes and grants. It refuses unexpected role syntax and requires the resulting roles and memberships to match the source receipt. Existing privileges in the image that differ from production cause a mismatch.
-2. Verify the received SHA-256 values. Restore the complete cleared custom archive with PostgreSQL 17 `pg_restore --exit-on-error` under the matching local managed owner. Preserve every archive owner, ACL, extension, provider schema, publication and event trigger. `pg_restore --create` recreates the disposable primary from the archive's database metadata. Every archive entry is restored. The caller creates the container and internal-only Docker network for this run and removes both afterward.
-3. Before GoTrue migrations, synthetic fixtures or candidate changes, execute `schema-fingerprint.sql` against the isolated primary and compare parsed JSON with the accompanying current source receipt. Compare role membership and settings inventories as well. Investigate all differences. For example, a skipped GraphQL ACL, a different event-trigger owner or a provider-schema mismatch leaves the complete-copy rehearsal open.
-For a Supabase archive containing the managed GraphQL wrapper ACL, native `pg_restore` normally installs the provider's event trigger after its extension. The installer needs that trigger to create the wrapper and record its initial grants. The runner partitions the original archive, verifies every entry is present exactly once, restores `grant_pg_graphql_access()` and `issue_pg_graphql_access` before `pg_graphql`, and reapplies the matching managed image's initial `graphql_public` schema privileges before extension installation. The original archive ACL executes normally. A stock Supabase PG17.6.1.085 synthetic trial restored all 173 archive entries and matched all 22 populated catalog fingerprint families. Repeating with `pg_cron` and `pg_net` installed also matched all 25 populated families with cron job execution disabled and no copied job rows. A separate synthetic archive with a dropped column, enum insertion, missing role, table grants and RLS matched 17 families and restored zero source rows. Data-bearing archives and checksum mismatches were rejected.
+ARCHIVE holds:
+- `agentflow-schema.dump` and `roles.sql`;
+- `source-fingerprint-before.json` and `source-fingerprint.json`;
+- `canonical-source.json` and `auth-schema-migrations.txt`;
+- `SHA256SUMS`, which covers all six.
 
-4. After clean restore and comparison, apply the candidate to the isolated copy, run the old-build session and new-build cutover/rollback exercises and retain only schema fingerprints, metadata counts, test outcomes and revision IDs in the release packet.
+RECEIPTS holds `schema-fingerprint.json`, `canonical.json` and `auth.json`. No receipt comes from this checkout any more: the November 21 readings are format 1, and the November 24 one was read under another `search_path`. Neither can serve as the reference.
 
-A protected release runner can supply a reviewed schema-only export under its existing access policy. The existing release workflows include production credentials for their own operations. This procedure requires no changes to those workflows or credential grants.
+Before anything is restored, [`receipts.py`](../../../e2e/automations-local/receipts.py) refuses the run when:
+- the receipts sit inside the bundle, or are copies of its files;
+- a fingerprint is not format 2;
+- a capture time is more than two hours from the dump, or the readings are more than 72 hours old;
+- the archive was not made between its two readings;
+- the readings differ from each other or from the receipt.
 
+`restore-full.sh` then restores the archive with PostgreSQL 17 `pg_restore --create --exit-on-error`, as before (managed role inventory, GraphQL bootstrap order). After that:
+
+- **The restored database** must match the receipt in every [schema fingerprint](../../../e2e/automations-local/schema-fingerprint.sql) family, before and after Auth starts. A restore parses stored expressions again and can print them with fewer parentheses, so this one comparison leaves parentheses out and names the families it affected.
+- **The installation base** is a faithful template copy of that database ([`faithful-copy.sh`](../../../e2e/automations-local/faithful-copy.sh)), checked against it and against the receipt.
+- **Every interrupted-install copy and the rollback rehearsal copy** are checked against the database they were copied from before anything is applied to them.
+
+The rehearsal that failed on a filtered `pg_dump` copy (no cron schema, no GraphQL wrapper privileges, no database privileges or settings) is gone. The base keeps all of those. The cluster runs without the pg_cron and pg_net workers only while the primary database itself is copied.
+
+Set `LOCAL_POSTGRES_IMAGE` only for a synthetic run. The session family fails the run when production's server version differs from the image. `e2e/automations-local/release-full-synthetic.sh` runs the whole path against a stand-in source, with nine refusals, and passes.
 
 ## Repository catalog and bucket equivalence
 
 AgentFlow invariant 25 names the per-object and per-kind repository queries as its equivalence checks. Their shared expression defines 18 catalog/configuration families. The checked-in harness embeds both original queries, hashes their ordered outputs inside the database and emits only SHA-256 values. An additional bucket digest pinpoints configuration drift. It verifies the exact query files by digest as well. The complete-schema catalog fingerprint separately checks managed schemas, extension versions, database roles and other platform objects. Both checks must pass. [Invariant 25](../../../AGENT_RULES.md) · [Object fingerprint](../../../scripts/fingerprint.sql) · [Rollup fingerprint](../../../scripts/fingerprint_rollup.sql) · [Independent production canonical receipt](production-canonical-receipt.json)
 
-The source archive procedure above captures the two canonical digests before and after the dump. Transfer `canonical-source.json` with the reviewed bundle. After a separately approved source change, capture the hash-only canonical result independently on the named source and pass that copy via `AUTOMATIONS_CANONICAL_RECEIPT`. The gate rejects the bundle's own receipt as its independent reference. The before/after and independent copies must agree with the restored result.
+The bundle carries the canonical reading taken right after the dump, and RECEIPTS carries an independent one. Both now record their capture time and a digest per row kind.
+- The two readings, both of the source itself, must match exactly.
+- On the restored copy, every kind's row count must match. So must the bucket digest, the two query digests and every kind a restore stores identically.
+- Kinds that hash stored expressions or raw privilege arrays (column, constraint, index, policy, trigger, function, view, type, grants, sequence, column privileges and default privileges) can be stored differently by a restore without changing. Their content is compared through the schema fingerprint, which sorts privileges and leaves parentheses out, and the output names them.
 
 Schema-only archives omit bucket configuration rows. Before a user fixture or feature migration, the isolated harness applies only the configuration inserts from Appendix B of the August baseline and the September voicemail migration. These sources define seven platform buckets. On November 21 an isolated PostgreSQL 17 smoke test reconstructed those definitions and matched the production bucket-family digest. Changing a single bucket's visibility caused the per-object, per-kind and bucket comparisons to fail. The verifier also rejected a missing source receipt. Existing conflicting definitions and extra buckets remain visible to the comparison. On unexpected drift, hold the rehearsal and review the configuration provenance. If the source of record has changed, an operator can supply an approved private JSON array using `AUTOMATIONS_BUCKET_CONFIG`. Each item accepts only `id`, `public`, `file_size_limit` and `allowed_mime_types`. The harness derives the bucket name from its ID, writes only to its singleton internal test database, and requires the project's independently captured canonical digest. Copying objects, file contents, owner rows or customer data is outside this procedure. [Verifier](../../../e2e/automations-local/verify-canonical.sh)
 

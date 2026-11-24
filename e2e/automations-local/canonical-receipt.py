@@ -10,6 +10,13 @@ ROOT = Path(__file__).resolve().parents[2]
 ROW_SCRIPT = ROOT / "scripts/fingerprint.sql"
 ROLLUP_SCRIPT = ROOT / "scripts/fingerprint_rollup.sql"
 KEYS = {"row_script_sha256", "rollup_script_sha256", "rows_sha256", "rollup_sha256", "bucket_sha256"}
+# Row kinds a dump and restore can store differently without changing them: their detail hashes an expression
+# PostgreSQL stores parsed (parsed again on restore, which can drop parentheses), or a raw privilege array (rebuilt
+# from GRANT statements on restore, which can store the same entries in another order). A restored copy must match
+# their row counts exactly; their content is compared through the schema fingerprint, which sorts privileges and
+# ignores those parentheses (receipts.py restored). Every other kind must match exactly.
+RESTORE_SENSITIVE_KINDS = {"column", "constraint", "index", "policy", "trigger", "function", "view", "type",
+                           "grants", "sequence", "colacl", "defacl"}
 
 
 def embed_query(path):
@@ -41,11 +48,16 @@ WITH canonical_rows AS MATERIALIZED (
   FROM canonical_rollup
 )
 SELECT jsonb_build_object(
+  'captured_at',to_char(transaction_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
   'row_script_sha256','{row_source}',
   'rollup_script_sha256','{rollup_source}',
   'rows_sha256',(SELECT encode(sha256(convert_to(coalesce(string_agg(digest,'' ORDER BY line COLLATE "C" NULLS FIRST),''),'UTF8')),'hex') FROM row_hashes),
   'rollup_sha256',(SELECT encode(sha256(convert_to(coalesce(string_agg(digest,'' ORDER BY kind COLLATE "C"),''),'UTF8')),'hex') FROM rollup_hashes),
-  'bucket_sha256',(SELECT encode(sha256(convert_to(coalesce(string_agg(digest,'' ORDER BY kind COLLATE "C"),''),'UTF8')),'hex') FROM rollup_hashes WHERE kind='bucket')
+  'bucket_sha256',(SELECT encode(sha256(convert_to(coalesce(string_agg(digest,'' ORDER BY kind COLLATE "C"),''),'UTF8')),'hex') FROM rollup_hashes WHERE kind='bucket'),
+  'kinds',(SELECT coalesce(jsonb_agg(jsonb_build_object('kind',kind,'rows',n,'sha256',digest) ORDER BY kind COLLATE "C"),'[]'::jsonb) FROM (
+    SELECT split_part(line,'|',1) AS kind,count(*) AS n,
+      encode(sha256(convert_to(string_agg(digest,'' ORDER BY line COLLATE "C" NULLS FIRST),'UTF8')),'hex') AS digest
+    FROM row_hashes GROUP BY 1) per_kind)
 ) AS canonical_receipt;
 COMMIT;"""
 
@@ -110,10 +122,18 @@ def read_receipt(path):
         value = json.loads(path.read_text())
     except (OSError, UnicodeError, json.JSONDecodeError):
         raise SystemExit("Invalid canonical receipt file")
-    if not isinstance(value, dict) or set(value) != KEYS or not all(
-        isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest) for digest in value.values()
+    # A reading carries the time it was taken, and per-kind digests; only the digests are compared.
+    if not isinstance(value, dict) or set(value) - {"captured_at", "kinds"} != KEYS or not all(
+        isinstance(value[key], str) and re.fullmatch(r"[a-f0-9]{64}", value[key]) for key in KEYS
     ):
         raise SystemExit("Invalid canonical receipt fields")
+    kinds = value.get("kinds", [])
+    if not isinstance(kinds, list) or not all(
+        isinstance(row, dict) and set(row) == {"kind", "rows", "sha256"} and isinstance(row["kind"], str)
+        and type(row["rows"]) is int and isinstance(row["sha256"], str) and re.fullmatch(r"[a-f0-9]{64}", row["sha256"])
+        for row in kinds
+    ):
+        raise SystemExit("Invalid canonical receipt kinds")
     return value
 
 
@@ -122,8 +142,34 @@ def check(paths):
     for path in paths[1:]:
         actual = read_receipt(path)
         changed = sorted(key for key in KEYS if actual[key] != expected[key])
+        if "kinds" in expected and "kinds" in actual and expected["kinds"] != actual["kinds"]:
+            changed.append("kinds")
         if changed:
             raise SystemExit("Repository catalog equivalence failed for " + ", ".join(changed))
+
+
+def check_restored(expected_path, actual_path):
+    """A dump and restore of the receipt's source: every kind's row count and every kind without stored expressions
+    must match exactly, with the bucket digest and both script digests. Expression kinds are named when they differ."""
+    expected, actual = read_receipt(expected_path), read_receipt(actual_path)
+    if "kinds" not in expected or "kinds" not in actual:
+        raise SystemExit("A restored copy is compared on per-kind digests; capture the receipt with the current query")
+    exact = [key for key in ("row_script_sha256", "rollup_script_sha256", "bucket_sha256") if actual[key] != expected[key]]
+    if exact:
+        raise SystemExit("Repository catalog equivalence failed for " + ", ".join(exact))
+    want = {row["kind"]: row for row in expected["kinds"]}
+    have = {row["kind"]: row for row in actual["kinds"]}
+    changed = sorted(kind for kind in want.keys() | have.keys() if kind not in want or kind not in have
+                     or want[kind]["rows"] != have[kind]["rows"]
+                     or (kind not in RESTORE_SENSITIVE_KINDS and want[kind]["sha256"] != have[kind]["sha256"]))
+    if changed:
+        raise SystemExit("Repository catalog equivalence failed for kinds: " + ", ".join(changed))
+    reparsed = sorted(kind for kind in want if want[kind]["sha256"] != have[kind]["sha256"])
+    if not reparsed and (actual["rows_sha256"] != expected["rows_sha256"] or actual["rollup_sha256"] != expected["rollup_sha256"]):
+        raise SystemExit("Repository catalog equivalence failed for rows_sha256, rollup_sha256")
+    note = (" Restoring stored these kinds differently: " + ", ".join(reparsed)
+            + "; the schema fingerprint compares their content with privileges sorted and parentheses ignored.") if reparsed else ""
+    print(f"Repository catalog matches the receipt in all {len(want)} kinds.{note}")
 
 
 if __name__ == "__main__":
@@ -134,11 +180,16 @@ if __name__ == "__main__":
     buckets.add_argument("--reviewed-config", type=Path)
     compare = sub.add_parser("check")
     compare.add_argument("receipts", nargs="+", type=Path)
+    restored = sub.add_parser("restored")
+    restored.add_argument("receipt", type=Path)
+    restored.add_argument("copy", type=Path)
     args = parser.parse_args()
     if args.action == "query":
         print(hash_sql())
     elif args.action == "buckets":
         print(approved_config_sql(args.reviewed_config) if args.reviewed_config else bucket_sql())
+    elif args.action == "restored":
+        check_restored(args.receipt, args.copy)
     elif len(args.receipts) >= 2:
         check(args.receipts)
     else:

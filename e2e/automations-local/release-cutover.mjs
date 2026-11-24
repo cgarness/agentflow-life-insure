@@ -47,7 +47,7 @@ const oldTables=['public.workflows','public.workflow_nodes','public.workflow_edg
 const newTables=['public.workflow_versions','public.automation_intervals','private.automation_events','private.automation_runs',
   'private.automation_steps','private.automation_intents','private.automation_messages','private.automation_intake_recovery',
   'private.automation_deferred_admissions','private.automation_reply_watermarks','private.automation_task_receipts',
-  'private.automation_sms_purposes','public.inbound_callbacks','public.policy_issuance_confirmations',
+  'private.automation_sms_purposes','public.inbound_callbacks','public.policy_issuance_confirmations','private.automation_answer_settlements',
   'private.automation_release_controls'];
 function counts(tables) {
   return JSON.parse(sql('select jsonb_build_object('+tables.map(t=>`'${t}',(select count(*) from ${t})`).join(',')+')'));

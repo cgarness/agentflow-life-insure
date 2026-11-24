@@ -18,7 +18,9 @@ The browser test signs in three local users. Two admins author distinct graphs i
 
 Automations V2 adds three browser scripts. `v2-workflows.mjs` drives the five workflows through the CRM's own entry points as signed-in users: a new lead, a saved disposition, a booked, rescheduled and cancelled appointment with a No-show outcome, a missed inbound call claimed through the callback functions, and a sale followed by a confirmed issuance, plus a text held for missing consent. `v2-editor.mjs` covers the add-step picker, the message editor, saved messages, Insert field, the three explicit saves, step names in history, concurrent edits, tenant isolation, and both layouts in both themes with screenshots. `v2-crm.mjs` then opens the screens V2 changed, at 1440 px and 375 px in both themes: a contact's timed automation task, the Confirm issuance dialog (cancelled, so nothing is confirmed), and the Inbounds callback list, where it claims and finishes a callback by hand. The Inbounds room is a build option, so `run.sh` serves the same checkout again with `VITE_INBOUNDS_ROOM=true` for that script. For an agency in the pilot the contact screen pans sideways on a phone: it opens on its right-hand view, with Call, Schedule and the Tasks tab, and the script drags it with a finger (dispatched touch events) to the policies, then taps the policy row and Confirm issuance without any further sideways pan, and saves one confirmation. An agency outside the pilot keeps the production phone layout, gets no issuance list or control, has its confirmation refused by the server and sees no callback list.
 
-The runner executes the session, authoring, runtime, message and backlog SQL fixtures, the five `automation_v2_*.sql` suites, and runs `concurrency.py` and `concurrency_v2.py` with independent PostgreSQL connections. It also runs the native SMS consent, sticky eligibility and signed callback tests using `scripts/tests/automations/channel-native.ts` and `receipt-native.ts` on a separate synthetic agency. Provider calls are handled in process. PostgreSQL and PostgREST handle the actual intent, receipt, callback and history writes.
+The runner executes the session, authoring, runtime, message and backlog SQL fixtures, the five `automation_v2_*.sql` suites, and runs `concurrency.py` and `concurrency_v2.py` with independent PostgreSQL connections. It also runs these native tests on a separate synthetic agency:
+- the SMS consent, sticky eligibility and signed callback tests in `scripts/tests/automations/channel-native.ts` and `receipt-native.ts`;
+- `appointment-handoff-native.ts`. The worker picks up five reminder texts. Two appointments are moved or cancelled before the worker starts on them, and two more just before the final authorization (an injected request on the synthetic transport). Only the unchanged reminder reaches the synthetic provider, and `appointment-handoff-check.sql` confirms what each run recorded and how the next lease settles it. Provider calls are handled in process. PostgreSQL and PostgREST handle the actual intent, receipt, callback and history writes.
 
 Before the blank-install test, `legacy-upgrade.sh` takes a local pre-feature custom-format dump and restores it to a fresh `automation_legacy_rehearsal_*` database owned by the managed `postgres` role. The restore excludes the cron catalog, which is pinned to the cluster's primary database, and the unrelated GraphQL shim function ACL. It runs `supabase/tests/automation_upgrade.sql`, which creates a legacy graph, captures all six workflow tables, applies the twelve candidate migrations (the four of the first release, the first-text sender and the seven V2 files) and compares the preserved records. The first-release and V2 authoring suites run afterward. `rollback-rehearsal.sh` then copies that upgraded database and rehearses the guarded V2 rollback: `supabase/tests/automation_v2_rollback.sql` on real V2 work, a refusal while any agency control is on, one successful apply, a refusal of a second apply, and the six first-release SQL suites on the rolled-back functions. The rehearsal database is removed with its disposable container.
 
@@ -35,11 +37,57 @@ bash e2e/automations-local/run.sh release
 The `release` mode uses the 105 historical prerequisites from `upgrade.sh`. It checks unchanged legacy graph and execution records, installation deltas, an open legacy View As session, refresh and demotion, normal CRM access, fresh author logins, all four enrollment/dispatch combinations and a switch change during publish review. The real CRM triggers and worker authorization predicates are exercised inside rollback-only transactions for the control matrix. A separate two-author browser exercise commits two synthetic runs and inspects their receipts before the operator hides the builder. The rollback compares the complete stored rows for workflows, runs, versions, intents, messages, graph edges, contacts and history. `legacy-upgrade.sh` also runs the 15 negative sending-eligibility assertions in its dedicated database. For an approved local advisor query, supply `AUTOMATIONS_LOCAL_ADVISOR_SQL` and an output-file prefix in `AUTOMATIONS_LOCAL_ADVISOR_OUTPUT` to retain its before/after results.
 
 ```bash
-LOCAL_POSTGRES_IMAGE=supabase/postgres:17.6.1.063 \
-  bash e2e/automations-local/run.sh release-full /absolute/path/to/verified-schema-bundle
+bash e2e/automations-local/run.sh release-full /path/to/bundle /path/to/receipts
 ```
 
-The full mode requires the current, privately transferred PostgreSQL 17 schema-only archive, its reviewed role inventory, canonical policy and RPC comparisons, version-only Auth migration ledger, verified Auth image, and independent source receipts. Restoration and fingerprint verification precede all fixture writes. An unsuccessful restore or mismatch stops the run. Keep the scoped prerequisite result and complete-schema result identified separately in release evidence. [Full archive acquisition and verification](../../docs/plans/2026-11-21-automations/schema-only-rehearsal.md)
+The full mode takes two directories, which must not contain each other.
+
+- **ARCHIVE** is the bundle `make-schema-bundle.sh` writes on the operator's computer:
+  - the PostgreSQL 17 schema-only archive;
+  - the password-free role inventory;
+  - a fingerprint reading before and after the dump;
+  - the canonical reading;
+  - the Auth version list;
+  - `SHA256SUMS` over all six.
+- **RECEIPTS** holds the three readings `capture-receipts.sh` (or Claude's read-only connector) takes from the source through another channel: `schema-fingerprint.json`, `canonical.json` and `auth.json`.
+
+`receipts.py` refuses the run before anything is restored when:
+
+- a receipt sits inside the bundle or is one of its files;
+- a fingerprint is not format 2;
+- a canonical reading has no capture time;
+- a reading is more than two hours from the dump, or the receipts are more than 72 hours old;
+- the bundle's readings differ from each other or from the receipt.
+
+After that, every database the migrations and rollbacks touch is checked against the receipt:
+
+- The restored primary database is checked before and after Auth starts.
+- The installation base is a faithful template copy (`faithful-copy.sh`: owner, privileges and settings included), checked against the restored database and the receipt.
+- Each of the 35 interrupted-install copies is checked against the database it was copied from before anything is applied.
+- The full rollback on real V2 work runs on another verified copy.
+- The base is checked once more at the end.
+
+`schema-fingerprint.sql` (format 2, 34 families) covers:
+
+- every non-system schema, including the managed ones;
+- roles, memberships, and database and role settings;
+- default, initial and catalog-object privileges, and parameter grants;
+- security labels and sequence ownership.
+
+Its "session" family records the settings the reading ran under. A dump and restore parses stored expressions again and can drop parentheses, so a restored copy is compared on a digest without them, and the output names the families affected. Readings of the source itself, and template copies, are compared exactly.
+
+The default image is `supabase/postgres:17.6.1.063`; the session family fails the run if production's server version differs. The [operator handoff](../../docs/plans/automations-v2/complete-schema-handoff.md) has the steps.
+
+```bash
+bash e2e/automations-local/release-full-synthetic.sh
+```
+
+`release-full-synthetic.sh` tests the full mode end to end without production:
+
+1. `run.sh synthetic-source` builds a stand-in from production's migrations, makes the bundle with `make-schema-bundle.sh` through the cluster's own PostgreSQL 17 tools, and reads the receipts afterwards in a separate session.
+2. It shows that a plain template copy fails the target check.
+3. Nine runs then must be refused: receipts inside the bundle, the bundle's own reading as the receipt, the old format, a reading three hours from the dump, a reading under another `search_path`, a changed source, a canonical reading without its time, a missing Auth receipt, and a changed bundle file.
+4. The full run must pass.
 
 ## Installation that stops part way
 
@@ -49,7 +97,7 @@ Each of the seven V2 files commits on its own, so a production installation can 
 bash e2e/automations-local/run.sh install-stops
 ```
 
-`install-stops.sh` copies a database holding the first release and, for every stopping point after 0 to 6 files, checks that the CRM's own saves (`supabase/tests/automation_install_stop.sql`) work with automations on and off; that the next file failing at its end leaves nothing; that applying the last file twice changes nothing; that resuming reaches exactly the catalog of a clean installation and that the guarded full rollback then reaches exactly the catalog of a clean rollback; and that `rollback/20261124100600_automation_v2_stopped_install.rollback.sql` restores the sixteen first-release functions byte for byte with every added observer inert, while the full rollback refuses the partial state. After a back-out or the full rollback, `supabase/ops/automation_v2_install_state.sql` reports `backed_out` or `rolled_back` with no next file, and every V2 file refuses to install. `release-full` runs the same checks on the restored complete schema.
+`install-stops.sh` copies a database holding the first release and, for every stopping point after 0 to 6 files, checks that the CRM's own saves (`supabase/tests/automation_install_stop.sql`) work with automations on and off; that the next file failing at its end leaves nothing; that applying the last file twice changes nothing; that resuming reaches exactly the catalog of a clean installation and that the guarded full rollback then reaches exactly the catalog of a clean rollback; and that `rollback/20261124100600_automation_v2_stopped_install.rollback.sql` restores the seventeen first-release functions byte for byte with every added observer inert, while the full rollback refuses the partial state. After a back-out or the full rollback, `supabase/ops/automation_v2_install_state.sql` reports `backed_out` or `rolled_back` with no next file, and every V2 file refuses to install. Every copy is a faithful one and matches the database it was copied from in all schema fingerprint families before anything is applied to it. The base is a faithful copy of the primary database: the cluster restarts without the pg_cron and pg_net workers for that one copy, and with them again afterwards. `release-full` runs the same checks on the restored complete schema, with the base also matched against the receipt.
 
 ## Backend-first rehearsal
 

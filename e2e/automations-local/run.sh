@@ -6,8 +6,10 @@ umask 077
 mode=${1:-builder}
 case "$mode" in
   builder|release|backend-first|install-stops) [[ $# -le 1 ]] ;;
-  release-full) [[ $# -eq 2 && -d "$2" ]] || { echo 'A verified schema-only archive directory is required.' >&2; exit 2; } ;;
-  *) echo 'Choose builder, release, backend-first, install-stops, or release-full ARCHIVE_DIRECTORY.' >&2; exit 2 ;;
+  release-full) [[ $# -eq 3 && -d "$2" && -d "$3" ]] || {
+    echo 'release-full needs the schema-only archive directory and, separately, the receipts read from the source in the same window.' >&2; exit 2; } ;;
+  synthetic-source) [[ $# -eq 2 && ! -e "$2" ]] || { echo 'synthetic-source needs a new output directory.' >&2; exit 2; } ;;
+  *) echo 'Choose builder, release, backend-first, install-stops, release-full ARCHIVE RECEIPTS, or synthetic-source NEW_DIRECTORY.' >&2; exit 2 ;;
 esac
 dir=$(mktemp -d)
 prefix="af-auto-test-$$"
@@ -40,14 +42,20 @@ postgres_image=supabase/postgres:17.6.1.085
 auth_image=supabase/gotrue:v2.177.0
 if [[ $mode == release-full ]]; then postgres_image=supabase/postgres:17.6.1.063; fi
 start "$db" -e POSTGRES_PASSWORD "${LOCAL_POSTGRES_IMAGE:-$postgres_image}" postgres -D /etc/postgresql -c cron.launch_active_jobs=off
-for _ in {1..90}; do
-  if docker exec -e PGPASSWORD "$db" psql -h 127.0.0.1 -U supabase_admin -d postgres -Atqc 'select 1' >/dev/null 2>&1; then break; fi
-  sleep 1
-done
+ready() {
+  for _ in {1..90}; do
+    if docker exec -e PGPASSWORD "$db" psql -h 127.0.0.1 -U supabase_admin -d postgres -Atqc 'select 1' >/dev/null 2>&1; then return 0; fi
+    sleep 1
+  done
+  echo 'The disposable database did not start.' >&2; exit 1
+}
+ready
 if [[ $mode == release-full ]]; then
-  bash e2e/automations-local/restore-full.sh "$2"
-  bash e2e/automations-local/verify-canonical.sh "$2"
-  auth_image=$(bash e2e/automations-local/restore-auth-state.sh prepare "$2")
+  bash e2e/automations-local/restore-full.sh "$2" "$3"
+  bash e2e/automations-local/verify-canonical.sh "$2" "$3"
+  auth_image=$(bash e2e/automations-local/restore-auth-state.sh prepare "$2" "$3")
+  docker exec -i -e PGPASSWORD "$db" psql -XqAt -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f - \
+    <e2e/automations-local/schema-fingerprint.sql >"$dir/restored.json"
 fi
 docker exec -i -e PGPASSWORD "$db" psql -Xq -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<'SQL'
 \getenv pw PGPASSWORD
@@ -81,41 +89,132 @@ writeFileSync(process.env.AUTOMATIONS_LOCAL_SETTINGS, JSON.stringify({
   PASSWORD:randomBytes(24).toString('base64url'),DB_CONTAINER:process.env.AUTOMATIONS_DB_CONTAINER,
 }),{mode:0o600});
 JS
+fingerprint() {
+  docker exec -i -e PGPASSWORD "$db" psql -XqAt -U supabase_admin -d "$1" -v ON_ERROR_STOP=1 -f - \
+    <e2e/automations-local/schema-fingerprint.sql >"$2"
+}
 if [[ $mode != release-full ]]; then
   echo 'Historical prerequisite fixture (105 migrations).'
   bash e2e/automations-local/upgrade.sh prerequisites
 else
-  bash e2e/automations-local/restore-auth-state.sh verify "$2"
+  bash e2e/automations-local/restore-auth-state.sh verify "$2" "$3"
   # Booting the native Auth service must also preserve the independently attested schema.
-  docker exec -i -e PGPASSWORD "$db" psql -XqAt -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f - \
-    <e2e/automations-local/schema-fingerprint.sql >"$dir/after-auth.json"
-  python3 - "$2/source-fingerprint.json" "$dir/after-auth.json" <<'PYTHON'
-import json, sys
-if json.load(open(sys.argv[1])) != json.load(open(sys.argv[2])):
-    raise SystemExit('Full-schema fingerprint changed after local Auth startup')
-PYTHON
+  fingerprint postgres "$dir/after-auth.json"
+  python3 e2e/automations-local/receipts.py compare "$dir/restored.json" "$dir/after-auth.json" 'The restored database after Auth started'
+  python3 e2e/automations-local/receipts.py restored "$3/schema-fingerprint.json" "$dir/after-auth.json" 'The restored database after Auth started (against the receipt)'
 fi
-# A copy of the main database nobody is connected to, as the base for the installation-stop rehearsal.
-base_copy() {
-  local dest
-  dest=$(docker exec "$db" mktemp -d /tmp/automation-base.XXXXXX)
-  docker exec -e PGPASSWORD "$db" pg_dump -U supabase_admin -Fc -d postgres -f "$dest/base.dump"
-  docker exec -e PGPASSWORD "$db" createdb -U supabase_admin -O postgres -T template0 "$1"
-  docker exec "$db" sh -eu -c 'pg_restore -l "$1/base.dump" | awk "!/ (pg_cron|cron)( |$)/ && !/ACL graphql_public FUNCTION graphql/" > "$1/toc"' -- "$dest"
-  docker exec -e PGPASSWORD "$db" pg_restore -L "$dest/toc" -U supabase_admin -d "$1" --exit-on-error "$dest/base.dump"
+# The installation base: a faithful copy of the primary database (faithful-copy.sh), which nothing may be connected
+# to while it is copied. The services stop, and the cluster restarts without the pg_cron and pg_net workers, which
+# keep a session on postgres. The copy keeps their catalogs: only the background processes are left out.
+faithful_base() {
+  kill "${processes[@]}" 2>/dev/null || true
+  docker stop "$auth" "$rest" >/dev/null
+  local keep
+  keep=$(docker exec -e PGPASSWORD "$db" psql -XAtq -U supabase_admin -d postgres -c "select string_agg(quote_literal(btrim(x)),', ')
+    from unnest(string_to_array(current_setting('shared_preload_libraries'),',')) x where btrim(x) not in ('pg_cron','pg_net')")
+  docker exec -e PGPASSWORD "$db" psql -XAtq -U supabase_admin -d postgres -c "alter system set shared_preload_libraries = $keep" >/dev/null
+  docker restart "$db" >/dev/null
+  ready
+  [[ $(docker exec -e PGPASSWORD "$db" psql -XAtq -U supabase_admin -d postgres -c \
+    "select count(*) from pg_stat_activity where datname='postgres' and pid<>pg_backend_pid()") == 0 ]] || {
+    echo 'Something is still connected to postgres; it cannot be copied faithfully.' >&2; exit 1; }
+  bash e2e/automations-local/faithful-copy.sh postgres "$1"
+  fingerprint postgres "$dir/primary.json"
+  fingerprint "$1" "$dir/$1.json"
+  python3 e2e/automations-local/receipts.py compare "$dir/primary.json" "$dir/$1.json" "The installation base $1 (against the primary database)"
+  # The rehearsals then run with the same preloaded libraries as production. The workers serve only postgres, so
+  # copies of the base are never held open by them.
+  docker exec -e PGPASSWORD "$db" psql -XAtq -U supabase_admin -d postgres -c 'alter system reset shared_preload_libraries' >/dev/null
+  docker restart "$db" >/dev/null
+  ready
 }
+v2_files=(supabase/migrations/2026112410{00,01,02,03,04,05,06}00_automation_v2_*.sql)
 if [[ $mode == install-stops ]]; then
   # Production's order up to today, then the seven V2 files stopped after each one, resumed and backed out.
   bash e2e/automations-local/upgrade.sh pilot
-  base_copy install_base
+  faithful_base install_base
   bash e2e/automations-local/install-stops.sh install_base
+  exit
+fi
+if [[ $mode == synthetic-source ]]; then
+  # A stand-in for production (its migrations up to today), the bundle its operator would make, and the receipts read
+  # separately afterwards, for testing release-full end to end without production. Kept in the directory given.
+  bash e2e/automations-local/upgrade.sh pilot
+  synthetic=$(realpath -m -- "$2")
+  mkdir -m 700 -p "$synthetic"
+  # PostgreSQL 17 client tools in the disposable cluster, used as the operator uses theirs, as the postgres role.
+  mkdir "$dir/pg-bin"
+  for tool in psql pg_dump pg_dumpall pg_restore; do
+    printf '#!/usr/bin/env bash\nexec docker exec -i -e PGPASSWORD -e PGOPTIONS -e PGDATABASE -e PGCONNECT_TIMEOUT -e TZ -e PGSSLMODE=disable -e PGUSER=postgres %q %s "$@"\n' \
+      "$db" "$tool" >"$dir/pg-bin/$tool"
+    chmod +x "$dir/pg-bin/$tool"
+  done
+  PG_BIN="$dir/pg-bin" bash e2e/automations-local/make-schema-bundle.sh "$synthetic/bundle"
+  mkdir -m 700 "$synthetic/receipts"
+  reader=(docker exec -i -e PGPASSWORD "$db" psql -XqAt -U postgres -d postgres -v ON_ERROR_STOP=1 -f -)
+  "${reader[@]}" <e2e/automations-local/schema-fingerprint.sql >"$synthetic/receipts/schema-fingerprint.json"
+  python3 e2e/automations-local/canonical-receipt.py query | "${reader[@]}" >"$synthetic/receipts/canonical.json"
+  # The same reading through a channel that kept its own search_path, as a connector might: it must not pass.
+  mkdir -m 700 "$synthetic/variants"
+  sed 's/SET LOCAL search_path=pg_catalog;/SET LOCAL search_path="$user",public,extensions;/' e2e/automations-local/schema-fingerprint.sql \
+    | "${reader[@]}" >"$synthetic/variants/other-settings.json"
+  "${reader[@]}" <e2e/automations-local/auth-receipt.sql >"$dir/auth-reading.json"
+  docker exec "$auth" wget -Y off -q -T 5 -O - http://127.0.0.1:9999/health >"$dir/auth-health.json"
+  python3 e2e/automations-local/receipts.py auth-receipt "$dir/auth-reading.json" \
+    "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$dir/auth-health.json")" \
+    "$(docker image inspect --format '{{index .RepoDigests 0}}' "$auth_image" | cut -d@ -f2)" synthetic-release-full \
+    "$synthetic/receipts/auth.json"
+  # The target check finds a copy that is not faithful: a plain template copy loses the database's own privileges.
+  faithful_base synthetic_base
+  docker exec -e PGPASSWORD "$db" createdb -U supabase_admin -O postgres -T synthetic_base synthetic_plain
+  fingerprint synthetic_plain "$dir/plain.json"
+  if python3 e2e/automations-local/receipts.py compare "$dir/synthetic_base.json" "$dir/plain.json" 'A plain template copy' 2>"$dir/plain.err"; then
+    echo 'A plain template copy passed the target check.' >&2; exit 1
+  fi
+  grep -q 'differs from the expected schema in: database' "$dir/plain.err"
+  echo "PASS synthetic source: bundle and receipts written to $synthetic; a plain template copy is caught by the target check."
   exit
 fi
 if [[ $mode == release-full ]] && [[ $(docker exec -e PGPASSWORD "$db" psql -XAtq -U postgres -d postgres -c \
     "select to_regclass('private.automation_runs') is not null") == t ]]; then
-  # The current production schema already holds the first release: rehearse the V2 installation on the restored copy.
-  base_copy install_base
-  bash e2e/automations-local/install-stops.sh install_base
+  # The current production schema already holds the first release. Every migration and rollback target is a faithful
+  # copy of the restored database, checked against the independent receipt before anything is applied to it.
+  receipt=$(realpath -- "$3")/schema-fingerprint.json
+  faithful_base install_base
+  python3 e2e/automations-local/receipts.py restored "$receipt" "$dir/install_base.json" 'The migration and rollback target (install_base)'
+  AUTOMATIONS_BASE_RECEIPT="$receipt" bash e2e/automations-local/install-stops.sh install_base
+  # The guarded full rollback on real V2 work, on another faithful copy of the same verified target.
+  bash e2e/automations-local/faithful-copy.sh install_base v2_work
+  fingerprint v2_work "$dir/v2_work.json"
+  python3 e2e/automations-local/receipts.py compare "$dir/install_base.json" "$dir/v2_work.json" 'The rollback rehearsal target before V2'
+  python3 e2e/automations-local/receipts.py restored "$receipt" "$dir/v2_work.json" 'The rollback rehearsal target before V2 (against the receipt)'
+  for file in "${v2_files[@]}"; do
+    docker exec -i -e PGPASSWORD "$db" psql -Xq -U postgres -d v2_work -v ON_ERROR_STOP=1 -f - <"$file" >/dev/null
+  done
+  # A schema-only archive carries no rows. Production holds the one row the first release's session migration wrote,
+  # which signing in to Automations needs, so the rehearsal target gets it the same way.
+  docker exec -e PGPASSWORD "$db" psql -XAtq -U postgres -d v2_work -v ON_ERROR_STOP=1 -c \
+    'insert into private.automation_session_cutover(singleton,installed_at) values (true,clock_timestamp()) on conflict do nothing' >/dev/null
+  bash e2e/automations-local/rollback-rehearsal.sh v2_work
+  fingerprint install_base "$dir/install_base-after.json"
+  python3 e2e/automations-local/receipts.py compare "$dir/install_base.json" "$dir/install_base-after.json" 'The migration and rollback target after the rehearsals'
+  python3 e2e/automations-local/receipts.py restored "$receipt" "$dir/install_base-after.json" 'The migration and rollback target after the rehearsals (against the receipt)'
+  evidence=${AUTOMATION_UI_EVIDENCE:-/tmp/automation-ui-evidence}
+  mkdir -p "$evidence"
+  python3 - "$dir" "$receipt" "$evidence" "${LOCAL_POSTGRES_IMAGE:-$postgres_image}" <<'PY'
+import hashlib, json, pathlib, sys
+work, receipt, evidence, image = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]), sys.argv[4]
+stops = json.loads((evidence / 'automations-v2-install-stops.json').read_text())
+families = json.loads(receipt.read_text())
+(evidence / 'automations-v2-release-full.json').write_text(json.dumps({
+    'result': 'pass', 'postgres_image': image, 'receipt_sha256': hashlib.sha256(receipt.read_bytes()).hexdigest(),
+    'receipt_captured_at': families['captured_at'], 'fingerprint_families': len(families['families']),
+    'matched_receipt': ['restored primary', 'after Auth start', 'install_base', 'rollback rehearsal target',
+                        'install_base after the rehearsals'],
+    'install_stop_targets_verified': stops['targets_verified'], 'install_stops': stops['result'],
+    'rollback_rehearsal_on_v2_work': 'pass'}, indent=2) + '\n')
+PY
+  echo 'PASS release-full: the restored database, the installation base and every migration and rollback target matched the independent production receipt.'
   exit
 fi
 if [[ $mode == backend-first ]]; then

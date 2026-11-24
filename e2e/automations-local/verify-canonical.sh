@@ -4,9 +4,10 @@ set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
 fail() { echo "$1" >&2; exit 1; }
-[[ $# == 1 ]] || fail 'A reviewed schema-only bundle directory is required.'
+[[ $# == 2 && -d $1 && -d $2 ]] || fail 'A schema-only bundle directory and its independent receipts directory are required.'
 bundle=$(realpath -- "$1")
-expected=${AUTOMATIONS_CANONICAL_RECEIPT:-docs/plans/2026-11-21-automations/production-canonical-receipt.json}
+# restore-full.sh has already checked that the receipts are independent of the bundle and from its window.
+expected="$(realpath -- "$2")/canonical.json"
 source_receipt="$bundle/canonical-source.json"
 [[ ! "$expected" -ef "$source_receipt" ]] || fail 'Supply the independently captured repository fingerprint receipt.'
 gate=e2e/automations-local/canonical-receipt.py
@@ -29,5 +30,5 @@ python3 "$gate" buckets "${bucket_args[@]}" > "$scratch/bucket-config.sql"
 "${pg[@]}" -f - < "$scratch/bucket-config.sql" > "$scratch/local-output" 2> "$scratch/local-error" || fail 'Reviewed storage bucket configuration did not apply to the isolated restore.'
 python3 "$gate" query > "$scratch/canonical.sql"
 "${pg[@]}" -f - < "$scratch/canonical.sql" > "$scratch/restored.json" 2> "$scratch/local-error" || fail 'Canonical repository queries failed on restored schema.'
-python3 "$gate" check "$expected" "$scratch/restored.json"
+python3 "$gate" restored "$expected" "$scratch/restored.json"
 echo 'Verified repository per-object, per-kind and storage-configuration digests on the isolated pre-feature database.'

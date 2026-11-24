@@ -16,7 +16,14 @@ dest=$(docker exec "$db" mktemp -d /tmp/automation-rollback.XXXXXX)
 docker exec "$db" mkdir -p "$dest/tests" "$dest/migrations/rollback"
 docker cp -q "supabase/migrations/rollback/$rollback" "$db:$dest/migrations/rollback/"
 docker cp -q supabase/tests/automation_v2_rollback.sql "$db:$dest/tests/"
-"${pg[@]}" createdb -U supabase_admin -O postgres -T "$source_db" "$copy"
+# A faithful copy, checked against its source in every schema fingerprint family before the rehearsal touches it.
+bash e2e/automations-local/faithful-copy.sh "$source_db" "$copy"
+prints=$(mktemp -d)
+trap 'rm -rf -- "$prints"' EXIT
+for name in "$source_db" "$copy"; do
+  "${pg[@]}" psql -XqAt -U postgres -d "$name" -v ON_ERROR_STOP=1 -f - <e2e/automations-local/schema-fingerprint.sql >"$prints/$name.json"
+done
+python3 e2e/automations-local/receipts.py compare "$prints/$source_db.json" "$prints/$copy.json" 'The rollback rehearsal copy'
 sql=("${pg[@]}" psql -X -q -U postgres -d "$copy" -v ON_ERROR_STOP=1)
 apply=("${sql[@]}" -1 -f "$dest/migrations/rollback/$rollback")
 

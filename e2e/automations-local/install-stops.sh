@@ -8,6 +8,9 @@
 #             back byte for byte, with every added observer inert, while the full rollback refuses the partial state.
 #             The probe then reports the back-out with no next file, and installing the next file anyway is refused.
 # After the full rollback the probe reports rolled_back, and every V2 file refuses to install again.
+# Every copy is a faithful one (faithful-copy.sh) and must match the database it was copied from in every schema
+# fingerprint family before anything is applied to it, so each target is exactly the state being rehearsed. With AUTOMATIONS_BASE_RECEIPT set
+# (release-full), the base itself must first match that independent receipt of the source.
 # Usage: install-stops.sh BASE_DATABASE   (a database nobody is connected to, holding the state V2 is installed onto)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -34,7 +37,18 @@ docker cp -q supabase/ops/automation_v2_install_state.sql "$db:$dest/ops/"
 docker cp -q e2e/automations-local/install-catalog.sql "$db:$dest/"
 names=(); for file in "${files[@]}"; do names+=("$(basename "$file")"); done
 psql_on() { "${pg[@]}" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d "$1" "${@:2}"; }
-copy() { "${pg[@]}" createdb -U supabase_admin -O postgres -T "$1" "$2"; }
+prints=$(mktemp -d)
+trap 'rm -rf -- "$prints"' EXIT
+fingerprint() { psql_on "$1" -At -f - <e2e/automations-local/schema-fingerprint.sql >"$prints/$1.json"; }
+copy() {
+  # Every target matches the database it was copied from, which for the stops is the base itself.
+  local source="$prints/base.json"
+  if [[ $1 != "$base" ]]; then fingerprint "$1"; source="$prints/$1.json"; fi
+  bash e2e/automations-local/faithful-copy.sh "$1" "$2"
+  fingerprint "$2"
+  python3 e2e/automations-local/receipts.py compare "$source" "$prints/$2.json" "Copy $2 of $1" >/dev/null
+  copies=$((copies + 1))
+}
 apply() { psql_on "$1" -f "$dest/migrations/$2" >/dev/null; }
 catalog() { psql_on "$1" -f "$dest/install-catalog.sql"; }
 state() { psql_on "$1" -At -f "$dest/ops/automation_v2_install_state.sql" | grep '^{'; }
@@ -76,6 +90,11 @@ same() { # same CATALOG_A CATALOG_B WHAT
 }
 run_id=$$
 summary=()
+copies=0
+psql_on "$base" -At -f - <e2e/automations-local/schema-fingerprint.sql >"$prints/base.json"
+if [[ -n ${AUTOMATIONS_BASE_RECEIPT:-} ]]; then
+  python3 e2e/automations-local/receipts.py restored "$AUTOMATIONS_BASE_RECEIPT" "$prints/base.json" 'The installation base'
+fi
 
 # The two reference points every path must land on exactly.
 [[ $(state "$base") == *'"state": "not_installed"'* ]]
@@ -165,5 +184,11 @@ if refused=$(psql_on "clean_install_$run_id" -1 -f "$dest/migrations/rollback/20
 fi
 grep -q 'all seven files are installed, use 20261124100600_automation_v2.rollback.sql' <<<"$refused"
 same "$(catalog "clean_install_$run_id")" "$full" "the refused back-out changed a complete installation"
-printf '{"result":"pass","base":"%s","after_full_rollback":"probe rolled_back, files refused","stops":[%s]}\n' "$base" "$(IFS=,; echo "${summary[*]}")" > "$out/automations-v2-install-stops.json"
+# The base itself was never written to.
+psql_on "$base" -At -f - <e2e/automations-local/schema-fingerprint.sql >"$prints/base-after.json"
+python3 e2e/automations-local/receipts.py compare "$prints/base.json" "$prints/base-after.json" 'The installation base after the rehearsal' >/dev/null
+families=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["families"]))' "$prints/base.json")
+echo "Each of the $copies targets matched the database it was copied from in all its schema fingerprint families ($families for the base) before anything was applied to it."
+printf '{"result":"pass","base":"%s","targets_verified":%s,"fingerprint_families":%s,"base_receipt":"%s","after_full_rollback":"probe rolled_back, files refused","stops":[%s]}\n' \
+  "$base" "$copies" "$families" "$([[ -n ${AUTOMATIONS_BASE_RECEIPT:-} ]] && echo matched || echo none)" "$(IFS=,; echo "${summary[*]}")" > "$out/automations-v2-install-stops.json"
 echo 'PASS installation stops: after each of 0-6 files, resuming reaches the clean installation and its rollback, and backing out restores the first release; after a back-out or the full rollback the probe says so and no V2 file installs again.'
