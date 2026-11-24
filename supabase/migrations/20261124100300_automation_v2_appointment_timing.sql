@@ -1,4 +1,5 @@
--- Automations V2 appointment events. Observes the canonical appointment slot and outcome records.
+-- Automations V2 appointment events. Observes the canonical appointment slot and outcome records, and the
+-- appointment change log for a reopening those records cannot show.
 -- An appointment save never waits long for, and never fails because of, these observers.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -73,6 +74,26 @@ END $$;
 CREATE TRIGGER automation_capture_appointment_outcome AFTER INSERT ON private.appointment_outcome_events
   FOR EACH ROW EXECUTE FUNCTION private.automation_capture_appointment_outcome();
 
+-- A cancelled appointment opened again with no outcome left to take back. This is what moving an appointment while
+-- it is cancelled leads to: its new slot carries no outcome record, so reopening it records none either. The
+-- appointment's own change log still shows the status going from cancelled to open.
+CREATE FUNCTION private.automation_capture_appointment_reopened()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  IF NOT private.automation_enrolling(NEW.organization_id) THEN RETURN NULL; END IF;
+  IF private.appointment_status_key(NEW.prev->>'status') IS DISTINCT FROM 'cancelled'
+    OR private.appointment_status_key(NEW.next->>'status') IS DISTINCT FROM 'open' THEN RETURN NULL; END IF;
+  PERFORM private.automation_record_event(NEW.organization_id,'appointment_changed',
+    md5(NEW.id::text||':reopened')::uuid,NULL,NULL,
+    jsonb_build_object('appointment_id',NEW.appointment_id,'change','reopened'),NULL,interval '0');
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'Automation appointment reopen capture requires investigation (SQLSTATE %)', SQLSTATE;
+  RETURN NULL;
+END $$;
+CREATE TRIGGER automation_capture_appointment_reopened AFTER INSERT ON private.appointment_evidence_observations
+  FOR EACH ROW WHEN (NEW.op='UPDATE') EXECUTE FUNCTION private.automation_capture_appointment_reopened();
+
 REVOKE ALL ON FUNCTION private.automation_enrolling(uuid),private.automation_capture_appointment_slot(),
-  private.automation_capture_appointment_outcome() FROM PUBLIC,anon,authenticated;
+  private.automation_capture_appointment_outcome(),private.automation_capture_appointment_reopened() FROM PUBLIC,anon,authenticated;
 COMMIT;

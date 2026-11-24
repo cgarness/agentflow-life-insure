@@ -53,7 +53,7 @@ export default function AutomationReview({graph, scope, mode, overlaps, issues, 
     {mode === "preview"
       ? <PreviewForm graph={graph} scope={scope} senders={senders}/>
       : <>
-        <ReviewSteps steps={orderedSteps(graph)} names={names} senders={senders} requirements={requirements}/>
+        <ReviewSteps steps={orderedSteps(graph)} names={names} senders={senders} requirements={requirements} triggerType={trigger?.type}/>
         <dl><div className="flex flex-wrap gap-x-2">
           <dt className="font-medium">Audience overlap</dt>
           <dd className="text-muted-foreground">

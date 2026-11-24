@@ -475,28 +475,19 @@ end $$;
 -- appointment no longer stands, and a pending reminder moves to the new time.
 CREATE FUNCTION private.automation_refresh_appointment_runs(p_org uuid,p_appointment text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE prior private.automation_runs; node jsonb; placed record; current_slot record; cancelled_times timestamptz[];
+DECLARE prior private.automation_runs; node jsonb; placed record; current_slot record;
 BEGIN
-  -- A cancellation that was taken back: the runs it stopped carry on from the step they were on, whichever
-  -- slot they started on. They are the runs that ended at the moment of that cancellation, or of a restatement of
-  -- it (retyping a cancelled appointment records the cancellation again). A plain wait that
-  -- had started keeps the time it had left. Any other step runs again now, and the worker places an
-  -- appointment wait against the appointment's time again, so a reminder time that passed in the meantime
-  -- follows the step's own rule.
+  -- The appointment stands again at a time still to come, so no cancellation of it is in effect: on each
+  -- automation, the latest run that followed this appointment carries on from the step it was on when a
+  -- cancellation is what stopped it. That covers taking a cancellation back on the same slot, a cancellation
+  -- restated by retyping, and reopening an appointment that was moved while it was cancelled (its new slot has
+  -- no outcome to take back). A run is passed over when the automation has a live run for the appointment or a
+  -- later run for it, so reminders resume exactly once. A plain wait that had started keeps the time it had left.
+  -- Any other step runs again now, and the worker places an appointment wait against the appointment's time
+  -- again, so a reminder time that passed in the meantime follows the step's own rule.
   SELECT s.occurrence_id,s.starts_at,s.head_outcome INTO current_slot
     FROM private.automation_appointment_state(p_org,p_appointment::uuid) s;
-  IF FOUND AND current_slot.head_outcome='retracted' AND current_slot.starts_at>clock_timestamp() THEN
-    WITH RECURSIVE taken AS (
-      SELECT e.supersedes_event_id,e.recorded_at FROM private.appointment_outcome_events head
-        JOIN private.appointment_outcome_events e ON e.id=head.supersedes_event_id AND e.outcome='cancelled'
-        WHERE head.organization_id=p_org AND head.occurrence_id=current_slot.occurrence_id AND head.outcome='retracted'
-          AND NOT EXISTS (SELECT 1 FROM private.appointment_outcome_events newer WHERE newer.supersedes_event_id=head.id)
-      UNION ALL
-      SELECT e.supersedes_event_id,e.recorded_at FROM taken t
-        JOIN private.appointment_outcome_events e ON e.id=t.supersedes_event_id AND e.outcome='cancelled')
-    SELECT array_agg(t.recorded_at) INTO cancelled_times FROM taken t;
-  END IF;
-  IF cancelled_times IS NOT NULL THEN
+  IF FOUND AND coalesce(current_slot.head_outcome,'retracted')='retracted' AND current_slot.starts_at>clock_timestamp() THEN
     UPDATE private.automation_runs r SET
         status=CASE WHEN private.automation_waiting_out(r) THEN 'waiting' ELSE 'queued' END,
         due_at=CASE WHEN private.automation_waiting_out(r) THEN r.due_at ELSE clock_timestamp() END,
@@ -505,12 +496,12 @@ BEGIN
       WHERE origin.organization_id=r.organization_id AND origin.id=r.event_id AND origin.event_type='appointment_booked'
         AND origin.subject ? 'appointment_id' AND origin.subject->>'appointment_id'=p_appointment
         AND w.organization_id=r.organization_id AND w.id=r.workflow_id AND w.status IN ('active','paused')
-        AND r.organization_id=p_org AND r.status='stopped' AND r.reason='Appointment was cancelled' AND r.ended_at=ANY(cancelled_times)
+        AND r.organization_id=p_org AND r.status='stopped' AND r.reason='Appointment was cancelled'
         AND NOT EXISTS (SELECT 1 FROM private.automation_runs other JOIN private.automation_events later
             ON later.organization_id=other.organization_id AND later.id=other.event_id
           WHERE other.organization_id=p_org AND other.workflow_id=r.workflow_id AND other.id<>r.id
-            AND other.status IN ('queued','waiting','held','unknown')
-            AND later.subject ? 'appointment_id' AND later.subject->>'appointment_id'=p_appointment);
+            AND later.subject ? 'appointment_id' AND later.subject->>'appointment_id'=p_appointment
+            AND (other.status IN ('queued','waiting','held','unknown') OR later.occurred_at>origin.occurred_at));
   END IF;
   FOR prior IN SELECT r.* FROM private.automation_runs r JOIN private.automation_events origin
       ON origin.organization_id=r.organization_id AND origin.id=r.event_id

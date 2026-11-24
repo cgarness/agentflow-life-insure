@@ -97,11 +97,20 @@ export function previewEmailCondition(
   return { branch, detail: label + (branch === "yes" ? " — Yes" : " — No") };
 }
 
+/** The worker skips a text or email for a client or recruit and carries on, so the preview says so. */
+function leadOnly(label: string, input: Config): PreviewStep | undefined {
+  const kind = input.contact_type;
+  if (kind !== "client" && kind !== "recruit") return undefined;
+  return { detail: label + " · Skipped for a " + kind + ": automated texts and emails go to leads only. The run continues." };
+}
+
 function missingHold(missing: string[]): string {
   return missing.length ? " · Held: " + missing.join(" and ") + " need a test appointment time and time zone." : "";
 }
 
 export function previewSms({ config, input }: PreviewContext): PreviewStep {
+  const skipped = leadOnly("SMS" + (config.purpose ? " (" + config.purpose + ")" : ""), input);
+  if (skipped) return skipped;
   const body = renderFields(config.body, previewValues(input));
   const hold = !input.phone || input.sms_eligible === false || body.missing.length > 0;
   return {
@@ -112,6 +121,8 @@ export function previewSms({ config, input }: PreviewContext): PreviewStep {
 }
 
 export function previewEmail({ config, input }: PreviewContext): PreviewStep {
+  const skipped = leadOnly("Email", input);
+  if (skipped) return skipped;
   const identities = input.email_senders as
     | Record<string, { from_email: string; reply_to: string }>
     | undefined;

@@ -1,5 +1,6 @@
 import { fromZonedTime } from "date-fns-tz";
 import type { EmailSender } from "@/lib/automation-channels";
+import { triggerContactKinds } from "../../../../supabase/functions/_shared/automations/blockRegistry";
 
 /** Test values typed into the preview form. Nothing here is read from or written to a real contact. */
 export interface PreviewValues {
@@ -12,6 +13,8 @@ export interface PreviewValues {
   email?: string;
   phone?: string;
   lead_source?: string;
+  /** Who the test run is for. Texts and emails are skipped for a client or recruit. */
+  contact_type?: "lead" | "client" | "recruit";
   /** Wall-clock time from a datetime-local input, read in `timezone`. */
   appointment_start?: string;
   timezone: string;
@@ -47,11 +50,15 @@ export function zonedInstant(local: string | undefined, timezone: string): strin
 export function previewInput(
   triggerType: string | undefined, values: PreviewValues, flags: PreviewFlags, senders: Record<string, EmailSender>,
 ): Record<string, unknown> {
-  const {appointment_start, timezone, trigger, ...contact} = values;
+  const {appointment_start, timezone, trigger, contact_type, ...contact} = values;
   const start = zonedInstant(appointment_start, timezone);
+  const event = trigger || triggerType;
+  // The chosen contact, when the event can be for one; otherwise who the event is always for.
+  const kinds = triggerContactKinds(event);
   return {
     ...contact,
-    trigger: trigger || triggerType,
+    trigger: event,
+    contact_type: contact_type && kinds.includes(contact_type) ? contact_type : kinds[0],
     sms_eligible: flags.sms_eligible,
     email_eligible: flags.email_eligible,
     lookup_failed: flags.lookup_failed,

@@ -4,7 +4,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { TIMEZONES } from "@/components/settings/brandingConfig";
 import type { EmailSender } from "@/lib/automation-channels";
-import { APPOINTMENT_OUTCOMES } from "../../../../supabase/functions/_shared/automations/blockRegistry";
+import { APPOINTMENT_OUTCOMES, triggerContactKinds } from "../../../../supabase/functions/_shared/automations/blockRegistry";
 import { APPOINTMENT_TRIGGERS } from "../../../../supabase/functions/_shared/automations/fields";
 import {
   blocks, graphBlock, previewGraph, stepTitle, triggerNode, type AutomationGraph,
@@ -22,6 +22,7 @@ interface Props {
   senders: Record<string, EmailSender>;
 }
 
+const KINDS = {lead: "Lead", client: "Client", recruit: "Recruit"} as const;
 const CONTACT = [["first_name", "First name"], ["last_name", "Last name"], ["email", "Email"], ["phone", "Phone"], ["lead_source", "Lead source"]] as const;
 const triggers = blocks.filter(block => block.category === "trigger");
 
@@ -35,6 +36,8 @@ export default function PreviewForm({graph, scope, senders}: Props) {
   const [flags, setFlags] = useState<PreviewFlags>({sms_eligible: true, email_eligible: true, lookup_failed: false, assigned: true});
   const campaigns = useCampaignOptions(scope, String(trigger?.config.campaign_id ?? ""), true);
   const dispositions = useDispositionOptions(scope, trigger?.type === "disposition_recorded");
+  // A trigger that can start a run for a client or recruit lets the author test each, since texts and emails skip them.
+  const kinds = triggerContactKinds(values.trigger || trigger?.type);
   const set = (key: keyof PreviewValues) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setValues(current => ({...current, [key]: event.target.value}));
   const checks: {key: keyof PreviewFlags; label: string; shown: boolean}[] = [
@@ -56,6 +59,11 @@ export default function PreviewForm({graph, scope, senders}: Props) {
           {triggers.map(option => <option key={option.type} value={option.type}>{option.label}</option>)}
         </select>
       </Field>
+      {kinds.length > 1 && <Field id={id + "kind"} label="Test contact">
+        <select id={id + "kind"} className={selectStyle} value={values.contact_type ?? kinds[0]} onChange={set("contact_type")}>
+          {kinds.map(kind => <option key={kind} value={kind}>{KINDS[kind]}</option>)}
+        </select>
+      </Field>}
       <Field id={id + "campaign"} label="Test campaign">
         <select id={id + "campaign"} className={selectStyle} value={values.campaign_id ?? ""} onChange={set("campaign_id")}>
           <option value="">None</option>

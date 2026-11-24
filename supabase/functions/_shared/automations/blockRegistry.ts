@@ -69,6 +69,23 @@ const MESSAGE_TRIGGERS = [
   "appointment_outcome_recorded",
 ] as const;
 
+/** Who a trigger's runs can be for. Live texts and emails in this release go to leads only; tasks go to anyone. */
+export type ContactKind = "lead" | "client" | "recruit";
+export function triggerContactKinds(type: string | undefined): ContactKind[] {
+  switch (type) {
+    case "sale_recorded":
+    case "policy_issuance_confirmed":
+      return ["client"];
+    case "disposition_recorded":
+    case "appointment_booked":
+    case "appointment_outcome_recorded":
+    case "inbound_call_missed":
+      return ["lead", "client", "recruit"];
+    default:
+      return ["lead"];
+  }
+}
+
 function required(value: unknown, label: string) {
   return typeof value !== "string" || !value.trim() ? label + " is required." : undefined;
 }

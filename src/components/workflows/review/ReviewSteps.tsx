@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import type { SmsRequirement } from "@/lib/automation-api";
 import type { EmailSender } from "@/lib/automation-channels";
-import type { SummaryNames } from "../../../../supabase/functions/_shared/automations/blockRegistry";
+import { triggerContactKinds, type SummaryNames } from "../../../../supabase/functions/_shared/automations/blockRegistry";
 import { graphBlock, stepSummary, stepTitle } from "../../../../supabase/functions/_shared/automations/graph";
 import type { OrderedStep } from "../lib/draftGraph";
 
@@ -12,6 +12,8 @@ interface Props {
   senders: Record<string, EmailSender>;
   /** Consent the server will pin for each text step when this draft is published. */
   requirements?: SmsRequirement[] | null;
+  /** The trigger, which decides whether a run can be for a client or recruit. */
+  triggerType?: string;
 }
 
 const PURPOSES: Record<SmsRequirement["purpose"], string> = {
@@ -29,7 +31,8 @@ function text(value: unknown): string {
 }
 
 /** The steps exactly as they will be published, with the wording and consent each message carries. */
-export default function ReviewSteps({steps, names, senders, requirements}: Props) {
+export default function ReviewSteps({steps, names, senders, requirements, triggerType}: Props) {
+  const others = triggerContactKinds(triggerType).some(kind => kind !== "lead");
   return <ol aria-label="Steps to publish" className="space-y-2">
     {steps.map(({node, path}) => {
       const block = graphBlock(node);
@@ -51,6 +54,9 @@ export default function ReviewSteps({steps, names, senders, requirements}: Props
           <p><span className="text-muted-foreground">Subject: </span>{text(node.config.subject)}</p>
         </>}
         {message && <p className="whitespace-pre-wrap">{text(node.config.body)}</p>}
+        {message && others && <p className="text-xs text-muted-foreground">
+          Texts and emails go to leads only. A client or recruit skips this step and the run continues.
+        </p>}
         {block?.editor === "task" && text(node.config.notes) && <p className="whitespace-pre-wrap">
           <span className="text-muted-foreground">Notes: </span>{text(node.config.notes)}
         </p>}

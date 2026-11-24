@@ -343,3 +343,22 @@ Deno.test("preview names a missed call's blank task after the number typed as th
   const steps = previewGraph(g, { trigger: "inbound_call_missed", phone: "+12025550123", first_name: "" });
   assert(steps.at(-1)?.detail.includes("Call back +12025550123"), "the blank title names the caller: " + steps.at(-1)?.detail);
 });
+
+Deno.test("preview skips texts and emails for a client or recruit and carries on to the task", () => {
+  const g = emptyGraph();
+  g.nodes.push(
+    { id: "start", type: "disposition_recorded", version: 1, config: { disposition_ids: ["5f0f6d43-3c62-4c35-9d1c-3e0f4c2f9a11"] } },
+    { id: "sms", type: "send_sms", version: 2, config: { body: "Hello {{first_name}}" } },
+    { id: "task", type: "create_task", version: 1, config: { title: "Call {{first_name}}", task_type: "Follow Up", due_amount: 5, due_unit: "minutes" } },
+  );
+  g.edges.push({ id: "1", source: "start", target: "sms" }, { id: "2", source: "sms", target: "task" });
+  const contact = { first_name: "Sam", phone: "+12025550123", disposition_id: "5f0f6d43-3c62-4c35-9d1c-3e0f4c2f9a11", has_owner: true };
+  const lead = previewGraph(g, { ...contact, contact_type: "lead" });
+  assert(lead.map((s) => s.nodeId).join(",") === "start,sms,task" && lead[1].detail.includes("Hello Sam"), "a lead gets the text");
+  for (const kind of ["client", "recruit"]) {
+    const rows = previewGraph(g, { ...contact, contact_type: kind });
+    assert(rows.map((s) => s.nodeId).join(",") === "start,sms,task", kind + " continues to the task");
+    assert(rows[1].detail.includes("Skipped for a " + kind + ": automated texts and emails go to leads only") &&
+      !rows[1].detail.includes("Hello Sam"), kind + " text is skipped and not rendered");
+  }
+});
