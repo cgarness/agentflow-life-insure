@@ -48,6 +48,9 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE actor record; policy private.policy_identities; holder public.clients; saved public.policy_issuance_confirmations;
 BEGIN
   SELECT * INTO actor FROM private.campaign_actor();
+  -- Issuance confirmation is part of the Automations pilot: only an agency with the builder visible has it.
+  IF NOT private.automation_builder_visible(actor.org_id) THEN
+    RAISE EXCEPTION 'Issuance confirmation is not available for this agency' USING ERRCODE='42501'; END IF;
   IF private.automation_viewing_as() THEN
     RAISE EXCEPTION 'Issuance cannot be confirmed while viewing as another person' USING ERRCODE='42501'; END IF;
   IF private.automation_mode_unverified() THEN
@@ -85,23 +88,33 @@ BEGIN
   RETURN jsonb_build_object('policy_id',saved.policy_id,'issued_on',saved.issued_on,'confirmed_at',saved.confirmed_at,'idempotent',false);
 END $$;
 
--- Whether the signed-in person may confirm issuance for this client right now.
+-- Whether the signed-in person may confirm issuance for this client right now. Outside the Automations pilot, never.
 CREATE FUNCTION public.can_confirm_policy_issuance(p_client_id uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
   SELECT NOT private.automation_viewing_as() AND NOT private.automation_mode_unverified() AND EXISTS (
     SELECT 1 FROM public.profiles p
     JOIN public.clients c ON c.organization_id=p.organization_id AND c.id=p_client_id
     WHERE p.id=auth.uid() AND p.status='Active' AND p.organization_id=public.get_org_id()
+      AND private.automation_builder_visible(p.organization_id)
       AND private.policy_issuance_allowed(p.id,p.role,coalesce(p.is_super_admin,false),c.assigned_agent_id))
 $$;
 
+-- Whether the signed-in person's agency has issuance confirmation, which is part of the Automations pilot. The list
+-- below runs with the reader's own access, which cannot read the pilot setting itself.
+CREATE FUNCTION public.policy_issuance_available()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  SELECT coalesce(private.automation_builder_visible(public.get_org_id()),false)
+$$;
+
 -- One entry per stored policy of a client the reader can see. The client and the confirmations are
--- read under the reader's own access, so this shows nothing the reader could not already open.
+-- read under the reader's own access, so this shows nothing the reader could not already open. An agency outside
+-- the Automations pilot gets an empty list, so its client screens show no issuance at all.
 CREATE FUNCTION public.get_policy_issuance(p_client_id uuid)
 RETURNS jsonb LANGUAGE sql STABLE SET search_path='' AS $$
   WITH holder AS (
     SELECT c.id,c.organization_id,c.primary_policy_id,c.custom_fields,public.can_confirm_policy_issuance(c.id) AS may_confirm
     FROM public.clients c WHERE c.id=p_client_id AND c.organization_id=public.get_org_id()
+      AND public.policy_issuance_available()
   ), stored AS (
     SELECT holder.primary_policy_id::text AS policy_id,0 AS position FROM holder WHERE holder.primary_policy_id IS NOT NULL
     UNION ALL
@@ -143,7 +156,8 @@ CREATE TRIGGER automation_capture_issuance AFTER INSERT ON public.policy_issuanc
 
 REVOKE ALL ON FUNCTION private.guard_policy_issuance_append_only(),private.automation_capture_issuance(),
   private.policy_issuance_allowed(uuid,text,boolean,uuid),public.confirm_policy_issuance(uuid,uuid,date),
-  public.get_policy_issuance(uuid),public.can_confirm_policy_issuance(uuid) FROM PUBLIC,anon,authenticated;
+  public.get_policy_issuance(uuid),public.can_confirm_policy_issuance(uuid),public.policy_issuance_available()
+  FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.confirm_policy_issuance(uuid,uuid,date),public.get_policy_issuance(uuid),
-  public.can_confirm_policy_issuance(uuid) TO authenticated;
+  public.can_confirm_policy_issuance(uuid),public.policy_issuance_available() TO authenticated;
 COMMIT;

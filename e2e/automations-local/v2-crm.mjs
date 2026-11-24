@@ -1,5 +1,6 @@
 // Automations V2 CRM screens in a real browser, at 1440 px and 375 px in light and dark: a contact's timed
-// automation task, Confirm issuance on a client's policy, and the Inbounds callback list. Run after
+// automation task, Confirm issuance on a client's policy (tapped through from the policy row on a touch phone), and
+// the Inbounds callback list, each for the pilot agency and for an agency outside the pilot. Run after
 // v2-workflows.mjs, whose records it reads, on a server started with the Inbounds room build option on.
 // Nothing here places a call, and nothing leaves the machine.
 import assert from 'node:assert/strict';
@@ -7,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { launch, session, restPointer, APP } from '../team-open-local/lib.mjs';
-import { settings, sql, agency, email } from './fixture.mjs';
+import { settings, sql, agency, otherAgency, email } from './fixture.mjs';
 import { worker } from './work.mjs';
 
 const dir = process.env.AUTOMATION_UI_EVIDENCE || '/tmp/automation-ui-evidence';
@@ -18,9 +19,10 @@ const button = (scope, name) => scope.getByRole('button', { name, exact: true })
 const count = query => Number(sql('select count(*) from ' + query));
 const wide = { width: 1440, height: 1000 }, phone = { width: 375, height: 812 };
 
-async function login(n) {
+async function login(n, options = {}) {
   // Screenshots are for people, so they are taken at twice the pixel density.
-  const { page } = await session(browser, 'crm ' + n, email(n), settings.PASSWORD, evidence, { deviceScaleFactor: 2 });
+  const { page } = await session(browser, 'crm ' + n + (options.hasTouch ? ' touch' : ''), email(n), settings.PASSWORD, evidence,
+    { deviceScaleFactor: 2, ...options });
   page.setDefaultTimeout(20000);
   return page;
 }
@@ -96,18 +98,19 @@ try {
     await shot(page, 'contact-tasks');
   }
 
-  // 2. Confirm issuance on a client's policy: one policy already issued, the other offered for confirmation.
-  // On a phone the policies column is the part of the contact screen pushed off the left edge, so the dialog is
-  // opened on the desktop layout and the window is then narrowed: the dialog itself must still fit a phone.
+  // 2. Confirm issuance on the client's own page: one policy already issued, the other offered for confirmation.
+  // On a desktop the policies sit in the left column. On a phone the contact screen pans sideways as one surface and
+  // opens on that column, so the agent scrolls down to the policy row and taps it, then taps Confirm issuance.
   const client = sql(`select id from public.clients where organization_id='${agency}' and first_name='Pat' and last_name='Holder'
     order by created_at desc limit 1`);
   assert.ok(client, 'v2-workflows.mjs leaves a client with two policies');
   const confirmations = count(`public.policy_issuance_confirmations where organization_id='${agency}'`);
-  for (const size of [wide, phone]) for (const tone of tones) {
+  const policyRows = view => view.getByRole('region', { name: 'Policies', exact: true }).locator('button[aria-expanded]');
+  for (const tone of tones) {
     await open(page, '/clients/' + client, tone, wide);
     await page.getByText('First Name', { exact: true }).waitFor();
     // Each policy is a collapsed row. Issuance shows inside it.
-    const rows = page.getByRole('region', { name: 'Policies', exact: true }).locator('button[aria-expanded]');
+    const rows = policyRows(page);
     await rows.first().waitFor();
     assert.equal(await rows.count(), 2);
     for (let index = 0; index < 2; index++) {
@@ -121,23 +124,90 @@ try {
     await start.click();
     const dialog = page.getByRole('dialog', { name: 'Confirm policy issuance' });
     await dialog.waitFor();
-    if (size === phone) await page.setViewportSize(phone);
-    const date = dialog.getByLabel('Issue date', { exact: true });
-    assert.match(await date.inputValue(), /^\d{4}-\d{2}-\d{2}$/, 'The issue date starts as today');
+    assert.match(await dialog.getByLabel('Issue date', { exact: true }).inputValue(), /^\d{4}-\d{2}-\d{2}$/, 'The issue date starts as today');
     await inside(page, dialog, 'The Confirm issuance dialog');
-    if (size === phone && tone === 'light') {
-      // The form is checked in the browser before anything is sent.
-      await date.fill('');
-      await button(dialog, 'Confirm issuance').click();
-      await dialog.getByRole('alert').getByText('Enter the date the policy was issued.', { exact: true }).waitFor();
-      await date.fill(await date.getAttribute('max'));
-    }
     await shot(page, 'confirm-issuance');
     await button(dialog, 'Cancel').click();
     await dialog.waitFor({ state: 'hidden' });
-    assert.equal(count(`public.policy_issuance_confirmations where organization_id='${agency}'`), confirmations,
-      'Opening and cancelling the dialog confirms nothing');
   }
+  assert.equal(count(`public.policy_issuance_confirmations where organization_id='${agency}'`), confirmations,
+    'Opening and cancelling the dialog confirms nothing');
+  // A touch phone. Dark first, cancelled; then light, confirmed for real through the same taps.
+  const touch = await login('one', { viewport: phone, hasTouch: true, isMobile: true });
+  for (const tone of ['dark', 'light']) {
+    await open(touch, '/clients/' + client, tone, phone);
+    await touch.getByText('First Name', { exact: true }).waitFor();
+    const rows = policyRows(touch);
+    await rows.first().waitFor();
+    // The policies column is on screen without any sideways scrolling: only the column itself scrolls down.
+    await rows.nth(1).scrollIntoViewIfNeeded();
+    assert.equal(await touch.evaluate(() => [...document.querySelectorAll('.snap-x')].every(element => element.scrollLeft === 0)), true,
+      'The policy row is reached without panning sideways');
+    await inside(touch, rows.nth(1), 'The second policy row');
+    await shot(touch, 'client-policies');
+    if (await rows.nth(1).getAttribute('aria-expanded') !== 'true') await rows.nth(1).tap();
+    const start = button(touch, 'Confirm issuance');
+    await start.waitFor();
+    await inside(touch, start, 'Confirm issuance on a phone');
+    await start.tap();
+    const dialog = touch.getByRole('dialog', { name: 'Confirm policy issuance' });
+    await dialog.waitFor();
+    const date = dialog.getByLabel('Issue date', { exact: true });
+    assert.match(await date.inputValue(), /^\d{4}-\d{2}-\d{2}$/, 'The issue date starts as today');
+    await inside(touch, dialog, 'The Confirm issuance dialog on a phone');
+    await noSideScroll(touch, 'The client page with the dialog open');
+    await shot(touch, 'confirm-issuance');
+    if (tone === 'dark') {
+      await button(dialog, 'Cancel').tap();
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(count(`public.policy_issuance_confirmations where organization_id='${agency}'`), confirmations,
+        'Cancelling on the phone confirms nothing');
+      continue;
+    }
+    // The form is checked in the browser before anything is sent, then the confirmation is saved.
+    await date.fill('');
+    await button(dialog, 'Confirm issuance').tap();
+    await dialog.getByRole('alert').getByText('Enter the date the policy was issued.', { exact: true }).waitFor();
+    const issuedOn = await date.getAttribute('max');
+    await date.fill(issuedOn);
+    await button(dialog, 'Confirm issuance').tap();
+    await dialog.waitFor({ state: 'hidden' });
+    await touch.getByText(/confirmed by Tester one/).first().waitFor();
+    // The other policy's row is still folded on the phone. Open it to see both say Issued.
+    if (await rows.nth(0).getAttribute('aria-expanded') !== 'true') await rows.nth(0).tap();
+    await touch.getByText('Issued', { exact: true }).nth(1).waitFor();
+    assert.equal(await button(touch, 'Confirm issuance').count(), 0, 'Both policies now show as issued');
+    assert.equal(count(`public.policy_issuance_confirmations where organization_id='${agency}' and client_id='${client}'
+      and issued_on='${issuedOn}' and confirmed_by=(select id from public.profiles where email='${email('one')}')`), 1,
+      'The phone confirmation was saved once, with its date and the agent who confirmed it');
+  }
+
+  // 2b. An agency outside the Automations pilot has no issuance at all: no control on its client's page and a refused
+  // server write, through the same sale writer and the same requests the app makes.
+  sql(`insert into public.company_settings(company_name,organization_id,timezone) values ('Automation UI B','${otherAgency}','America/Chicago')
+    on conflict do nothing`);
+  const outsider = await login('other');
+  const today = sql(`select (now() at time zone 'America/Chicago')::date`);
+  const sale = await rpc(outsider, 'create_client_with_sale', { p_request_id: randomUUID(), p_expected_org: otherAgency, p_record_sale: true,
+    p_client: { first_name: 'Quinn', last_name: 'Outside', policy_type: 'Term', carrier: 'Fixture Life', premium: 60, sold_date: today,
+      payment_frequency: 'monthly' } });
+  assert.ok(sale.status >= 200 && sale.status < 300 && sale.body?.client_id, 'Recording the outside sale failed: ' + JSON.stringify(sale));
+  const outsideClient = sale.body.client_id;
+  const outsidePolicy = sql(`select primary_policy_id from public.clients where id='${outsideClient}'`);
+  assert.match(outsidePolicy, /^[\da-f-]{36}$/, 'The outside sale stored a policy');
+  for (const size of [wide, phone]) {
+    const listed = outsider.waitForResponse(response => response.url().includes('/rpc/get_policy_issuance'));
+    await open(outsider, '/clients/' + outsideClient, 'light', size);
+    await outsider.getByText('First Name', { exact: true }).waitFor();
+    const answer = await listed;
+    assert.deepEqual(await answer.json(), [], 'An agency outside the pilot is given no issuance list');
+    assert.equal(await button(outsider, 'Confirm issuance').count(), 0, 'and is offered no Confirm issuance');
+    assert.equal(await outsider.getByText('Issued', { exact: true }).count(), 0);
+  }
+  const refused = await rpc(outsider, 'confirm_policy_issuance', { p_request_id: randomUUID(), p_policy_id: outsidePolicy, p_issued_on: today });
+  assert.equal(refused.status, 403, 'The server refuses an outside confirmation: ' + JSON.stringify(refused));
+  assert.equal(refused.body?.message, 'Issuance confirmation is not available for this agency');
+  assert.equal(count(`public.policy_issuance_confirmations where organization_id='${otherAgency}'`), 0, 'Nothing was saved for it');
 
   // 3. The Inbounds callback list. A missed call from an unknown number becomes one open callback.
   const flow = sql(`select id from public.workflows where organization_id='${agency}' and name='V2 Missed call callback'`);
@@ -176,15 +246,33 @@ try {
   await button(list, 'Done with callback for ' + caller).waitFor({ state: 'detached' });
   assert.equal(sql(`select status from public.inbound_callbacks where call_id='${call}'`), 'done');
   assert.equal(count(`public.calls where organization_id='${agency}'`), calls, 'Claiming and finishing a callback places no call');
+  // The same room for an agency outside the pilot: the list's own request says it is not available, and no list shows.
+  sql(`update public.organizations set twilio_subaccount_status='active' where id='${otherAgency}'`);
+  for (const size of [wide, phone]) {
+    // The room itself loads for the outside agency, and the list asks the server, which says it has none.
+    const roomState = outsider.waitForResponse(response => response.url().includes('/rpc/inbounds_room_state'));
+    const queued = outsider.waitForResponse(response => response.url().includes('/rpc/inbound_callback_queue'));
+    await open(outsider, '/inbounds', 'light', size);
+    assert.equal((await roomState).status(), 200, 'The outside agency can open its Inbounds room');
+    const queue = await (await queued).json();
+    assert.equal(queue.available, false, 'The outside agency is told it has no callback list');
+    assert.deepEqual(queue.items, []);
+    await outsider.waitForTimeout(500);
+    assert.equal(await outsider.getByRole('region', { name: /^Callbacks/ }).count(), 0, 'Its room shows no Callbacks section');
+  }
+  const outsideClaim = await rpc(outsider, 'claim_inbound_callback', { p_callback: randomUUID() });
+  assert.equal(outsideClaim.status, 403, 'Claiming outside the pilot is refused: ' + JSON.stringify(outsideClaim));
 
   // Nothing tried to leave the machine except the app's font stylesheet, which the harness blocks.
   const blocked = [...new Set(evidence.sessions.flatMap(item => item.net.blocked))];
   assert.deepEqual(blocked.filter(url => !/^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(url)), []);
   writeFileSync(join(dir, 'automations-v2-crm.json'), JSON.stringify({ result: 'pass', viewports: [1440, 375], themes: tones,
-    screenshots, blockedOutsideRequests: blocked }, null, 2) + '\n');
-  console.log('PASS CRM screens: a timed automation task, the Confirm issuance dialog and the Inbounds callback list at 1440 px and 375 px ' +
-    'in both themes; cancelling confirmed nothing, and a callback was claimed and finished without a call. ' +
-    screenshots.length + ' screenshots.');
+    phoneTouch: true, outsidePilot: { issuanceList: [], confirmation: 403, callbacksAvailable: false }, screenshots,
+    blockedOutsideRequests: blocked }, null, 2) + '\n');
+  console.log('PASS CRM screens: a timed automation task, Confirm issuance tapped through from the policy row on a 375 px touch ' +
+    'phone and saved once, and the Inbounds callback list, at 1440 px and 375 px in both themes; cancelling confirmed nothing, ' +
+    'a callback was claimed and finished without a call, and an agency outside the pilot had no issuance control, a refused ' +
+    'confirmation and no callback list. ' + screenshots.length + ' screenshots.');
 } catch (error) {
   for (const context of browser.contexts()) for (const page of context.pages()) {
     await page.screenshot({ path: join(dir, 'automations-v2-crm-failure.png') }).catch(() => {});

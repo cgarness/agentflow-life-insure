@@ -225,8 +225,10 @@ try {
   // 3. Three explicit saves with three different results.
   await button(page, 'Edit draft').click();
   await button(page, 'Save draft').click();
-  await page.getByText('Draft saved.').waitFor();
-  await page.getByText('All changes saved').waitFor();
+  // One saved-state line in the toolbar, not a second notice above the steps.
+  await page.getByText('Draft saved.', { exact: true }).waitFor();
+  assert.equal(await page.getByText(/^(Draft saved\.|All changes saved)$/).count(), 1, 'The save is reported once');
+  assert.equal(await page.getByRole('status').filter({ hasText: 'Draft saved.' }).count(), 0, 'No separate saved notice');
   const id = new URL(page.url()).searchParams.get('workflow');
   assert.match(id, /^[a-f0-9-]{36}$/);
   assert.equal(sql(`select status||'|'||(select count(*) from public.workflow_versions where workflow_id='${id}') from public.workflows where id='${id}'`), 'draft|0');
@@ -328,6 +330,17 @@ try {
   assert.equal(await page.getByRole('radio', { name: 'List', exact: true }).count(), 0);
   const fits = await timeline.boundingBox();
   assert.ok(fits.x >= 0 && fits.x + fits.width <= 376, 'The timeline fits a phone');
+  // Saving on a phone reports the save once, in the toolbar's saved state, so nothing extra sits above the steps.
+  await field(page, 'Automation name').fill('Saved first on a phone');
+  await button(page, 'Save draft').click();
+  await page.getByText('Draft saved.', { exact: true }).waitFor();
+  assert.equal(await page.getByText(/^(Draft saved\.|All changes saved)$/).count(), 1, 'The phone save is reported once');
+  assert.equal(await page.getByRole('status').filter({ hasText: 'Draft saved.' }).count(), 0, 'No separate saved notice on a phone');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const savedLine = await page.getByText('Draft saved.', { exact: true }).boundingBox();
+  const firstStep = await timeline.getByRole('listitem').first().boundingBox();
+  assert.ok(firstStep.y > savedLine.y, 'The steps follow the toolbar: ' + JSON.stringify({ savedLine, firstStep }));
+  console.log('Phone save: the first step starts ' + Math.round(firstStep.y - savedLine.y) + ' px below the saved-state line.');
   for (const tone of ['light', 'dark']) { await theme(page, tone); await shot(page, 'timeline', { fullPage: true }); }
   const stepButton = button(rows(page).nth(2), 'Welcome text');
   await stepButton.focus();

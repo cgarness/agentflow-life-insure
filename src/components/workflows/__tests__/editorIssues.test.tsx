@@ -64,6 +64,17 @@ describe("Save & review", () => {
     expect(waitRow()).toHaveTextContent(countLabel(serverIssues.length));
   });
 
+  it("reports a saved draft once, in the toolbar's saved state, so the steps start right below it", async () => {
+    await mount(complete);
+    fireEvent.change(screen.getByLabelText("Automation name"),{target:{value:"Follow-up call"}});
+    expect(screen.getByText("Unsaved changes")).toBeVisible();
+    fireEvent.click(screen.getByRole("button",{name:"Save draft"}));
+    expect(await screen.findByText("Draft saved.")).toBeVisible();
+    expect(screen.queryByText("All changes saved")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("moves a complete draft to the review", async () => {
     expect(validateGraph(complete)).toEqual([]);
     await mount(complete);

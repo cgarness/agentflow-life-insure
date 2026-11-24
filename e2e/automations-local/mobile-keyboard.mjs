@@ -42,6 +42,11 @@ try {
   await addAt(1,"Send SMS");
   await page.getByLabel("Message",{exact:true}).fill("Hello {{first_name}}");
   await steps.nth(2).getByRole("button",{name:"Move up",exact:true}).press("Enter");
+  // The move re-renders the list. Wait for the new order instead of reading it once.
+  await page.waitForFunction(() => {
+    const rows = [...document.querySelectorAll('[aria-label="Ordered steps"] > li')].map(row => row.innerText);
+    return /Send SMS/.test(rows[1] ?? "") && /Wait/.test(rows[2] ?? "");
+  }, null, {timeout: 5000}).catch(() => {});
   assert.match(await steps.nth(1).innerText(),/Send SMS/);
   assert.match(await steps.nth(2).innerText(),/Wait/);
   // A selected step opens its settings: beside the list on a wide screen, in a sheet over it on a phone.

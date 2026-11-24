@@ -35,8 +35,8 @@ export default function AutomationEditor({record, session, scope, onBack, onSave
   return <section className="flex min-h-0 flex-col gap-4 pb-6">
     <EditorToolbar draft={draft} onArchive={() => setAsking("archive")}
       onBack={() => { if (draft.dirty) setAsking("leave"); else onBack(); }}/>
-    {notice && <p role={notice.tone === "error" ? "alert" : "status"}
-      className={notice.tone === "error" ? "rounded-lg bg-badge-error-surface p-3 text-sm text-badge-error-text" : "rounded-lg border bg-card p-3 text-sm"}>
+    {/* A successful save is announced in the toolbar's saved state. Only a refusal needs room of its own. */}
+    {notice?.tone === "error" && <p role="alert" className="rounded-lg bg-badge-error-surface p-3 text-sm text-badge-error-text">
       {notice.text}
     </p>}
     <fieldset disabled={draft.busy} className="flex min-h-0 min-w-0 flex-col gap-4">

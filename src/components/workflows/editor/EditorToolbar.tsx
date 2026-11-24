@@ -22,9 +22,12 @@ function lifecycleBadge(draft: AutomationDraft): StatusBadge {
 /** Name, saved state and the explicit steps: Save draft, then Save & review. Publishing happens in the review. */
 export default function EditorToolbar({draft, onBack, onArchive}: Props) {
   const id = useId();
-  const {mode, revision, status, readOnly, dirty} = draft;
+  const {mode, revision, status, readOnly, dirty, notice} = draft;
   const badge = lifecycleBadge(draft);
-  const saved = dirty ? "Unsaved changes" : revision > 0 ? "All changes saved" : "Nothing saved yet";
+  // One line for the saved state. A save that just succeeded says so here instead of in a second notice, so on a
+  // phone the steps start right under the toolbar. A refusal still gets its own alert below.
+  const saved = dirty ? "Unsaved changes" : notice?.tone === "status" ? notice.text
+    : revision > 0 ? "All changes saved" : "Nothing saved yet";
   const tab = (target: EditorMode, label: string) => <Button type="button" variant="outline" className="h-11 md:h-10"
     aria-pressed={mode === target} onClick={() => draft.setMode(target)}>{label}</Button>;
   return <header className="space-y-3">

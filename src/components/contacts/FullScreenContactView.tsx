@@ -874,11 +874,12 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
 
   return (
     <div className={cn(
-      "fixed top-16 right-0 bottom-0 bg-background z-40 flex flex-col animate-in slide-in-from-right-2 duration-300 h-[calc(100vh-4rem)] overflow-hidden",
+      // Below 768 px the desktop layout pans sideways as one surface, so every column (the policies included) can be reached.
+      "fixed top-16 left-0 right-0 bottom-0 bg-background z-40 flex flex-col animate-in slide-in-from-right-2 duration-300 h-[calc(100vh-4rem)] overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity md:overflow-hidden md:snap-none",
       collapsed ? "md:left-16" : "md:left-60"
     )}>
       {/* HEADER */}
-      <div className="h-16 border-b border-border bg-card flex items-center shrink-0 z-20 shadow-sm relative px-6">
+      <div className="h-16 w-[66rem] md:w-auto border-b border-border bg-card flex items-center shrink-0 z-20 shadow-sm relative px-6">
         {/* LEFT SECTION - aligned with Left Column */}
         <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] flex items-center gap-4 shrink-0 px-2">
           <button onClick={tryClose} className="p-2 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors shrink-0">
@@ -1005,10 +1006,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       </div>
 
       {/* 3 COLUMN LAYOUT - "Island" Style matching Dialer */}
-      <div className="flex flex-1 overflow-hidden min-w-0 w-full p-3 gap-3 bg-accent/5">
+      <div className="flex flex-1 overflow-hidden min-w-0 w-[66rem] md:w-full p-3 gap-3 bg-accent/5">
 
         {/* LEFT DOCK - Contacts Overview */}
-        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-sm">
+        <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-sm snap-start">
           <div className="px-4 h-14 border-b border-border flex items-center justify-between shrink-0 bg-muted/10">
             <div className="flex items-center gap-3">
               <div className={cn(
@@ -1160,7 +1161,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
 
         {/* CENTER COLUMN — Conversation History (extracted to ./conversation-history) */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden snap-start">
           <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <ConversationTimeline
               key={contact.id}
@@ -1205,7 +1206,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
         </div>
 
         {/* RIGHT COLUMN - compact Follow-ups card above the existing Activity/Notes/Campaigns card */}
-        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] flex flex-col gap-3 min-h-0 shrink-0">
+        <div className="w-[320px] xl:w-[350px] 2xl:w-[380px] flex flex-col gap-3 min-h-0 shrink-0 snap-start">
         <ContactFollowUpsCard
           contactId={contact.id}
           contactType={type}

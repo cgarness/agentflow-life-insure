@@ -5991,6 +5991,7 @@ export type Database = {
       complete_inbound_callback: { Args: { p_callback: string }; Returns: Json }
       confirm_policy_issuance: { Args: { p_request_id: string; p_policy_id: string; p_issued_on: string }; Returns: Json }
       get_policy_issuance: { Args: { p_client_id: string }; Returns: Json }
+      policy_issuance_available: { Args: Record<PropertyKey, never>; Returns: boolean }
       automation_session_context: { Args: Record<PropertyKey, never>; Returns: Json }
       automation_session_transition: { Args: { p_expected_revision: number; p_target_id: string | null }; Returns: Json }
       contact_number_modes: { Args: Record<PropertyKey, never>; Returns: Json }

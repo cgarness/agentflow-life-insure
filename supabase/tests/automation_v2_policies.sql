@@ -249,4 +249,29 @@ begin
 end $$;
 reset role;
 select pg_temp.nobody();
+
+-- Issuance confirmation belongs to the Automations pilot. The same agency with the builder turned off has none of it:
+-- no list, no action and no server write.
+update private.automation_release_controls set builder_visible=false where organization_id=pg_temp.id(1);
+do $$
+declare client uuid:=(select id from policy where label='client'); unconfirmed uuid:=(select id from policy where label='historical');
+  saved integer:=(select count(*) from public.policy_issuance_confirmations);
+begin
+  perform pg_temp.ok(pg_temp.as_user(11,format('select public.get_policy_issuance(%L)',client))='[]'::jsonb,
+    'outside the pilot the client''s agent sees no issuance at all');
+  perform pg_temp.ok(pg_temp.as_user(10,format('select to_jsonb(public.can_confirm_policy_issuance(%L))',client))='false'::jsonb,
+    'and not even an administrator is offered the action');
+  begin
+    perform pg_temp.as_user(11,format('select public.confirm_policy_issuance(%L,%L,%L)',gen_random_uuid(),unconfirmed,
+      (now() at time zone 'America/Chicago')::date));
+    raise exception 'Automation V2 policies: a confirmation was saved outside the pilot';
+  exception when others then
+    perform pg_temp.ok(sqlstate='42501' and sqlerrm='Issuance confirmation is not available for this agency',
+      'the server refuses the confirmation outside the pilot ('||sqlstate||' '||sqlerrm||')');
+  end;
+  perform pg_temp.ok((select count(*) from public.policy_issuance_confirmations)=saved,'nothing was saved');
+end $$;
+update private.automation_release_controls set builder_visible=true where organization_id=pg_temp.id(1);
+select pg_temp.ok(jsonb_array_length(pg_temp.as_user(11,format('select public.get_policy_issuance(%L)',
+  (select id from policy where label='client'))))=3,'back in the pilot, the list returns');
 rollback;
