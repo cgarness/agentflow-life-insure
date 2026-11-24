@@ -20,7 +20,7 @@ Chris approved, for draft PR #536 only, five items of isolated branch work and s
    - `automation_refresh_appointment_runs` admits the booking once, on each automation that has no run for the appointment, when it stands again at a time still to come. Admission's own eligibility applies, and a reply after the first booking keeps a stop-on-reply automation from starting.
 4. **Retryable late-answer cleanup; one answer rule.**
    - The answered-call observer records a cleanup a busy row held up in `private.automation_answer_settlements` (`automation_note_answer_settlement`, 200 ms). It never holds up or aborts the call write.
-   - `automation_retry_answer_settlements`, run at the end of each event pass, re-checks the answer and finishes the cleanup. It backs off from one minute to an hour, and keeps the record after seven days.
+   - `automation_retry_answer_settlements`, run at the end of each event pass, re-checks the answer and finishes the cleanup. It backs off from two minutes, doubling, to at most an hour, and keeps the record after seven days.
    - An accepted, bridged phone leg is an answer even while the call row is behind.
    - The callback list, its counts and claim use `automation_inbound_evidence`. Conflicting records stay listed and claimable.
 5. **The last check before a provider.**

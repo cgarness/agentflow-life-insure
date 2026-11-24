@@ -144,7 +144,7 @@ RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path='' SET lock_timeout='
 $$;
 
 -- The worker finishes each recorded cleanup that is due. One still blocked is tried again later, less often the longer
--- it waits (one minute, doubling, at most an hour), and no more after seven days; its row stays as the record.
+-- it waits (two minutes, doubling, at most an hour), and no more after seven days; its row stays as the record.
 CREATE FUNCTION private.automation_retry_answer_settlements(p_limit integer)
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE pending private.automation_answer_settlements; settled integer:=0; cutoff timestamptz:=clock_timestamp();
