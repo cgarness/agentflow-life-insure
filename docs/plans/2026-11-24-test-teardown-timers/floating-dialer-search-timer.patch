@@ -1,0 +1,15 @@
+diff --git a/src/components/layout/FloatingDialer.tsx b/src/components/layout/FloatingDialer.tsx
+index 39bc824..608145b 100644
+--- a/src/components/layout/FloatingDialer.tsx
++++ b/src/components/layout/FloatingDialer.tsx
+@@ -201,6 +201,10 @@ const FloatingDialer: React.FC = () => {
+     open,
+   });
+   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
++  // A pending search debounce must not run doSearch after the dialer unmounts.
++  useEffect(() => () => {
++    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
++  }, []);
+ 
+   // --- Open animation ---
+   const [isVisible, setIsVisible] = useState(false);

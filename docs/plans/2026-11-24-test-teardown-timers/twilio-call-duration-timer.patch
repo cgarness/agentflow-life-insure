@@ -1,0 +1,16 @@
+diff --git a/src/contexts/TwilioContext.tsx b/src/contexts/TwilioContext.tsx
+index 0032f9d..2f2d00c 100644
+--- a/src/contexts/TwilioContext.tsx
++++ b/src/contexts/TwilioContext.tsx
+@@ -2221,6 +2221,11 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
+       timerRef.current = null;
+     }
+   }, [callState]);
++  // An unmount mid-call never reaches "ended": the duration interval must not outlive the provider.
++  useEffect(() => () => {
++    if (timerRef.current) clearInterval(timerRef.current);
++    timerRef.current = null;
++  }, []);
+ 
+   // Standard UUID string shape (any version) — Postgres accepts v1–v5; a v4-only
+   // regex was dropping valid lead IDs so `contact_id` stayed null and history/recordings never linked.

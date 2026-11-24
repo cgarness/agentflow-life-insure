@@ -1,0 +1,81 @@
+diff --git a/src/pages/DialerPage.tsx b/src/pages/DialerPage.tsx
+index 91b2e88..9286b58 100644
+--- a/src/pages/DialerPage.tsx
++++ b/src/pages/DialerPage.tsx
+@@ -430,6 +430,12 @@ function writeHeaderStatsCache(
+ 
+ const TERMINAL_STATUSES = ['DNC', 'Completed', 'Removed', 'removed', 'Failed', 'Closed Won'];
+ 
++/** Runs a delayed stats refresh, tracked so the page can cancel it when it closes. */
++function scheduleStatsRefresh(timers: Set<number>, delayMs: number, refresh: () => Promise<void>) {
++  const id = window.setTimeout(() => { timers.delete(id); void refresh(); }, delayMs);
++  timers.add(id);
++}
++
+ export default function DialerPage() {
+   /* --- state --- */
+   const { user, profile, isImpersonating } = useAuth();
+@@ -599,6 +605,15 @@ export default function DialerPage() {
+   const standaloneBookingRequestRef = useRef(crypto.randomUUID());
+   const standaloneBookingPendingRef = useRef(false);
+   const trustedGenerationRef = useRef(0);
++  // Delayed stats refreshes scheduled after a hang-up or a save. Cleared when the page closes, and a refresh
++  // still in flight then updates nothing.
++  const statsRefreshTimersRef = useRef(new Set<number>());
++  const pageOpenRef = useRef(true);
++  useEffect(() => {
++    pageOpenRef.current = true;
++    const timers = statsRefreshTimersRef.current;
++    return () => { pageOpenRef.current = false; timers.forEach(id => window.clearTimeout(id)); timers.clear(); };
++  }, []);
+   const [trustedStatus, setTrustedStatus] = useState<{ scope: string; kind: "ok" | "stale" | "unavailable"; updatedAt: number | null }>({ scope: "", kind: "unavailable", updatedAt: null });
+   const [loadedStatsCampaignId, setLoadedStatsCampaignId] = useState<string | null>(null);
+   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
+@@ -1051,9 +1066,9 @@ export default function DialerPage() {
+   // `dialer_daily_stats`. The browser never feeds trusted connected/talk/
+   // session-duration values.
+   const reconcileTrustedStats = useCallback(async () => {
+-    if (!user?.id || !organizationId) return;
++    if (!user?.id || !organizationId || !pageOpenRef.current) return;
+     const scope = trustedScopeRef.current, generation = ++trustedGenerationRef.current;
+-    const isCurrent = () => generation === trustedGenerationRef.current && scope === trustedScopeRef.current;
++    const isCurrent = () => pageOpenRef.current && generation === trustedGenerationRef.current && scope === trustedScopeRef.current;
+     // Campaign-scoped (P1 Build 3B): with no campaign selected, show neutral
+     // zeros rather than all-campaign totals.
+     if (!selectedCampaignId) {
+@@ -2537,7 +2552,7 @@ export default function DialerPage() {
+     // (written by twilio-voice-status), not the browser timer. The status
+     // callback may land slightly after hangup, so reconcile on a short delay;
+     // the Save / Save & Next paths reconcile again as the source of truth.
+-    window.setTimeout(() => { void reconcileTrustedStats(); }, 4000);
++    scheduleStatsRefresh(statsRefreshTimersRef.current, 4000, reconcileTrustedStats);
+   }, [twilioCallDuration, twilioHangUp, reconcileTrustedStats]);
+ 
+   const handleAutoDispose = useCallback(async (disposition: Disposition) => {
+@@ -2582,7 +2597,7 @@ export default function DialerPage() {
+       const contactId = lead.lead_id || lead.id;
+       historySessionCacheRef.current.delete(contactId);
+       void refreshHistoryForLeadQuiet(contactId, lead.id);
+-      window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
++      scheduleStatsRefresh(statsRefreshTimersRef.current, 3000, reconcileTrustedStats);
+     } finally {
+       if (dispositionSaveOwnerRef.current === saveOwner) {
+         dispositionSaveRef.current = false; setDispositionSaving(false);
+@@ -3487,7 +3502,7 @@ export default function DialerPage() {
+         }
+         // Reconcile trusted totals from `calls`/`wins` once the Twilio status
+         // callback + win insert have had time to land.
+-        window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
++        scheduleStatsRefresh(statsRefreshTimersRef.current, 3000, reconcileTrustedStats);
+ 
+         // Local call_attempts / last_called_at / status / retry / callback are already
+         // mirrored from the PERSISTED advance_campaign_lead result inside saveCallData —
+@@ -3529,7 +3544,7 @@ export default function DialerPage() {
+         }
+         // Reconcile trusted totals from `calls`/`wins` once the Twilio status
+         // callback + win insert have had time to land.
+-        window.setTimeout(() => { void reconcileTrustedStats(); }, 3000);
++        scheduleStatsRefresh(statsRefreshTimersRef.current, 3000, reconcileTrustedStats);
+ 
+         if (lockMode) {
+           // Team/Open: same path as skip/advance — get_next_queue_lead + enrich + heartbeat
