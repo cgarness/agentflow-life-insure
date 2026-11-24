@@ -18,6 +18,7 @@
 | Workflows | Six new triggers (disposition saved, appointment booked, appointment outcome recorded, inbound call missed, sale recorded, policy issuance confirmed), a Create task action and a Wait until before appointment step. Together they build the five workflows: new lead callback, no-answer follow-up, appointment reminders and no-show recovery, missed inbound callback, policy follow-through. |
 | CRM | Contact tasks show a real due time for timed tasks. Inbounds lists claimable callbacks with Claim, Release and Done. Each policy has Confirm issuance, reachable on a phone. Issuance and callbacks are for the pilot agency only. No screen dials automatically. |
 | November 24 round | Task deadlines count from the event. Callbacks and tasks only for calls nobody answered, and closed when an answer is confirmed late. Reminders resume once after cancel, move while cancelled and reopen. Lead-only messages shown in the preview. Confirm issuance tapped through on a 375 px phone for the pilot; every other agency's contact screen unchanged. One save message on the phone builder. A rehearsed recovery for an installation that stops part way. |
+| November 24, second approval | A booking first processed while cancelled starts one reminder run when reopened at a time still to come. A late answer's cleanup is retried by the worker instead of being lost when a row is busy, and the callback list, its counts and claiming use the same answer rule. The last check before a text or email reaches a provider rechecks the appointment: nothing that ends the run, the leased and reminded slot still current, and the calendar's own time; a reminder whose appointment moved is skipped when no restart is pending. `release-full` now verifies every migration and rollback target against an independent production receipt from the dump's window, and the operator's part is scripted ([handoff](complete-schema-handoff.md)). The tablet clipping and three teardown timers are tracked as cgarness/agentflow-life-insure#538 to #541. |
 
 ## Decisions made during the build
 
@@ -200,7 +201,8 @@ These fail identically on `0e49940` and were not touched.
 
 ### Limits of this verification
 
-- The complete current production schema was not rehearsed: it needs the operator's schema-only archive bundle, which this session cannot produce (read-only SQL access, no database credentials). The [release plan](release-plan.md#the-complete-current-production-schema) lists what is needed and the dependency comparison made instead. The fixture replays 105 of the 122 earlier migrations. Left out because they need production-only preimages, organization data or release gates: `20261008024220`, `20261008033044`, `20261008035004`, `20261019013824`, `20261019015242`, `20261019032157`, `20261020171244`, `20261023232435`, `20261024045812`, `20261105120016`, `20261105120020`, `20261105120021`, `20261105120022`, `20261105120032`, `20261105120033`, `20261105120043`, `20261105120044`.
+- The complete current production schema was not rehearsed: it needs Chris's schema-only bundle and receipts from the same window, which this session cannot produce (read-only SQL access, no database credentials). The corrected `release-full` passed end to end against a stand-in source with nine refusals (`release-full-synthetic.sh`), and the [handoff](complete-schema-handoff.md) lists exactly what Chris runs.
+- `capture-receipts.sh` reads production through the Supabase Management API with Chris's personal access token. This session has no token, so the script itself was not run against production. Its three queries are the ones run through the read-only connector (the format 2 fingerprint at 19:20 UTC), and the synthetic source exercises the same receipt assembly. The [release plan](release-plan.md#the-complete-current-production-schema) lists what is needed and the dependency comparison made instead. The fixture replays 105 of the 122 earlier migrations. Left out because they need production-only preimages, organization data or release gates: `20261008024220`, `20261008033044`, `20261008035004`, `20261019013824`, `20261019015242`, `20261019032157`, `20261020171244`, `20261023232435`, `20261024045812`, `20261105120016`, `20261105120020`, `20261105120021`, `20261105120022`, `20261105120032`, `20261105120033`, `20261105120043`, `20261105120044`.
 - Every provider is an in-memory transport. No real Twilio, Resend, Gmail or Vercel request was made, and no managed migration runner was used.
 - GitHub Actions has no workflow for the Automations harness. These results are from local runs.
 
@@ -208,21 +210,21 @@ These fail identically on `0e49940` and were not touched.
 
 | Target | State |
 | --- | --- |
-| Supabase `jncvvsvckxhqgqvkppmj` | Unchanged. Read on November 24: ledger 396 entries ending `20261123231917 contact_first_sms_sender`, no `automation_v2_…` entry, the 16 first-release functions matching the rollback fingerprints, PostgreSQL 17.6. |
+| Supabase `jncvvsvckxhqgqvkppmj` | Unchanged. Read on November 24: ledger 396 entries ending `20261123231917 contact_first_sms_sender`, no `automation_v2_…` entry, the 17 first-release functions V2 replaces matching the rollback fingerprints (`automation_authorize_handoff` read again in the second round), PostgreSQL 17.6, and a format 2 schema fingerprint (34 families, session settings matching the local image). |
 | Vercel `agentflow` | Unchanged. Both primary domains serve `dpl_AZc2iNcS9XTY2nZ6p8hpqs3MeZ5Z` from `2128bb641afecae1bf45e6a3ce9b3e8b2e04b15b` (checked November 24 before the merge). |
 | Edge functions | Unchanged. `workflow-resume-paused` is version 44 (May 22, 2026), without the Automations worker. `automation-provider-receipt` does not exist. |
-| Release controls | Unchanged. One agency sees the builder, zero enrolling, zero delivering. |
+| Release controls | Unchanged. One agency sees the builder: CG Financial (`a0000000-0000-0000-0000-000000000001`), read in the second round. Zero enrolling, zero delivering. |
 
 ## Blockers
 
 - Each production step needs Chris's exact approval: the seven migrations and the two new tables' access rules, the frontend, and later the worker, its schedule, the receipt endpoint, enrollment and message delivery.
-- A complete-schema rehearsal needs the operator's archive bundle.
+- A complete-schema rehearsal needs Chris's bundle and same-window receipts ([handoff](complete-schema-handoff.md)).
 - Execution also needs a verified email sender, recipient eligibility evidence and an owned schedule. They are listed in the [release plan](release-plan.md#live-dependencies-each-needing-its-own-approval).
 
 ## Next steps
 
 1. Review the draft pull request.
-2. Decide whether the complete-schema archive is required before the migrations, or the dependency comparison suffices as it did for the first release.
+2. Decide whether to run the complete-schema rehearsal before the migrations (about 45 minutes on Chris's computer, [handoff](complete-schema-handoff.md)), or accept the dependency comparison and the synthetic `release-full` run.
 3. Decide separately whether issuance confirmation, the callback list or the phone contact pan should reach agencies outside the pilot.
 4. Approve the release window and the exact migration and frontend SHAs, or ask for changes.
 5. Decide later, separately, on the worker, schedule, receipts, enrollment and delivery.

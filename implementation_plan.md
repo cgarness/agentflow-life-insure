@@ -1,3 +1,50 @@
+## November 24, 2026 (second approval) — Automations V2: verified complete-schema rehearsal, reopened bookings, retryable late answers, send-time appointment check
+
+Chris approved, for draft PR #536 only, five items of isolated branch work and synthetic verification. Production actions, enrollment, scheduling and delivery stay under separate approval. Production was read only. The approval named each item, so this entry records that scope and what was delivered.
+
+1. **Pilot scope and separate tracking.**
+   - Issuance confirmation, the callback list and the phone contact pan stay on the builder flag. A read this round shows CG Financial (`a0000000-0000-0000-0000-000000000001`) is production's only agency with it on.
+   - The release preflight now stops when that changes.
+   - The 768 to 1023 px clipping is cgarness/agentflow-life-insure#538.
+   - The three teardown timers are cgarness/agentflow-life-insure#539, #540 and #541. Their reproduction and proposed patches are committed in `docs/plans/2026-11-24-test-teardown-timers/` (`6653b09`); none is applied.
+2. **release-full verifies the real target.** `run.sh release-full ARCHIVE RECEIPTS`:
+   - It takes receipts read through another channel within two hours of the dump. It refuses receipts that sit in, or copy, the bundle, the old format, and stale or mismatched readings.
+   - The schema fingerprint is format 2. It has 34 families, including managed schemas, catalog-object and parameter privileges, security labels, sequence ownership, and the session it was read under. It also records a parenthesis-insensitive digest, because a restore parses stored expressions again.
+   - The installation base and every interrupted-install and rollback-rehearsal copy are faithful template copies (`faithful-copy.sh`), each checked against the receipt or its source before anything is applied. The cluster runs without the pg_cron and pg_net workers only while the primary database itself is copied.
+   - The full rollback also runs on real V2 work on a verified copy.
+   - The canonical reading gained per-kind digests. On a restored copy it compares counts and the kinds a restore stores identically exactly.
+   - New scripts: `make-schema-bundle.sh` (operator), `capture-receipts.sh` (Management API receipts), `release-full-synthetic.sh` (stand-in source, nine refusals, full run).
+   - The operator handoff is `docs/plans/automations-v2/complete-schema-handoff.md`. Only Chris can make the bundle; he holds the database password.
+3. **A booking first processed while cancelled.**
+   - `automation_admit_event` paces a run from the latest reopening after the booking.
+   - `automation_refresh_appointment_runs` admits the booking once, on each automation that has no run for the appointment, when it stands again at a time still to come. Admission's own eligibility applies, and a reply after the first booking keeps a stop-on-reply automation from starting.
+4. **Retryable late-answer cleanup; one answer rule.**
+   - The answered-call observer records a cleanup a busy row held up in `private.automation_answer_settlements` (`automation_note_answer_settlement`, 200 ms). It never holds up or aborts the call write.
+   - `automation_retry_answer_settlements`, run at the end of each event pass, re-checks the answer and finishes the cleanup. It backs off from one minute to an hour, and keeps the record after seven days.
+   - An accepted, bridged phone leg is an answer even while the call row is behind.
+   - The callback list, its counts and claim use `automation_inbound_evidence`. Conflicting records stay listed and claimable.
+5. **The last check before a provider.**
+   - `automation_runs.leased_for` records the slot a lease describes.
+   - `automation_authorize_handoff` (now the seventeenth first-release function V2 replaces, verified identical to production before replacing) share-locks the appointment (NOWAIT). It refuses when `private.automation_message_issue` reports a stop fact, a leased or reminded slot that is no longer current, or a calendar start that differs from the slot's.
+   - The worker asks `automation_message_check` before it reserves an SMS request. It skips the question once a step's intent is past `prepared`, so a replay keeps its receipt.
+   - `automation_claim_work` skips a reminder whose appointment moved when no restart is pending, and the run goes on.
+
+**Migrations.** The changes are in place in `20261124100100` (admission, refresh, the run column, the retry call), `20261124100400` (evidence order, the cleanup table and its functions, the observer, list and claim) and `20261124100600` (claim, the message check, authorization). Both rollbacks are regenerated: seventeen restored bodies, and a recorded cleanup counts as V2 work for the back-out.
+
+**Files edited, besides the migrations and their rollbacks.**
+- Tests: `supabase/tests/automation_v2_appointments.sql`, `automation_v2_inbound.sql`, `automation_v2_rollback.sql`.
+- Worker: `supabase/functions/_shared/automations/channel.ts` and `channel_test.ts`.
+- Native tests: `scripts/tests/automations/channel-transport.ts`, and new `appointment-handoff-fixture.sql`, `appointment-handoff-native.ts` and `appointment-handoff-check.sql`.
+- Harness: `e2e/automations-local/run.sh`, `install-stops.sh`, `rollback-rehearsal.sh`, `restore-full.sh`, `verify-canonical.sh`, `restore-auth-state.sh`, `schema-fingerprint.sql`, `canonical-receipt.py`, `concurrency_v2.py`, `release-cutover.mjs` and `README.md`; new `receipts.py`, `faithful-copy.sh`, `make-schema-bundle.sh`, `capture-receipts.sh`, `auth-receipt.sql`, `auth-versions.sql` and `release-full-synthetic.sh`.
+- Ops: `supabase/ops/automation_v2_dependency_check.sql`.
+- Docs: `AGENT_RULES.md`, `WORK_LOG.md`, `docs/plans/automations-v2/release-plan.md`, `context-snapshot.md` and new `complete-schema-handoff.md`; `docs/plans/2026-11-21-automations/schema-only-rehearsal.md` and `auth-runtime-rehearsal.md`; new `docs/plans/2026-11-24-test-teardown-timers/`.
+
+**Verification commands.** In addition to the earlier list: `bash e2e/automations-local/release-full-synthetic.sh`; `python3 e2e/automations-local/concurrency_v2.py` (inside `run.sh`); the native step of `run.sh` (builder) now includes `appointment-handoff-native.ts`.
+
+<!-- review and verification results are added below when they finish -->
+
+**Boundaries.** No push to main, merge, deployment, production migration, release-control change, enrollment, schedule or message. Production was read only: release controls, the replaced function's digest, the migration ledger and a format 2 schema fingerprint. The complete-schema run itself needs Chris's bundle (handoff above).
+
 ## November 24, 2026 — Automations V2: production update, six approved fixes and the stopped-installation rehearsal
 
 Chris approved on November 24, for draft PR #536 only: bringing the candidate up to date with production, the fixes in items 2 to 5, synthetic testing, and an isolated rehearsal against the complete current production schema (item 6). Production release, enrollment, scheduling and sending stay under separate approval. The approval named each fix, so this entry records that scope and what was delivered; the files are listed as edited. No existing table's row-level security policy changes.

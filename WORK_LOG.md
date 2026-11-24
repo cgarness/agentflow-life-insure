@@ -1,3 +1,28 @@
+## November 24, 2026 (second approval) — Automations V2: verified complete-schema rehearsal, reopened bookings, retryable late answers, send-time appointment check · draft, nothing released
+
+Chris approved five items of isolated branch work and synthetic verification for [draft pull request 536](https://github.com/cgarness/agentflow-life-insure/pull/536). Production actions, enrollment, scheduling and delivery stay under separate approval. Production was read only.
+
+- **Pilot and tracking.**
+  - Issuance confirmation, the callback list and the phone contact pan stay on the builder flag. CG Financial is production's only agency with it (read this round), and the release preflight now stops if another agency has it.
+  - The 768 to 1023 px clipping is cgarness/agentflow-life-insure#538.
+  - The three teardown timers are cgarness/agentflow-life-insure#539 to #541. Their reproduction and proposed patches are kept in `docs/plans/2026-11-24-test-teardown-timers` (`6653b09`).
+- **A booking first seen cancelled.** When the appointment is reopened at a time still to come, each eligible automation with no run for it starts exactly one reminder run, paced from the reopening. A second worker seeing the same reopening starts nothing more.
+- **Late answers retried.**
+  - A cleanup a busy task or callback holds up is recorded, and the worker finishes it at the end of each event pass. The call write is never held up or aborted.
+  - An accepted, bridged phone leg counts as an answer even before the call row catches up.
+  - The callback list, its counts and claiming use the same answer rule. Records that disagree stay claimable.
+- **The last check before a provider.**
+  - A lease records the appointment slot it describes. The final authorization share-locks the appointment and refuses a message whose run would stop, whose slot moved, or whose reminder was for another time. The worker asks the same question before it reserves an SMS request.
+  - A reminder whose appointment moved with no restart pending is skipped, and the run goes on to its next step.
+  - `automation_authorize_handoff` is now the seventeenth first-release function V2 replaces. Production's copy was confirmed identical to the first release before the rollbacks were regenerated.
+- **Complete-schema rehearsal, verified target.**
+  - `release-full` takes the bundle and, separately, receipts read through another channel within two hours of the dump.
+  - Every migration and rollback target is a faithful copy checked against the receipt, or against the database it was copied from, in all 34 families of the format 2 fingerprint. That includes the managed schemas and their privileges.
+  - A restore parses stored expressions again and can reorder privileges, so only a restored copy is compared without parentheses and with privileges sorted, and the output names the families affected.
+  - `release-full-synthetic.sh` refuses nine wrong inputs and passes the full run. The operator's part is scripted ([handoff](docs/plans/automations-v2/complete-schema-handoff.md)).
+
+<!-- independent review and verification for this round follow when they finish -->
+
 ## November 24, 2026 — Automations V2 brought up to date with production, six approved fixes, stopped-installation rehearsal · draft, nothing released
 
 Chris approved branch fixes, synthetic testing and an isolated rehearsal against the complete production schema for [draft pull request 536](https://github.com/cgarness/agentflow-life-insure/pull/536). Production release, enrollment, scheduling and sending stay under separate approval. Production was read only.
