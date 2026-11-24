@@ -199,15 +199,17 @@ select pg_temp.ok(not private.automation_needs_v2(pg_temp.id(1),pg_temp.id(41)) 
 select pg_temp.ok(private.automation_needs_v2(pg_temp.id(1),pg_temp.id(43)) and private.automation_needs_v2(pg_temp.id(1),pg_temp.id(45))
   and private.automation_needs_v2(pg_temp.id(1),pg_temp.id(47)) and private.automation_needs_v2(pg_temp.id(1),pg_temp.id(51)),
   'a V2 step, a V2 trigger, a tightened SMS requirement and a V2 stop rule each need V2');
-select pg_temp.ok((select count(*)=6 and bool_and(position('Automations V2 was rolled back' in pg_get_functiondef(p.oid))>0)
+select pg_temp.ok((select count(*)=7 and bool_and(position('Automations V2 was rolled back' in pg_get_functiondef(p.oid))>0)
   from pg_proc p where p.oid in ('private.automation_capture_disposition()'::regprocedure,'private.automation_capture_sale()'::regprocedure,
     'private.automation_capture_appointment_slot()'::regprocedure,'private.automation_capture_appointment_outcome()'::regprocedure,
-    'private.automation_capture_missed_inbound()'::regprocedure,'private.automation_capture_issuance()'::regprocedure)),
-  'every V2 observer records nothing');
-select pg_temp.ok((select count(*)=6 from pg_trigger where not tgisinternal and tgname in ('automation_capture_disposition',
+    'private.automation_capture_missed_inbound()'::regprocedure,'private.automation_capture_issuance()'::regprocedure,
+    'private.automation_observe_answered_call()'::regprocedure)),
+  'every V2 observer does nothing, including the one that closes work for a call answered late');
+select pg_temp.ok((select count(*)=8 from pg_trigger where not tgisinternal and tgname in ('automation_capture_disposition',
     'automation_capture_sale','automation_capture_appointment_slot','automation_capture_appointment_outcome',
-    'automation_capture_missed_inbound','automation_capture_issuance')),
-  'their triggers stay attached, so the rollback took no lock on calls, sales, dispositions, appointments or sign-in');
+    'automation_capture_missed_inbound','automation_capture_issuance','automation_observe_answered_call')),
+  'their triggers stay attached (the answered-call observer on calls and on route attempts), so the rollback took no lock on '
+  'calls, route attempts, sales, dispositions, appointments or sign-in');
 
 -- 2. Only V2-only work was stopped or paused.
 select pg_temp.ok((select status='waiting' and not workflow_paused and due_at=(select first_due from kept)

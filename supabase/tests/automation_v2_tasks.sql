@@ -154,6 +154,88 @@ begin
 end $$;
 update public.workflows set status='paused' where id=pg_temp.id(90);
 
+-- A late worker. The lead joins the campaign at 9:00 and the worker first reaches the step at 9:12: the
+-- five-minute task is still due at 9:05. Handling the step or the event a second time changes nothing.
+select pg_temp.publish(96,97,'Campaign callback, late worker','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"campaign_membership_created","version":1,"config":{"campaign_id":"7a5c0000-0000-4000-8000-000000000098"}},
+    {"id":"task","type":"create_task","version":1,
+     "config":{"title":"Call the campaign lead","task_type":"Follow Up","due_amount":5,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"task"}]}');
+update public.automation_intervals set starts_at=starts_at-interval '3 hours' where workflow_id=pg_temp.id(96);
+insert into public.campaigns(id,name,organization_id,user_id) values (pg_temp.id(98),'Late campaign',pg_temp.id(1),pg_temp.id(10));
+insert into public.leads(id,organization_id,first_name,assigned_agent_id) values (pg_temp.id(99),pg_temp.id(1),'Late',pg_temp.id(11));
+select pg_temp.ok(public.automation_process_events(25)=1,'the late lead first enrolls in the new-lead callback');
+select pg_temp.ok(pg_temp.work()->>'result'='created','the new-lead callback creates its task');
+insert into public.campaign_leads(id,campaign_id,lead_id,organization_id) values (pg_temp.id(100),pg_temp.id(98),pg_temp.id(99),pg_temp.id(1));
+-- The lead joined twelve minutes before the worker first gets to it.
+update private.automation_events set occurred_at=occurred_at-interval '12 minutes',available_at=available_at-interval '12 minutes'
+  where event_type='campaign_membership_created' and contact_id=pg_temp.id(99);
+select pg_temp.ok(public.automation_process_events(25)=1,'the late campaign entry enrolls once');
+do $$
+declare c jsonb; again jsonb; made jsonb; entered timestamptz; task public.tasks;
+begin
+  select occurred_at into strict entered from private.automation_events
+    where event_type='campaign_membership_created' and contact_id=pg_temp.id(99);
+  perform pg_temp.ok(entered<clock_timestamp()-interval '11 minutes','the worker first sees the entry twelve minutes after it');
+  select * into strict c from public.automation_claim_work(1);
+  perform pg_temp.ok(c->>'workflow_id'=pg_temp.id(96)::text,'the late campaign step is leased');
+  made:=public.automation_create_task((c->>'run_id')::uuid,(c->>'lease_token')::uuid,'task','Call the campaign lead',null);
+  perform pg_temp.ok(made->>'status'='created','the late worker creates the task');
+  select * into strict task from public.tasks where automation_run_id=(c->>'run_id')::uuid;
+  perform pg_temp.ok(task.due_date=entered+interval '5 minutes' and task.due_date<clock_timestamp(),
+    'the task is due five minutes after the lead joined the campaign, not five minutes after the worker reached it');
+  -- The worker crashed before saving the outcome. Its replacement repeats the step.
+  update private.automation_runs set leased_until=clock_timestamp()-interval '1 minute' where id=(c->>'run_id')::uuid;
+  select * into strict again from public.automation_claim_work(1);
+  made:=public.automation_create_task((again->>'run_id')::uuid,(again->>'lease_token')::uuid,'task','Call the campaign lead',null);
+  perform pg_temp.ok(made->>'status'='created','the replayed step is told the task exists');
+  perform pg_temp.ok(public.automation_finish_node((again->>'run_id')::uuid,(again->>'lease_token')::uuid,'created'),'the replay advances');
+  perform pg_temp.ok((select count(*)=1 and min(due_date)=entered+interval '5 minutes' from public.tasks
+    where automation_run_id=(c->>'run_id')::uuid),'the replay left one task with the same due time');
+end $$;
+update private.automation_events set processed_at=null,interval_cursor=null
+  where event_type='campaign_membership_created' and contact_id=pg_temp.id(99);
+select pg_temp.ok(public.automation_process_events(25)=0,'handling the late entry again starts no second run');
+select pg_temp.ok((select count(*)=1 from public.tasks t join private.automation_runs r on r.id=t.automation_run_id
+  where r.workflow_id=pg_temp.id(96)),'one task from the late campaign entry');
+update public.workflows set status='paused' where id=pg_temp.id(96);
+
+-- A task after an explicit wait is due a set time after the end the wait was given, not after the event and
+-- not after a late worker.
+select pg_temp.publish(106,107,'Campaign follow-up after a wait','{
+  "format":1,"settings":{"reentry":"once","stop_on_reply":false},"nodes":[
+    {"id":"start","type":"campaign_membership_created","version":1,"config":{"campaign_id":"7a5c0000-0000-4000-8000-000000000108"}},
+    {"id":"pause","type":"wait","version":1,"config":{"duration":1,"unit":"hours"}},
+    {"id":"task","type":"create_task","version":1,
+     "config":{"title":"Follow up after the hour","task_type":"Follow Up","due_amount":5,"due_unit":"minutes"}}],
+  "edges":[{"id":"a","source":"start","target":"pause"},{"id":"b","source":"pause","target":"task"}]}');
+update public.automation_intervals set starts_at=starts_at-interval '3 hours' where workflow_id=pg_temp.id(106);
+insert into public.campaigns(id,name,organization_id,user_id) values (pg_temp.id(108),'Wait campaign',pg_temp.id(1),pg_temp.id(10));
+insert into public.leads(id,organization_id,first_name,assigned_agent_id) values (pg_temp.id(109),pg_temp.id(1),'Waited',pg_temp.id(11));
+select pg_temp.ok(public.automation_process_events(25)=1,'the waited lead first enrolls in the new-lead callback');
+select pg_temp.ok(pg_temp.work()->>'result'='created','the new-lead callback creates its task');
+insert into public.campaign_leads(id,campaign_id,lead_id,organization_id) values (pg_temp.id(110),pg_temp.id(108),pg_temp.id(109),pg_temp.id(1));
+update private.automation_events set occurred_at=occurred_at-interval '75 minutes',available_at=available_at-interval '75 minutes'
+  where event_type='campaign_membership_created' and contact_id=pg_temp.id(109);
+select pg_temp.ok(public.automation_process_events(25)=1,'the campaign entry with a wait enrolls');
+do $$
+declare turn jsonb:=pg_temp.work(); entered timestamptz; ended timestamptz; task public.tasks;
+begin
+  perform pg_temp.ok(turn->>'result'='wait','the run starts its one-hour wait');
+  select occurred_at into strict entered from private.automation_events
+    where event_type='campaign_membership_created' and contact_id=pg_temp.id(109);
+  -- The hour ended seven minutes ago and the worker is only now getting to it.
+  update private.automation_runs set due_at=clock_timestamp()-interval '7 minutes' where id=(turn->>'run_id')::uuid
+    returning due_at into ended;
+  perform pg_temp.ok(pg_temp.work()->>'result'='elapsed','the late worker ends the wait');
+  perform pg_temp.ok(pg_temp.work()->>'result'='created','the task step after the wait creates its task');
+  select * into strict task from public.tasks where automation_run_id=(turn->>'run_id')::uuid;
+  perform pg_temp.ok(task.due_date=ended+interval '5 minutes','the task is due five minutes after the wait''s end');
+  perform pg_temp.ok(task.due_date>entered+interval '1 hour','the wait still separates the task from the campaign entry');
+end $$;
+update public.workflows set status='paused' where id=pg_temp.id(106);
+
 -- No owner is stated plainly, retried, and resolved when an owner appears.
 insert into public.leads(id,organization_id,first_name) values (pg_temp.id(32),pg_temp.id(1),'Unowned');
 insert into public.leads(id,organization_id,first_name,assigned_agent_id) values (pg_temp.id(33),pg_temp.id(1),'Former',pg_temp.id(15));

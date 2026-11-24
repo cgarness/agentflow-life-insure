@@ -97,8 +97,13 @@ export const callbackSchema = z.object({
   notes: z.string().nullable(),
   voicemail_id: z.string().nullable(),
 });
+/** The list as the server orders it (open first, due soonest at the top), with counts that cover every waiting callback. */
 export const callbackQueueSchema = z.object({
   admin: z.boolean(),
+  /** False outside the Automations pilot: the agency has no callback list. */
+  available: z.boolean(),
+  open_count: z.number().int().nonnegative(),
+  claimed_count: z.number().int().nonnegative(),
   items: z.array(callbackSchema),
 });
 export type InboundCallback = z.infer<typeof callbackSchema>;

@@ -55,6 +55,7 @@ export function useInboundCallbacks() {
 
   return {
     items: queue?.items ?? [], admin: queue?.admin ?? false, loaded: queue !== null, error, notice, busy, refresh: () => refresh(),
+    available: queue?.available ?? false, openCount: queue?.open_count ?? 0, claimedCount: queue?.claimed_count ?? 0,
     claim: (item: InboundCallback) => act("claim", item),
     release: (item: InboundCallback) => act("release", item),
     complete: (item: InboundCallback) => act("complete", item),

@@ -41,7 +41,10 @@ ALTER TABLE private.automation_runs
   -- When the current hold began. Retries back off from it and a run on hold too long ends.
   ADD COLUMN held_since timestamptz,
   -- The appointment slot the reminders this run already gave were for.
-  ADD COLUMN reminded_for uuid;
+  ADD COLUMN reminded_for uuid,
+  -- The moment a step's own timing counts from: the event that started the run, then the time the last
+  -- wait was scheduled to end. A due time measured from it does not move when the worker runs late.
+  ADD COLUMN paced_from timestamptz;
 UPDATE private.automation_runs SET scope_key=contact_type||':'||contact_id::text WHERE scope_key IS NULL AND contact_id IS NOT NULL;
 CREATE INDEX automation_runs_scope ON private.automation_runs(organization_id,workflow_id,scope_key,ended_at);
 -- An appointment change finds the runs that its booking started.
@@ -267,9 +270,12 @@ BEGIN
       RETURN QUERY SELECT 'Appointment outcome was changed'::text,coalesce(slot.recorded_at,clock_timestamp()); RETURN;
     END IF;
   ELSIF e.event_type='inbound_call_missed' THEN
-    SELECT c.agent_id,c.outcome,c.updated_at INTO inbound FROM public.calls c
+    -- The same verdict the task step uses (automation_inbound_evidence, installed by the inbound callbacks
+    -- migration): an answer confirmed late ends the run, so nothing after it treats the call as missed.
+    SELECT c.updated_at INTO inbound FROM public.calls c
       WHERE c.organization_id=r.organization_id AND c.id=nullif(e.subject->>'call_id','')::uuid;
-    IF FOUND AND (inbound.agent_id IS NOT NULL OR inbound.outcome IS NOT DISTINCT FROM 'forwarded_answered') THEN
+    IF FOUND AND to_regprocedure('private.automation_inbound_evidence(uuid,uuid)') IS NOT NULL
+        AND private.automation_inbound_evidence(r.organization_id,nullif(e.subject->>'call_id','')::uuid)='answered' THEN
       RETURN QUERY SELECT 'Call was answered'::text,coalesce(inbound.updated_at,clock_timestamp()); RETURN;
     END IF;
   END IF;
@@ -456,11 +462,11 @@ begin
       when 'after_end' then r.status not in ('completed','stopped','failed') or r.ended_at is null or r.ended_at>e.occurred_at
       else true end) then return 0; end if;
   insert into private.automation_runs(organization_id,workflow_id,version_id,event_id,contact_id,contact_type,scope_key,
-      current_node_id,status,reason,ended_at)
+      current_node_id,status,reason,ended_at,paced_from)
     values(e.organization_id,candidate.workflow_id,candidate.version_id,e.id,e.contact_id,
       case when e.contact_id is null then null else coalesce(e.contact_type,'lead') end,scope,first_node,
       case when replied then 'stopped' else 'queued' end,
-      case when replied then 'Verified reply received' end,case when replied then clock_timestamp() end)
+      case when replied then 'Verified reply received' end,case when replied then clock_timestamp() end,e.occurred_at)
     on conflict do nothing;
   return case when found then 1 else 0 end;
 end $$;

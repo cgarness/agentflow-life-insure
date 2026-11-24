@@ -15,13 +15,17 @@ const item = (extra: Record<string, unknown> = {}) => ({
   claimed_by: null, claimed_by_name: null, claimed_by_me: false, can_claim: true, missed_at: "2026-11-22T15:00:00Z",
   due_at: "2026-11-22T15:15:00Z", title: "Call back the missed caller", notes: null, voicemail_id: null, ...extra,
 });
-let queue: {admin: boolean; items: ReturnType<typeof item>[]};
+type Queue = {admin: boolean; items: ReturnType<typeof item>[]; available?: boolean; open_count?: number; claimed_count?: number};
+let queue: Queue;
+// The server counts every waiting callback. Unless a test says otherwise, the counts match the list.
+const served = (q: Queue) => ({available: true, open_count: q.items.filter(i => i.status === "open").length,
+  claimed_count: q.items.filter(i => i.status === "claimed").length, ...q});
 let failure: {code: string; message: string; hint?: string} | null;
 beforeEach(() => {
   queue = {admin: false, items: [item()]};
   failure = null;
   rpc.mockImplementation(async (name: string) => {
-    if (name === "inbound_callback_queue") return {data: queue, error: null};
+    if (name === "inbound_callback_queue") return {data: served(queue), error: null};
     if (failure) return {data: null, error: failure};
     if (name === "claim_inbound_callback") { queue = {...queue, items: [item({status: "claimed", claimed_by: "me", claimed_by_me: true, can_claim: false})]}; return {data: {id: ID, status: "claimed", claimed_by: "me"}, error: null}; }
     if (name === "release_inbound_callback") { queue = {...queue, items: [item()]}; return {data: {id: ID, status: "open"}, error: null}; }
@@ -151,6 +155,22 @@ describe("Inbounds callbacks", () => {
     expect(within(row).getByText("voicemail:vm-1")).toBeVisible();
     expect(within(row).getByText("Asked about a quote")).toBeVisible();
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
+
+  it("takes its counts from the server, so newer claimed callbacks never hide the open ones from the heading", async () => {
+    queue = {admin: false, open_count: 3, claimed_count: 120,
+      items: [item({status: "claimed", claimed_by: "other", claimed_by_name: "Jordan Lee", can_claim: false})]};
+    render(<RoomCallbacks/>);
+    expect(await screen.findByRole("heading", {name: /Callbacks\s*3 open · 120 claimed/})).toBeVisible();
+    expect(screen.getByText(/Open callbacks come first, the one due soonest at the top\. Showing 1 of 123\./)).toBeVisible();
+  });
+
+  it("shows nothing for an agency outside the Automations pilot", async () => {
+    queue = {admin: true, available: false, open_count: 0, claimed_count: 0, items: []};
+    const {container} = render(<RoomCallbacks/>);
+    await waitFor(() => expect(calls("inbound_callback_queue").length).toBeGreaterThan(0));
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(screen.queryByRole("heading", {name: /Callbacks/})).toBeNull();
   });
 
   it("offers a retry when the list cannot be loaded", async () => {

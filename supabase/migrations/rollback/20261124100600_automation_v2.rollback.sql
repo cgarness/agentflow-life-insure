@@ -5,9 +5,10 @@
 -- ON_ERROR_STOP on itself, so a refusal stops psql before anything changes even when the flags are left out.
 -- It refuses outside a transaction, while either control is on anywhere, and when any function it replaces
 -- has drifted from the V2 definition. It holds the release controls until it commits, so the fence stays up.
--- It restores the sixteen first-release function bodies byte for byte and turns the six V2 event observers into
--- no-ops. Their triggers stay attached: replacing a function takes no table lock, while dropping a trigger would
--- lock calls, sales, dispositions, appointments and the sign-in tables.
+-- It restores the sixteen first-release function bodies byte for byte and turns the seven V2 observers into no-ops:
+-- six that record events and the one that closes a callback or task when a call turns out to have been answered.
+-- Their triggers stay attached: replacing a function takes no table lock, while dropping a trigger would lock
+-- calls, route attempts, sales, dispositions, appointments and the sign-in tables.
 -- It pauses every automation whose published version needs V2 to run as authored (a V2 step, a V2 re-entry or
 -- stop rule, or an SMS consent requirement stricter than the step's stored purpose), stops every unfinished run on
 -- those automations, and stops any other run only V2 can execute. Three guard triggers, on private.automation_runs,
@@ -24,7 +25,7 @@
 -- events handled, and parks their intake repairs and deferred admissions (retry_at = 'infinity').
 -- The restored bodies again raise SQLSTATE 40001 for a stale draft, publish or session change.
 -- The seven forward files cannot be replayed over the retained tables. Installing V2 again is a new migration
--- that reinstalls the V2 function bodies (the six observers included), drops trigger automation_v2_rollback_guard
+-- that reinstalls the V2 function bodies (the seven observers included), drops trigger automation_v2_rollback_guard
 -- on all three tables with functions private.automation_v2_rollback_guard(), private.automation_v2_publish_guard(),
 -- private.automation_v2_refusal(uuid,uuid,uuid,boolean), private.automation_needs_v2(uuid,uuid),
 -- private.automation_v2_steps_needed(uuid,uuid) and private.automation_v2_loosened_text(uuid,uuid), releases the
@@ -41,7 +42,7 @@ BEGIN
  IF current_setting('lock_timeout') <> '3s' THEN
   RAISE EXCEPTION 'automations v2 rollback refused: run this file as one transaction (psql -X -1 -v ON_ERROR_STOP=1 -f)';
  END IF;
- FOR expected IN SELECT value FROM jsonb_array_elements($catalog$[{"acl":"{postgres=X/postgres}","md5":"81278817208063820207cd27b12f1d26","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_block_fields(text,jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"a4655647978ad2365a8fb382031c8912","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_trigger(jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"6d08be68ca01bcccd0d51e135362b0ea","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_editable_graph(jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"ed5464e5230a669853453e12d51d6e06","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_channel_issue(uuid,uuid,jsonb)","volatility":"s","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"13fae2dff2e436bb175d23eaafaef6b8","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_graph_issues(uuid,text,jsonb)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"8e86f52e37bb4d588f9674cf9ac8400b","owner":"postgres","config":["search_path=\"\""],"signature":"public.save_automation_draft(uuid,text,jsonb,bigint,bigint)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"477a9cc249ae4702ce16358ea49956bf","owner":"postgres","config":["search_path=\"\""],"signature":"public.publish_automation(uuid,bigint,bigint,jsonb)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"ffc7882e881ee50e5a4f3f2f05df2842","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_overlap(uuid)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"9b831e70951a5c1099fc9c2e3684cf94","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_session_transition(bigint,uuid)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"7c6058677dc9245843919d5f76c8f15d","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_event()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"ac4fa2c4fb84d2eb02eec211c005d90c","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_admit_event(private.automation_events,uuid)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"b2030c657655f886bd866762e6c9a7ce","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_process_events(integer)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"bf5424f603d0576ebfd22575db485eb0","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_claim_work(integer)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"ec05fc84c990c2d515873e6bc3116c99","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_finish_node(uuid,uuid,text,text)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"de664a6ba7c5e245c63e1a673ad4ada8","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_activity(bigint,uuid,uuid,uuid,text,timestamp with time zone,uuid)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"d4fd3b3f56fb6303bbbb2bdac0473096","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_stop_run(uuid,bigint)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"29bfdde74a00238eeedc6e4a3b9d467e","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_disposition()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"b957d7891e0f88c06e29341b7e40c5d9","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_sale()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"0efb90c58ccfbdd2393502b0c4ba88c1","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_appointment_slot()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"427f6c1151c09c0bc322064f70d643c9","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_appointment_outcome()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"9b753b3372dbd2cabb77e2d96e85506d","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_missed_inbound()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"8b58fa9c3ec9714f770dc58bb1dbd7eb","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_issuance()","volatility":"v","security_definer":true}]$catalog$::jsonb) LOOP
+ FOR expected IN SELECT value FROM jsonb_array_elements($catalog$[{"acl":"{postgres=X/postgres}","md5":"81278817208063820207cd27b12f1d26","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_block_fields(text,jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"a4655647978ad2365a8fb382031c8912","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_trigger(jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"6d08be68ca01bcccd0d51e135362b0ea","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_editable_graph(jsonb)","volatility":"i","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"ed5464e5230a669853453e12d51d6e06","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_channel_issue(uuid,uuid,jsonb)","volatility":"s","security_definer":false},{"acl":"{postgres=X/postgres}","md5":"13fae2dff2e436bb175d23eaafaef6b8","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_graph_issues(uuid,text,jsonb)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"8e86f52e37bb4d588f9674cf9ac8400b","owner":"postgres","config":["search_path=\"\""],"signature":"public.save_automation_draft(uuid,text,jsonb,bigint,bigint)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"477a9cc249ae4702ce16358ea49956bf","owner":"postgres","config":["search_path=\"\""],"signature":"public.publish_automation(uuid,bigint,bigint,jsonb)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"ffc7882e881ee50e5a4f3f2f05df2842","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_overlap(uuid)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"9b831e70951a5c1099fc9c2e3684cf94","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_session_transition(bigint,uuid)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"7c6058677dc9245843919d5f76c8f15d","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_event()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"0434d66756987c3f8b52353a19f42ed7","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_admit_event(private.automation_events,uuid)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"b2030c657655f886bd866762e6c9a7ce","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_process_events(integer)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"bf5424f603d0576ebfd22575db485eb0","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_claim_work(integer)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres}","md5":"93d8c5751facdf082d24bff2ede7e0df","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_finish_node(uuid,uuid,text,text)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"de664a6ba7c5e245c63e1a673ad4ada8","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_activity(bigint,uuid,uuid,uuid,text,timestamp with time zone,uuid)","volatility":"s","security_definer":true},{"acl":"{postgres=X/postgres,service_role=X/postgres,authenticated=X/postgres}","md5":"d4fd3b3f56fb6303bbbb2bdac0473096","owner":"postgres","config":["search_path=\"\""],"signature":"public.automation_stop_run(uuid,bigint)","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"29bfdde74a00238eeedc6e4a3b9d467e","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_disposition()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"b957d7891e0f88c06e29341b7e40c5d9","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_sale()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"0efb90c58ccfbdd2393502b0c4ba88c1","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_appointment_slot()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"427f6c1151c09c0bc322064f70d643c9","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_appointment_outcome()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"9b753b3372dbd2cabb77e2d96e85506d","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_missed_inbound()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"8b58fa9c3ec9714f770dc58bb1dbd7eb","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_capture_issuance()","volatility":"v","security_definer":true},{"acl":"{postgres=X/postgres}","md5":"0bf19a6eddf3b9bcada302b4034232c5","owner":"postgres","config":["search_path=\"\""],"signature":"private.automation_observe_answered_call()","volatility":"v","security_definer":true}]$catalog$::jsonb) LOOP
   function_oid := to_regprocedure(expected->>'signature');
   SELECT jsonb_build_object('signature',expected->>'signature','md5',md5(pg_get_functiondef(p.oid)),
    'owner',pg_get_userbyid(p.proowner),'security_definer',p.prosecdef,'config',to_jsonb(p.proconfig),
@@ -728,7 +729,7 @@ CREATE OR REPLACE FUNCTION private.automation_capture_disposition()
  SET search_path TO ''
 AS $observer$
 BEGIN
-  -- Automations V2 was rolled back: this observer records nothing until V2 is installed again.
+  -- Automations V2 was rolled back: this observer does nothing until V2 is installed again.
   RETURN NULL;
 END $observer$;
 
@@ -739,7 +740,7 @@ CREATE OR REPLACE FUNCTION private.automation_capture_sale()
  SET search_path TO ''
 AS $observer$
 BEGIN
-  -- Automations V2 was rolled back: this observer records nothing until V2 is installed again.
+  -- Automations V2 was rolled back: this observer does nothing until V2 is installed again.
   RETURN NULL;
 END $observer$;
 
@@ -750,7 +751,7 @@ CREATE OR REPLACE FUNCTION private.automation_capture_appointment_slot()
  SET search_path TO ''
 AS $observer$
 BEGIN
-  -- Automations V2 was rolled back: this observer records nothing until V2 is installed again.
+  -- Automations V2 was rolled back: this observer does nothing until V2 is installed again.
   RETURN NULL;
 END $observer$;
 
@@ -761,7 +762,7 @@ CREATE OR REPLACE FUNCTION private.automation_capture_appointment_outcome()
  SET search_path TO ''
 AS $observer$
 BEGIN
-  -- Automations V2 was rolled back: this observer records nothing until V2 is installed again.
+  -- Automations V2 was rolled back: this observer does nothing until V2 is installed again.
   RETURN NULL;
 END $observer$;
 
@@ -772,7 +773,7 @@ CREATE OR REPLACE FUNCTION private.automation_capture_missed_inbound()
  SET search_path TO ''
 AS $observer$
 BEGIN
-  -- Automations V2 was rolled back: this observer records nothing until V2 is installed again.
+  -- Automations V2 was rolled back: this observer does nothing until V2 is installed again.
   RETURN NULL;
 END $observer$;
 
@@ -783,7 +784,18 @@ CREATE OR REPLACE FUNCTION private.automation_capture_issuance()
  SET search_path TO ''
 AS $observer$
 BEGIN
-  -- Automations V2 was rolled back: this observer records nothing until V2 is installed again.
+  -- Automations V2 was rolled back: this observer does nothing until V2 is installed again.
+  RETURN NULL;
+END $observer$;
+
+CREATE OR REPLACE FUNCTION private.automation_observe_answered_call()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $observer$
+BEGIN
+  -- Automations V2 was rolled back: this observer does nothing until V2 is installed again.
   RETURN NULL;
 END $observer$;
 
@@ -937,7 +949,7 @@ BEGIN
    RAISE EXCEPTION 'automations v2 rollback did not restore: %', expected->>'signature';
   END IF;
  END LOOP;
- IF EXISTS (SELECT FROM unnest(ARRAY['private.automation_capture_disposition()','private.automation_capture_sale()','private.automation_capture_appointment_slot()','private.automation_capture_appointment_outcome()','private.automation_capture_missed_inbound()','private.automation_capture_issuance()']) observer(signature)
+ IF EXISTS (SELECT FROM unnest(ARRAY['private.automation_capture_disposition()','private.automation_capture_sale()','private.automation_capture_appointment_slot()','private.automation_capture_appointment_outcome()','private.automation_capture_missed_inbound()','private.automation_capture_issuance()','private.automation_observe_answered_call()']) observer(signature)
    WHERE position('Automations V2 was rolled back' IN pg_get_functiondef(to_regprocedure(observer.signature))) = 0) THEN
   RAISE EXCEPTION 'automations v2 rollback left an observer recording';
  END IF;

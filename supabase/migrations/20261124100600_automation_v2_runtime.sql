@@ -93,6 +93,7 @@ declare
   next_anchor_at timestamptz;
   next_held_since timestamptz;
   next_reminded_for uuid;
+  next_paced_from timestamptz;
   held_for interval;
   step_status text:=p_result;
   advance boolean:=false;
@@ -109,6 +110,7 @@ begin
   next_anchor:=r.anchor_id;
   next_anchor_at:=r.anchor_at;
   next_reminded_for:=r.reminded_for;
+  next_paced_from:=r.paced_from;
   -- Worker success alone cannot establish provider acceptance. The channel receipt
   -- transaction marks its original intent before normal or recovered advancement.
   if p_result='accepted' and kind in ('send_sms','send_email') and not exists(
@@ -162,6 +164,7 @@ begin
       advance:=true;
       step_status:='elapsed';
       next_reminded_for:=r.anchor_id;
+      next_paced_from:=r.due_at;
     elsif placed.verdict='wait' then
       -- First arrival, or the appointment moved while this run slept: wait for the current time.
       next_status:='waiting';
@@ -174,6 +177,9 @@ begin
       next_anchor:=placed.anchor;
       next_anchor_at:=placed.anchor_start;
       next_reminded_for:=placed.anchor;
+      -- The reminder time passed before the run reached it: later steps count from the reminder time,
+      -- or from the event when the event came after it.
+      next_paced_from:=greatest(r.paced_from,placed.due);
       step_status:='elapsed';
       p_reason:='The reminder time had already passed';
     else
@@ -184,9 +190,12 @@ begin
       p_reason:=case placed.verdict when 'past' then 'The appointment had already started'
         else 'The reminder time had already passed' end;
     end if;
+  elsif kind='wait' and p_result='elapsed' and r.status='waiting' and r.due_at<=clock_timestamp() then
+    -- Later steps count from the end this wait was given, however late the worker reached it.
+    advance:=true;
+    next_paced_from:=r.due_at;
   elsif (kind in ('send_sms','send_email') and p_result in ('accepted','skipped'))
     or (kind='create_task' and p_result in ('created','skipped'))
-    or (kind='wait' and p_result='elapsed' and r.status='waiting' and r.due_at<=clock_timestamp())
     or (kind='contact_has_email' and p_result in ('yes','no','skipped')) then
     advance:=true;
   else raise exception 'Invalid automation node outcome'; end if;
@@ -208,7 +217,7 @@ begin
     on conflict (run_id,node_id) do update set status=excluded.status,reason=excluded.reason,updated_at=clock_timestamp();
   update private.automation_runs set current_node_id=coalesce(target,r.current_node_id),status=next_status,
     reason=left(p_reason,500),due_at=next_due,anchor_id=next_anchor,anchor_at=next_anchor_at,held_since=next_held_since,
-    reminded_for=next_reminded_for,
+    reminded_for=next_reminded_for,paced_from=next_paced_from,
     lease_token=null,leased_until=null,updated_at=clock_timestamp(),
     ended_at=case when next_status in ('completed','failed','unknown','stopped') then clock_timestamp() end
     where id=p_run;
@@ -258,7 +267,9 @@ BEGIN
       CASE WHEN origin.event_type='inbound_call_missed' THEN 'Call back '||coalesce(nullif(origin.subject->>'caller_phone',''),'the caller') END,
       cfg->>'task_type','Follow Up'),200);
   END IF;
-  due:=clock_timestamp()+(cfg->>'due_amount')::integer * CASE cfg->>'due_unit'
+  -- Due a set time after the moment this step counts from: the event for a step with no wait before it, or
+  -- the end the last wait was given. A worker that reaches the step late, a hold or a replay leaves it unchanged.
+  due:=coalesce(r.paced_from,clock_timestamp())+(cfg->>'due_amount')::integer * CASE cfg->>'due_unit'
     WHEN 'minutes' THEN interval '1 minute' WHEN 'hours' THEN interval '1 hour' ELSE interval '1 day' END;
   known:=r.contact_id IS NOT NULL
     AND private.automation_contact_type(r.organization_id,r.contact_id) IS NOT DISTINCT FROM r.contact_type;
@@ -269,6 +280,10 @@ BEGIN
     IF evidence='unknown' THEN RETURN jsonb_build_object('status','stopped','reason','Call record no longer exists'); END IF;
     IF evidence='answered' THEN RETURN jsonb_build_object('status','stopped','reason','Call was answered'); END IF;
     IF evidence='ambiguous' THEN
+      RETURN jsonb_build_object('status','held','reason','Waiting for confirmation of whether the call was answered'); END IF;
+    IF evidence='conflicting' THEN
+      RETURN jsonb_build_object('status','held','reason','The call''s answer records disagree. Waiting until they agree'); END IF;
+    IF evidence<>'missed' THEN
       RETURN jsonb_build_object('status','held','reason','Waiting for confirmation of whether the call was answered'); END IF;
     -- At most one callback per inbound call, whichever automation reaches it first.
     PERFORM pg_advisory_xact_lock(hashtextextended('automation-callback:'||inbound::text,0));

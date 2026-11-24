@@ -19,12 +19,16 @@ const tone = (item: InboundCallback) => item.status === "open" ? "info" : "neutr
  */
 export function RoomCallbacks() {
   const callbacks = useInboundCallbacks();
-  const open = callbacks.items.filter(item => item.status === "open").length;
+  // Outside the Automations pilot the agency has no callback list, so the room shows nothing for it.
+  if (callbacks.loaded && !callbacks.available) return null;
+  const waiting = callbacks.openCount + callbacks.claimedCount;
   return (
     <section aria-labelledby="room-callbacks-title" className={panel + " p-5"}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="room-callbacks-title" className="text-lg font-bold text-white">
-          Callbacks{callbacks.loaded && <span className="ml-2 text-sm font-semibold text-slate-300">{open} open</span>}
+          Callbacks{callbacks.loaded && <span className="ml-2 text-sm font-semibold text-slate-300">
+            {callbacks.openCount} open{callbacks.claimedCount > 0 ? " · " + callbacks.claimedCount + " claimed" : ""}
+          </span>}
         </h2>
         <button type="button" className={textButton + " text-sm text-slate-200"} onClick={() => { void callbacks.refresh(); }}>
           Refresh
@@ -80,7 +84,8 @@ export function RoomCallbacks() {
         })}
       </ul>
       {callbacks.loaded && callbacks.items.length > 0 && <p className="pt-3 text-xs text-slate-300">
-        Claim a callback, call back from your dialer, then mark it done. Up to 100 are shown, newest first.
+        Claim a callback, call back from your dialer, then mark it done. Open callbacks come first, the one due soonest at the
+        top.{waiting > callbacks.items.length ? " Showing " + callbacks.items.length + " of " + waiting + "." : ""}
       </p>}
     </section>
   );

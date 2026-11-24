@@ -49,6 +49,13 @@ async function caret(control, start, end = start) {
   await control.dispatchEvent('keyup');
 }
 const focused = control => control.evaluate(element => document.activeElement === element);
+// A dialog, sheet or menu hands focus back when its closing animation ends, so wait up to two seconds for it.
+async function focusReturns(control) {
+  for (const start = Date.now(); Date.now() - start < 2000; await new Promise(done => setTimeout(done, 50))) {
+    if (await focused(control)) return true;
+  }
+  return focused(control);
+}
 async function useSaved(page, name) {
   await button(page, 'Use saved message').click();
   await button(page.getByRole('dialog', { name: 'Saved messages' }), name).click();
@@ -155,7 +162,7 @@ try {
   await insert(page, 'Message', 'First name');
   assert.equal(await message.inputValue(), 'Hello {{first_name}}, welcome');
   await page.waitForFunction(() => document.activeElement?.tagName === 'TEXTAREA');
-  assert.equal(await focused(message), true, 'Focus returns to the field after an insertion');
+  assert.equal(await focusReturns(message), true, 'Focus returns to the field after an insertion');
   assert.equal(await message.evaluate(element => element.selectionStart), 'Hello {{first_name}}'.length);
   await insert(page, 'Message', 'Last name');
   assert.equal(await message.inputValue(), 'Hello {{first_name}}{{last_name}}, welcome');
@@ -342,7 +349,7 @@ try {
   }
   await button(sheet, 'Done').press('Enter');
   await sheet.waitFor({ state: 'hidden' });
-  assert.equal(await focused(stepButton), true, 'Closing the sheet returns focus to the step that opened it');
+  assert.equal(await focusReturns(stepButton), true, 'Closing the sheet returns focus to the step that opened it');
   // Insert, reorder and remove on the phone, from the keyboard.
   await button(rows(page).nth(3), 'Add step').press('Enter');
   await button(picker(page), 'Wait').press('Enter');
@@ -374,7 +381,7 @@ try {
     await touch.page.getByRole('dialog', { name: 'Insert field' }).waitFor({ state: 'hidden' });
     await touch.page.waitForTimeout(100);
     assert.equal(await tapped.inputValue(), before.slice(0, at) + '{{first_name}}' + before.slice(at), 'The field goes where the tap left the cursor');
-    assert.equal(await focused(tapped), true, 'Focus returns to the message after a touch insertion');
+    assert.equal(await focusReturns(tapped), true, 'Focus returns to the message after a touch insertion');
     assert.equal(await tapped.evaluate(element => element.selectionStart), at + '{{first_name}}'.length);
     await touch.page.context().close();
     console.log('PASS touch: on a phone, a tap put the cursor inside the message, Insert field placed the field there and returned focus.');
