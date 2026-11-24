@@ -21,7 +21,7 @@ The last recorded primary frontend is `666387b06236281a1e61b1d0fc765284bc63cd99`
 
 | Part | Content |
 | --- | --- |
-| Seven migrations | `20261122100000` through `20261122100600` under `supabase/migrations/`, applied in order. |
+| Seven migrations | `20261124100000` through `20261124100600` under `supabase/migrations/`, applied in order. |
 | Frontend | The exact commit Chris approves, named in the approval request. The application code last changed at `d40f552`; later commits change only tests and documents. |
 | Worker package | `supabase/functions/_shared/automations/` as used by `workflow-resume-paused`. Only needed when execution is turned on. |
 
@@ -29,14 +29,14 @@ The files to approve are unchanged since `29f7046`. Their SHA-256 checksums:
 
 | File | SHA-256 |
 | --- | --- |
-| `20261122100000_automation_v2_authoring.sql` | `19ca5a6350b25c39a81d9ccd3bf469ed50cc5c4a70a9c6a62fa15b6ab47d742c` |
-| `20261122100100_automation_v2_events.sql` | `be3505497d11d9bb48d9b43f91ba943c64c62de79ec478e9e72da2c4c7a9d9b4` |
-| `20261122100200_automation_v2_tasks.sql` | `728ef809543e557aaf21ec73e059e5e4d2f7222bcf7d28c22560dbdbf2e29c36` |
-| `20261122100300_automation_v2_appointment_timing.sql` | `38eb3cad26c3fdea1f96af413ee6a5a608b67c594b2ee76c2c62e69d63423b34` |
-| `20261122100400_automation_v2_inbound_callbacks.sql` | `e7f6056d48a476d0570d39911f4aeb45c161ef1398f4715d9bdc5e29fb1ff8e9` |
-| `20261122100500_automation_v2_policy_issuance.sql` | `e5ebb02ece6bbdaf62ed4e9b5fa2950885e5f7672309433bd5fef031807e3817` |
-| `20261122100600_automation_v2_runtime.sql` | `db33ad2ad0b141abbe4a5046359fae7c30ea6d044d15d6b580f2b283a3dc4de1` |
-| `rollback/20261122100600_automation_v2.rollback.sql` | `300941979591f6317629d5fd8914fbdd3c7b4cfe5bfd78e277bca05a2ba30d70` |
+| `20261124100000_automation_v2_authoring.sql` | `19ca5a6350b25c39a81d9ccd3bf469ed50cc5c4a70a9c6a62fa15b6ab47d742c` |
+| `20261124100100_automation_v2_events.sql` | `be3505497d11d9bb48d9b43f91ba943c64c62de79ec478e9e72da2c4c7a9d9b4` |
+| `20261124100200_automation_v2_tasks.sql` | `728ef809543e557aaf21ec73e059e5e4d2f7222bcf7d28c22560dbdbf2e29c36` |
+| `20261124100300_automation_v2_appointment_timing.sql` | `38eb3cad26c3fdea1f96af413ee6a5a608b67c594b2ee76c2c62e69d63423b34` |
+| `20261124100400_automation_v2_inbound_callbacks.sql` | `e7f6056d48a476d0570d39911f4aeb45c161ef1398f4715d9bdc5e29fb1ff8e9` |
+| `20261124100500_automation_v2_policy_issuance.sql` | `e5ebb02ece6bbdaf62ed4e9b5fa2950885e5f7672309433bd5fef031807e3817` |
+| `20261124100600_automation_v2_runtime.sql` | `db33ad2ad0b141abbe4a5046359fae7c30ea6d044d15d6b580f2b283a3dc4de1` |
+| `rollback/20261124100600_automation_v2.rollback.sql` | `300941979591f6317629d5fd8914fbdd3c7b4cfe5bfd78e277bca05a2ba30d70` |
 
 ### New tables and access rules to approve
 
@@ -88,10 +88,10 @@ Turning enrollment on is not part of this release. When it is later turned on fo
    Tasks automations created stay on the contacts, with their time of day.
 3. **Frontend.** Promote the deployment recorded at preflight as the rollback target. A draft that uses V2 content opens for inspection only in the first-release editor. A first-release draft stays editable.
 4. **Worker.** There is no earlier Automations worker to restore. If the V2 worker was released, keep it, or turn its schedule off. Against the restored functions it runs first-release versions exactly as the first release defines them: claims carry no context, and each version 1 SMS step uses its stored purpose. That is correct for every version the rollback leaves active, because it pauses every version whose pinned requirement differs from the stored purpose. After step 5, while the fence is still on, turn the schedule off: the restored first-release functions retry a held step every five minutes with no end, so the seven-day end no longer applies.
-5. **Database, only if the V2 functions themselves are at fault.** Run [`rollback/20261122100600_automation_v2.rollback.sql`](../../../supabase/migrations/rollback/20261122100600_automation_v2.rollback.sql) as one transaction, outside calling hours:
+5. **Database, only if the V2 functions themselves are at fault.** Run [`rollback/20261124100600_automation_v2.rollback.sql`](../../../supabase/migrations/rollback/20261124100600_automation_v2.rollback.sql) as one transaction, outside calling hours:
 
    ```bash
-   psql -X -1 -v ON_ERROR_STOP=1 -f supabase/migrations/rollback/20261122100600_automation_v2.rollback.sql
+   psql -X -1 -v ON_ERROR_STOP=1 -f supabase/migrations/rollback/20261124100600_automation_v2.rollback.sql
    ```
 
 What the rollback file does:

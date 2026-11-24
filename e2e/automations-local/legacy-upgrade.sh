@@ -23,7 +23,8 @@ docker exec "$db" sh -eu -c '
   mkdir -p "$1/tests" "$1/migrations"
 ' -- "$dest"
 "${pg[@]}" pg_restore -L "$dest/toc" -U supabase_admin -d "$legacy" --exit-on-error "$dest/base.dump"
-for migration in supabase/migrations/202611210{75959,80000,80100,80200}_*.sql supabase/migrations/202611221*_automation_v2_*.sql; do
+for migration in supabase/migrations/202611210{75959,80000,80100,80200}_*.sql supabase/migrations/20261123170000_contact_first_sms_sender.sql \
+    supabase/migrations/2026112410{00,01,02,03,04,05,06}00_automation_v2_*.sql; do
   docker cp "$migration" "$db:$dest/migrations/"
 done
 docker cp supabase/tests/fixtures "$db:$dest/tests/"

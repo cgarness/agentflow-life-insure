@@ -133,7 +133,7 @@ if [[ $mode == backend-first ]]; then
   # 3. Rollback in its order: fence every agency, restore the first-release frontend, apply the guarded file.
   "${psql[@]}" -c 'update private.automation_release_controls set enrollment_enabled=false,dispatch_enabled=false'
   serve "$dir/first-release"
-  "${psql[@]}" -1 -f - <supabase/migrations/rollback/20261122100600_automation_v2.rollback.sql
+  "${psql[@]}" -1 -f - <supabase/migrations/rollback/20261124100600_automation_v2.rollback.sql
   "${psql[@]}" -c "notify pgrst,'reload schema'"
   node e2e/automations-local/backend-first.mjs rolled-back
   exit

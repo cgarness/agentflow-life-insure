@@ -1,4 +1,4 @@
--- Guarded, data-preserving inverse of Automations V2 (migrations 20261122100000 through 20261122100600).
+-- Guarded, data-preserving inverse of Automations V2 (migrations 20261124100000 through 20261124100600).
 -- Rehearse only on an isolated database. Production use needs its own approval.
 -- Order: turn enrollment and message delivery off for every agency, restore the previous frontend, then run
 -- this file with psql as ONE transaction: psql -X -1 -v ON_ERROR_STOP=1 -f <this file>. The file also turns

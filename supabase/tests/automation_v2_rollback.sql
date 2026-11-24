@@ -185,7 +185,7 @@ select pg_temp.ok((select callbacks=1 and receipts=1 and purposes=1 and runs=7 a
 
 -- The operator turns enrollment and delivery off everywhere, then runs the file.
 update private.automation_release_controls set enrollment_enabled=false,dispatch_enabled=false;
-\ir ../migrations/rollback/20261122100600_automation_v2.rollback.sql
+\ir ../migrations/rollback/20261124100600_automation_v2.rollback.sql
 
 -- 1. The first-release functions are back and the V2 observers record nothing.
 select pg_temp.ok(private.automation_block_fields('create_task','1'::jsonb) is null

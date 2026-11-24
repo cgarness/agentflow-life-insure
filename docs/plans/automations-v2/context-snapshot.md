@@ -41,14 +41,14 @@
 
 | File | Content |
 | --- | --- |
-| `20261122100000_automation_v2_authoring.sql` | Step catalog, step details, field validation, saved messages, SMS requirement pinning, publish, overlap, `PT409`. |
-| `20261122100100_automation_v2_events.sql` | Typed and optional contacts, event facts, re-entry scope, disposition and sale observers, appointment state and waits, stop rules, admission. |
-| `20261122100200_automation_v2_tasks.sql` | `tasks.all_day`, `tasks.automation_run_id`, the provenance guard, task receipts. |
-| `20261122100300_automation_v2_appointment_timing.sql` | Appointment booking, reschedule, removal and outcome observers. |
-| `20261122100400_automation_v2_inbound_callbacks.sql` | `public.inbound_callbacks`, the missed-call observer, answer evidence, the four callback functions. |
-| `20261122100500_automation_v2_policy_issuance.sql` | `public.policy_issuance_confirmations`, `confirm_policy_issuance`, the issuance observer. |
-| `20261122100600_automation_v2_runtime.sql` | Claim, finish, `automation_create_task`, message time zone, activity, stop. |
-| `rollback/20261122100600_automation_v2.rollback.sql` | The guarded, data-preserving inverse of all seven. |
+| `20261124100000_automation_v2_authoring.sql` | Step catalog, step details, field validation, saved messages, SMS requirement pinning, publish, overlap, `PT409`. |
+| `20261124100100_automation_v2_events.sql` | Typed and optional contacts, event facts, re-entry scope, disposition and sale observers, appointment state and waits, stop rules, admission. |
+| `20261124100200_automation_v2_tasks.sql` | `tasks.all_day`, `tasks.automation_run_id`, the provenance guard, task receipts. |
+| `20261124100300_automation_v2_appointment_timing.sql` | Appointment booking, reschedule, removal and outcome observers. |
+| `20261124100400_automation_v2_inbound_callbacks.sql` | `public.inbound_callbacks`, the missed-call observer, answer evidence, the four callback functions. |
+| `20261124100500_automation_v2_policy_issuance.sql` | `public.policy_issuance_confirmations`, `confirm_policy_issuance`, the issuance observer. |
+| `20261124100600_automation_v2_runtime.sql` | Claim, finish, `automation_create_task`, message time zone, activity, stop. |
+| `rollback/20261124100600_automation_v2.rollback.sql` | The guarded, data-preserving inverse of all seven. |
 
 The four applied first-release files are unchanged. No existing table's row-level security policy changes. The two new public tables and their access rules are listed for approval in the [release plan](release-plan.md).
 

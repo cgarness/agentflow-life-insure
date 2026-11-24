@@ -10,7 +10,7 @@ net=$(docker inspect -f '{{range $name, $config := .NetworkSettings.Networks}}{{
 [[ "$(docker network inspect -f '{{.Internal}}' "$net")" == true ]]
 source_db=${1:?upgraded database required}
 copy="automation_rollback_rehearsal_$$"
-rollback=20261122100600_automation_v2.rollback.sql
+rollback=20261124100600_automation_v2.rollback.sql
 pg=(docker exec -i -e PGPASSWORD "$db")
 dest=$(docker exec "$db" mktemp -d /tmp/automation-rollback.XXXXXX)
 docker exec "$db" mkdir -p "$dest/tests" "$dest/migrations/rollback"
