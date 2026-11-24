@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { launch, session, restPointer, APP } from '../team-open-local/lib.mjs';
 import { settings, sql, agency, otherAgency, email } from './fixture.mjs';
 import { worker } from './work.mjs';
+import { visibility } from './release-visibility.mjs';
 
 const dir = process.env.AUTOMATION_UI_EVIDENCE || '/tmp/automation-ui-evidence';
 const evidence = { sessions: [] };
@@ -183,14 +184,22 @@ try {
   }
 
   // 2b. An agency outside the Automations pilot has no issuance at all: no control on its client's page and a refused
-  // server write, through the same sale writer and the same requests the app makes.
+  // server write, through the same sale writer and the same requests the app makes. builder.mjs showed the second
+  // agency's builder for its two-author scenario, so it is hidden again first with the same operator tool.
+  sql(`update private.automation_release_controls set enrollment_enabled=false,dispatch_enabled=false where organization_id='${otherAgency}'`);
+  visibility(otherAgency, 'hide');
+  assert.equal(sql(`select coalesce(bool_or(builder_visible or enrollment_enabled or dispatch_enabled),false)
+    from private.automation_release_controls where organization_id='${otherAgency}'`), 'f', 'The second agency is outside the pilot');
+  assert.equal(sql(`select builder_visible from private.automation_release_controls where organization_id='${agency}'`), 't',
+    'The first agency stays in the pilot');
   sql(`insert into public.company_settings(company_name,organization_id,timezone) values ('Automation UI B','${otherAgency}','America/Chicago')
     on conflict do nothing`);
   const outsider = await login('other');
   const today = sql(`select (now() at time zone 'America/Chicago')::date`);
+  const outsideOwner = sql(`select id from public.profiles where email='${email('other')}'`);
   const sale = await rpc(outsider, 'create_client_with_sale', { p_request_id: randomUUID(), p_expected_org: otherAgency, p_record_sale: true,
-    p_client: { first_name: 'Quinn', last_name: 'Outside', policy_type: 'Term', carrier: 'Fixture Life', premium: 60, sold_date: today,
-      payment_frequency: 'monthly' } });
+    p_client: { first_name: 'Quinn', last_name: 'Outside', assigned_agent_id: outsideOwner, policy_type: 'Term', carrier: 'Fixture Life',
+      premium: 60, sold_date: today, payment_frequency: 'monthly' } });
   assert.ok(sale.status >= 200 && sale.status < 300 && sale.body?.client_id, 'Recording the outside sale failed: ' + JSON.stringify(sale));
   const outsideClient = sale.body.client_id;
   const outsidePolicy = sql(`select primary_policy_id from public.clients where id='${outsideClient}'`);

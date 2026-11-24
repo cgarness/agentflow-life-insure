@@ -8,11 +8,11 @@ SELECT line FROM (
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname IN ('public', 'private') AND p.prokind IN ('f', 'p')
   UNION ALL
-  SELECT 'trigger|' || c.oid::regclass || '|' || t.tgname || '|' || md5(pg_get_triggerdef(t.oid)) || '|enabled=' || t.tgenabled
+  SELECT 'trigger|' || c.oid::regclass || '|' || t.tgname || '|' || md5(pg_get_triggerdef(t.oid)) || '|enabled=' || t.tgenabled::text
     FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE NOT t.tgisinternal AND n.nspname IN ('public', 'private', 'auth')
   UNION ALL
-  SELECT 'relation|' || c.oid::regclass || '|' || c.relkind || '|rls=' || c.relrowsecurity || '|force=' || c.relforcerowsecurity
+  SELECT 'relation|' || c.oid::regclass || '|' || c.relkind::text || '|rls=' || c.relrowsecurity || '|force=' || c.relforcerowsecurity
       || '|' || pg_get_userbyid(c.relowner) || '|' || coalesce(c.relacl::text, '')
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname IN ('public', 'private') AND c.relkind IN ('r', 'v', 'm', 'S', 'p')
@@ -28,7 +28,7 @@ SELECT line FROM (
   UNION ALL
   SELECT 'index|' || schemaname || '.' || indexname || '|' || md5(indexdef) FROM pg_indexes WHERE schemaname IN ('public', 'private')
   UNION ALL
-  SELECT 'policy|' || polrelid::regclass || '|' || polname || '|' || polcmd || '|' || polroles::regrole[]::text || '|'
+  SELECT 'policy|' || polrelid::regclass || '|' || polname || '|' || polcmd::text || '|' || polroles::regrole[]::text || '|'
       || md5(coalesce(pg_get_expr(polqual, polrelid), '') || '|' || coalesce(pg_get_expr(polwithcheck, polrelid), ''))
     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname IN ('public', 'private')
