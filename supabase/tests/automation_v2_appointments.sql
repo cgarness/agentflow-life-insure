@@ -895,7 +895,7 @@ update private.automation_runs set status='stopped',reason='Set aside',ended_at=
 insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
   select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),pg_temp.id(11),pg_temp.id(11) from generate_series(87,99) n;
 create function pg_temp.runs_for(workflow_n integer, lead_n integer) returns text language sql as $$
-  select coalesce(string_agg(r.status||':'||coalesce(r.reason,'-'),'; ' order by r.started_at,r.id),'none')
+  select coalesce(string_agg(r.status||':'||coalesce(r.reason,'-'),'; ' order by e.id,r.id),'none')
   from private.automation_runs r join private.automation_events e on e.organization_id=r.organization_id and e.id=r.event_id
   where r.workflow_id=pg_temp.id(workflow_n) and e.subject->>'appointment_id'=(select id::text from booked where n=lead_n)
 $$;
@@ -1580,6 +1580,8 @@ create function pg_temp.reserved(lead_n integer) returns text language sql as $$
     where d.request_key='automation:'||(l.lease->>'run_id')||':text'),'none')
 $$;
 select pg_temp.ok(pg_temp.release(101) and pg_temp.reserved(101)='none','with nothing reserved there is nothing to clear');
+select pg_temp.ok(pg_temp.release(101,gen_random_uuid()),
+  'nothing to clear needs no lease, so a replay after the step moved on goes on to its own receipt');
 select pg_temp.reservation(101,'failed','pre_handoff_cancelled',null);
 select pg_temp.ok(not pg_temp.release(101,gen_random_uuid()) and pg_temp.reserved(101)='failed:pre_handoff_cancelled',
   'a worker without the step''s lease clears nothing');

@@ -365,17 +365,18 @@ end $$;
 -- reservation would otherwise keep the step from ever sending: a reminder refused for sending hours, a daily limit,
 -- delivery being off, a stale reply feed or a calendar save in progress. The worker holding the step's lease clears
 -- it before it reserves again, and only a reservation no provider has seen: cancelled before any handoff, with no
--- provider message, no message written for the step and an intent never handed off. A reservation in any other state
--- is left to the sending path, which never sends it twice.
+-- provider message, no message written for the step and an intent never handed off. A reservation in any other state,
+-- or none, is left to the sending path, which never sends it twice and finds a replay's own receipt.
 CREATE FUNCTION public.automation_release_refused_dispatch(p_run uuid,p_token uuid,p_node text)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE r private.automation_runs; d public.sms_dispatches; request text:='automation:'||p_run::text||':'||p_node;
 BEGIN
-  SELECT * INTO r FROM private.automation_runs WHERE id=p_run AND lease_token=p_token AND current_node_id=p_node
-    AND leased_until>=clock_timestamp() AND status IN ('queued','held','waiting');
+  SELECT * INTO r FROM private.automation_runs WHERE id=p_run;
   IF NOT FOUND THEN RETURN false; END IF;
   SELECT * INTO d FROM public.sms_dispatches WHERE organization_id=r.organization_id AND request_key=request;
-  IF NOT FOUND THEN RETURN true; END IF;
+  IF NOT FOUND OR d.state<>'failed' OR d.error_code IS DISTINCT FROM 'pre_handoff_cancelled' THEN RETURN true; END IF;
+  IF r.lease_token IS DISTINCT FROM p_token OR r.current_node_id IS DISTINCT FROM p_node
+      OR r.leased_until<clock_timestamp() OR r.status NOT IN ('queued','held','waiting') THEN RETURN false; END IF;
   -- The recipient's lock, as the sending path takes it before it cancels or starts a reservation.
   PERFORM private.affinity_lock(r.organization_id,d.phone_e164);
   DELETE FROM public.sms_dispatches s WHERE s.organization_id=r.organization_id AND s.request_key=request
