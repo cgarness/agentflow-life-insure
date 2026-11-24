@@ -211,4 +211,26 @@ describe("Inbounds callbacks", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(screen.getByText("+12025550100")).toBeVisible();
   });
+
+  // An agent can leave the Inbounds room while a claim is on its way. Its answer must not start another read of
+  // the list or update a list nobody is looking at.
+  it.each([
+    ["is confirmed", {data: {id: ID, status: "claimed", claimed_by: "me"}, error: null}],
+    ["is refused", {data: null, error: {code: "PT409", message: "Someone else already claimed this callback."}}],
+  ])("asks nothing more when a claim %s after the list has closed", async (_outcome, answer) => {
+    let answerClaim!: (value: unknown) => void;
+    const base = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (name: string, args: unknown) => {
+      if (name === "claim_inbound_callback") return new Promise(resolve => { answerClaim = resolve; });
+      return base(name, args);
+    });
+    const view = render(<RoomCallbacks/>);
+    fireEvent.click(await screen.findByRole("button", {name: CLAIM}));
+    await waitFor(() => expect(calls("claim_inbound_callback")).toHaveLength(1));
+    const reads = calls("inbound_callback_queue").length;
+    view.unmount();
+    answerClaim(answer);
+    await new Promise(settle => setTimeout(settle, 0));
+    expect(calls("inbound_callback_queue")).toHaveLength(reads);
+  });
 });

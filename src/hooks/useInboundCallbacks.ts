@@ -19,10 +19,13 @@ export function useInboundCallbacks() {
   const acting = useRef(false);
   /** The server said this agency has no callback list (outside the Automations pilot), so the timer stops asking. */
   const unavailable = useRef(false);
+  /** False once the work area closes, so an action answered afterwards neither reads the list again nor updates it. */
+  const open = useRef(true);
 
   // A notice explains the list the agent is looking at, so it stays through the read that follows its action and
   // clears once a later read succeeds.
   const refresh = useCallback(async (keepNotice = false) => {
+    if (!open.current) return;
     const serial = ++request.current;
     try {
       const next = await callbackQueue();
@@ -36,11 +39,12 @@ export function useInboundCallbacks() {
   }, []);
 
   useEffect(() => {
+    open.current = true;
     void refresh();
     const timer = window.setInterval(() => {
       if (!document.hidden && !acting.current && !unavailable.current) void refresh();
     }, REFRESH_MS);
-    return () => { window.clearInterval(timer); ++request.current; };
+    return () => { open.current = false; window.clearInterval(timer); ++request.current; };
   }, [refresh]);
 
   const act = useCallback(async (action: CallbackAction, item: InboundCallback) => {
@@ -50,10 +54,11 @@ export function useInboundCallbacks() {
     try {
       await ACTIONS[action](item.id);
     } catch (failure) {
-      setNotice(failure instanceof Error ? failure.message : "The callback could not be updated. Try again.");
+      if (open.current) setNotice(failure instanceof Error ? failure.message : "The callback could not be updated. Try again.");
     } finally {
       await refresh(true);
-      acting.current = false; setBusy(null);
+      acting.current = false;
+      if (open.current) setBusy(null);
     }
   }, [refresh]);
 
