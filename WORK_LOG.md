@@ -6,22 +6,46 @@ Chris approved five items of isolated branch work and synthetic verification for
   - Issuance confirmation, the callback list and the phone contact pan stay on the builder flag. CG Financial is production's only agency with it (read this round), and the release preflight now stops if another agency has it.
   - The 768 to 1023 px clipping is cgarness/agentflow-life-insure#538.
   - The three teardown timers are cgarness/agentflow-life-insure#539 to #541. Their reproduction and proposed patches are kept in `docs/plans/2026-11-24-test-teardown-timers` (`6653b09`).
-- **A booking first seen cancelled.** When the appointment is reopened at a time still to come, each eligible automation with no run for it starts exactly one reminder run, paced from the reopening. A second worker seeing the same reopening starts nothing more.
+- **A booking first seen cancelled.** When the appointment is reopened at a time still to come, each automation that followed it starts exactly one reminder run, paced from the recorded reopening. A second worker seeing the same reopening starts nothing more.
+  - Such a booking is judged as the run that followed the appointment would have been. A reply, a conversation or another booking since the automation began following the appointment ends it, whether or not the worker saw the booking before the cancellation. This holds even when one calendar save moves and reopens the appointment.
+  - A pause around the move keeps the booking for when the automation resumes, and a run that already finished for the old time no longer blocks the new time's reminders.
 - **Late answers retried.**
   - A cleanup a busy task or callback holds up is recorded, and the worker finishes it at the end of each event pass. The call write is never held up or aborted.
   - An accepted, bridged phone leg counts as an answer even before the call row catches up.
   - The callback list, its counts and claiming use the same answer rule. Records that disagree stay claimable.
 - **The last check before a provider.**
-  - A lease records the appointment slot it describes. The final authorization share-locks the appointment and refuses a message whose run would stop, whose slot moved, or whose reminder was for another time. The worker asks the same question before it reserves an SMS request.
-  - A reminder whose appointment moved with no restart pending is skipped, and the run goes on to its next step.
+  - A lease records the appointment slot it describes. The final authorization share-locks the appointment, waiting at most half a second for a save in progress. It refuses a message whose run would stop, whose appointment moved or has started, or whose reminder was for another time. The worker asks the same question before it reserves an SMS request.
+  - A text refused before its handoff no longer leaves its step unable to send, which happened in the pilot's sticky SMS mode for any refusal (sending hours, a limit, delivery off). The next lease releases the cancelled reservation and reserves again.
+  - A reminder whose appointment moved with no restart pending is skipped, and the run goes on to its next step. One moved away and back to the same time still goes out; one held past the appointment's start is skipped.
   - `automation_authorize_handoff` is now the seventeenth first-release function V2 replaces. Production's copy was confirmed identical to the first release before the rollbacks were regenerated.
 - **Complete-schema rehearsal, verified target.**
   - `release-full` takes the bundle and, separately, receipts read through another channel within two hours of the dump.
   - Every migration and rollback target is a faithful copy checked against the receipt, or against the database it was copied from, in all 34 families of the format 2 fingerprint. That includes the managed schemas and their privileges.
-  - A restore parses stored expressions again and can reorder privileges, so only a restored copy is compared without parentheses and with privileges sorted, and the output names the families affected.
-  - `release-full-synthetic.sh` refuses nine wrong inputs and passes the full run. The operator's part is scripted ([handoff](docs/plans/automations-v2/complete-schema-handoff.md)).
+  - A restored copy must match the receipt exactly in 27 families. The seven holding parsed expressions may match on PostgreSQL's precedence-aware printing, because a restore flattens nested AND and OR chains. The first version removed every parenthesis, which would have let a regrouped policy pass.
+  - Receipts must come through another connection and at another moment than the bundle's readings.
+  - `release-full-synthetic.sh` refuses twelve wrong inputs, including an archive with one policy regrouped after its readings, and passes the full run. The operator's part is scripted for Linux or a Mac ([handoff](docs/plans/automations-v2/complete-schema-handoff.md)).
 
-<!-- independent review and verification for this round follow when they finish -->
+- **Independent review (round 6).** Five reviewers reported 23 findings (3 high), and the verifiers they had confirmed 10 of 12. The `release-full` and packet verifiers were stopped by a usage limit, so those 11 findings were reproduced again before they were fixed. Fixed in `5252eca`, `e076ade` and `ac64770`:
+  - stop on reply bypassed by one save that moves and reopens;
+  - the pilot's sticky SMS mode losing a refused text for good;
+  - a regrouped policy passing the target check;
+  - a pause or a finished run losing the reopened time's reminders;
+  - an unrelated save refusing a reminder;
+  - a reminder sent after its appointment started;
+  - receipts made from the bundle passing;
+  - the Mac path failing on bash 3.2 and missing GNU tools;
+  - stale checksums.
+- **Kept, as a decision.** After a reply, a conversation or another booking ended the reminders, an ordinary reschedule of an appointment that stood starts them again for the new time. That is the established behavior; the tests pin it and the release plan lists the decision.
+- **Verified at `ac64770`.**
+  - Root and app TypeScript (78 diagnostics, as on the base) and the build pass.
+  - Full Vitest: 7,473 passed, 40 skipped, 1 failed, in the nine files that fail on the base.
+  - Deno 41 passed.
+  - All 14 automation SQL suites pass.
+  - Eleven two-connection checks pass.
+  - The harness passes: builder 491 s with the new native refusal and retry, install-stops 119 s, release 147 s, backend-first 125 s.
+  - `release-full-synthetic.sh` passes in 213 s (twelve refusals; 33 of 34 families exact).
+  - GitHub Actions: all 25 jobs passed on their first run.
+  - The dependency check was read again on production (read-only, digests only).
 
 ## November 24, 2026 — Automations V2 brought up to date with production, six approved fixes, stopped-installation rehearsal · draft, nothing released
 

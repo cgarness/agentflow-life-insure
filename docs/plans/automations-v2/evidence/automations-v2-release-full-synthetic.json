@@ -1,0 +1,22 @@
+{
+  "result": "pass",
+  "postgres_image": "supabase/postgres:17.6.1.085",
+  "receipt_sha256": "1ce1875548c6f24f929b9012fa02aca599bd1a139420d6a9b391dbca3f0aad50",
+  "receipt_captured_at": "2026-11-24T22:26:15.579511Z",
+  "receipt_client": "agentflow-receipt-channel",
+  "fingerprint_families": 34,
+  "families_matched_exactly": 33,
+  "families_matched_on_precedence_aware_printing": [
+    "constraints"
+  ],
+  "matched_receipt": [
+    "restored primary",
+    "after Auth start",
+    "install_base",
+    "rollback rehearsal target",
+    "install_base after the rehearsals"
+  ],
+  "install_stop_targets_verified": 35,
+  "install_stops": "pass",
+  "rollback_rehearsal_on_v2_work": "pass"
+}

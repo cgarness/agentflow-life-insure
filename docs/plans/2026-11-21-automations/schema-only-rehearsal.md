@@ -22,7 +22,9 @@ The production fingerprint matched in two independent reads on November 21, 2026
   - `SHA256SUMS` over the six files.
 
   It connects read-only through the operator's own libpq settings and `~/.pgpass`, and prints checksums and counts only.
-- **[`capture-receipts.sh`](../../../e2e/automations-local/capture-receipts.sh)** reads the three independent receipts through the Supabase Management API, a channel separate from the database connection the dump uses. Claude's read-only connector can read them instead.
+- **[`capture-receipts.sh`](../../../e2e/automations-local/capture-receipts.sh)** reads the three independent receipts through the Supabase Management API, a channel separate from the database connection the dump uses. Each reading names its connection (`mgmt-api` for the Management API, `agentflow-schema-bundle` for the bundle's), so the two can be told apart.
+
+Both scripts, and `run.sh release-full`, run on Linux or on macOS 13 or newer with bash 4.4 or newer (Homebrew's `bash` on a Mac) and need no GNU coreutils.
 
 The bundle now stays on the operator's computer. `run.sh release-full` runs there, and only its pass lines and evidence files (counts, digests, timings) are sent back. If a bundle ever has to leave that computer, first review it for secrets and private content: routine bodies, view definitions, defaults, comments, and role and database settings, including `ALTER ROLE … SET` and `ALTER DATABASE … SET` values in `roles.sql`. A PostgreSQL data backup, a Supabase Restore action, a production database branch and a raw cron job export each exceed this procedure.
 
@@ -41,7 +43,8 @@ ARCHIVE holds:
 RECEIPTS holds `schema-fingerprint.json`, `canonical.json` and `auth.json`. No receipt comes from this checkout any more: the November 21 readings are format 1, and the November 24 one was read under another `search_path`. Neither can serve as the reference.
 
 Before anything is restored, [`receipts.py`](../../../e2e/automations-local/receipts.py) refuses the run when:
-- the receipts sit inside the bundle, or are copies of its files;
+- the receipts sit inside the bundle, or are copies of its files, byte for byte or reformatted;
+- the schema receipt was read through the bundle's own connection, or at the moment of one of its readings;
 - a fingerprint is not format 2;
 - a capture time is more than two hours from the dump, or the readings are more than 72 hours old;
 - the archive was not made between its two readings;
@@ -49,13 +52,13 @@ Before anything is restored, [`receipts.py`](../../../e2e/automations-local/rece
 
 `restore-full.sh` then restores the archive with PostgreSQL 17 `pg_restore --create --exit-on-error`, as before (managed role inventory, GraphQL bootstrap order). After that:
 
-- **The restored database** must match the receipt in every [schema fingerprint](../../../e2e/automations-local/schema-fingerprint.sql) family, before and after Auth starts. A restore parses stored expressions again and can print them with fewer parentheses, so this one comparison leaves parentheses out and names the families it affected.
+- **The restored database** must match the receipt in every [schema fingerprint](../../../e2e/automations-local/schema-fingerprint.sql) family, before and after Auth starts. It must match exactly in 27 of the 34 families. A restore parses stored expressions again and flattens nested AND and OR chains. So the seven families that hold them (columns, constraints, indexes, views, triggers, policies, rules) may instead match on PostgreSQL's precedence-aware printing, which reads the same for a flattened chain and its nested original but differs for any regrouping. The output and the evidence file name the families that matched that way.
 - **The installation base** is a faithful template copy of that database ([`faithful-copy.sh`](../../../e2e/automations-local/faithful-copy.sh)), checked against it and against the receipt.
 - **Every interrupted-install copy and the rollback rehearsal copy** are checked against the database they were copied from before anything is applied to them.
 
 The rehearsal that failed on a filtered `pg_dump` copy (no cron schema, no GraphQL wrapper privileges, no database privileges or settings) is gone. The base keeps all of those. The cluster runs without the pg_cron and pg_net workers only while the primary database itself is copied.
 
-Set `LOCAL_POSTGRES_IMAGE` only for a synthetic run. The session family fails the run when production's server version differs from the image. `e2e/automations-local/release-full-synthetic.sh` runs the whole path against a stand-in source, with nine refusals, and passes.
+Set `LOCAL_POSTGRES_IMAGE` only for a synthetic run. The session family fails the run when production's server version differs from the image. `e2e/automations-local/release-full-synthetic.sh` runs the whole path against a stand-in source, with twelve refusals (among them an archive with one policy regrouped after its readings), and passes.
 
 ## Repository catalog and bucket equivalence
 
@@ -64,7 +67,7 @@ AgentFlow invariant 25 names the per-object and per-kind repository queries as i
 The bundle carries the canonical reading taken right after the dump, and RECEIPTS carries an independent one. Both now record their capture time and a digest per row kind.
 - The two readings, both of the source itself, must match exactly.
 - On the restored copy, every kind's row count must match. So must the bucket digest, the two query digests and every kind a restore stores identically.
-- Kinds that hash stored expressions or raw privilege arrays (column, constraint, index, policy, trigger, function, view, type, grants, sequence, column privileges and default privileges) can be stored differently by a restore without changing. Their content is compared through the schema fingerprint, which sorts privileges and leaves parentheses out, and the output names them.
+- Kinds that hash stored expressions or raw privilege arrays (column, constraint, index, policy, trigger, function, view, type, grants, sequence, column privileges and default privileges) can be stored differently by a restore without changing. Their content is compared through the schema fingerprint, which sorts privileges and compares function bodies and every other family exactly, and the expression families on PostgreSQL's precedence-aware printing. The output names them.
 
 Schema-only archives omit bucket configuration rows. Before a user fixture or feature migration, the isolated harness applies only the configuration inserts from Appendix B of the August baseline and the September voicemail migration. These sources define seven platform buckets. On November 21 an isolated PostgreSQL 17 smoke test reconstructed those definitions and matched the production bucket-family digest. Changing a single bucket's visibility caused the per-object, per-kind and bucket comparisons to fail. The verifier also rejected a missing source receipt. Existing conflicting definitions and extra buckets remain visible to the comparison. On unexpected drift, hold the rehearsal and review the configuration provenance. If the source of record has changed, an operator can supply an approved private JSON array using `AUTOMATIONS_BUCKET_CONFIG`. Each item accepts only `id`, `public`, `file_size_limit` and `allowed_mime_types`. The harness derives the bucket name from its ID, writes only to its singleton internal test database, and requires the project's independently captured canonical digest. Copying objects, file contents, owner rows or customer data is outside this procedure. [Verifier](../../../e2e/automations-local/verify-canonical.sh)
 

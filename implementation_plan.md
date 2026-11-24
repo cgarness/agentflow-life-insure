@@ -9,15 +9,19 @@ Chris approved, for draft PR #536 only, five items of isolated branch work and s
    - The three teardown timers are cgarness/agentflow-life-insure#539, #540 and #541. Their reproduction and proposed patches are committed in `docs/plans/2026-11-24-test-teardown-timers/` (`6653b09`); none is applied.
 2. **release-full verifies the real target.** `run.sh release-full ARCHIVE RECEIPTS`:
    - It takes receipts read through another channel within two hours of the dump. It refuses receipts that sit in, or copy, the bundle, the old format, and stale or mismatched readings.
-   - The schema fingerprint is format 2. It has 34 families, including managed schemas, catalog-object and parameter privileges, security labels, sequence ownership, and the session it was read under. It also records a parenthesis-insensitive digest, because a restore parses stored expressions again.
+   - The schema fingerprint is format 2. It has 34 families, including managed schemas, catalog-object and parameter privileges, security labels, sequence ownership, partition keys, replica identity, and the session it was read under (`bytea_output` pinned). Each reading names its connection.
+   - A restored copy must match exactly in 27 families. The seven holding parsed expressions (columns, constraints, indexes, views, triggers, policies, rules) may match on PostgreSQL's precedence-aware printing instead, because a restore flattens nested AND and OR chains. Regrouping still differs.
+   - Receipts read through the bundle's connection, at the moment of one of its readings, or copied from a bundle file (reformatted included) are refused.
    - The installation base and every interrupted-install and rollback-rehearsal copy are faithful template copies (`faithful-copy.sh`), each checked against the receipt or its source before anything is applied. The cluster runs without the pg_cron and pg_net workers only while the primary database itself is copied.
    - The full rollback also runs on real V2 work on a verified copy.
    - The canonical reading gained per-kind digests. On a restored copy it compares counts and the kinds a restore stores identically exactly.
-   - New scripts: `make-schema-bundle.sh` (operator), `capture-receipts.sh` (Management API receipts), `release-full-synthetic.sh` (stand-in source, nine refusals, full run).
+   - New scripts: `make-schema-bundle.sh` (operator), `capture-receipts.sh` (Management API receipts), `release-full-synthetic.sh` (stand-in source, twelve refusals, full run) and `regroup-policy.py` (the regrouped-policy refusal). The operator scripts refuse bash older than 4.4 and need no GNU coreutils.
    - The operator handoff is `docs/plans/automations-v2/complete-schema-handoff.md`. Only Chris can make the bundle; he holds the database password.
 3. **A booking first processed while cancelled.**
    - `automation_admit_event` paces a run from the latest reopening after the booking.
-   - `automation_refresh_appointment_runs` admits the booking once, on each automation that has no run for the appointment, when it stands again at a time still to come. Admission's own eligibility applies, and a reply after the first booking keeps a stop-on-reply automation from starting.
+   - `automation_refresh_appointment_runs` admits the booking once, on each automation that followed the appointment (`private.automation_following_since`), when it stands again at a time still to come. Admission refuses while a run follows the appointment; a run that finished for an earlier time does not block. It takes the interval on at the slot's booking, else at the reopening, else the one that followed the appointment (deferred while paused).
+   - A booking taken up because its appointment was reopened (reopened after it, or its slot opened by a save made while cancelled) counts its stop rules from the following start (`private.automation_contact_stop` and the reply watermark). An ordinary move keeps counting from its own booking (a product decision, recorded in the release plan).
+   - A restarted run keeps admission's pace from the recorded reopening, and a carried-on run counts from the recorded reopening, not from when the worker saw it.
 4. **Retryable late-answer cleanup; one answer rule.**
    - The answered-call observer records a cleanup a busy row held up in `private.automation_answer_settlements` (`automation_note_answer_settlement`, 200 ms). It never holds up or aborts the call write.
    - `automation_retry_answer_settlements`, run at the end of each event pass, re-checks the answer and finishes the cleanup. It backs off from two minutes, doubling, to at most an hour, and keeps the record after seven days.
@@ -25,23 +29,37 @@ Chris approved, for draft PR #536 only, five items of isolated branch work and s
    - The callback list, its counts and claim use `automation_inbound_evidence`. Conflicting records stay listed and claimable.
 5. **The last check before a provider.**
    - `automation_runs.leased_for` records the slot a lease describes.
-   - `automation_authorize_handoff` (now the seventeenth first-release function V2 replaces, verified identical to production before replacing) share-locks the appointment (NOWAIT). It refuses when `private.automation_message_issue` reports a stop fact, a leased or reminded slot that is no longer current, or a calendar start that differs from the slot's.
+   - `automation_authorize_handoff` (now the seventeenth first-release function V2 replaces, verified identical to production before replacing) share-locks the appointment, waiting at most 500 ms. It refuses when `private.automation_message_issue` reports a stop fact, a leased or reminded slot whose time is not current, a calendar start that differs from the slot's, or a message timed before an appointment that has started.
    - The worker asks `automation_message_check` before it reserves an SMS request. It skips the question once a step's intent is past `prepared`, so a replay keeps its receipt.
-   - `automation_claim_work` skips a reminder whose appointment moved when no restart is pending, and the run goes on.
+   - The worker then calls `automation_release_refused_dispatch`, which clears only the step's own reservation, and only when it was cancelled before any handoff with no provider message and an intent still `prepared`. A refusal therefore no longer leaves the step unable to send in sticky mode.
+   - `automation_claim_work` skips a reminder whose appointment moved when no restart is pending, and a message timed before an appointment that has started; the run goes on. An appointment moved away and back to the same time keeps its reminder.
 
 **Migrations.** The changes are in place in `20261124100100` (admission, refresh, the run column, the retry call), `20261124100400` (evidence order, the cleanup table and its functions, the observer, list and claim) and `20261124100600` (claim, the message check, authorization). Both rollbacks are regenerated: seventeen restored bodies, and a recorded cleanup counts as V2 work for the back-out.
 
 **Files edited, besides the migrations and their rollbacks.**
 - Tests: `supabase/tests/automation_v2_appointments.sql`, `automation_v2_inbound.sql`, `automation_v2_rollback.sql`.
 - Worker: `supabase/functions/_shared/automations/channel.ts` and `channel_test.ts`.
-- Native tests: `scripts/tests/automations/channel-transport.ts`, and new `appointment-handoff-fixture.sql`, `appointment-handoff-native.ts` and `appointment-handoff-check.sql`.
+- Native tests: `scripts/tests/automations/channel-transport.ts`, and new `appointment-handoff-fixture.sql`, `appointment-handoff-native.ts`, `appointment-handoff-check.sql`, `appointment-refusal.sql` and `appointment-refusal-native.ts`.
 - Harness: `e2e/automations-local/run.sh`, `install-stops.sh`, `rollback-rehearsal.sh`, `restore-full.sh`, `verify-canonical.sh`, `restore-auth-state.sh`, `schema-fingerprint.sql`, `canonical-receipt.py`, `concurrency_v2.py`, `release-cutover.mjs` and `README.md`; new `receipts.py`, `faithful-copy.sh`, `make-schema-bundle.sh`, `capture-receipts.sh`, `auth-receipt.sql`, `auth-versions.sql` and `release-full-synthetic.sh`.
 - Ops: `supabase/ops/automation_v2_dependency_check.sql`.
 - Docs: `AGENT_RULES.md`, `WORK_LOG.md`, `docs/plans/automations-v2/release-plan.md`, `context-snapshot.md` and new `complete-schema-handoff.md`; `docs/plans/2026-11-21-automations/schema-only-rehearsal.md` and `auth-runtime-rehearsal.md`; new `docs/plans/2026-11-24-test-teardown-timers/`.
 
 **Verification commands.** In addition to the earlier list: `bash e2e/automations-local/release-full-synthetic.sh`; `python3 e2e/automations-local/concurrency_v2.py` (inside `run.sh`); the native step of `run.sh` (builder) now includes `appointment-handoff-native.ts`.
 
-<!-- review and verification results are added below when they finish -->
+**Review and fixes (round 6).** Five independent reviewers reported 23 findings, 3 high. Verifiers confirmed 10 of the 12 they checked; the release-full and packet verifiers were stopped by a usage limit, so those findings were reproduced here first. Every code fix has a check that fails on `ad0f293`.
+- Reopened bookings judged from the following start.
+- A refused text released on the next lease (`automation_release_refused_dispatch`).
+- A 500 ms wait for an appointment save in progress.
+- A message held past its appointment's start skipped.
+- A move away and back kept.
+- The exact and precedence-aware comparison, and receipts tied to their connection.
+- bash 4.4 and no GNU coreutils for the operator scripts.
+- Twelve synthetic refusals.
+- The dependency check extended to `sms_dispatches`, `automation_messages` and `affinity_lock` (39 relations, 39 functions, 68 names) and read again on production.
+
+The two refuted findings, stop rules across an ordinary reschedule, are kept as they were and listed for Chris's decision.
+
+**Verified at `ac64770`.** Root and app TypeScript (78, as on the base), the build, full Vitest (7,473 passed, 40 skipped, 1 failed in the base's nine files), Deno (41), all SQL suites, `concurrency_v2.py` (11), all four harness modes, `release-full-synthetic.sh` and GitHub Actions (25 of 25).
 
 **Boundaries.** No push to main, merge, deployment, production migration, release-control change, enrollment, schedule or message. Production was read only: release controls, the replaced function's digest, the migration ledger and a format 2 schema fingerprint. The complete-schema run itself needs Chris's bundle (handoff above).
 
