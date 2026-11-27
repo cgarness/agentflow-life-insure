@@ -45,20 +45,21 @@ RECEIPTS holds `schema-fingerprint.json`, `canonical.json` and `auth.json`. No r
 Before anything is restored, [`receipts.py`](../../../e2e/automations-local/receipts.py) refuses the run when:
 - the receipts sit inside the bundle, or are copies of its files, byte for byte or reformatted;
 - the schema receipt was read through the bundle's own connection, or at the moment of one of its readings;
-- a fingerprint is not format 2;
+- any receipt was read through another connection than the Management API's own (`mgmt-api`);
+- a fingerprint is not format 3;
 - a capture time is more than two hours from the dump, or the readings are more than 72 hours old;
 - the archive was not made between its two readings;
 - the readings differ from each other or from the receipt.
 
 `restore-full.sh` then restores the archive with PostgreSQL 17 `pg_restore --create --exit-on-error`, as before (managed role inventory, GraphQL bootstrap order). After that:
 
-- **The restored database** must match the receipt in every [schema fingerprint](../../../e2e/automations-local/schema-fingerprint.sql) family, before and after Auth starts. It must match exactly in 27 of the 34 families. A restore parses stored expressions again and flattens nested AND and OR chains. So the seven families that hold them (columns, constraints, indexes, views, triggers, policies, rules) may instead match on PostgreSQL's precedence-aware printing, which reads the same for a flattened chain and its nested original but differs for any regrouping. The output and the evidence file name the families that matched that way.
+- **The restored database** must match the receipt in every [schema fingerprint](../../../e2e/automations-local/schema-fingerprint.sql) family, before and after Auth starts. It must match exactly in every family but seven (29 of the 36 production held when read on November 25), each definition compared field by field, the definitions of what initdb created in the system schemas (`builtins`) included. A restore parses stored expressions again and flattens nested AND and OR chains. So the seven families that hold them (columns, constraints, indexes, views, triggers, policies, rules) may instead match on PostgreSQL's precedence-aware printing, which reads the same for a flattened chain and its nested original but differs for any regrouping. The output and the evidence file name the families that matched that way.
 - **The installation base** is a faithful template copy of that database ([`faithful-copy.sh`](../../../e2e/automations-local/faithful-copy.sh)), checked against it and against the receipt.
 - **Every interrupted-install copy and the rollback rehearsal copy** are checked against the database they were copied from before anything is applied to them.
 
 The rehearsal that failed on a filtered `pg_dump` copy (no cron schema, no GraphQL wrapper privileges, no database privileges or settings) is gone. The base keeps all of those. The cluster runs without the pg_cron and pg_net workers only while the primary database itself is copied.
 
-Set `LOCAL_POSTGRES_IMAGE` only for a synthetic run. The session family fails the run when production's server version differs from the image. `e2e/automations-local/release-full-synthetic.sh` runs the whole path against a stand-in source, with twelve refusals (among them an archive with one policy regrouped after its readings), and passes.
+Set `LOCAL_POSTGRES_IMAGE` only for a synthetic run. The session family fails the run when production's server version differs from the image. `e2e/automations-local/release-full-synthetic.sh` runs the whole path against a stand-in source, with sixteen refusals (among them four archives edited after their readings: a policy regrouped, a policy condition moved from USING to WITH CHECK, a built-in cast, a `pg_catalog` function and a disabled foreign key added, and built-ins changed), and passes.
 
 ## Repository catalog and bucket equivalence
 

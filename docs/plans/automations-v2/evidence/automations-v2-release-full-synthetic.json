@@ -1,11 +1,11 @@
 {
   "result": "pass",
-  "postgres_image": "supabase/postgres:17.6.1.085",
-  "receipt_sha256": "1ce1875548c6f24f929b9012fa02aca599bd1a139420d6a9b391dbca3f0aad50",
-  "receipt_captured_at": "2026-11-24T22:26:15.579511Z",
+  "postgres_image": "supabase/postgres:17.6.1.063",
+  "receipt_sha256": "c04e43b281a5ba5a06c6b92922038bfa4096ddcef90d337db2ae0c6f5318c645",
+  "receipt_captured_at": "2026-11-27T05:46:46.330661Z",
   "receipt_client": "agentflow-receipt-channel",
-  "fingerprint_families": 34,
-  "families_matched_exactly": 33,
+  "fingerprint_families": 35,
+  "families_matched_exactly": 34,
   "families_matched_on_precedence_aware_printing": [
     "constraints"
   ],
