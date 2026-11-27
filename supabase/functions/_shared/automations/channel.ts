@@ -211,6 +211,17 @@ export async function dispatchChannel(
     }
     return await accepted(payload.id);
   } catch (error) {
+    if (channel === "sms" && !handedOff) {
+      // A reservation this attempt left unsent is cancelled in every texting mode (only while it is still unsent), so
+      // the next lease releases it and reserves the text as it is written then, for a new time included.
+      try {
+        await db.rpc("sms_cancel_prepared_dispatch", {
+          p_org: claim.organization_id, p_key: `automation:${claim.run_id}:${claim.node_id}`,
+        });
+      } catch {
+        // The hold below stands either way; the next attempt finds the reservation as it is.
+      }
+    }
     if (channel === "sms" && handedOff) {
       const stored = await db.from("sms_dispatches").select("state").eq(
         "organization_id",

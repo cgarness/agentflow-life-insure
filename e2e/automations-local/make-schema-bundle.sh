@@ -38,9 +38,23 @@ bounded() {
 }
 sql <<<'SELECT 1' >/dev/null || fail 'Could not connect read-only. Check ~/.pgpass and the libpq settings (a pooler that refuses startup options needs AGENTFLOW_NO_PGOPTIONS=1).'
 [[ $(sql <<<'SELECT current_database()') == postgres ]] || fail 'The connection must select database postgres.'
+# pg_dump leaves out an index that a failed or interrupted CREATE INDEX, REINDEX or DROP INDEX CONCURRENTLY left behind
+# (an invalid one, unless it belongs to a partitioned table), so the restored copy could not match. Only a count is printed.
+n=$(sql <<<"SELECT count(*) FROM pg_index i JOIN pg_class t ON t.oid=i.indrelid JOIN pg_namespace s ON s.oid=t.relnamespace WHERE s.nspname!~'^pg_' AND s.nspname<>'information_schema' AND NOT ((i.indisvalid OR t.relkind='p') AND i.indisready)")
+[[ $n == 0 ]] || fail "$n invalid indexes (left by a failed or interrupted CREATE INDEX, REINDEX or DROP INDEX CONCURRENTLY) are never dumped, so the restored copy cannot match. Stop and send this line; removing or rebuilding them on production is a separate decision."
+# A table keeps its TOAST table, and that table's storage settings (toast.*), after the last column that needed one is
+# dropped. pg_dump writes the settings on the table, but the restore's CREATE TABLE makes a TOAST table only for a
+# column of unbounded length that can be stored out of line (attlen -1, a type whose storage is not plain, and no length
+# limit on bpchar, varchar, numeric, bit or varbit), so the settings are lost and the restored copy cannot match.
+n=$(sql <<<"SELECT count(*) FROM pg_class c JOIN pg_namespace s ON s.oid=c.relnamespace JOIN pg_class t ON t.oid=c.reltoastrelid WHERE s.nspname!~'^pg_' AND s.nspname<>'information_schema' AND t.reloptions IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_type y ON y.oid=a.atttypid WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attlen=-1 AND y.typstorage<>'p' AND (a.atttypmod<0 OR NOT (y.typnamespace='pg_catalog'::regnamespace AND y.typname IN ('bpchar','varchar','numeric','bit','varbit'))))")
+[[ $n == 0 ]] || fail "$n tables keep TOAST storage settings (toast.*) on a TOAST table a restore would not create, because no remaining column needs one, so the restored copy cannot match. Stop and send this line; changing those tables on production is a separate decision."
 # The same reading on both sides of the dump shows nothing changed while it ran.
 sql <e2e/automations-local/schema-fingerprint.sql >"$out/source-fingerprint-before.json"
 bounded 600 "${bin}pg_dump" --no-password --schema-only --format=custom --lock-wait-timeout=2s >"$out/agentflow-schema.dump"
+# What the dump cannot carry: who owns each extension and its members, the initial privileges extension scripts
+# recorded, and the shared dependencies PostgreSQL keeps for them. restore-full.sh reproduces it on the restored copy,
+# which the receipt then checks.
+sql <e2e/automations-local/extension-ownership.sql >"$out/extension-ownership.json"
 sql <e2e/automations-local/schema-fingerprint.sql >"$out/source-fingerprint.json"
 python3 e2e/automations-local/canonical-receipt.py query | sql >"$out/canonical-source.json"
 sql <e2e/automations-local/auth-versions.sql >"$out/auth-schema-migrations.txt"
@@ -54,15 +68,21 @@ import json, sys
 from pathlib import Path
 out = Path(sys.argv[1])
 before, after = (json.loads((out / name).read_text()) for name in ('source-fingerprint-before.json', 'source-fingerprint.json'))
-if before.get('format') != 'agentflow-schema-fingerprint/2' or before['families'] != after['families']:
+if before.get('format') != 'agentflow-schema-fingerprint/3' or before['families'] != after['families']:
     sys.exit('The schema changed while it was being dumped. Run this again into a new directory.')
 if json.loads((out / 'canonical-source.json').read_text()).get('captured_at') is None:
     sys.exit('The canonical reading has no capture time.')
+ownership = json.loads((out / 'extension-ownership.json').read_text())
+if ownership.get('format') != 'agentflow-extension-ownership/2':
+    sys.exit('The extension ownership reading is not format 2.')
 print(f"Read {len(after['families'])} fingerprint families before and after the dump; they match.")
+print(f"Read the owners of {len(ownership['extensions'])} extensions and {len(ownership['members'])} of their members, "
+      f"{len(ownership['initial_privileges'])} initial privileges extension scripts recorded, and "
+      f"{len(ownership['shared_dependencies'])} shared dependencies on roles PostgreSQL keeps for them.")
 PY
 # Checksums in sha256sum's own format, computed in Python so no GNU tool is needed.
 python3 - "$out" agentflow-schema.dump roles.sql source-fingerprint-before.json source-fingerprint.json \
-  canonical-source.json auth-schema-migrations.txt <<'PY'
+  canonical-source.json auth-schema-migrations.txt extension-ownership.json <<'PY'
 import hashlib, sys
 from pathlib import Path
 out = Path(sys.argv[1])

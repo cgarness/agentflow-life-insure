@@ -25,6 +25,7 @@ declare
   origin private.automation_events;
   slot_id uuid;
   slot_start timestamptz;
+  calendar_start timestamptz;
   token uuid;
   previous_intent text;
   cutoff timestamptz := clock_timestamp();
@@ -58,9 +59,13 @@ begin
       select * into origin from private.automation_events ev where ev.id=run.event_id and ev.organization_id=run.organization_id;
       slot_id:=null;
       slot_start:=null;
+      calendar_start:=null;
       if origin.event_type='appointment_booked' then
         select s.occurrence_id,s.starts_at into slot_id,slot_start
           from private.automation_appointment_state(run.organization_id,nullif(origin.subject->>'appointment_id','')::uuid) s;
+        select a.start_time into calendar_start from public.appointments a
+          where a.organization_id=run.organization_id and a.id=nullif(origin.subject->>'appointment_id','')::uuid;
+        calendar_start:=coalesce(calendar_start,slot_start);
       end if;
       -- An appointment moved away and back to the time a reminder was for is still at that time, so the reminder still
       -- describes it: the run follows the slot the appointment is in now.
@@ -74,6 +79,18 @@ begin
       update private.automation_runs set lease_token=token,leased_until=clock_timestamp()+interval '2 minutes',leased_for=slot_id,
           reminded_for=run.reminded_for,anchor_id=run.anchor_id,anchor_at=run.anchor_at
         where id=run.id;
+      -- A message whose provider result arrived while its run was stopped (a cancellation before the receipt) is
+      -- finished from that result when the run carries on, never handed out again: written again for another time,
+      -- it could not replay the accepted request.
+      if node->>'type' in ('send_sms','send_email') then
+        select i.status into previous_intent from private.automation_intents i where i.organization_id=run.organization_id
+          and i.run_id=run.id and i.node_id=run.current_node_id;
+        if previous_intent in ('accepted','failed') then
+          perform public.automation_finish_node(run.id,token,previous_intent,
+            case previous_intent when 'failed' then 'The provider did not accept this message' end);
+          continue;
+        end if;
+      end if;
       -- A reminder is written for the time it became due for. When the appointment has moved since and the
       -- automation is not starting again for the new time, that reminder is not sent, and the run goes on to
       -- its next step, which follows the current time. A message that may already be with a provider is
@@ -86,9 +103,18 @@ begin
         continue;
       end if;
       -- A message timed before its appointment is not sent once the appointment has started, as a reminder wait whose
-      -- time passed is not: one held until then (by sending hours, a limit, a pause) is skipped, and the run goes on.
+      -- time passed is not: one held until then (by sending hours, a limit, a pause) is skipped, and the run goes on. So
+      -- is any message for an appointment that now begins at or before its booking, or, for a booking whose appointment
+      -- was reopened, at or before that reopening (any recorded one, after the start included), which admission and
+      -- pacing count it from. Reopened after the start, the appointment gets nothing more, as when the worker saw the
+      -- cancellation: a run is carried on only for a time still to come. Started means by the slot
+      -- record and by the calendar alike: a move the slot record missed to a time still ahead (a capture gap) is held by
+      -- the final check until the record catches up, never dropped here (automation_message_issue applies the same rule).
       if node->>'type' in ('send_sms','send_email') and origin.event_type='appointment_booked'
-          and slot_start<=clock_timestamp() and coalesce(run.paced_from,origin.occurred_at)<slot_start
+          and greatest(slot_start,calendar_start)<=clock_timestamp()
+          and (coalesce(run.paced_from,origin.occurred_at)<least(slot_start,calendar_start)
+            or greatest(slot_start,calendar_start)<=greatest(origin.occurred_at,private.automation_stood_again(
+              run.organization_id,nullif(origin.subject->>'appointment_id','')::uuid,origin.occurred_at)))
           and not exists (select 1 from private.automation_intents i where i.organization_id=run.organization_id
             and i.run_id=run.id and i.node_id=run.current_node_id and i.status<>'prepared') then
         perform public.automation_finish_node(run.id,token,'skipped','The appointment had already started');
@@ -141,6 +167,7 @@ declare
   next_reminded_for uuid;
   next_paced_from timestamptz;
   held_for interval;
+  soon timestamptz;
   step_status text:=p_result;
   advance boolean:=false;
   branch text;
@@ -185,6 +212,19 @@ begin
       next_status:='held';
       next_held_since:=case when r.status='held' then coalesce(r.held_since,clock_timestamp()) else clock_timestamp() end;
       next_due:=next_due+least(interval '6 hours',greatest(interval '5 minutes',held_for/2));
+      -- A message about an appointment still to come is tried again before it starts when the usual retry would come
+      -- after: halfway to the start, at most every thirty seconds. A hold a minute before the appointment (a calendar
+      -- save in progress) then still sends, instead of reaching the start and being skipped.
+      if kind in ('send_sms','send_email') then
+        select * into origin from private.automation_events ev where ev.id=r.event_id and ev.organization_id=r.organization_id;
+        if origin.event_type='appointment_booked' then
+          select s.starts_at into soon from private.automation_appointment_state(r.organization_id,
+            nullif(origin.subject->>'appointment_id','')::uuid) s;
+          if soon>clock_timestamp() and next_due>=soon then
+            next_due:=clock_timestamp()+greatest(interval '30 seconds',(soon-clock_timestamp())/2);
+          end if;
+        end if;
+      end if;
     end if;
   elsif p_result in ('failed','unknown') then
     next_status:=p_result;
@@ -274,19 +314,37 @@ end $$;
 -- lease, and a message about a booking still describes the appointment's current time: the time of the slot its
 -- lease's facts came from, and of the slot its reminders were for, is the appointment's time now. The calendar itself
 -- shows that time too: a move whose slot record could not be written in time (a capture gap, repaired by the
--- appointment's next save) holds the message until the record catches up. A message timed before the appointment is
--- not sent once it has started.
+-- appointment's next save) holds the message until the record catches up, and a calendar row that is gone shows no
+-- time, so the message is never sent (automation_stop_check ends the run). While the appointment is still ahead and
+-- its current slot holds an outcome other than a retraction (No Show or Completed recorded before the start), the
+-- booking is not eligible, as admission requires: the message is held, not sent. A person's outcome stands over a
+-- later save by the calendar sync (automation_appointment_state), so the message stays held while the calendar shows
+-- Scheduled. Taken back before the start, the message goes out on a later lease. Otherwise it stays held until the
+-- appointment starts, and the started rule then decides. The hold's seven-day limit ends the run only when the message
+-- is held that long before the start, and the run then takes none of its later steps; an outcome taken back after that,
+-- still before the start, by a save the worker is told about, lets the cancellation carry-on
+-- (automation_refresh_appointment_runs) carry the run on at a time it followed (for a run that has not reached an
+-- appointment wait, also the time the appointment stood at when the hold ended it, unless another booking run of the
+-- automation holds that time), so the held message goes out then. Once the appointment has started an outcome is
+-- expected and the started rule decides, whatever outcome the slot holds: a message timed before the appointment is not
+-- sent once it has started by both the slot record and the calendar, nor is any message for an appointment that now
+-- begins at or before its booking (for a reopened booking, its latest recorded reopening, one after the start
+-- included), and a follow-up timed after the start goes out.
 CREATE FUNCTION private.automation_message_issue(r private.automation_runs)
 RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
 DECLARE origin private.automation_events; reason text; appointment uuid; current_slot uuid; slot_start timestamptz; booked_start timestamptz;
+  outcome text;
 BEGIN
   SELECT s.stop_reason INTO reason FROM private.automation_stop_check(r) s WHERE s.stop_reason IS NOT NULL LIMIT 1;
   IF reason IS NOT NULL THEN RETURN reason; END IF;
   SELECT * INTO origin FROM private.automation_events e WHERE e.organization_id=r.organization_id AND e.id=r.event_id;
   IF origin.event_type IS DISTINCT FROM 'appointment_booked' THEN RETURN NULL; END IF;
   appointment:=nullif(origin.subject->>'appointment_id','')::uuid;
-  SELECT s.occurrence_id,s.starts_at INTO current_slot,slot_start
+  SELECT s.occurrence_id,s.starts_at,s.head_outcome INTO current_slot,slot_start,outcome
     FROM private.automation_appointment_state(r.organization_id,appointment) s;
+  IF current_slot IS NOT NULL AND coalesce(outcome,'retracted')<>'retracted' AND slot_start>clock_timestamp() THEN
+    RETURN 'The appointment has an outcome recorded';
+  END IF;
   SELECT a.start_time INTO booked_start FROM public.appointments a WHERE a.organization_id=r.organization_id AND a.id=appointment;
   IF current_slot IS NULL
       OR NOT EXISTS (SELECT 1 FROM private.appointment_occurrences o WHERE o.organization_id=r.organization_id
@@ -295,11 +353,16 @@ BEGIN
         WHERE o.organization_id=r.organization_id AND o.id=r.reminded_for AND o.scheduled_start=slot_start)) THEN
     RETURN 'The appointment moved after this message was prepared';
   END IF;
+  -- Started by the slot record and the calendar alike: a message timed before the appointment, or any message for an
+  -- appointment that now begins at or before its booking or its reopening, is not sent (the claim skips it by the same
+  -- rule).
+  IF greatest(slot_start,booked_start)<=clock_timestamp() AND (coalesce(r.paced_from,origin.occurred_at)<least(slot_start,booked_start)
+      OR greatest(slot_start,booked_start)<=greatest(origin.occurred_at,
+        private.automation_stood_again(r.organization_id,appointment,origin.occurred_at))) THEN
+    RETURN 'The appointment had already started';
+  END IF;
   IF booked_start IS DISTINCT FROM slot_start THEN
     RETURN 'The appointment''s new time is not recorded yet';
-  END IF;
-  IF slot_start<=clock_timestamp() AND coalesce(r.paced_from,origin.occurred_at)<slot_start THEN
-    RETURN 'The appointment had already started';
   END IF;
   RETURN NULL;
 END $$;
@@ -320,14 +383,17 @@ $$;
 -- Linearize the last local authorization against pause, stop, revocation and release gates, and against the
 -- appointment the message is about (automation_message_issue). The appointment row is share-locked before it is
 -- read, so a move or cancellation either committed first and refuses the handoff, or waits until the handoff is
--- recorded. A save of the appointment still in progress is waited for briefly (half a second), so a short one commits
--- and the check sees what it changed. A longer one refuses the handoff without spending the provider request
--- (automation_release_refused_dispatch): the worker holds the message, and the next lease, a few minutes later, sends
--- it if it is still due. The worker waits on a calendar save, never the other way round, and it is always the first to
--- wait, so it gives up before any deadlock check could abort the save.
+-- recorded. Saves of the appointment still in progress are waited out for at most half a second in all, by trying the
+-- lock again every 20 ms without queueing for it, so short ones commit and the check sees what they changed. Longer
+-- ones refuse the handoff without spending the provider request (automation_release_refused_dispatch): the worker
+-- holds the message, and the next lease sends it if it is still due. The worker never queues for the lock, so a
+-- calendar save never waits behind a handoff that is still trying. Once the handoff holds the lock, a save of that
+-- appointment waits until the handoff's transaction commits. In automation_begin_message that transaction also starts
+-- a text's dispatch (the recipient's sending lock and its dispatch row) and records the message: keep nothing slow
+-- after this lock.
 CREATE OR REPLACE FUNCTION public.automation_authorize_handoff(p_run uuid,p_token uuid,p_node text)
 returns boolean language plpgsql security definer set search_path='' as $$
-declare scope record; run private.automation_runs; origin private.automation_events; waited text;
+declare scope record; run private.automation_runs; origin private.automation_events; deadline timestamptz;
 begin
   select r.organization_id,r.workflow_id,v.published_by,e.campaign_id into scope
     from private.automation_runs r
@@ -343,16 +409,17 @@ begin
   select * into run from private.automation_runs where id=p_run;
   select * into origin from private.automation_events ev where ev.id=run.event_id and ev.organization_id=run.organization_id;
   if origin.event_type in ('appointment_booked','appointment_outcome_recorded') then
-    waited:=current_setting('lock_timeout');
-    perform set_config('lock_timeout','500ms',true);
-    begin
-      perform 1 from public.appointments a where a.organization_id=run.organization_id
-        and a.id=nullif(origin.subject->>'appointment_id','')::uuid for share;
-    exception when lock_not_available then
-      perform set_config('lock_timeout',waited,true);
-      return false;
-    end;
-    perform set_config('lock_timeout',waited,true);
+    deadline:=clock_timestamp()+interval '500 milliseconds';
+    loop
+      begin
+        perform 1 from public.appointments a where a.organization_id=run.organization_id
+          and a.id=nullif(origin.subject->>'appointment_id','')::uuid for share nowait;
+        exit;
+      exception when lock_not_available then
+        if clock_timestamp()>=deadline then return false; end if;
+        perform pg_sleep(0.02);
+      end;
+    end loop;
   end if;
   if private.automation_message_issue(run) is not null then return false; end if;
   update private.automation_intents set status='handed_off'

@@ -20,13 +20,21 @@ network="$prefix-net"
 [[ $(docker inspect --format '{{.HostConfig.Privileged}} {{len .HostConfig.Binds}} {{len .HostConfig.PortBindings}}' "$db") == 'false 0 0' ]] || fail 'Unexpected DB privilege, host mounts or published ports.'
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
+# A restore pass that fails ends with PostgreSQL's error, which names objects and roles, never rows (the archive holds
+# none). The privileges pass adds the statement that failed: a GRANT, REVOKE or ALTER DEFAULT PRIVILEGES.
+restore_failed() { # restore_failed MESSAGE [statement]
+  local error statement=''
+  error=$(grep -m1 -o 'ERROR: .*' "$work/error" || true)
+  if [[ ${2:-} == statement ]]; then statement=$(grep -m1 -o '^Command was: .*' "$work/error" || true); fi
+  fail "$1${error:+ ${error:0:300}}${statement:+ ${statement:0:300}} Stop and send this line."
+}
 pg=(docker exec -i -e PGPASSWORD "$db")
 psql=("${pg[@]}" psql -XqAt -U supabase_admin -v ON_ERROR_STOP=1)
 [[ $("${psql[@]}" -d template1 -c "select current_setting('server_version_num')::int/10000, current_setting('cron.launch_active_jobs')") == '17|off' ]] || fail 'PG17 with cron execution disabled is required.'
 
 # Copy the exact checked inputs privately before restoring. Never print DDL or role settings.
 for name in agentflow-schema.dump roles.sql source-fingerprint-before.json source-fingerprint.json canonical-source.json \
-    auth-schema-migrations.txt SHA256SUMS; do
+    auth-schema-migrations.txt extension-ownership.json SHA256SUMS; do
   [[ -f "$bundle/$name" && ! -L "$bundle/$name" ]] || fail "Missing regular input file: $name"
   cp -- "$bundle/$name" "$work/$name"
 done
@@ -34,7 +42,7 @@ python3 - "$work" <<'PY'
 import hashlib, pathlib, re, sys
 work = pathlib.Path(sys.argv[1])
 files = {'agentflow-schema.dump', 'roles.sql', 'source-fingerprint-before.json', 'source-fingerprint.json',
-         'canonical-source.json', 'auth-schema-migrations.txt'}
+         'canonical-source.json', 'auth-schema-migrations.txt', 'extension-ownership.json'}
 seen = set()
 for line in (work / 'SHA256SUMS').read_text().splitlines():
     match = re.fullmatch(r'([a-f0-9]{64})  ([a-zA-Z0-9.-]+)', line)
@@ -96,8 +104,16 @@ PY
 
 # Create the actual primary DB from archive metadata (template0, locale, owner, ACLs/settings).
 # All DB connections below use the container's own Unix socket. No application service has started.
+# Two passes. pg_dump writes each object's privileges as a change from the owner and the initial privileges the source
+# had, so the privileges (ACL and DEFAULT ACL entries) are held back until the extension ownership step below has
+# reproduced both; only the database's own ACL stays in the first pass, the one pg_restore runs with --create.
 restore=(pg_restore --create --exit-on-error -U supabase_admin -d template1)
-if grep -Eq '^[0-9]+; 0 0 ACL graphql_public FUNCTION graphql\(' "$work/toc"; then
+graphql=0
+# The placeholder graphql_public.graphql() alone is what Supabase's sql_drop event trigger leaves when pg_graphql is
+# dropped, as on production; only an archive that still holds pg_graphql needs its bootstrap.
+if grep -Eq '^[0-9]+; 0 0 ACL graphql_public FUNCTION graphql\(' "$work/toc" &&
+    grep -Eq '^[0-9]+; [0-9]+ [0-9]+ EXTENSION - pg_graphql ' "$work/toc"; then
+  graphql=1
   # Supabase's DDL event trigger establishes a native wrapper and initial GraphQL ACLs
   # during extension install. Restore its two original archive entries before the extension.
   # Native pg_dump expects the matching provider image's initial graphql_public grants
@@ -112,38 +128,69 @@ WHERE n.nspname='graphql_public' AND i.privtype='e' AND pg_get_userbyid(n.nspown
 ORDER BY a.ordinality;
 SQL
   [[ -s "$work/graphql-schema-grants.sql" ]] || fail 'Matching managed GraphQL initial privileges required.'
-  python3 - "$work" <<'PYTOC'
+fi
+python3 - "$work" "$graphql" <<'PYTOC'
 import pathlib, re, sys
-work = pathlib.Path(sys.argv[1]); lines = (work/'toc').read_text().splitlines()
-entries = [line for line in lines if re.match(r'^\d+;', line)]
-def exactly(pattern):
-    matches = [line for line in entries if re.search(pattern, line)]
-    if len(matches) != 1:
-        sys.exit('Managed GraphQL bootstrap entries missing or ambiguous')
-    return matches[0]
-anchor = exactly(r' EXTENSION - pg_graphql ')
-function = exactly(r' FUNCTION extensions grant_pg_graphql_access\(\) supabase_admin$')
-trigger = exactly(r' EVENT TRIGGER - issue_pg_graphql_access supabase_admin$')
-pos = entries.index(anchor)
-later_acls = [line for line in entries[:pos] if ' ACL - SCHEMA graphql_public ' in line]
-first = [line for line in entries[:pos] if line not in later_acls] + [function, trigger]
-remainder = later_acls + [line for line in entries[pos:] if line not in (function, trigger)]
-if sorted(first + remainder) != sorted(entries):
+work, graphql = pathlib.Path(sys.argv[1]), sys.argv[2] == '1'
+entries = [line for line in (work/'toc').read_text().splitlines() if re.match(r'^\d+;', line)]
+def privileges(line):
+    return bool(re.match(r'^\d+; \d+ \d+ (ACL|DEFAULT ACL) ', line)) and not re.match(r'^\d+; 0 0 ACL - DATABASE ', line)
+held = [line for line in entries if privileges(line)]
+rest = [line for line in entries if not privileges(line)]
+lists = {'privileges.list': held}
+if graphql:
+    def exactly(pattern):
+        matches = [line for line in rest if re.search(pattern, line)]
+        if len(matches) != 1:
+            sys.exit('Managed GraphQL bootstrap entries missing or ambiguous')
+        return matches[0]
+    anchor = exactly(r' EXTENSION - pg_graphql ')
+    function = exactly(r' FUNCTION extensions grant_pg_graphql_access\(\) supabase_admin$')
+    trigger = exactly(r' EVENT TRIGGER - issue_pg_graphql_access supabase_admin$')
+    pos = rest.index(anchor)
+    lists['bootstrap.list'] = rest[:pos] + [function, trigger]
+    lists['remainder.list'] = [line for line in rest[pos:] if line not in (function, trigger)]
+else:
+    lists['main.list'] = rest
+if sorted(line for chosen in lists.values() for line in chosen) != sorted(entries):
     sys.exit('Native archive entry inventory changed')
-(work/'bootstrap.list').write_text('\n'.join(first)+'\n')
-(work/'remainder.list').write_text('\n'.join(remainder)+'\n')
+for name, chosen in lists.items():
+    (work/name).write_text(''.join(line + '\n' for line in chosen))
 PYTOC
-  dest=$(docker exec "$db" mktemp -d /tmp/automation-schema.XXXXXX)
-  docker cp "$work/bootstrap.list" "$db:$dest/bootstrap.list"
-  docker cp "$work/remainder.list" "$db:$dest/remainder.list"
-  restore+=(--use-list="$dest/bootstrap.list")
-fi
+dest=$(docker exec "$db" mktemp -d /tmp/automation-schema.XXXXXX)
+for name in main bootstrap remainder privileges; do
+  if [[ -f "$work/$name.list" ]]; then docker cp "$work/$name.list" "$db:$dest/$name.list"; fi
+done
+if [[ $graphql == 1 ]]; then restore+=(--use-list="$dest/bootstrap.list"); else restore+=(--use-list="$dest/main.list"); fi
 "${psql[@]}" -d template1 -c 'DROP DATABASE postgres WITH (FORCE)' >"$work/output" 2>"$work/error" || fail 'Could not replace the fresh local primary database.'
-"${pg[@]}" "${restore[@]}" <"$work/agentflow-schema.dump" >"$work/output" 2>"$work/error" || fail 'Native archive restore failed; baseline is unverified.'
-if [[ -f "$work/remainder.list" ]]; then
+"${pg[@]}" "${restore[@]}" <"$work/agentflow-schema.dump" >"$work/output" 2>"$work/error" || restore_failed 'Native archive restore failed; baseline is unverified.'
+if [[ $graphql == 1 ]]; then
   "${psql[@]}" --single-transaction -d postgres -f - <"$work/graphql-schema-grants.sql" >"$work/output" 2>"$work/error" || fail 'Initial managed GraphQL schema privileges could not be restored.'
-  "${pg[@]}" pg_restore --exit-on-error -U supabase_admin -d postgres --use-list="$dest/remainder.list" <"$work/agentflow-schema.dump" >"$work/output" 2>"$work/error" || fail 'Native restore of remaining managed archive entries failed.'
+  "${pg[@]}" pg_restore --exit-on-error -U supabase_admin -d postgres --use-list="$dest/remainder.list" <"$work/agentflow-schema.dump" >"$work/output" 2>"$work/error" || restore_failed 'Native restore of remaining managed archive entries failed.'
 fi
+# The restore created every extension afresh, owned by the restoring superuser with a fresh install's initial
+# privileges. The source's own ownership reading (validated with the receipts above) gives each extension and member
+# its source owner, and every object the initial privileges the source holds; the receipt comparison below decides.
+python3 - "$work" <<'PY'
+import pathlib, secrets, sys
+work = pathlib.Path(sys.argv[1])
+reading = (work / 'extension-ownership.json').read_text().strip()
+tag = 'ownership_' + secrets.token_hex(8)
+if f'${tag}$' in reading:
+    sys.exit('Unexpected extension ownership reading')
+step = pathlib.Path('e2e/automations-local/extension-ownership-restore.sql').read_text()
+(work / 'ownership.sql').write_text(
+    f'CREATE TEMP TABLE agentflow_extension_ownership ON COMMIT DROP AS SELECT ${tag}${reading}${tag}$::jsonb AS doc;\n' + step)
+PY
+if ! "${psql[@]}" --single-transaction -d postgres -f - <"$work/ownership.sql" >"$work/output" 2>"$work/error"; then
+  # psql's CONTEXT line names the statement that failed (object and role names; the step reads no rows).
+  context=$(grep -m1 -o 'CONTEXT: .*' "$work/error" || true)
+  fail "Reproducing the source's extension ownership failed: $(grep -m1 -o 'ERROR: .*' "$work/error" || true)${context:+ ${context:0:400}} Stop and send this line."
+fi
+cat "$work/output"
+# Then the privileges, in archive order, on the owners and initial privileges they were written against.
+"${pg[@]}" pg_restore --exit-on-error -U supabase_admin -d postgres --use-list="$dest/privileges.list" <"$work/agentflow-schema.dump" >"$work/output" 2>"$work/error" || restore_failed "Native restore of the archive's privileges failed; baseline is unverified." statement
+docker exec "$db" rm -rf -- "$dest"
 "${psql[@]}" -d postgres -f - <e2e/automations-local/schema-fingerprint.sql >"$work/restored.json" 2>"$work/error" || fail 'Restored schema fingerprint failed.'
 python3 e2e/automations-local/receipts.py restored "$receipts/schema-fingerprint.json" "$work/restored.json" 'The restored primary database'
 python3 e2e/automations-local/receipts.py restored "$work/source-fingerprint.json" "$work/restored.json" 'The restored primary database (against the archive)'

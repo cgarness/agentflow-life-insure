@@ -68,6 +68,31 @@ ALTER ROLE postgres PASSWORD :'pw';
 ALTER ROLE supabase_auth_admin PASSWORD :'pw';
 ALTER ROLE authenticator PASSWORD :'pw';
 SQL
+if [[ $mode == synthetic-source ]]; then
+  # Production's own extension history, which no migration holds (read on November 26), before Auth or any migration
+  # uses the extensions. Production has no pg_graphql: dropping it lets the image's sql_drop event trigger leave the
+  # placeholder graphql_public.graphql() and the initial privileges of the schemas graphql and graphql_public, which
+  # belong to no extension. AUTOMATIONS_SYNTHETIC_PG_GRAPHQL=keep rehearses an archive that still holds pg_graphql.
+  # pgcrypto, uuid-ossp and pg_stat_statements, and every member, belong to postgres, which created them while it was a
+  # superuser (connected without supautils), so PostgreSQL itself keeps their owners, initial privileges and shared
+  # dependencies. A restore cannot carry this; restore-full.sh reproduces it from the bundle's ownership reading.
+  graphql_drop='DROP EXTENSION pg_graphql;'
+  case ${AUTOMATIONS_SYNTHETIC_PG_GRAPHQL:-drop} in
+    drop) ;; keep) graphql_drop= ;;
+    *) echo 'AUTOMATIONS_SYNTHETIC_PG_GRAPHQL is drop (production) or keep.' >&2; exit 2 ;;
+  esac
+  docker exec -i -e PGPASSWORD "$db" psql -Xq -U supabase_admin -d postgres -v ON_ERROR_STOP=1 <<SQL
+$graphql_drop
+DROP EXTENSION pgcrypto; DROP EXTENSION "uuid-ossp"; DROP EXTENSION pg_stat_statements;
+ALTER ROLE postgres SUPERUSER;
+SQL
+  docker exec -i -e PGPASSWORD -e PGOPTIONS='-c session_preload_libraries=' "$db" psql -Xq -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE EXTENSION pgcrypto SCHEMA extensions;
+CREATE EXTENSION "uuid-ossp" SCHEMA extensions;
+CREATE EXTENSION pg_stat_statements SCHEMA extensions;
+SQL
+  docker exec -e PGPASSWORD "$db" psql -Xq -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c 'ALTER ROLE postgres NOSUPERUSER'
+fi
 export GOTRUE_DB_DATABASE_URL="postgres://supabase_auth_admin:$PGPASSWORD@$db/postgres"
 export PGRST_DB_URI="postgres://authenticator:$PGPASSWORD@$db/postgres"
 export PGRST_JWT_SECRET="$GOTRUE_JWT_SECRET"
@@ -155,6 +180,22 @@ if [[ $mode == synthetic-source ]]; then
     chmod +x "$dir/pg-bin/$tool"
   done
   PG_BIN="$dir/pg-bin" bash e2e/automations-local/make-schema-bundle.sh "$synthetic/bundle"
+  # The stand-in takes production's path: no pg_graphql, and the two schemas' initial privileges outside any extension.
+  python3 - "$synthetic/bundle/extension-ownership.json" "${AUTOMATIONS_SYNTHETIC_PG_GRAPHQL:-drop}" <<'PY'
+import json, sys
+reading, graphql = json.load(open(sys.argv[1])), sys.argv[2]
+names = {row[0] for row in reading['extensions']}
+schemas = {row[1][0] for row in reading['initial_privileges'] if row[0] == 'schema'}
+members = {row[1][0] for row in reading['members'] if row[0] == 'schema'}
+if graphql == 'drop' and ('pg_graphql' in names or not {'graphql', 'graphql_public'} <= schemas - members):
+    sys.exit('The stand-in does not take production\'s path: pg_graphql is present, or the schemas graphql and '
+             'graphql_public lack their initial privileges outside any extension.')
+if graphql == 'keep' and 'pg_graphql' not in names:
+    sys.exit('The stand-in was to keep pg_graphql.')
+print(f"Stand-in reading: {len(reading['extensions'])} extensions ({'pg_graphql kept' if graphql == 'keep' else 'no pg_graphql'}), "
+      f"{len(reading['members'])} members, {len(reading['initial_privileges'])} initial privileges, "
+      f"{len(reading['shared_dependencies'])} shared dependencies on roles.")
+PY
   mkdir -m 700 "$synthetic/receipts"
   # The receipts are read through another connection than the bundle's, as the Management API reads production's.
   reader=(docker exec -i -e PGPASSWORD -e PGAPPNAME=agentflow-receipt-channel "$db" psql -XqAt -U postgres -d postgres -v ON_ERROR_STOP=1 -f -)
@@ -227,7 +268,7 @@ reprinted = sorted(row['kind'] for row in families['families'] if row['sha256'] 
     'install_stop_targets_verified': stops['targets_verified'], 'install_stops': stops['result'],
     'rollback_rehearsal_on_v2_work': 'pass'}, indent=2) + '\n')
 PY
-  echo 'PASS release-full: the restored database, the installation base and every migration and rollback target matched the independent production receipt.'
+  echo 'PASS release-full: the restored database, the installation base and the rollback rehearsal target matched the independent production receipt, and every migration and rollback target matched the database it was copied from.'
   exit
 fi
 if [[ $mode == backend-first ]]; then

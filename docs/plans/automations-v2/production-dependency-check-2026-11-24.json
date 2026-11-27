@@ -1,5 +1,5 @@
 {
-  "captured": "2026-11-24 22:00 UTC, read-only, project jncvvsvckxhqgqvkppmj, database postgres (39 relations, 39 functions, 68 names V2 creates)",
+  "captured": "2026-11-27 06:33 UTC, read-only, project jncvvsvckxhqgqvkppmj, database postgres (39 relations, 39 functions, 73 names V2 creates: the committed query now also lists automation_stood_at, automation_run_holds and automation_time_held), the committed query with its full-line comments removed and a query_md5 field added that digests the text the server received up to the connector's own trailing comment; it matched the local MD5. Every digest unchanged since the 2026-11-24 22:00 UTC reading (also read on 2026-11-25 at 16:50 UTC with the earlier 70-name list)",
   "query": "supabase/ops/automation_v2_dependency_check.sql",
   "fixture": "e2e/automations-local/upgrade.sh prerequisites + pilot (105 historical migrations, the first release, 20261123170000_contact_first_sms_sender.sql)",
   "functions": {

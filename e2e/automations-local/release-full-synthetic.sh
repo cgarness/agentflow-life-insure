@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# release-full end to end without production. A synthetic source (production's migrations up to today) supplies the
-# bundle its operator would make and the receipts read separately afterwards. Each way a run could be measured against
-# the wrong thing is refused before anything is restored, and then the full run passes. Each step builds and removes
-# its own disposable cluster. Run from a checkout with Docker, Node, Python 3.11 or newer, openssl and curl.
+# release-full end to end without production. A synthetic source (105 of production's 122 earlier migrations, the first
+# release and the first-text sender; see the README) supplies the bundle its operator would make and the receipts read
+# separately afterwards. Each way a run could be measured against the wrong thing is refused (twelve before anything is
+# restored; four archives and two extension readings edited after they were taken while or after their copy is
+# restored), and then the full run passes. Each step builds and removes its own disposable cluster. Run from a checkout
+# with Docker, Node, Python 3.11 or newer, openssl and curl. The stand-in and the restore both run on production's image
+# (LOCAL_POSTGRES_IMAGE selects another), and the stand-in takes production's path, without pg_graphql;
+# AUTOMATIONS_SYNTHETIC_PG_GRAPHQL=keep rehearses an archive that holds it.
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
-export LOCAL_POSTGRES_IMAGE=${LOCAL_POSTGRES_IMAGE:-supabase/postgres:17.6.1.085}
+export LOCAL_POSTGRES_IMAGE=${LOCAL_POSTGRES_IMAGE:-supabase/postgres:17.6.1.063}
 export AUTOMATIONS_SOURCE_PROJECT=synthetic-release-full
 bash e2e/automations-local/run.sh synthetic-source "$work/source"
 bundle=$work/source/bundle
@@ -40,7 +44,7 @@ refused "the bundle's own reading offered as the receipt" 'not an independent re
 
 v1=$(variant format-one)
 edit "$v1/schema-fingerprint.json" 'd = d["families"]'
-refused 'a receipt in the old format' 'format 2' "$bundle" "$v1"
+refused 'a receipt in the old format' 'format 3' "$bundle" "$v1"
 
 stale=$(variant stale)
 edit "$stale/schema-fingerprint.json" 'd["captured_at"] = (datetime.datetime.fromisoformat(d["captured_at"].replace("Z", "+00:00")) - datetime.timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")'
@@ -78,11 +82,39 @@ same_channel=$(variant same-channel)
 edit "$same_channel/schema-fingerprint.json" "d['client'] = json.load(open('$bundle/source-fingerprint.json'))['client']"
 refused 'a receipt read through the same connection as the bundle' 'through the same connection' "$bundle" "$same_channel"
 
-# An archive whose policy was regrouped after its readings were taken, with its checksums taken again: the receipt and
-# the bundle's readings agree, but the restored database does not, so the run stops before anything is applied.
+# Nor is one read through any other connection than the receipt channel, the operator's own psql included.
+own_login=$(variant own-login)
+edit "$own_login/canonical.json" "d['client']['application_name'] = 'psql'"
+refused "a receipt read through the operator's own login" "not the Management API's own connection" "$bundle" "$own_login"
+
+# Archives edited after their readings were taken, with their checksums taken again: the receipt and the bundle's
+# readings agree, but the restored database does not, so the run stops before anything is applied.
 cp -a "$bundle" "$work/regrouped"
-python3 e2e/automations-local/regroup-policy.py "$work/regrouped"
+python3 e2e/automations-local/edit-archive.py "$work/regrouped" regroup
 refused 'an archive whose policy was regrouped after it was read' 'differs from the expected schema in: policies' "$work/regrouped" "$receipts"
+cp -a "$bundle" "$work/swapped"
+python3 e2e/automations-local/edit-archive.py "$work/swapped" swap-clause
+refused "an archive whose policy condition was moved from USING to WITH CHECK" 'differs from the expected schema in: policies' "$work/swapped" "$receipts"
+cp -a "$bundle" "$work/outside"
+python3 e2e/automations-local/edit-archive.py "$work/outside" outside
+refused "an archive that adds a cast between built-in types and a pg_catalog function and disables a table's foreign-key triggers" \
+  'differs from the expected schema in: casts, catalog_objects, triggers' "$work/outside" "$receipts"
+cp -a "$bundle" "$work/builtin"
+python3 e2e/automations-local/edit-archive.py "$work/builtin" builtin
+refused 'an archive that changes built-in functions and text search and adds a pg_catalog collation' \
+  'differs from the expected schema in: builtins, catalog_objects' "$work/builtin" "$receipts"
+# The source's extensions belong to postgres, as production's do: the restore reproduces that from the bundle's own
+# ownership reading, which cannot make a copy pass. Changed after it was read, it leaves the copy unlike the receipt.
+cp -a "$bundle" "$work/owner"
+python3 e2e/automations-local/edit-archive.py "$work/owner" owner
+refused "an extension ownership reading changed after it was read" 'differs from the expected schema in: extensions' \
+  "$work/owner" "$receipts"
+# The shared dependencies the step writes are checked against the source's own reading of them, which no fingerprint
+# family reads: changed after it was read, the step itself refuses the copy.
+cp -a "$bundle" "$work/dependency"
+python3 e2e/automations-local/edit-archive.py "$work/dependency" dependency
+refused "an extension ownership reading whose shared dependencies changed after it was read" \
+  "shared dependencies on roles differ from the source reading" "$work/dependency" "$receipts"
 
 bash e2e/automations-local/run.sh release-full "$bundle" "$receipts"
-echo 'PASS release-full synthetic: twelve refusals, then the restored database, its installation base and every migration and rollback target matched the independent receipt.'
+echo 'PASS release-full synthetic: eighteen refusals, then the restored database, its installation base and the rollback rehearsal target matched the independent receipt, and every migration and rollback target matched the database it was copied from.'

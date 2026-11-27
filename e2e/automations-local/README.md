@@ -48,19 +48,42 @@ The full mode takes two directories, which must not contain each other.
   - a fingerprint reading before and after the dump;
   - the canonical reading;
   - the Auth version list;
-  - `SHA256SUMS` over all six.
-- **RECEIPTS** holds the three readings `capture-receipts.sh` takes from the source through the Supabase Management API, another channel than the bundle's database connection: `schema-fingerprint.json`, `canonical.json` and `auth.json`. Each fingerprint reading names the connection that took it (`mgmt-api` for the Management API, `agentflow-schema-bundle` for the bundle).
+  - the extension ownership reading (`extension-ownership.json`, written by `extension-ownership.sql`, format 2): who owns each extension and each of its members, the initial privileges extension scripts recorded, and the shared dependencies PostgreSQL 17 keeps for them (each extension's owner, and each role an initial privilege names), which a schema-only dump cannot carry;
+  - `SHA256SUMS` over all seven.
+- **RECEIPTS** holds the three readings `capture-receipts.sh` takes from the source through the Supabase Management API, another channel than the bundle's database connection: `schema-fingerprint.json`, `canonical.json` and `auth.json`. Every reading names the connection that took it (`mgmt-api` for the Management API, `agentflow-schema-bundle` for the bundle).
 
 `receipts.py` refuses the run before anything is restored when:
 
 - a receipt sits inside the bundle, or is one of its files, byte for byte or reformatted;
 - the schema receipt was read through the bundle's own connection, or at the same moment as one of its readings;
-- a fingerprint is not format 2;
+- any receipt names another connection than the Management API's own (`mgmt-api`), such as the bundle's or a default `psql` login (the synthetic rehearsal's channel is `agentflow-receipt-channel`); the name is what the reading reports, so a reading deliberately labelled `mgmt-api` is not caught;
+- a fingerprint is not format 3;
 - a canonical reading has no capture time;
 - a reading is more than two hours from the dump, or the receipts are more than 72 hours old;
-- the bundle's readings differ from each other or from the receipt.
+- the bundle's readings differ from each other or from the receipt;
+- the extension ownership reading is missing, not format 2, malformed, read through another connection than the bundle's, or not taken between its two schema readings.
 
-After that, every database the migrations and rollbacks touch is checked against the receipt:
+`make-schema-bundle.sh` stops before the dump, printing a count only, when the source has an invalid index (pg_dump leaves it out) or a table whose TOAST table keeps storage settings (`toast.*`) although no remaining column needs a TOAST table, so a restore would not create it. That check is cautious: a remaining bounded column wide enough to need a TOAST table, such as `varchar(3000)`, also stops it. Production had neither when read on November 25.
+
+The restore runs in two passes around one step:
+
+1. Every archive entry except the privileges (the ACL and DEFAULT ACL entries; the database's own ACL stays here, the only pass pg_restore runs with `--create`). Every extension and member is then the restoring superuser's, with a fresh install's initial privileges.
+2. `extension-ownership-restore.sql`, in one transaction, from the bundle's reading:
+   - each extension and member gets its source owner (production's pgcrypto, uuid-ossp and pg_stat_statements belong to postgres). Row and array types, multirange types and serial or identity sequences follow the object they belong to. Members are matched by the address the reading records, so prefix operators are found too;
+   - the initial privileges extension scripts recorded become exactly the source's;
+   - each object outside any extension that has such initial privileges gets them as its privileges, each granted by its own grantor. On production these are the schemas graphql and graphql_public, which pg_graphql's removal left behind; pg_dump writes an object's privileges as a change from its initial privileges, so the archive holds no grant for them;
+   - the shared dependencies PostgreSQL keeps for all of these (pg_shdepend) are rewritten and checked against the reading. Production's equal what the step rebuilds (read on November 26);
+   - nothing changes where no fingerprint family reads: a reading whose initial privileges or member owners differ from the restore's in `pg_catalog`, `information_schema`, `pg_toast` or another `pg_` schema is refused, naming the object;
+   - it prints one line of counts.
+3. The archive's privileges, in archive order, on the owners and initial privileges pg_dump wrote them against. Supabase's DDL event triggers exist by then; the one these commands fire only sends PostgREST a reload notice, and no service is running yet.
+
+Only an archive that still holds pg_graphql restores its GraphQL bootstrap entries before the extension. One with only the placeholder `graphql_public.graphql()` that Supabase leaves when pg_graphql is dropped (production's case) does not need them. The comparison with the receipt still decides: a reading that does not describe the source leaves the copy unlike it.
+
+The step is meant to run once, between the passes: run again on a finished copy, it would set the privileges of an object outside any extension back to its initial privileges. It cannot reproduce three histories, and each stops the run (production has none): a statistics object an extension script created on one of its tables keeps the restoring superuser as owner; a privilege outside any extension that a role other than the owner granted and later revoked comes back, because pg_dump writes that REVOKE without its grantor; and a member foreign-data wrapper cannot be given an owner that is not a superuser.
+
+When the step stops, its line (`Reproducing the source's extension ownership failed: ERROR: ...`) names what it could not do: the restore lacks something the reading names (`... is not an extension member in the restore`, `... which the restore cannot hold`, `The restored extensions are not the ones the source reading lists.`); an owner cannot be set (`... is not a restored role`, `... cannot be given its source owner`, `... did not take its source owner`, or `permission denied to change owner of foreign-data wrapper`, whose owner must be a superuser); privileges outside any extension cannot be given (`... which is in no extension ...`); the reading would change what no family reads (`... no fingerprint family reads ...`); the shared dependencies differ from the reading (`The restore's shared dependencies on roles differ from the source reading: ...`; production's matched what the step rebuilds when read on November 26 at 04:41 UTC); or another PostgreSQL error. A restore pass that fails prints PostgreSQL's error, and the privileges pass the GRANT or REVOKE that failed.
+
+After that, every database the migrations and rollbacks touch is a faithful copy checked against the receipt or against the database it was copied from:
 
 - The restored primary database is checked before and after Auth starts.
 - The installation base is a faithful template copy (`faithful-copy.sh`: owner, privileges and settings included), checked against the restored database and the receipt.
@@ -68,18 +91,22 @@ After that, every database the migrations and rollbacks touch is checked against
 - The full rollback on real V2 work runs on another verified copy.
 - The base is checked once more at the end.
 
-`schema-fingerprint.sql` (format 2, 34 families) covers:
+`schema-fingerprint.sql` (format 3) defines 50 families. A reading lists those that hold objects: 36 on production when read on November 26 at 03:04 UTC, 35 on the synthetic stand-in, which has no Realtime partitions. Any family present in only one of two readings is a difference. It covers:
 
 - every non-system schema, including the managed ones;
 - roles, memberships, and database and role settings;
 - default, initial and catalog-object privileges, and parameter grants;
-- security labels, sequence ownership, partition keys and replica identity.
+- security labels, sequence ownership, partition keys and replica identity;
+- casts created after initdb (between built-in types included) and disabled internal foreign-key triggers;
+- in the system schemas (`pg_catalog`, `information_schema`), every object created after initdb outside any extension, every object in `pg_toast` other than TOAST tables and the indexes on them (PostgreSQL makes those, an interrupted `REINDEX CONCURRENTLY` included, and pg_dump writes no CREATE for them; a TOAST table's storage settings, which pg_dump writes on the table that owns it, are read with that table in `relations`), and any other schema named `pg_…` (`catalog_objects`: functions, relations and indexes, types, operators, collations, operator families and classes and their members, conversions, text-search objects, statistics, constraints, triggers, policies, rules and schemas; empty on production, so absent from its receipt), and what initdb created there (`builtins`, by name: the full definition of each function, procedure and aggregate with its parallel marking (for an aggregate, its arguments, result, volatility, strictness, security, leakproofness, cost, rows, support function, settings, language and source as well as its aggregate definition), view and index, the columns, access method, tablespace, replica identity and row-security settings of each relation, the clustering, replica identity and validity of each index, the rules on system views other than a view's own, the collations built into PostgreSQL, the settings of each range type, and each type, operator, cast, constraint, operator family and class with its members, conversion and text-search object). A replaced or dropped built-in, aggregates included, or a changed attribute (volatility, strictness, parallel safety, security, settings, cost), differs. Not read there: the collations initdb imports from ICU and the operating system's locales and the version of the built-in ICU collation (both differ between the two images), comments, initial privileges, the statistics settings of system columns, and server settings. Grants on system objects and on `pg_toast` are in `catalog_permissions`. Production's `builtins` equals a fresh cluster of either image (`17.6.1.063` and `.085`).
 
-Its "session" family records the settings the reading ran under. A dump and restore parses stored expressions again, and PostgreSQL flattens nested AND and OR chains when it does. So `receipts.py restored` compares a restored copy exactly in 27 families. In the seven that hold parsed expressions (columns, constraints, indexes, views, triggers, policies, rules), it accepts a match on PostgreSQL's precedence-aware printing (`pg_get_constraintdef(oid, true)` and the like). That printing reads the same for a flattened chain and its nested original, but differs for any regrouping. The output and the evidence file name the families that matched this way. Readings of the source itself, and template copies, are compared exactly in every family.
+Each definition is recorded field by field, as a JSON array, so a missing field never lets the next one take its place: a policy with only USING and the same condition as only WITH CHECK read differently. Format 2 joined the fields with separators that skipped empty ones.
+
+Its "session" family records the settings the reading ran under. A dump and restore parses stored expressions again, and PostgreSQL flattens nested AND and OR chains when it does. So `receipts.py restored` compares a restored copy exactly in every other family (29 on production's reading). In the seven that hold parsed expressions (columns, constraints, indexes, views, triggers, policies, rules), it accepts a match on PostgreSQL's precedence-aware printing (`pg_get_constraintdef(oid, true)` and the like). That printing reads the same for a flattened chain and its nested original, but differs for any regrouping. The output and the evidence file name the families that matched this way. Readings of the source itself, and template copies, are compared exactly in every family.
 
 The default image is `supabase/postgres:17.6.1.063`; the session family fails the run if production's server version differs. The [operator handoff](../../docs/plans/automations-v2/complete-schema-handoff.md) has the steps.
 
-Besides Linux, `release-full` and the two operator scripts before it (`capture-receipts.sh`, `make-schema-bundle.sh`) are written for macOS 13 or newer with Docker Desktop. They need bash 4.4 or newer (Homebrew's `bash`; each script refuses an older one) and PostgreSQL 17 client tools, but no GNU coreutils: checksums and paths are computed in Python, and the containers are reached only through `docker exec`. They have not been run end to end on a Mac.
+Besides Linux, `release-full` and the two operator scripts before it (`capture-receipts.sh`, `make-schema-bundle.sh`) are written for macOS 13 or newer with Docker Desktop. They need bash 4.4 or newer (Homebrew's `bash`; each script refuses an older one), Python 3.11 or newer (macOS supplies 3.9), Node, openssl, curl, Docker with buildx and, for `make-schema-bundle.sh`, PostgreSQL 17 client tools. While the source holds the first release, as production does, they need no GNU coreutils, Deno, Chromium or Playwright: checksums and paths are computed in Python, and the containers are reached only through `docker exec` and `docker cp`. They have not been run end to end on a Mac.
 
 ```bash
 bash e2e/automations-local/release-full-synthetic.sh
@@ -87,9 +114,9 @@ bash e2e/automations-local/release-full-synthetic.sh
 
 `release-full-synthetic.sh` tests the full mode end to end without production:
 
-1. `run.sh synthetic-source` builds a stand-in from production's migrations, makes the bundle with `make-schema-bundle.sh` through the cluster's own PostgreSQL 17 tools, and reads the receipts afterwards in a separate session.
+1. `run.sh synthetic-source` builds a stand-in from 105 of production's 122 earlier migrations, the first release and the first-text sender, along production's extension history: pg_graphql is dropped, so the image's event trigger leaves the placeholder and the two GraphQL schemas' initial privileges, and postgres creates pgcrypto, uuid-ossp and pg_stat_statements while it is a superuser. It makes the bundle with `make-schema-bundle.sh` through the cluster's own PostgreSQL 17 tools, checks that the reading has no pg_graphql and holds those two initial privileges outside any extension, and reads the receipts afterwards in a separate session. Run through `release-full-synthetic.sh`, it uses production's image, `supabase/postgres:17.6.1.063` (`LOCAL_POSTGRES_IMAGE` selects another, such as a mirror of the same image); run alone, `run.sh` defaults to `17.6.1.085`. `AUTOMATIONS_SYNTHETIC_PG_GRAPHQL=keep` keeps pg_graphql, to rehearse an archive that still holds it.
 2. It shows that a plain template copy fails the target check.
-3. Twelve runs then must be refused: receipts inside the bundle, the bundle's own reading as the receipt (as is and reformatted), a receipt read through the bundle's connection, the old format, a reading three hours from the dump, a reading under another `search_path`, a changed source, a canonical reading without its time, a missing Auth receipt, a changed bundle file, and an archive with one policy regrouped after its readings were taken (`regroup-policy.py`), which only the restored database shows.
+3. Eighteen runs then must be refused: receipts inside the bundle, the bundle's own reading as the receipt (as is and reformatted), a receipt read through the bundle's connection, one read through the operator's own login, the old format, a reading three hours from the dump, a reading under another `search_path`, a changed source, a canonical reading without its time, a missing Auth receipt, a changed bundle file, and four archives edited after their readings were taken (`edit-archive.py`), which only the restored database shows: one policy regrouped, one policy's condition moved from USING to WITH CHECK, a built-in cast, a `pg_catalog` function and a disabled foreign key added, and built-ins changed (`now()` marked immutable, `lpad` replaced, English text search without plain words) with a collation added to `pg_catalog`, an extension ownership reading changed after it was taken (pgcrypto said to belong to `supabase_admin`, as a restore leaves it), which only the receipt shows, and one whose shared dependencies were changed after it was taken (pgcrypto's owner row left out), which the step's own check refuses. The stand-in has production's extension ownership and production's GraphQL leftovers, so the full run exercises both reproductions.
 4. The full run must pass.
 
 ## Installation that stops part way

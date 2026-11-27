@@ -82,15 +82,24 @@ END $$;
 CREATE TRIGGER automation_capture_appointment_outcome AFTER INSERT ON private.appointment_outcome_events
   FOR EACH ROW EXECUTE FUNCTION private.automation_capture_appointment_outcome();
 
--- A cancelled appointment opened again with no outcome left to take back. This is what moving an appointment while
--- it is cancelled leads to: its new slot carries no outcome record, so reopening it records none either. The
--- appointment's own change log still shows the status going from cancelled to open.
+-- An appointment opened again after a cancellation, as its own change log records it (automation_stood_again), which
+-- its outcome record may not show: its slot can hold no outcome to take back (it was moved while cancelled, or its
+-- other outcome was never recorded there), and a save without a signed-in person (a calendar sync) records no
+-- retraction. The event only makes the worker look again: whether the reminders resume is first the slot's to say
+-- (automation_appointment_state), where a sync's save takes back only a cancellation a sync recorded, also after a
+-- person retyped the appointment, and a person's cancellation, No Show or Completed on the slot still stands over it;
+-- at a time another booking run of the automation holds (automation_time_held), nothing starts for that automation,
+-- and no run that never followed that time is carried on there.
 CREATE FUNCTION private.automation_capture_appointment_reopened()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 BEGIN
   IF NOT private.automation_enrolling(NEW.organization_id) THEN RETURN NULL; END IF;
-  IF private.appointment_status_key(NEW.prev->>'status') IS DISTINCT FROM 'cancelled'
-    OR private.appointment_status_key(NEW.next->>'status') IS DISTINCT FROM 'open' THEN RETURN NULL; END IF;
+  -- This is the appointment's latest save, so the reopening check at its own time returns that time when it is one.
+  IF private.appointment_status_key(NEW.next->>'status') IS DISTINCT FROM 'open'
+    OR private.appointment_status_key(NEW.prev->>'status') IS NOT DISTINCT FROM 'open'
+    OR private.automation_stood_again(NEW.organization_id,NEW.appointment_id,NEW.observed_at) IS NULL THEN
+    RETURN NULL;
+  END IF;
   PERFORM private.automation_record_event(NEW.organization_id,'appointment_changed',
     md5(NEW.id::text||':reopened')::uuid,NULL,NULL,
     jsonb_build_object('appointment_id',NEW.appointment_id,'change','reopened'),NULL,interval '0');

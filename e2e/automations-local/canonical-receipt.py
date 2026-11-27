@@ -50,6 +50,7 @@ WITH canonical_rows AS MATERIALIZED (
 )
 SELECT jsonb_build_object(
   'captured_at',to_char(transaction_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+  'client',jsonb_build_object('application_name',current_setting('application_name'),'session_user',session_user::text),
   'row_script_sha256','{row_source}',
   'rollup_script_sha256','{rollup_source}',
   'rows_sha256',(SELECT encode(sha256(convert_to(coalesce(string_agg(digest,'' ORDER BY line COLLATE "C" NULLS FIRST),''),'UTF8')),'hex') FROM row_hashes),
@@ -123,8 +124,9 @@ def read_receipt(path):
         value = json.loads(path.read_text())
     except (OSError, UnicodeError, json.JSONDecodeError):
         raise SystemExit("Invalid canonical receipt file")
-    # A reading carries the time it was taken, and per-kind digests; only the digests are compared.
-    if not isinstance(value, dict) or set(value) - {"captured_at", "kinds"} != KEYS or not all(
+    # A reading carries the time it was taken, the connection that took it, and per-kind digests; only the digests are
+    # compared.
+    if not isinstance(value, dict) or set(value) - {"captured_at", "kinds", "client"} != KEYS or not all(
         isinstance(value[key], str) and re.fullmatch(r"[a-f0-9]{64}", value[key]) for key in KEYS
     ):
         raise SystemExit("Invalid canonical receipt fields")
@@ -169,7 +171,8 @@ def check_restored(expected_path, actual_path):
     if not reparsed and (actual["rows_sha256"] != expected["rows_sha256"] or actual["rollup_sha256"] != expected["rollup_sha256"]):
         raise SystemExit("Repository catalog equivalence failed for rows_sha256, rollup_sha256")
     note = (" Restoring stored these kinds differently: " + ", ".join(reparsed)
-            + "; the schema fingerprint compares their content with privileges sorted and parentheses ignored.") if reparsed else ""
+            + "; the schema fingerprint compares their content with privileges sorted, on PostgreSQL's "
+            "precedence-aware printing.") if reparsed else ""
     print(f"Repository catalog matches the receipt in all {len(want)} kinds.{note}")
 
 

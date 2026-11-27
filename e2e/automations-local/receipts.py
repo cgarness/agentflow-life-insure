@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Check schema fingerprints and the independent production receipts that a release-full run is measured against.
 
-compare EXPECTED ACTUAL LABEL      both are schema-fingerprint.sql format 2 output; every family must match exactly
+compare EXPECTED ACTUAL LABEL      both are schema-fingerprint.sql format 3 output; every family must match exactly
 restored EXPECTED ACTUAL LABEL     ACTUAL is a dump and restore of EXPECTED's source: every family must match exactly,
                                    except that the families holding parsed expressions may instead match on their
                                    precedence-aware printing, which a restore's flattening of AND and OR chains leaves
                                    unchanged and any regrouping changes
-validate ARCHIVE RECEIPTS TOC COPY the receipts come from outside the archive, from another connection and moment,
-                                   in its window; COPY holds the archive files as checksummed, which are the bytes read
+validate ARCHIVE RECEIPTS TOC COPY the receipts come from outside the archive, at another moment in its window, each
+                                   read through the Management API's own connection (mgmt-api); COPY holds the archive
+                                   files as checksummed, which are the bytes read
 connector-sql FILE                 a query in the form a connector that returns only the last result can run
 auth-receipt READING VERSION DIGEST PROJECT OUT
                                    the Auth receipt from auth-receipt.sql's reading, the health version and the
@@ -21,21 +22,35 @@ import re
 import sys
 from pathlib import Path
 
-FORMAT = "agentflow-schema-fingerprint/2"
+FORMAT = "agentflow-schema-fingerprint/3"
 # The families whose definitions hold expressions PostgreSQL parses again on restore (schema-fingerprint.sql gives each
 # a precedence-aware printing). Every other family is stored as written, so a restore reproduces it exactly.
 REPARSED = frozenset({"columns", "constraints", "indexes", "views", "triggers", "policies", "rules"})
 CANONICAL_KEYS = {"row_script_sha256", "rollup_script_sha256", "rows_sha256", "rollup_sha256", "bucket_sha256"}
 AUTH_KEYS = {"project_ref", "database", "observed_at", "version_count", "versions_sha256", "gotrue_version",
-             "image_index_digest"}
+             "image_index_digest", "client"}
 BUNDLE_FILES = ("agentflow-schema.dump", "roles.sql", "source-fingerprint-before.json", "source-fingerprint.json",
-                "canonical-source.json", "auth-schema-migrations.txt")
+                "canonical-source.json", "auth-schema-migrations.txt", "extension-ownership.json")
+OWNERSHIP_FORMAT = "agentflow-extension-ownership/2"
+OWNERSHIP_KEYS = {"format", "captured_at", "client", "extensions", "members", "initial_privileges", "shared_dependencies"}
 RECEIPT_FILES = ("schema-fingerprint.json", "canonical.json", "auth.json")
 # The receipts are read in the same window as the dump: the platform renames and rotates some managed objects on its
 # own (Realtime's dated partitions), so a reading from another day describes a different schema.
 WINDOW = datetime.timedelta(hours=2)
 MAX_AGE = datetime.timedelta(hours=72)
 DUMP_LIMIT = datetime.timedelta(minutes=30)
+# The receipts are read through the Supabase Management API, whose database connection names itself mgmt-api; the
+# bundle is dumped through the operator's own database login. The synthetic rehearsal reads through its own named channel.
+SYNTHETIC_PROJECT = "synthetic-release-full"
+
+
+def receipt_channel(project):
+    return "agentflow-receipt-channel" if project == SYNTHETIC_PROJECT else "mgmt-api"
+
+
+def named_client(value):
+    return (isinstance(value, dict) and set(value) == {"application_name", "session_user"}
+            and all(isinstance(v, str) for v in value.values()))
 
 
 def fail(message):
@@ -54,7 +69,7 @@ def fingerprint(path, what):
     except (OSError, UnicodeError, json.JSONDecodeError):
         fail(f"{what} is not readable JSON")
     if not isinstance(value, dict) or value.get("format") != FORMAT:
-        fail(f"{what} is not schema-fingerprint.sql format 2; capture it again with the current file")
+        fail(f"{what} is not schema-fingerprint.sql format 3; capture it again with the current file")
     families = value.get("families")
     def valid(row):
         return (isinstance(row, dict) and set(row) == {"kind", "objects", "sha256", "loose"}
@@ -65,9 +80,7 @@ def fingerprint(path, what):
     by_kind = {row["kind"]: row for row in families}
     if len(by_kind) != len(families) or "session" not in by_kind:
         fail(f"{what} has duplicate families or no session family")
-    client = value.get("client")
-    if not (isinstance(client, dict) and set(client) == {"application_name", "session_user"}
-            and all(isinstance(v, str) for v in client.values())):
+    if not named_client(value.get("client")):
         fail(f"{what} does not name the connection that read it; capture it again with the current file")
     return when(value.get("captured_at"), what), by_kind
 
@@ -135,8 +148,34 @@ def validate(archive, receipts, toc, copy):
     if any(receipt_reading["client"] == reading["client"] for reading in bundle_readings):
         fail("The schema receipt was read through the same connection as the archive's readings "
              f"({receipt_reading['client']['application_name']}); read it through the other channel.")
+    project = os.environ.get("AUTOMATIONS_SOURCE_PROJECT", "jncvvsvckxhqgqvkppmj")
+    channel = receipt_channel(project)
     if not before <= after or after - before > DUMP_LIMIT:
         fail("The archive's two readings do not bracket one dump of at most 30 minutes.")
+    # What the dump cannot carry for extensions, read through the archive's own connection between its two readings.
+    ownership = parsed(taken["extension-ownership.json"][0])
+    def address(parts):
+        return (isinstance(parts[0], str) and all(isinstance(part, list) and all(isinstance(x, str) for x in part)
+                                                  for part in parts[1:3]))
+    def addresses(rows):
+        return isinstance(rows, list) and all(
+            isinstance(row, list) and len(row) == 4 and address(row[:3]) and isinstance(row[3], str) for row in rows)
+    def dependencies(rows):
+        # [type, object address, role]: an extension's owner ('o'), or a role an initial privilege names ('i').
+        return isinstance(rows, list) and all(
+            isinstance(row, list) and len(row) == 5 and row[0] in ("o", "i") and address(row[1:4])
+            and isinstance(row[4], str) and (row[0] == "i" or row[1] == "extension") for row in rows)
+    if (not isinstance(ownership, dict) or set(ownership) != OWNERSHIP_KEYS
+            or ownership["format"] != OWNERSHIP_FORMAT or ownership["client"] != bundle_readings[1]["client"]
+            or not isinstance(ownership["extensions"], list)
+            or not all(isinstance(row, list) and len(row) == 2 and all(isinstance(x, str) for x in row)
+                       for row in ownership["extensions"])
+            or not addresses(ownership["members"]) or not addresses(ownership["initial_privileges"])
+            or not dependencies(ownership["shared_dependencies"])):
+        fail("The archive's extension ownership reading must be format 2, read through the archive's own connection; "
+             "make the bundle with make-schema-bundle.sh.")
+    if not before <= when(ownership["captured_at"], "The archive's extension ownership reading") <= after:
+        fail("The archive's extension ownership reading was not taken between its two schema readings.")
     created = re.search(r"^;\s+Archive created at (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) UTC$", Path(toc).read_text(), re.M)
     if not created:
         fail("The archive does not record its creation time in UTC; make it with make-schema-bundle.sh.")
@@ -146,19 +185,28 @@ def validate(archive, receipts, toc, copy):
         fail("The archive was not made between the two readings that accompany it.")
     # The canonical and Auth receipts carry their own capture times.
     canonical = json.loads(found["canonical.json"].read_text())
-    if not isinstance(canonical, dict) or set(canonical) != CANONICAL_KEYS | {"captured_at", "kinds"}:
-        fail("The independent canonical receipt must hold the five digests, the per-kind digests and its capture time.")
+    if (not isinstance(canonical, dict) or set(canonical) != CANONICAL_KEYS | {"captured_at", "kinds", "client"}
+            or not named_client(canonical["client"])):
+        fail("The independent canonical receipt must hold the five digests, the per-kind digests, its capture time and "
+             "the connection that read it.")
     source_canonical = json.loads(bundle["canonical-source.json"].read_text())
-    if not isinstance(source_canonical, dict) or set(source_canonical) != CANONICAL_KEYS | {"captured_at", "kinds"}:
-        fail("The archive's canonical reading must hold the five digests, the per-kind digests and its capture time.")
+    if (not isinstance(source_canonical, dict) or set(source_canonical) != CANONICAL_KEYS | {"captured_at", "kinds", "client"}
+            or not named_client(source_canonical["client"])):
+        fail("The archive's canonical reading must hold the five digests, the per-kind digests, its capture time and "
+             "the connection that read it.")
     if canonical["captured_at"] == source_canonical["captured_at"]:
         fail("The canonical receipt was taken at the same moment as the archive's own canonical reading; it is a copy of it.")
     auth = json.loads(found["auth.json"].read_text())
-    if not isinstance(auth, dict) or set(auth) != AUTH_KEYS:
+    if not isinstance(auth, dict) or set(auth) != AUTH_KEYS or not named_client(auth["client"]):
         fail("The independent Auth receipt has unexpected fields.")
-    project = os.environ.get("AUTOMATIONS_SOURCE_PROJECT", "jncvvsvckxhqgqvkppmj")
     if auth["project_ref"] != project or auth["database"] != "postgres":
         fail("The Auth receipt describes another project or database.")
+    # Independent of the operator's own login: every receipt came through the Management API's connection.
+    for what, client in (("schema receipt", receipt_reading["client"]), ("canonical receipt", canonical["client"]),
+                         ("Auth receipt", auth["client"])):
+        if client["application_name"] != channel:
+            fail(f"The {what} was read through {client['application_name']!r}, not the Management API's own connection "
+                 f"({channel}); read the receipts with capture-receipts.sh.")
     times = {
         "the schema receipt": captured,
         "the canonical receipt": when(canonical["captured_at"], "The canonical receipt"),
@@ -185,7 +233,8 @@ def validate(archive, receipts, toc, copy):
 
 def auth_receipt(reading_path, version, digest, project, out):
     reading = json.loads(Path(reading_path).read_text())
-    if not isinstance(reading, dict) or set(reading) != {"version_count", "versions_sha256", "observed_at"}:
+    if (not isinstance(reading, dict) or set(reading) != {"version_count", "versions_sha256", "observed_at", "client"}
+            or not named_client(reading["client"])):
         fail("The Auth reading has unexpected fields")
     when(reading["observed_at"], "The Auth reading")
     if not re.fullmatch(r"v\d+\.\d+\.\d+", version) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):

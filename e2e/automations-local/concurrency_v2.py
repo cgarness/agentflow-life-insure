@@ -4,8 +4,10 @@ Independent PostgreSQL connections race for one callback claim, one task step, a
 missed call. A final check holds the lock a publish takes and proves a CRM save still commits at once.
 Real row locks held by another session show that late-answer cleanup never holds up the call and finishes later,
 that a reopened appointment seen by two workers at once gets one run, that an appointment save in flight refuses a
-reminder's provider handoff while a handoff in progress keeps the save waiting only until it commits, and that an
-unrelated save in flight is waited out briefly and never costs the reminder.
+reminder's provider handoff while a handoff in progress keeps the save waiting only until it commits, that an
+unrelated save in flight is waited out briefly and never costs the reminder, that saves queued one behind another
+are waited out for half a second in all, and that a reopening committed while a worker waits to admit the booking
+paces the run from the reopening.
 """
 import json
 import os
@@ -36,7 +38,8 @@ ids = {name: str(uuid.uuid4()) for name in ["lead_flow", "lead_version", "call_f
                                              "busy_lead", "busy_call", "bridge_call", "bridge_attempt",
                                              "first_seen_flow", "first_seen_version", "first_seen_lead", "first_seen",
                                              "text_flow", "text_version", "text_moved", "text_kept", "text_busy",
-                                             "text_long"]}
+                                             "text_long", "text_queued", "race_flow", "race_version", "race_lead",
+                                             "race_appt"]}
 
 def query(sql, timeout=25):
     return subprocess.check_output(psql, input=sql, text=True, timeout=timeout).strip()
@@ -396,7 +399,8 @@ try:
         ('{ids['text_moved']}','{org}','Moved during the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal'),
         ('{ids['text_kept']}','{org}','Saved after the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal'),
         ('{ids['text_busy']}','{org}','Edited during the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal'),
-        ('{ids['text_long']}','{org}','Edited at length during the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal');
+        ('{ids['text_long']}','{org}','Edited at length during the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal'),
+        ('{ids['text_queued']}','{org}','Edited twice during the handoff','{ids['lead']}','{first}',now()+interval '3 hours','internal');
       select public.automation_process_events(25);""")
     for item in claims():
         assert query(f"select public.automation_finish_node('{item['run_id']}','{item['lease_token']}','wait')") == "t"
@@ -409,7 +413,7 @@ try:
             join private.automation_events e on e.id=r.event_id where r.id='{item['run_id']}'""")
         assert item["node_id"] == "text", item
         texts[appointment] = item
-    assert set(texts) == {ids['text_moved'], ids['text_kept'], ids['text_busy'], ids['text_long']}, texts
+    assert set(texts) == {ids['text_moved'], ids['text_kept'], ids['text_busy'], ids['text_long'], ids['text_queued']}, texts
     def authorize(item):
         return f"select public.automation_authorize_handoff('{item['run_id']}','{item['lease_token']}','text');"
     moved = texts[ids['text_moved']]
@@ -462,6 +466,27 @@ try:
     again = [item for item in claims() if item["run_id"] == long["run_id"]]
     assert len(again) == 1 and again[0]["node_id"] == "text", again
     assert query(authorize(again[0])) == "t" and intent(long) == "handed_off", "The next lease did not hand the reminder off"
+    # Two saves, the second queued behind the first: the worker gives up half a second after it first tried, measured
+    # inside the server, however many saves are waiting; it never waits for each in turn.
+    queued = texts[ids['text_queued']]
+    first_save = subprocess.Popen(psql, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    first_save.stdin.write(f"begin; update public.appointments set title='Edited once' where id='{ids['text_queued']}';\n"
+                           "\\echo LOCK_HELD\nselect pg_sleep(0.45);\ncommit;\n")
+    first_save.stdin.flush()
+    for line in first_save.stdout:
+        if line.rstrip() == "LOCK_HELD":
+            break
+    second_save = contender("v2-second-save", f"update public.appointments set title='Edited twice' where id='{ids['text_queued']}'; "
+                            "select pg_sleep(0.45);")
+    answer = send(worker, f"""select ok::text||' '||round(extract(epoch from clock_timestamp()-statement_timestamp())::numeric,3)
+        from (select public.automation_authorize_handoff('{queued['run_id']}','{queued['lease_token']}','text') ok offset 0) x;""",
+                  "QUEUED_DONE")
+    first_save.stdin.close()
+    assert first_save.wait(timeout=15) == 0, first_save.stderr.read()
+    assert second_save.wait(timeout=15) == 0, second_save.stderr.read()
+    verdict, waited_for = answer[0].split()
+    assert verdict == "false" and 0.45 < float(waited_for) < 0.75, f"Two queued saves were waited out for {waited_for}s ({verdict})"
+    assert intent(queued) == "prepared", "A refused handoff recorded something"
     worker.stdin.close()
     worker.wait(timeout=15)
     query(f"update private.automation_release_controls set dispatch_enabled=false where organization_id='{org}';")
@@ -502,6 +527,34 @@ try:
     assert resume.wait(timeout=15) == 0, resume.stderr.read()
     assert query(f"""select count(*) from private.automation_runs where workflow_id='{ids['appt_flow']}'
         and status in ('queued','waiting','held')""") == "1", "Two runs follow the reopened appointment"
+    # 12. A booking first processed while the appointment was cancelled, then moved while cancelled. A worker taking up
+    #     the moved booking waits for the contact's lock (another admission holds it) while the agent reopens the
+    #     appointment and commits. The run it starts is paced from the recorded reopening, never from the move made while
+    #     the appointment was cancelled.
+    query(f"""update public.workflows set status='paused' where organization_id='{org}' and status='active';
+      update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,
+        leased_until=null where organization_id='{org}' and status in ('queued','waiting','held');
+      {publish_graph('race_flow', 'race_version', 'Concurrency reopened while a worker waits', reminder_graph(task_step))}
+      insert into public.leads(id,organization_id,first_name,assigned_agent_id) values ('{ids['race_lead']}','{org}','Reopened while waiting','{first}');
+      insert into public.appointments(id,organization_id,title,contact_id,user_id,start_time,sync_source)
+        values ('{ids['race_appt']}','{org}','Reopened while a worker waits','{ids['race_lead']}','{first}',now()+interval '3 days','internal');
+      update public.appointments set status='Cancelled' where id='{ids['race_appt']}';
+      select public.automation_process_events(25);
+      update public.appointments set start_time=now()+interval '5 days' where id='{ids['race_appt']}';""")
+    race_runs = f"select count(*) from private.automation_runs where workflow_id='{ids['race_flow']}'"
+    assert query(race_runs) == "0", "A booking processed while cancelled started a run"
+    with hold(f"select pg_advisory_xact_lock(hashtextextended('automation-contact:{org}lead{ids['race_lead']}',0));"):
+        admitting = contender("v2-reopen-while-waiting", "select public.automation_process_events(25);")
+        query(f"update public.appointments set status='Scheduled' where id='{ids['race_appt']}';")
+    assert admitting.wait(timeout=15) == 0, admitting.stderr.read()
+    paced = query(f"""select (r.paced_from=(select max(x.observed_at) from private.appointment_evidence_observations x
+          where x.appointment_id='{ids['race_appt']}' and x.op='UPDATE'
+            and private.appointment_status_key(x.prev->>'status')='cancelled'
+            and private.appointment_status_key(x.next->>'status')='open'))::text||':'||r.status
+        from private.automation_runs r where r.workflow_id='{ids['race_flow']}'""")
+    assert paced == "true:queued", f"The run admitted as the reopening committed is paced from a moment while cancelled: {paced}"
+    query("select public.automation_process_events(25);")
+    assert query(race_runs) == "1", "Processing the reopening afterwards started another run"
     print("PASS one winner of two simultaneous callback claims; one task from a twice-delivered step; one callback for a call "
           f"two automations reached together; an appointment saved in {waited:.2f}s during a held publish lock and its event recovered; "
           "an answer confirmed while a missed call's task or callback was being made closed it; an answer recorded while "
@@ -509,6 +562,8 @@ try:
           "finished by the worker; a reopening two workers saw at once started one run; a move in flight refused a "
           "reminder's handoff after a brief wait and a handoff in progress held a save only until it committed; a reopened appointment "
           "carried on while its new time was admitted at the same moment has one run; a short unrelated save was waited out "
-          "and a long one refused the handoff without cost, the next lease handing the reminder off once")
+          "and a long one refused the handoff without cost, the next lease handing the reminder off once; two queued saves were waited "
+          "out for half a second in all; a reopening committed while a worker waited to admit the booking paced its run from "
+          "the reopening")
 finally:
     cleanup()

@@ -37,6 +37,16 @@ docker cp -q supabase/ops/automation_v2_install_state.sql "$db:$dest/ops/"
 docker cp -q e2e/automations-local/install-catalog.sql "$db:$dest/"
 names=(); for file in "${files[@]}"; do names+=("$(basename "$file")"); done
 psql_on() { "${pg[@]}" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d "$1" "${@:2}"; }
+# A rollback that must apply. If it refuses, its reason (a drift names the function) is printed before the run stops.
+rolls_back() { # rolls_back DB FILE
+  local out
+  if ! out=$(psql_on "$1" -1 -f "$2" 2>&1); then
+    grep -E 'ERROR|drift' <<<"$out" >&2 || tail -5 <<<"$out" >&2
+    echo "The rollback $(basename "$2") refused $1." >&2
+    return 1
+  fi
+  printf '%s\n' "$out"
+}
 prints=$(mktemp -d)
 trap 'rm -rf -- "$prints"' EXIT
 fingerprint() { psql_on "$1" -At -f - <e2e/automations-local/schema-fingerprint.sql >"$prints/$1.json"; }
@@ -104,7 +114,7 @@ for name in "${names[@]}"; do apply "clean_install_$run_id" "$name"; done
 crm_saves "clean_install_$run_id"
 full=$(catalog "clean_install_$run_id")
 copy "clean_install_$run_id" "clean_rollback_$run_id"
-psql_on "clean_rollback_$run_id" -1 -f "$dest/migrations/rollback/20261124100600_automation_v2.rollback.sql" >/dev/null 2>&1
+rolls_back "clean_rollback_$run_id" "$dest/migrations/rollback/20261124100600_automation_v2.rollback.sql" >/dev/null
 rolled=$(catalog "clean_rollback_$run_id")
 base_functions=$(first_release "$base")
 [[ $(first_release "clean_rollback_$run_id") == "$base_functions" ]]
@@ -146,7 +156,7 @@ for k in 0 1 2 3 4 5 6; do
   for ((i = k; i < 7; i++)); do apply "resume_${k}_$run_id" "${names[$i]}"; done
   same "$(catalog "resume_${k}_$run_id")" "$full" "resuming after $k files"
   crm_saves "resume_${k}_$run_id"
-  psql_on "resume_${k}_$run_id" -1 -f "$dest/migrations/rollback/20261124100600_automation_v2.rollback.sql" >/dev/null 2>&1
+  rolls_back "resume_${k}_$run_id" "$dest/migrations/rollback/20261124100600_automation_v2.rollback.sql" >/dev/null
   same "$(catalog "resume_${k}_$run_id")" "$rolled" "the full rollback after resuming from $k files"
 
   # Back out: the full rollback refuses a partial state; the stopped-install back-out restores the first release.
@@ -156,7 +166,7 @@ for k in 0 1 2 3 4 5 6; do
       echo "The full rollback accepted a partial installation of $k files" >&2; exit 1
     fi
     same "$(catalog "back_${k}_$run_id")" "$stopped" "the refused full rollback changed the catalog"
-    notice=$(psql_on "back_${k}_$run_id" -1 -f "$dest/migrations/rollback/20261124100600_automation_v2_stopped_install.rollback.sql" 2>&1)
+    notice=$(rolls_back "back_${k}_$run_id" "$dest/migrations/rollback/20261124100600_automation_v2_stopped_install.rollback.sql")
     grep -q "back-out: $k of seven files were installed" <<<"$notice"
     [[ $(first_release "back_${k}_$run_id") == "$base_functions" ]]
     [[ $(inert_observers "back_${k}_$run_id") == t ]]

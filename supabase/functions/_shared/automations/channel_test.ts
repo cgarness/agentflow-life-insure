@@ -130,6 +130,37 @@ Deno.test("a text is held without reserving when its earlier refused reservation
   }
 });
 
+Deno.test("a text that ends without a handoff cancels its own unsent reservation, in any texting mode", async () => {
+  const sms = { type: "send_sms" as const, config: { body: "Reminder {{first_name}}", purpose: "informational" } };
+  const calls: Array<[string, Record<string, unknown>]> = [];
+  const db = {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      calls.push([name, args]);
+      if (name === "automation_message_check") return { data: null, error: null };
+      if (name === "automation_release_refused_dispatch") return { data: true, error: null };
+      if (name === "sms_cancel_prepared_dispatch") return { data: true, error: null };
+      return { data: null, error: { message: "fixture refusal before the handoff" } };
+    },
+    from: () => {
+      const query = {
+        select: () => query,
+        eq: () => query,
+        in: () => query,
+        order: () => query,
+        limit: () => query,
+        maybeSingle: async () => ({ data: { organization_id: claim.organization_id, enforced: true }, error: null }),
+      };
+      return query;
+    },
+  };
+  const result = await dispatchChannel(db, claim, sms, { ...contact, phone: "+12025550123" }, { env: fakeEnv, fetch: noTransport });
+  assert(result.status === "held", String(result.status));
+  const cancel = calls.find(([name]) => name === "sms_cancel_prepared_dispatch");
+  assert(cancel && cancel[1].p_org === claim.organization_id && cancel[1].p_key === `automation:${claim.run_id}:${claim.node_id}`,
+    "the step's own reservation is cancelled: " + calls.map(([name]) => name).join());
+  assert(!calls.some(([name]) => name === "automation_begin_message"), "nothing was handed off");
+});
+
 Deno.test("held eligibility and missing provider config cause zero provider calls", async () => {
   let sends = 0;
   const transport = async () => {
