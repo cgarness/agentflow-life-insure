@@ -2,7 +2,7 @@ import type { Db } from "../a2p/types.ts";
 import { dispatch } from "../sms/dispatch.ts";
 import { policy } from "../sms/consent.ts";
 import { contactScope, selectedSender } from "../sms/scope.ts";
-import { phone, UUID } from "../sms/wire.ts";
+import { phone, SmsError, UUID } from "../sms/wire.ts";
 import { fieldValues, renderFields, usesAppointmentField } from "./fields.ts";
 
 interface Claim {
@@ -24,9 +24,15 @@ interface Node {
   config: Record<string, unknown>;
 }
 interface Outcome {
-  status: "accepted" | "held" | "failed" | "unknown";
+  status: "accepted" | "held" | "failed" | "unknown" | "skipped";
   reason?: string;
 }
+/** The final send check's answer that finishes the step as skipped (the reminder record, a stop for this time). */
+const SKIP = "skip:";
+/** The final send check's answer for a text owed its one retry: it is sent as any first attempt is. */
+const RETRY = "retry:";
+/** A retry the consent service definitively refuses is not sent, and the run goes on. Other refusals hold it. */
+const OPTED_OUT = new Set(["SMS_SUPPRESSED", "NO_CONSENT"]);
 interface Handoff {
   id: string;
   from_email: string;
@@ -81,13 +87,20 @@ export async function dispatchChannel(
   const origin = dependencies.env("SUPABASE_URL")?.replace(/\/+$/, "");
   if (!origin || !body.trim()) return { status: "held", reason: "Message configuration is incomplete." };
   // Asked before a provider request is reserved: an appointment moved or cancelled since the lease holds the
-  // message without spending that request. The handoff checks the same again under lock.
+  // message without spending that request. The handoff checks the same again under lock. A step the reminder record
+  // shows was already given for this appointment time (or a stop holds) is skipped, and the run goes on.
   const check = await db.rpc("automation_message_check", {
     p_run: claim.run_id, p_token: claim.lease_token, p_node: claim.node_id,
   });
   if (check.error) return { status: "held", reason: "Message eligibility could not be verified." };
+  let retry = false;
   if (check.data !== null) {
-    return { status: "held", reason: typeof check.data === "string" && check.data ? check.data : "Message eligibility could not be verified." };
+    const answer = typeof check.data === "string" ? check.data : "";
+    if (answer.startsWith(SKIP)) return { status: "skipped", reason: answer.slice(SKIP.length) };
+    if (answer !== RETRY) {
+      return { status: "held", reason: answer || "Message eligibility could not be verified." };
+    }
+    retry = true;
   }
   let handedOff = false;
   let messageId: string | undefined;
@@ -220,6 +233,24 @@ export async function dispatchChannel(
         });
       } catch {
         // The hold below stands either way; the next attempt finds the reservation as it is.
+      }
+    }
+    if (!handedOff) {
+      // A retry the consent service refuses for good (an opt-out, or no permission) is not sent, and the run goes on.
+      if (retry && error instanceof SmsError && OPTED_OUT.has(error.code)) {
+        return { status: "skipped", reason: "Not retried: the lead can no longer receive this message" };
+      }
+      // Refused before its handoff: asked again, a step another run gave meanwhile (the handoff the race was lost to),
+      // a stop committed meanwhile or a confirmed opt-out is skipped. Anything else holds, as before.
+      try {
+        const again = await db.rpc("automation_message_check", {
+          p_run: claim.run_id, p_token: claim.lease_token, p_node: claim.node_id,
+        });
+        if (!again.error && typeof again.data === "string" && again.data.startsWith(SKIP)) {
+          return { status: "skipped", reason: again.data.slice(SKIP.length) };
+        }
+      } catch {
+        // The hold below stands.
       }
     }
     if (channel === "sms" && handedOff) {

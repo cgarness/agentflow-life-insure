@@ -100,6 +100,69 @@ begin
   perform public.finalize_inbound_call_terminal(pg_temp.id(call_n),pg_temp.id(1),'no-answer',true,false);
 end $$;
 
+-- Another agency's booking reminder gave a task and a text through the worker's own path, so the record of what a
+-- booking run gave for an appointment time (private.automation_given_steps) holds two rows, the text's with the
+-- provider's failure. The record is read only where it exists (before it was added there was none, and this part only
+-- checks that the fixture runs).
+insert into public.organizations(id,name,twilio_subaccount_status) values (pg_temp.id(2),'V2 rollback record fixture','active');
+insert into private.automation_release_controls(organization_id,builder_visible,enrollment_enabled,dispatch_enabled)
+  values (pg_temp.id(2),true,true,true);
+insert into auth.users(id,email) select pg_temp.id(n),'v2-rollback-'||n||'@example.invalid' from generate_series(12,13) n;
+insert into public.profiles(id,organization_id,role,status,email,first_name,last_name)
+  select pg_temp.id(n),pg_temp.id(2),case when n=12 then 'Admin' else 'Agent' end,'Active',
+    'v2-rollback-'||n||'@example.invalid','Fixture',n::text from generate_series(12,13) n
+  on conflict (id) do update set organization_id=excluded.organization_id,role=excluded.role,status=excluded.status;
+insert into public.leads(id,organization_id,first_name,last_name,phone,assigned_agent_id)
+  values (pg_temp.id(34),pg_temp.id(2),'Dee','Lead','+12025550134',pg_temp.id(13));
+insert into public.workflows(id,organization_id,name,status,trigger_type,automation_graph,automation_revision)
+  values (pg_temp.id(76),pg_temp.id(2),'Booking reminder','active','manual',pg_temp.graph('[
+    {"type":"appointment_booked"},
+    {"type":"create_task","config":{"title":"Confirm the appointment","task_type":"Follow Up","due_amount":0,"due_unit":"minutes"}},
+    {"type":"send_sms","config":{"body":"See you soon","purpose":"informational"}}]'),1);
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  select pg_temp.id(77),pg_temp.id(2),pg_temp.id(76),'Booking reminder',1,w.automation_graph,clock_timestamp(),pg_temp.id(12)
+  from public.workflows w where w.id=pg_temp.id(76);
+update public.workflows set automation_version_id=pg_temp.id(77) where id=pg_temp.id(76);
+insert into public.automation_intervals(organization_id,workflow_id,version_id,starts_at)
+  values (pg_temp.id(2),pg_temp.id(76),pg_temp.id(77),clock_timestamp());
+insert into public.appointments(id,organization_id,title,contact_id,user_id,start_time,sync_source)
+  values (pg_temp.id(78),pg_temp.id(2),'Review',pg_temp.id(34),pg_temp.id(13),date_trunc('minute',now())+interval '3 days','internal');
+select pg_temp.ok(public.automation_process_events(25)=1,'the other agency''s booking enrolls');
+do $$
+declare c jsonb; m uuid;
+begin
+  select claim into strict c from public.automation_claim_work(25) claim where claim->>'organization_id'=pg_temp.id(2)::text;
+  perform pg_temp.ok(public.automation_create_task((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id',
+      'Confirm the appointment',null)->>'status'='created'
+    and public.automation_finish_node((c->>'run_id')::uuid,(c->>'lease_token')::uuid,'created',null),'its task is created');
+  select claim into strict c from public.automation_claim_work(25) claim where claim->>'organization_id'=pg_temp.id(2)::text;
+  perform pg_temp.ok(public.automation_authorize_handoff((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id'),
+    'its text is handed off');
+  insert into private.automation_messages(organization_id,run_id,node_id,contact_id,contact_type,channel,recipient,sender,owner_id,body)
+    values (pg_temp.id(2),(c->>'run_id')::uuid,c->>'node_id',pg_temp.id(34),'lead','sms','+12025550134','+15550009000',
+      pg_temp.id(12),'See you soon') returning id into m;
+  if to_regprocedure('public.automation_record_provider_receipt(uuid,uuid,text,text,timestamptz,text,text)') is not null then
+    execute 'select public.automation_record_provider_receipt($1,$2,$3,''failed'',clock_timestamp(),''undelivered'',''30003'')'
+      using m,pg_temp.id(2),'SM'||md5(m::text);
+  else
+    perform public.automation_record_receipt(m,'sms','SM'||md5(m::text),'failed',clock_timestamp(),null,pg_temp.id(2));
+  end if;
+end $$;
+-- The record's rows for the other agency, in key order (null where there is no record).
+create function pg_temp.given_rows() returns jsonb language plpgsql as $$
+declare answer jsonb;
+begin
+  if to_regclass('private.automation_given_steps') is null then return null; end if;
+  execute $q$select jsonb_agg(to_jsonb(g) order by g.workflow_id,g.appointment_id,g.starts_at,g.node_id,g.attempt)
+    from private.automation_given_steps g where g.organization_id=$1$q$ into answer using pg_temp.id(2);
+  return answer;
+end $$;
+select pg_temp.ok(to_regclass('private.automation_given_steps') is null or (select jsonb_array_length(r)=2
+    and r->0->>'kind'='task' and r->0->>'attempt'='1' and r->0->>'failure_status' is null
+    and r->1->>'kind'='sms' and r->1->>'attempt'='1' and r->1->>'failure_status'='undelivered' and r->1->>'failure_code'='30003'
+  from (select pg_temp.given_rows() r) x),
+  'the record holds the other agency''s task and its text with the provider''s failure: '||coalesce(pg_temp.given_rows()::text,'no record'));
+
 -- Two automations the first release can run as authored, and four that need V2.
 select pg_temp.publish(40,41,'First release welcome',pg_temp.graph('[
   {"type":"lead_created"},{"type":"wait","config":{"duration":1,"unit":"days"}}]'));
@@ -183,7 +246,8 @@ create temporary table kept on commit drop as select
   (select count(*) from public.workflow_versions where organization_id=pg_temp.id(1)) as versions,
   (select jsonb_agg(to_jsonb(x) order by call_id) from private.automation_answer_settlements x where organization_id=pg_temp.id(1)) as cleanups,
   (select jsonb_agg(graph order by id) from public.workflow_versions where organization_id=pg_temp.id(1)) as graphs,
-  (select due_at from private.automation_runs where workflow_id=pg_temp.id(40) and contact_id=pg_temp.id(30)) as first_due;
+  (select due_at from private.automation_runs where workflow_id=pg_temp.id(40) and contact_id=pg_temp.id(30)) as first_due,
+  pg_temp.given_rows() as given;
 select pg_temp.ok((select callbacks=1 and receipts=1 and purposes=1 and runs=7 and repairs=1 and versions=8
     and jsonb_array_length(cleanups)=1 from kept),
   'the fixture holds a callback, its receipt, a pinned requirement, four runs, an intake repair and a late-answer cleanup');
@@ -257,7 +321,10 @@ select pg_temp.ok((select k.tasks=(select count(*) from public.tasks where organ
     and k.graphs=(select jsonb_agg(graph order by id) from public.workflow_versions where organization_id=pg_temp.id(1))
     and k.cleanups=(select jsonb_agg(to_jsonb(x) order by call_id) from private.automation_answer_settlements x
       where organization_id=pg_temp.id(1))
-  from kept k),'every task, callback, receipt, pinned requirement, event, run, repair, late-answer cleanup and published graph is retained unchanged');
+    and k.given is not distinct from pg_temp.given_rows()
+    and (to_regclass('private.automation_given_steps') is null or jsonb_array_length(pg_temp.given_rows())=2)
+  from kept k),'every task, callback, receipt, pinned requirement, event, run, repair, late-answer cleanup, published graph and '
+    ||'record of what a booking run gave is retained unchanged');
 do $$
 declare target uuid:=(select id from public.inbound_callbacks where organization_id=pg_temp.id(1));
 begin

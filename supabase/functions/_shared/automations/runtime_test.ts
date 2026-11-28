@@ -203,3 +203,27 @@ Deno.test("the worker renders task text, asks the database to create it once and
   expect(calls.map((c) => c.name).join(","), "automation_finish_node");
   expect(calls[0].args.p_result, "held");
 });
+
+Deno.test("a message the final send check skips is finished as skipped with its reason, unchanged", async () => {
+  for (const channel of ["send_sms", "send_email"]) {
+    const calls: Array<{name: string; args: Record<string, unknown>}> = [];
+    const db = {
+      from() {
+        const query = { select: () => query, eq: () => query, maybeSingle: async () => ({data: {phone: "+12025550123"}, error: null}) };
+        return query;
+      },
+      async rpc(name: string, args: Record<string, unknown>) {
+        calls.push({name, args});
+        return {data: true, error: null};
+      },
+    } as unknown as Parameters<typeof runAutomationClaim>[0];
+    const run = claim(channel);
+    run.graph.nodes[0].config = { body: "Reminder" };
+    await runAutomationClaim(db, run, async () => ({status: "skipped", reason: "Already sent for this appointment time"}));
+    expect(calls.map((c) => c.name).join(","), "automation_finish_node");
+    expect(calls[0].args.p_run, "run");
+    expect(calls[0].args.p_token, "lease");
+    expect(calls[0].args.p_result, "skipped");
+    expect(calls[0].args.p_reason, "Already sent for this appointment time");
+  }
+});

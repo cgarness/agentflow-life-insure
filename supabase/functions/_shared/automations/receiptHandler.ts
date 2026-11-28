@@ -55,10 +55,12 @@ export async function handleReceipt(req: Request, db: Db, secret: string | undef
     if (!["delivered", "read", "sent", "queued", "accepted", "failed", "undelivered"].includes(status)) {
       return new Response(null, { status: 204 });
     }
-    const { error } = await db.rpc("automation_record_receipt", {
+    // The provider's own result is kept with the reminder record (MessageStatus and its ErrorCode, digits only), so a
+    // text that failed for a temporary reason can be sent once more on a later run, and only then.
+    const errorCode = (params.ErrorCode ?? "").replace(/\D/g, "").slice(0, 40);
+    const { error } = await db.rpc("automation_record_provider_receipt", {
       p_message: smsId,
       p_org: scope.data,
-      p_channel: "sms",
       p_provider: params.MessageSid,
       p_state: ["delivered", "read"].includes(status)
         ? "delivered"
@@ -66,6 +68,8 @@ export async function handleReceipt(req: Request, db: Db, secret: string | undef
         ? "failed"
         : "accepted",
       p_at: new Date().toISOString(),
+      p_status: status.slice(0, 20),
+      p_error_code: errorCode || null,
     });
     return new Response(null, { status: error ? 503 : 204 });
   }

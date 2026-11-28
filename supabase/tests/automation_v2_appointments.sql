@@ -4056,9 +4056,11 @@ insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,u
 create temporary table texts_out7(workflow_id uuid, contact_id uuid, node_id text, at timestamptz) on commit drop;
 -- One worker step, as work() does, with texts through the synthetic transport: the worker's last check, the handoff,
 -- and the provider's acceptance. Each worker call is its own transaction in production, so a handed-off intent's
--- created_at is that call's moment; this suite runs in one transaction, so the moment is written here.
+-- created_at is that call's moment; this suite runs in one transaction, so the moment is written here. As channel.ts
+-- does, a check answering 'skip:' finishes the step as skipped with the rest as its reason, 'retry:' goes on to the
+-- handoff, and a refused handoff asks the check again and is skipped on a 'skip:' answer.
 create function pg_temp.step7() returns jsonb language plpgsql as $$
-declare c jsonb; node jsonb; made jsonb; outcome text; why text; refusal text;
+declare c jsonb; node jsonb; made jsonb; outcome text; why text; refusal text; again text;
 begin
   select * into c from public.automation_claim_work(1);
   if c is null then return null; end if;
@@ -4071,14 +4073,24 @@ begin
     outcome:=case when c->>'status'='waiting' then 'elapsed' else 'wait' end;
   elsif node->>'type'='send_sms' then
     refusal:=public.automation_message_check((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id');
-    if refusal is null and public.automation_authorize_handoff((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id') then
+    if refusal like 'skip:%' then
+      outcome:='skipped'; why:=substr(refusal,6);
+    elsif (refusal is null or refusal='retry:')
+        and public.automation_authorize_handoff((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id') then
       update private.automation_intents set status='accepted',created_at=clock_timestamp()
         where run_id=(c->>'run_id')::uuid and node_id=c->>'node_id';
       insert into texts_out7 select r.workflow_id,r.contact_id,c->>'node_id',clock_timestamp()
         from private.automation_runs r where r.id=(c->>'run_id')::uuid;
       outcome:='accepted';
     else
-      outcome:='held'; why:='Refused at handoff: '||coalesce(refusal,'the handoff was not authorized');
+      if refusal is null or refusal='retry:' then
+        again:=public.automation_message_check((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id');
+      end if;
+      if again like 'skip:%' then
+        outcome:='skipped'; why:=substr(again,6);
+      else
+        outcome:='held'; why:='Refused at handoff: '||coalesce(nullif(refusal,'retry:'),'the handoff was not authorized');
+      end if;
     end if;
   else
     outcome:='held'; why:='Synthetic transport';
@@ -4339,8 +4351,12 @@ select pg_temp.ok(pg_temp.given(334,261)='First reminder, First reminder, Second
   'back by reopenings at the time the finished run followed, the run the ordinary move started is not carried on there: '
     ||pg_temp.given(334,261)||' / '||pg_temp.trip(334,261));
 -- Pins the ordinary-move decision: an ordinary move back starts the automation over for that time.
-select pg_temp.ok(pg_temp.given(334,262)='First reminder, First reminder, First reminder, Second reminder, Second reminder'
-    and pg_temp.trip(334,262)='completed:-@t2; stopped:Appointment was rescheduled@w2; completed:-@t2',
+-- Changed by the reminder record: the run that starts over there skips both reminders the finished run already gave
+-- for that time, so that time gets each reminder once (was First reminder x3, Second reminder x2, the last run
+-- completing with no reason).
+select pg_temp.ok(pg_temp.given(334,262)='First reminder, First reminder, Second reminder'
+    and pg_temp.trip(334,262)
+      ='completed:-@t2; stopped:Appointment was rescheduled@w2; completed:Already created for this appointment time@t2',
   'an ordinary move back starts over: '||pg_temp.given(334,262)||' / '||pg_temp.trip(334,262));
 update public.workflows set status='paused' where id=pg_temp.id(334);
 select pg_temp.retire();
@@ -4510,9 +4526,11 @@ select pg_temp.events(25);
 select pg_temp.finish();
 select pg_temp.ok(pg_temp.given(342,268)='Step after the wait' and pg_temp.trip(342,268)='stopped:Stopped by user@until',
   'back at the time the stopped run gave its step at, nothing starts: '||pg_temp.given(342,268)||' / '||pg_temp.trip(342,268));
--- Pins a known limitation (a run that finished holds only the time it ended at): back at the time it gave its step at
--- before following the move, the sequence starts over there, so the step is given again.
-select pg_temp.ok(pg_temp.given(342,269)='Reminder after the step, Reminder after the step, Step after the wait, Step after the wait'
+-- Pins the rule that a run that finished holds only the time it ended at: back at the time it gave its step at before
+-- following the move, the sequence starts over there.
+-- Changed by the reminder record: the sequence still starts over there, but the step the finished run gave at that
+-- time is skipped, and the reminder goes out once for each time (was Step after the wait x2).
+select pg_temp.ok(pg_temp.given(342,269)='Reminder after the step, Reminder after the step, Step after the wait'
     and pg_temp.trip(342,269)='completed:-@tb; completed:-@tb',
   'a finished run does not hold a time it passed through and left: '||pg_temp.given(342,269)||' / '||pg_temp.trip(342,269));
 update public.workflows set status='paused' where id=pg_temp.id(342);
@@ -4608,7 +4626,8 @@ update public.workflows set status='paused' where id=pg_temp.id(348);
 select pg_temp.retire();
 -- Lead 273: two reminders. The run gives both for the first time and finishes. An ordinary move (seen) starts a run for
 -- a second time, which gives its first reminder; an ordinary move back (seen) starts the automation over for the first
--- time (the ordinary-move decision), and that run gives its first reminder; another ordinary move (seen) starts a run
+-- time (the ordinary-move decision), and that run skips the first reminder the finished run gave there (the reminder
+-- record); another ordinary move (seen) starts a run
 -- for a third time, which gives its first reminder. A person cancels (seen), moves it back to the first time while
 -- cancelled (seen) and reopens it (seen). The first run holds the first time, so neither the run for the third time nor
 -- the replaced run whose reminders were for the first time is carried on there.
@@ -4628,7 +4647,9 @@ select pg_temp.first_reminders(350);
 select pg_temp.save(273,pg_temp.later(8));
 select pg_temp.events(25);
 select pg_temp.first_reminders(350);
-select pg_temp.ok(pg_temp.given(350,273)='First reminder, First reminder, First reminder, First reminder, Second reminder'
+-- Changed by the reminder record: the run the move back starts for the first time skips the first reminder the
+-- finished run gave there (was First reminder x4).
+select pg_temp.ok(pg_temp.given(350,273)='First reminder, First reminder, First reminder, Second reminder'
     and pg_temp.trip(350,273)='completed:-@t2; stopped:Appointment was rescheduled@w2; stopped:Appointment was rescheduled@w2; waiting:-@w2',
   'each ordinary move starts the automation over: '||pg_temp.given(350,273)||' / '||pg_temp.trip(350,273));
 select pg_temp.save(273,'status=''Cancelled''');
@@ -4638,7 +4659,8 @@ select pg_temp.events(25);
 select pg_temp.save(273,'status=''Scheduled''');
 select pg_temp.events(25);
 select pg_temp.finish();
-select pg_temp.ok(pg_temp.given(350,273)='First reminder, First reminder, First reminder, First reminder, Second reminder'
+-- Changed by the reminder record: one first reminder fewer, as in the check above (was First reminder x4).
+select pg_temp.ok(pg_temp.given(350,273)='First reminder, First reminder, First reminder, Second reminder'
     and pg_temp.trip(350,273)
       ='completed:-@t2; stopped:Appointment was rescheduled@w2; stopped:Appointment was rescheduled@w2; stopped:Appointment was rescheduled@w2',
   'back at the first time by reopenings, which the first run holds, no run is carried on there: '
@@ -4666,9 +4688,10 @@ create temporary table rows8(contact_id uuid primary key) on commit drop;
 -- One worker step, as step7 does, except that a text's intent is dated at the step's first lease (each worker call is
 -- its own transaction in production, and the claim that first leases a message writes its intent), a text can be held
 -- or rejected (hold8), and for a lead in rows8 the handoff records its message row as automation_begin_message does
--- right after it (authorized_at is the handoff moment).
+-- right after it (authorized_at is the handoff moment). The check's 'skip:' and 'retry:' answers are taken as step7
+-- takes them; a text held before its handoff (hold8 'hold', as sending hours are) is skipped on a 'skip:' answer.
 create function pg_temp.step8() returns jsonb language plpgsql as $$
-declare c jsonb; node jsonb; made jsonb; outcome text; why text; refusal text; action text;
+declare c jsonb; node jsonb; made jsonb; outcome text; why text; refusal text; action text; again text;
 begin
   select * into c from public.automation_claim_work(1);
   if c is null then return null; end if;
@@ -4688,11 +4711,14 @@ begin
   elsif node->>'type'='send_sms' then
     update private.automation_intents set created_at=clock_timestamp()
       where run_id=(c->>'run_id')::uuid and node_id=c->>'node_id' and created_at=now();
-    if action='hold' then
+    refusal:=public.automation_message_check((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id');
+    if refusal like 'skip:%' then
+      outcome:='skipped'; why:=substr(refusal,6);
+    elsif action='hold' then
       outcome:='held'; why:='Outside sending hours (suite)';
     else
-      refusal:=public.automation_message_check((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id');
-      if refusal is null and public.automation_authorize_handoff((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id') then
+      if (refusal is null or refusal='retry:')
+          and public.automation_authorize_handoff((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id') then
         if action='fail' then
           outcome:='failed'; why:='The provider did not accept this message (suite)';
         else
@@ -4708,7 +4734,14 @@ begin
           outcome:='accepted';
         end if;
       else
-        outcome:='held'; why:='Refused at handoff: '||coalesce(refusal,'the handoff was not authorized');
+        if refusal is null or refusal='retry:' then
+          again:=public.automation_message_check((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id');
+        end if;
+        if again like 'skip:%' then
+          outcome:='skipped'; why:=substr(again,6);
+        else
+          outcome:='held'; why:='Refused at handoff: '||coalesce(nullif(refusal,'retry:'),'the handoff was not authorized');
+        end if;
       end if;
     end if;
   else
@@ -4912,7 +4945,9 @@ select pg_temp.save(n,pg_temp.at8(n,'T1')) from generate_series(278,285) n;
 select pg_temp.pass8();
 select pg_temp.save(n,pg_temp.at8(n,'T2')) from generate_series(278,285) n;
 select pg_temp.pass8();
-select pg_temp.ok((select count(*) from generate_series(278,285) n where pg_temp.given8(360,n)='t1@T1, t1@T2, t1@T1, t1@T2'
+-- Changed by the reminder record: the runs that start over at T1 and at T2 again skip t1, which each time already got
+-- (was t1@T1, t1@T2, t1@T1, t1@T2).
+select pg_temp.ok((select count(*) from generate_series(278,285) n where pg_temp.given8(360,n)='t1@T1, t1@T2'
     and pg_temp.trip(360,n)='stopped:Appointment was rescheduled@w2; stopped:Appointment was rescheduled@w2; '
       ||'stopped:Appointment was rescheduled@w2; waiting:-@w2')=8,
   'leads 278 to 285: each ordinary move starts over: '||pg_temp.given8(360,278)||' / '||pg_temp.trip(360,278));
@@ -4929,9 +4964,10 @@ select pg_temp.ok((select count(*) from generate_series(278,285) n where (select
       and r.contact_id=pg_temp.id(n) and r.status in ('queued','waiting','held'))<>1));
 update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where workflow_id=pg_temp.id(360) and status='waiting';
 select pg_temp.pass8();
-select pg_temp.ok((select count(*) from generate_series(278,285) n where pg_temp.given8(360,n)='t1@T1, t1@T2, t1@T1, t1@T2, t2@T1')=8,
+-- Changed by the reminder record: t2 still once, after the two t1 texts above (was t1@T1, t1@T2, t1@T1, t1@T2, t2@T1).
+select pg_temp.ok((select count(*) from generate_series(278,285) n where pg_temp.given8(360,n)='t1@T1, t1@T2, t2@T1')=8,
   'the day before T1, each of the eight leads gets t2 once: '||(select string_agg(n||' '||pg_temp.given8(360,n),' | ')
-    from generate_series(278,285) n where pg_temp.given8(360,n)<>'t1@T1, t1@T2, t1@T1, t1@T2, t2@T1'));
+    from generate_series(278,285) n where pg_temp.given8(360,n)<>'t1@T1, t1@T2, t2@T1'));
 
 -- Lead 286: rule (c) counts every later booking run, also one a move back later replaced. Two texts, sent late. Booked
 -- at T1 (47 hours out): run E gives t1. An ordinary move to T2 (30 hours out) starts run R, whose t1 is held for seven
@@ -5039,7 +5075,8 @@ select pg_temp.ok(pg_temp.given8(366,288)='t_now@T, t_near@T' and pg_temp.trip(3
 -- Lead 289: a run whose first text the provider rejected (the run failed, nothing reached the customer at Ta) holds no
 -- time. Two texts, two days and a day before (skipped when passed); Ta is 5 days out and Tb 8 days. Cancelled, moved to
 -- Tb while cancelled and reopened: a new run gives Tb both texts. Cancelled, moved back to Ta while cancelled and
--- reopened: Ta gets both texts too. Before this change the failed run held Ta, so Ta got none of its reminders.
+-- reopened: a new run starts at Ta, which does not send the rejected text again and sends t2. Before the failed run
+-- stopped holding its time, Ta got none of its reminders.
 insert into times8 values (289,'Ta',date_trunc('minute',clock_timestamp())+interval '5 days'),
   (289,'Tb',date_trunc('minute',clock_timestamp())+interval '8 days');
 select pg_temp.publish(368,369,'Two texts (the first rejected)',pg_temp.g8_two('skip'));
@@ -5055,8 +5092,19 @@ select pg_temp.away8(289,'Tb');
 select pg_temp.all8(368,289);
 select pg_temp.away8(289,'Ta');
 select pg_temp.all8(368,289);
-select pg_temp.ok(pg_temp.given8(368,289)='t1@Tb, t2@Tb, t1@Ta, t2@Ta',
-  'back at Ta, which the failed run gave nothing, Ta gets both reminders: '||pg_temp.given8(368,289)||' / '||pg_temp.trip(368,289));
+-- Changed by the reminder record: the failed run still holds no time, so Ta gets its run, but the text the provider
+-- rejected there with no retryable code is not sent again ('Not sent again: delivery failed for this appointment time
+-- and cannot be retried'); t2 goes out (was t1@Tb, t2@Tb, t1@Ta, t2@Ta). The rejection here is the synthetic driver's
+-- 'fail', an intent marked failed with no failed dispatch or message, which the record counts as a confirmed failure
+-- with no code (amendment A7), so the reason is pinned too.
+select pg_temp.ok(pg_temp.given8(368,289)='t1@Tb, t2@Tb, t2@Ta'
+    and (select s.reason from private.automation_steps s join private.automation_runs r on r.id=s.run_id
+      where r.workflow_id=pg_temp.id(368) and r.contact_id=pg_temp.id(289) and r.status='completed' and s.node_id='t1'
+        and r.reminded_for in (select o.id from private.appointment_occurrences o
+          where o.scheduled_start=(select t.at from times8 t where t.n=289 and t.k='Ta')))
+      ='Not sent again: delivery failed for this appointment time and cannot be retried',
+  'back at Ta, which the failed run gave nothing, a run starts there; its rejected t1 is not sent again and t2 goes out: '
+    ||pg_temp.given8(368,289)||' / '||pg_temp.trip(368,289));
 
 -- Leads 290 and 291: a person's stop holds each time the appointment stood at when the run gave something, a text dated
 -- by its handoff. Plain texts; T1 is 8 days out, T2 6 days and T3 7 days. 290: the first text is first leased at T1 and
@@ -5153,7 +5201,7 @@ select pg_temp.ok(pg_temp.given8(374,293)='ta@T1' and pg_temp.trip(374,293)='sto
 -- was stopped, also when another run holds that time. Plain texts; T2 is 5 days out and T1 6 days. Booked at T2; an Admin
 -- stops the first run before it gives anything (it holds T2). An ordinary move to T1 starts a run, which gives q1 there.
 -- An ordinary move back to T2 (the run keeps its place), then a cancellation taken back on the same slot: the run
--- followed T2, so it carries on and gives q2 there.
+-- followed T2, so it carries on there, and the Admin's stop of the first run, which holds T2, skips q2.
 insert into times8 values (294,'T2',date_trunc('minute',clock_timestamp())+interval '5 days'),
   (294,'T1',date_trunc('minute',clock_timestamp())+interval '6 days');
 select pg_temp.publish(376,377,'Plain texts (a run that followed by a move)',pg_temp.g8_plain('text'));
@@ -5171,7 +5219,10 @@ select pg_temp.pass8();
 select pg_temp.save(294,'status=''Scheduled''');
 select pg_temp.pass8();
 select pg_temp.all8(376,294);
-select pg_temp.ok(pg_temp.given8(376,294)='q1@T1, q2@T2' and pg_temp.trip(376,294)='stopped:Stopped by user@qa; completed:-@q2',
+-- Changed by the reminder record: the Admin's stop of the first run holds T2, also after the appointment moved away and
+-- back there, so the carried-on run skips q2 at T2 and completes (was q1@T1, q2@T2 and completed:-@q2).
+select pg_temp.ok(pg_temp.given8(376,294)='q1@T1'
+    and pg_temp.trip(376,294)='stopped:Stopped by user@qa; completed:Stopped by a person for this appointment time@q2',
   'Pins: lead 294, the run that followed T2 by an ordinary move carries on there after the cancellation is taken back: '
     ||pg_temp.given8(376,294)||' / '||pg_temp.trip(376,294));
 
@@ -5191,7 +5242,9 @@ select pg_temp.admin_stop(378,295);
 select pg_temp.save(295,pg_temp.at8(295,'T1'));
 select pg_temp.pass8();
 select pg_temp.all8(378,295);
-select pg_temp.ok(pg_temp.given8(378,295)='t1@T1, t1@T2, t1@T1, t2@T1'
+-- Changed by the reminder record: the run that starts over for T1 skips t1, which T1 already got, and sends t2 (was
+-- t1@T1, t1@T2, t1@T1, t2@T1).
+select pg_temp.ok(pg_temp.given8(378,295)='t1@T1, t1@T2, t2@T1'
     and pg_temp.trip(378,295)='stopped:Appointment was rescheduled@w2; stopped:Stopped by user@w2; completed:-@t2',
   'Pins: lead 295, an ordinary move back after a later run gave another time a text starts over: '
     ||pg_temp.given8(378,295)||' / '||pg_temp.trip(378,295));
@@ -5478,7 +5531,12 @@ begin
   elsif node->>'type'='send_sms' then
     why:=public.automation_message_check((c->>'run_id')::uuid,(c->>'lease_token')::uuid,c->>'node_id');
     insert into checked8 values ((c->>'run_id')::uuid,c->>'node_id',why,clock_timestamp());
-    outcome:='held'; why:=coalesce(why,'Synthetic transport');
+    -- As channel.ts takes the check's answer: 'skip:' finishes the step as skipped, 'retry:' goes on to send.
+    if why like 'skip:%' then
+      outcome:='skipped'; why:=substr(why,6);
+    else
+      outcome:='held'; why:=coalesce(nullif(why,'retry:'),'Synthetic transport');
+    end if;
   else
     outcome:='held'; why:='Synthetic transport';
   end if;
@@ -5578,5 +5636,1593 @@ select pg_temp.ok(pg_temp.given8(400,308)='q1@T2, q2@T2' and pg_temp.once8(400,3
   'Pins: lead 308, Completed taken back after the hold, a run that followed a move back to a time another run gave stays ended: '
     ||pg_temp.given8(400,308)||' / '||pg_temp.trip(400,308));
 update public.workflows set status='paused' where id=pg_temp.id(400);
+select pg_temp.retire();
+-- Leads 309 to 366: the record of what a booking run gave for an appointment time (private.automation_given_steps):
+-- for one organization, automation, appointment, start time and step, across runs. A step another run already gave at
+-- that time is skipped; a text whose provider confirmed a retryable failure is retried at most once across all runs,
+-- on a qualifying new run, while the retry window is open; a person's stop or a stop rule at a time holds that time on
+-- an ordinary move away and back. These are the decisions approved on November 28. Each check is labelled "fix" (it
+-- failed before this change) or "pin" (it passed before it too), with its case (A1 to L1) and what it checks. The checks
+-- that need the record itself, or the receipt wrapper automation_record_provider_receipt, read them only when they
+-- exist (to_regclass, to_regprocedure), so the section runs to its end without them and reports each such check as
+-- failed; once they exist, those guards change nothing.
+-- The worker here (rr_step) follows the worker's contract for automation_message_check (channel.ts): null is a first
+-- attempt, 'retry:' a retry, 'skip:<reason>' finishes the step as skipped with that reason, and any other answer holds
+-- it; a handoff that is refused, or that raises (as the record's own refusals do), asks automation_message_check again
+-- and finishes skipped on a 'skip:' answer.
+update public.workflows set status='paused' where organization_id=pg_temp.id(1) and status='active';
+select pg_temp.retire();
+update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,leased_until=null
+  where organization_id=pg_temp.id(1) and status in ('queued','waiting','held');
+insert into public.leads(id,organization_id,first_name,phone,email,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(1),'Lead '||n,'+1202555'||lpad(n::text,4,'0'),'lead'||n||'@example.invalid',pg_temp.id(11),
+    pg_temp.id(11) from generate_series(309,366) n;
+-- The planner is given statistics for what the suite has written so far, as a database in use has them (the suite is
+-- one transaction, and this rolls back with it). Each part below does the same.
+create function pg_temp.rr_analyze() returns void language plpgsql as $$
+begin
+  analyze private.automation_runs,private.automation_events,private.automation_steps,private.automation_intents,
+    private.automation_messages,private.automation_task_receipts,private.automation_deferred_admissions,
+    private.appointment_occurrences,private.appointment_evidence_observations,private.appointment_outcome_events,
+    public.appointments,public.sms_dispatches,public.tasks,public.leads;
+  if pg_temp.rr_has_ledger() then execute 'analyze private.automation_given_steps'; end if;
+end $$;
+-- The times each lead's appointment stands at, by name.
+create temporary table rr_times(n integer, k text, at timestamptz, primary key(n,k)) on commit drop;
+-- What the transport does with a lead's step: accept (no row), hold (sending hours), no_consent (the consent service
+-- refuses), reject:<code> (the provider rejects the request with that code), timeout (no answer: uncertain), crash (the
+-- worker stops right after the handoff), email_4xx (failed) or email_5xx (unknown).
+create temporary table rr_plan(contact_id uuid, node_id text, action text, primary key(contact_id,node_id)) on commit drop;
+-- Each handoff the worker made, and each task created, with the start of the slot its lease was for.
+create temporary table rr_sent(organization_id uuid, workflow_id uuid, contact_id uuid, run_id uuid, node_id text, channel text,
+  slot_start timestamptz, message_id uuid, retry boolean, outcome text, at timestamptz) on commit drop;
+create temporary table rr_made(workflow_id uuid, contact_id uuid, run_id uuid, node_id text, slot_start timestamptz,
+  at timestamptz) on commit drop;
+-- Every answer of automation_message_check the worker was given, with what the final send check the handoff makes under
+-- its lock (automation_message_issue) answered at that moment.
+create temporary table rr_checks(run_id uuid, contact_id uuid, node_id text, answer text, at timestamptz, issue text)
+  on commit drop;
+create temporary table rr_leases(n integer primary key, lease jsonb) on commit drop;
+-- A check, reported by label ("fix" or "pin", the case, and what it checks) and then asserted.
+create function pg_temp.rr_ok(label text, passed boolean, message text) returns void language plpgsql as $$
+begin
+  raise notice 'rr % %: %', label, case when passed then 'pass' else 'FAIL' end, message;
+  perform pg_temp.ok(passed, label||': '||message);
+end $$;
+create function pg_temp.rr_has_ledger() returns boolean language sql as $$
+  select to_regclass('private.automation_given_steps') is not null
+$$;
+create function pg_temp.rr_has_wrapper() returns boolean language sql as $$
+  select to_regprocedure('public.automation_record_provider_receipt(uuid,uuid,text,text,timestamptz,text,text)') is not null
+$$;
+create function pg_temp.rr_at(lead_n integer, k text) returns text language sql as $$
+  select format('start_time=%L',(select t.at from rr_times t where t.n=lead_n and t.k=rr_at.k))
+$$;
+create function pg_temp.rr_book(lead_n integer, k text) returns void language sql as $$
+  insert into booked select lead_n,pg_temp.book(2000+lead_n,lead_n,t.at),t.at from rr_times t where t.n=lead_n and t.k=rr_book.k
+$$;
+-- The automations in use are on, and every other one of the agency is off (its interval ended).
+create function pg_temp.rr_only(variadic kept integer[]) returns void language plpgsql as $$
+begin
+  update public.workflows w set status='paused' where w.organization_id=pg_temp.id(1) and w.status='active'
+    and w.id<>all(select pg_temp.id(k) from unnest(kept) k);
+  perform pg_temp.retire();
+end $$;
+create function pg_temp.rr_check(run uuid, token uuid, node text, contact uuid) returns text language plpgsql as $$
+declare answer text:=public.automation_message_check(run,token,node);
+begin
+  insert into rr_checks values (run,contact,node,answer,clock_timestamp(),
+    (select private.automation_message_issue(r) from private.automation_runs r where r.id=run));
+  return answer;
+end $$;
+-- One worker step. A message is checked (automation_message_check), then the worker's own checks before the handoff
+-- refuse it for sending hours, the consent service, or a text to a number with a local opt-out or do-not-call entry (as
+-- the sending path checks it). A refusal of a retry the lead can no longer receive finishes skipped ('Not retried: the
+-- lead can no longer receive this message'); any other refusal, and a refused handoff, asks automation_message_check
+-- again. A handoff that raises is undone and refused, as automation_begin_message's transaction is undone and the
+-- worker then holds with the error (channel.ts). The handoff records the message row as automation_begin_message does,
+-- and a text's dispatch as the sending path does (reserved, then accepted, rejected with its code, or uncertain). An
+-- accepted message's receipt is recorded as channel.ts records it (automation_record_receipt), which advances the run. A
+-- lease that ended after a handoff comes back for reconciliation and waits for the provider's receipt.
+create function pg_temp.rr_step() returns jsonb language plpgsql as $$
+declare c jsonb; node jsonb; made jsonb; outcome text; why text; answer text; action text; retry boolean:=false;
+  run uuid; token uuid; nid text; contact uuid; org uuid; channel text; msg uuid; sid text; r private.automation_runs;
+  starts timestamptz; handed boolean:=false; refusal text; phone text; raised text;
+begin
+  select * into c from public.automation_claim_work(1);
+  if c is null then return null; end if;
+  run:=(c->>'run_id')::uuid; token:=(c->>'lease_token')::uuid; nid:=c->>'node_id'; contact:=(c->>'contact_id')::uuid;
+  org:=(c->>'organization_id')::uuid;
+  if (c->>'uncertain_handoff')::boolean then
+    perform public.automation_finish_node(run,token,'unknown','Awaiting the provider receipt');
+    return c||jsonb_build_object('result','unknown');
+  end if;
+  select n into node from jsonb_array_elements(c#>'{graph,nodes}') n where n->>'id'=nid;
+  select p.action into action from rr_plan p where p.contact_id=contact and p.node_id=nid;
+  if node->>'type'='create_task' then
+    made:=public.automation_create_task(run,token,nid,node#>>'{config,title}',node#>>'{config,notes}');
+    outcome:=made->>'status'; why:=made->>'reason';
+    if outcome='created' then
+      insert into rr_made select x.workflow_id,x.contact_id,x.id,nid,o.scheduled_start,clock_timestamp()
+        from private.automation_runs x left join private.appointment_occurrences o on o.id=x.leased_for where x.id=run;
+    end if;
+  elsif node->>'type' in ('wait','wait_until_before_appointment') then
+    outcome:=case when c->>'status'='waiting' then 'elapsed' else 'wait' end;
+  elsif node->>'type' in ('send_sms','send_email') then
+    channel:=case node->>'type' when 'send_sms' then 'sms' else 'email' end;
+    -- Each worker call is its own transaction in production; this suite runs in one, so a new intent is dated here.
+    update private.automation_intents set created_at=clock_timestamp() where run_id=run and node_id=nid and created_at=now();
+    answer:=pg_temp.rr_check(run,token,nid,contact);
+    if answer like 'skip:%' then
+      outcome:='skipped'; why:=substr(answer,6);
+    elsif answer is not null and answer<>'retry:' then
+      outcome:='held'; why:=answer;
+    else
+      retry:=answer is not distinct from 'retry:';
+      select private.affinity_phone(l.phone) into phone from public.leads l where l.organization_id=org and l.id=contact;
+      refusal:=case when action='hold' then 'HOURS' when action='no_consent' then 'NO_CONSENT'
+        when channel='sms' and private.sms_recipient_guard(org,phone) then 'SMS_SUPPRESSED' end;
+      if refusal is null then
+        begin
+          handed:=public.automation_authorize_handoff(run,token,nid);
+        exception when others then
+          handed:=false; raised:=sqlerrm;
+        end;
+      end if;
+      if not handed then
+        if retry and refusal in ('NO_CONSENT','SMS_SUPPRESSED') then
+          outcome:='skipped'; why:='Not retried: the lead can no longer receive this message';
+        else
+          answer:=pg_temp.rr_check(run,token,nid,contact);
+          if answer like 'skip:%' then
+            outcome:='skipped'; why:=substr(answer,6);
+          else
+            outcome:='held'; why:=case refusal when 'HOURS' then 'Outside the recipient local sending window.'
+              when 'NO_CONSENT' then 'Consent for this text could not be confirmed.'
+              when 'SMS_SUPPRESSED' then 'This recipient has opted out of agency texts.'
+              else coalesce(raised,'Run no longer permits a provider handoff.') end;
+          end if;
+        end if;
+      else
+        select * into r from private.automation_runs x where x.id=run;
+        select o.scheduled_start into starts from private.appointment_occurrences o where o.id=r.leased_for;
+        insert into private.automation_messages(organization_id,run_id,node_id,contact_id,contact_type,channel,recipient,sender,
+            owner_id,body)
+          values(r.organization_id,r.id,nid,r.contact_id,r.contact_type,channel,
+            case channel when 'sms' then phone else 'lead-'||r.contact_id::text||'@example.invalid' end,
+            case channel when 'sms' then '+12025559999' else 'reminders@example.invalid' end,pg_temp.id(11),'Suite')
+          returning id into msg;
+        insert into rr_sent values (r.organization_id,r.workflow_id,r.contact_id,r.id,nid,channel,starts,msg,retry,
+          coalesce(action,'accept'),clock_timestamp());
+        if channel='sms' then
+          insert into public.sms_dispatches(organization_id,request_key,payload_hash,phone_e164,from_number,body,purpose,
+              evidence_ids,state,contact_id,contact_type)
+            values(r.organization_id,'automation:'||r.id||':'||nid,'suite',phone,'+12025559999','Suite','informational',
+              '{}'::uuid[],'attempting',r.contact_id,r.contact_type);
+        end if;
+        if action='crash' then
+          return c||jsonb_build_object('result','crash');
+        elsif action like 'reject:%' then
+          update public.sms_dispatches set state='failed',error_code=substr(action,8),updated_at=clock_timestamp()
+            where organization_id=r.organization_id and request_key='automation:'||r.id||':'||nid;
+          -- A provider block (21610) is recorded as the recipient's opt-out, as the sending path records it.
+          if action='reject:21610' then
+            insert into public.sms_suppressions(organization_id,phone_e164,reason,source_id)
+              values(r.organization_id,phone,'provider_block','dispatch:automation:'||r.id||':'||nid) on conflict do nothing;
+          end if;
+          outcome:='failed'; why:='The provider did not accept this message.';
+        elsif action='timeout' then
+          update public.sms_dispatches set state='uncertain',error_code='transport_unknown',updated_at=clock_timestamp()
+            where organization_id=r.organization_id and request_key='automation:'||r.id||':'||nid;
+          outcome:='unknown'; why:='Delivery could not be confirmed. This message will not be sent again automatically.';
+        elsif action='email_4xx' then
+          outcome:='failed'; why:='Email provider returned HTTP 422.';
+        elsif action='email_5xx' then
+          outcome:='unknown'; why:='Email provider returned HTTP 503.';
+        else
+          sid:=case channel when 'sms' then 'SM'||md5(msg::text) else gen_random_uuid()::text end;
+          if channel='sms' then
+            update public.sms_dispatches set state='accepted',provider_sid=sid,provider_status='queued',updated_at=clock_timestamp()
+              where organization_id=r.organization_id and request_key='automation:'||r.id||':'||nid;
+          end if;
+          perform public.automation_record_receipt(msg,channel,sid,'accepted',clock_timestamp(),null,r.organization_id);
+          outcome:='accepted';
+        end if;
+      end if;
+    end if;
+  else
+    outcome:='held'; why:='Synthetic transport';
+  end if;
+  perform public.automation_finish_node(run,token,outcome,why);
+  return c||jsonb_build_object('result',outcome,'reason',why);
+end $$;
+-- The worker: events, every step that is due (nothing is forced), then events again.
+create function pg_temp.rr_pass() returns void language plpgsql as $$
+begin
+  perform pg_temp.events(25);
+  for i in 1..300 loop exit when pg_temp.rr_step() is null; end loop;
+  perform pg_temp.events(25);
+end $$;
+-- Time passes for one automation's runs for a lead (its waiting and held runs are due now), then the worker runs.
+create function pg_temp.rr_due(workflow_n integer, lead_n integer) returns void language plpgsql as $$
+begin
+  update private.automation_runs set due_at=clock_timestamp()-interval '1 second'
+    where workflow_id=pg_temp.id(workflow_n) and contact_id=pg_temp.id(lead_n) and status in ('waiting','held');
+  perform pg_temp.rr_pass();
+end $$;
+-- Time passes until that automation has nothing left for the lead, or nothing changes any more (a step held for good).
+create function pg_temp.rr_all(workflow_n integer, lead_n integer) returns void language plpgsql as $$
+declare before text; after text;
+begin
+  for i in 1..12 loop
+    exit when not exists (select 1 from private.automation_runs where workflow_id=pg_temp.id(workflow_n)
+      and contact_id=pg_temp.id(lead_n) and status in ('queued','waiting','held'));
+    before:=pg_temp.rr_runs(workflow_n,lead_n);
+    perform pg_temp.rr_due(workflow_n,lead_n);
+    after:=pg_temp.rr_runs(workflow_n,lead_n);
+    exit when after=before and not exists (select 1 from private.automation_runs where workflow_id=pg_temp.id(workflow_n)
+      and contact_id=pg_temp.id(lead_n) and status in ('queued','waiting'));
+  end loop;
+end $$;
+-- An ordinary move to another time, where the run that starts over there hands off its first text when its reminder
+-- time comes, and an ordinary move back, each seen.
+create function pg_temp.rr_away_back(workflow_n integer, lead_n integer, away text, back text) returns void language plpgsql as $$
+begin
+  perform pg_temp.save(lead_n,pg_temp.rr_at(lead_n,away)); perform pg_temp.rr_pass();
+  perform pg_temp.rr_due(workflow_n,lead_n);
+  perform pg_temp.save(lead_n,pg_temp.rr_at(lead_n,back)); perform pg_temp.rr_pass();
+end $$;
+-- A person cancels, moves the appointment while it is cancelled to another time and back, and opens it again, each seen.
+create function pg_temp.rr_reopen_via(lead_n integer, away text, back text) returns void language plpgsql as $$
+begin
+  perform pg_temp.save(lead_n,'status=''Cancelled'''); perform pg_temp.rr_pass();
+  perform pg_temp.save(lead_n,pg_temp.rr_at(lead_n,away)); perform pg_temp.rr_pass();
+  perform pg_temp.save(lead_n,pg_temp.rr_at(lead_n,back)); perform pg_temp.rr_pass();
+  perform pg_temp.save(lead_n,'status=''Scheduled'''); perform pg_temp.rr_pass();
+end $$;
+-- A provider status callback for the text a run of the lead's on the automation handed off at a step (the run by its
+-- position, 1 for the first), passed on as receiptHandler.ts passes it: MessageStatus mapped to a receipt state, the raw
+-- MessageStatus and the ErrorCode. Without automation_record_provider_receipt (the base) only the state is recorded.
+create function pg_temp.rr_receipt(workflow_n integer, lead_n integer, run_ord integer, node text, status text, code text)
+returns void language plpgsql as $$
+declare m private.automation_messages; state text:=case when status in ('delivered','read') then 'delivered'
+  when status in ('failed','undelivered') then 'failed' else 'accepted' end; run private.automation_runs;
+begin
+  select r.* into strict run from private.automation_runs r where r.id=pg_temp.rr_run_id(workflow_n,lead_n,run_ord);
+  select x.* into strict m from private.automation_messages x
+    where x.organization_id=run.organization_id and x.run_id=run.id and x.node_id=node and x.channel='sms';
+  if pg_temp.rr_has_wrapper() then
+    perform public.automation_record_provider_receipt(m.id,m.organization_id,coalesce(m.provider_id,'SM'||md5(m.id::text)),
+      state,clock_timestamp(),status,code);
+  else
+    perform public.automation_record_receipt(m.id,'sms',coalesce(m.provider_id,'SM'||md5(m.id::text)),state,clock_timestamp(),
+      null,m.organization_id);
+  end if;
+end $$;
+-- The lead's runs on the automation, by booking (1 is the first), and one of them by its position.
+-- (Runs are ordered by their booking event's id, which a run keeps, so no reader joins the events. Readers drive from
+-- the run's own keys: inside this one transaction the planner has no statistics for what the suite wrote.)
+create function pg_temp.rr_ords(workflow_n integer, lead_n integer)
+returns table(run_id uuid, organization_id uuid, ord bigint) language sql stable as $$
+  select r.id,r.organization_id,row_number() over (order by r.event_id,r.id) from private.automation_runs r
+  where r.workflow_id=pg_temp.id(workflow_n) and r.contact_id=pg_temp.id(lead_n)
+$$;
+create function pg_temp.rr_run_id(workflow_n integer, lead_n integer, ord integer) returns uuid language sql stable as $$
+  select o.run_id from pg_temp.rr_ords(workflow_n,lead_n) o where o.ord=rr_run_id.ord
+$$;
+-- Readers. What the provider was handed for the lead on the automation, in order: the step, the name of the time its
+-- lease was for, "+retry" when the database asked for a retry, and the transport's answer when it did not accept.
+create function pg_temp.rr_sent(workflow_n integer, lead_n integer) returns text language sql as $$
+  select coalesce(string_agg(s.node_id||'@'||coalesce((select t.k from rr_times t where t.n=lead_n and t.at=s.slot_start),'?')
+      ||case when s.retry then '+retry' else '' end||case when s.outcome<>'accept' then '!'||s.outcome else '' end,', '
+      order by s.at),'none')
+  from rr_sent s where s.workflow_id=pg_temp.id(workflow_n) and s.contact_id=pg_temp.id(lead_n)
+$$;
+-- The tasks created for the lead on the automation, in order, with the name of the time.
+create function pg_temp.rr_tasks(workflow_n integer, lead_n integer) returns text language sql as $$
+  select coalesce(string_agg(s.node_id||'@'||coalesce((select t.k from rr_times t where t.n=lead_n and t.at=s.slot_start),'?'),', '
+      order by s.at),'none')
+  from rr_made s where s.workflow_id=pg_temp.id(workflow_n) and s.contact_id=pg_temp.id(lead_n)
+$$;
+-- Each run of the automation for the lead, by booking: how it ended, and its steps in graph order with their reasons.
+create function pg_temp.rr_runs(workflow_n integer, lead_n integer) returns text language sql as $$
+  select coalesce(string_agg(r.status||':'||coalesce(r.reason,'-')||' ['||coalesce((select string_agg(s.node_id||'='||s.status
+      ||coalesce(':'||s.reason,''),', ' order by g.ord) from private.automation_steps s
+      join public.workflow_versions v on v.id=r.version_id
+      cross join lateral jsonb_array_elements(v.graph->'nodes') with ordinality g(n,ord)
+      where s.run_id=r.id and g.n->>'id'=s.node_id),'')||']',' | ' order by r.event_id,r.id),'none')
+  from private.automation_runs r where r.workflow_id=pg_temp.id(workflow_n) and r.contact_id=pg_temp.id(lead_n)
+$$;
+-- One run of the lead on the automation, by booking (1 is the first).
+create function pg_temp.rr_run(workflow_n integer, lead_n integer, ord integer) returns text language sql as $$
+  select split_part(pg_temp.rr_runs(workflow_n,lead_n),' | ',ord)
+$$;
+-- The automation's messages for the lead at a step, in order, by run and state.
+create function pg_temp.rr_msgs(workflow_n integer, lead_n integer, node text) returns text language sql as $$
+  select coalesce(string_agg('r'||o.ord||':'||m.state,', ' order by m.authorized_at,m.id),'none')
+  from pg_temp.rr_ords(workflow_n,lead_n) o join private.automation_messages m
+    on m.organization_id=o.organization_id and m.run_id=o.run_id and m.node_id=node
+$$;
+-- Every answer of automation_message_check for the lead at a step, in order.
+create function pg_temp.rr_answers(workflow_n integer, lead_n integer, node text) returns text language sql as $$
+  select coalesce(string_agg(coalesce(k.answer,'null'),' | ' order by k.at),'none') from rr_checks k
+    join private.automation_runs r on r.id=k.run_id
+  where k.contact_id=pg_temp.id(lead_n) and k.node_id=node and r.workflow_id=pg_temp.id(workflow_n)
+$$;
+-- What the final send check under the handoff lock (automation_message_issue) answered at each of those moments.
+create function pg_temp.rr_issues(workflow_n integer, lead_n integer, node text) returns text language sql as $$
+  select coalesce(string_agg(coalesce(k.issue,'null'),' | ' order by k.at),'none') from rr_checks k
+    join private.automation_runs r on r.id=k.run_id
+  where k.contact_id=pg_temp.id(lead_n) and k.node_id=node and r.workflow_id=pg_temp.id(workflow_n)
+$$;
+-- The record's rows for the lead's appointment on the automation, in its organization, in order: the step, the name of
+-- its start, the attempt, the kind, the run, and the provider's failure status and code (none where the base has no
+-- record).
+create function pg_temp.rr_ledger(workflow_n integer, lead_n integer) returns text language plpgsql as $$
+declare answer text;
+begin
+  if not pg_temp.rr_has_ledger() then return 'no record'; end if;
+  execute $q$select coalesce(string_agg(g.node_id||'@'||coalesce((select t.k from rr_times t where t.n=$2 and t.at=g.starts_at),'?')
+      ||'#'||g.attempt||':'||g.kind||':r'||coalesce(o.ord::text,'?')||coalesce(':'||g.failure_status,'')
+      ||coalesce(':'||g.failure_code,''),', ' order by g.given_at,g.attempt),'none')
+    from private.automation_given_steps g join public.workflows w on w.id=g.workflow_id
+      left join pg_temp.rr_ords($1,$2) o on o.run_id=g.run_id
+    where g.organization_id=w.organization_id and g.workflow_id=pg_temp.id($1)
+      and g.appointment_id=(select b.id from booked b where b.n=$2)$q$ into answer using workflow_n,lead_n;
+  return answer;
+end $$;
+-- Graphs. The three steps a day before (a text, an email and a task), then an hour before, a text.
+create function pg_temp.rr_graph_x(late text) returns jsonb language sql as $$
+  select jsonb_build_object('format',1,'settings',jsonb_build_object('reentry','once','stop_on_reply',false),'nodes',jsonb_build_array(
+    jsonb_build_object('id','start','type','appointment_booked','version',1,'config','{}'::jsonb),
+    jsonb_build_object('id','w24','type','wait_until_before_appointment','version',1,
+      'config',jsonb_build_object('amount',24,'unit','hours','late',late)),
+    jsonb_build_object('id','t24','type','send_sms','version',1,'config',jsonb_build_object('body','See you tomorrow','purpose','informational')),
+    jsonb_build_object('id','e24','type','send_email','version',1,'config',jsonb_build_object('subject','Tomorrow','body','See you tomorrow')),
+    jsonb_build_object('id','k24','type','create_task','version',1,'config',jsonb_build_object('title','Confirm tomorrow''s appointment',
+      'task_type','Follow Up','due_amount',0,'due_unit','minutes')),
+    jsonb_build_object('id','w1','type','wait_until_before_appointment','version',1,
+      'config',jsonb_build_object('amount',1,'unit','hours','late',late)),
+    jsonb_build_object('id','t1','type','send_sms','version',1,'config',jsonb_build_object('body','See you in an hour','purpose','informational'))),
+    'edges',jsonb_build_array(jsonb_build_object('id','a','source','start','target','w24'),
+      jsonb_build_object('id','b','source','w24','target','t24'),jsonb_build_object('id','c','source','t24','target','e24'),
+      jsonb_build_object('id','d','source','e24','target','k24'),jsonb_build_object('id','e','source','k24','target','w1'),
+      jsonb_build_object('id','f','source','w1','target','t1')))
+$$;
+-- A text a day before, then an hour before an email and a text (sent late when passed).
+create function pg_temp.rr_graph_f() returns jsonb language sql as $$
+  select jsonb_build_object('format',1,'settings',jsonb_build_object('reentry','once','stop_on_reply',false),'nodes',jsonb_build_array(
+    jsonb_build_object('id','start','type','appointment_booked','version',1,'config','{}'::jsonb),
+    jsonb_build_object('id','w24','type','wait_until_before_appointment','version',1,
+      'config',jsonb_build_object('amount',24,'unit','hours','late','continue')),
+    jsonb_build_object('id','t24','type','send_sms','version',1,'config',jsonb_build_object('body','See you tomorrow','purpose','informational')),
+    jsonb_build_object('id','w1','type','wait_until_before_appointment','version',1,
+      'config',jsonb_build_object('amount',1,'unit','hours','late','continue')),
+    jsonb_build_object('id','e1','type','send_email','version',1,'config',jsonb_build_object('subject','Soon','body','See you in an hour')),
+    jsonb_build_object('id','t1','type','send_sms','version',1,'config',jsonb_build_object('body','See you in an hour','purpose','informational'))),
+    'edges',jsonb_build_array(jsonb_build_object('id','a','source','start','target','w24'),
+      jsonb_build_object('id','b','source','w24','target','t24'),jsonb_build_object('id','c','source','t24','target','w1'),
+      jsonb_build_object('id','d','source','w1','target','e1'),jsonb_build_object('id','e','source','e1','target','t1')))
+$$;
+-- A text and a task a day before, then a text an hour before, for an automation that stops on a reply.
+create function pg_temp.rr_graph_s() returns jsonb language sql as $$
+  select jsonb_build_object('format',1,'settings',jsonb_build_object('reentry','once','stop_on_reply',true),'nodes',jsonb_build_array(
+    jsonb_build_object('id','start','type','appointment_booked','version',1,'config','{}'::jsonb),
+    jsonb_build_object('id','w24','type','wait_until_before_appointment','version',1,'config',jsonb_build_object('amount',24,'unit','hours')),
+    jsonb_build_object('id','t24','type','send_sms','version',1,'config',jsonb_build_object('body','See you tomorrow','purpose','informational')),
+    jsonb_build_object('id','k24','type','create_task','version',1,'config',jsonb_build_object('title','Call before the appointment',
+      'task_type','Follow Up','due_amount',0,'due_unit','minutes')),
+    jsonb_build_object('id','w1','type','wait_until_before_appointment','version',1,'config',jsonb_build_object('amount',1,'unit','hours')),
+    jsonb_build_object('id','t1','type','send_sms','version',1,'config',jsonb_build_object('body','See you in an hour','purpose','informational'))),
+    'edges',jsonb_build_array(jsonb_build_object('id','a','source','start','target','w24'),
+      jsonb_build_object('id','b','source','w24','target','t24'),jsonb_build_object('id','c','source','t24','target','k24'),
+      jsonb_build_object('id','d','source','k24','target','w1'),jsonb_build_object('id','e','source','w1','target','t1')))
+$$;
+-- Leads 309 to 315: the acceptance case and its neighbours. Each appointment is at T, a day and a few seconds from now
+-- (Friday at 2 PM). Two automations follow every booking: a text, an email and a task a day before, and a text an hour
+-- before, one skipping a reminder whose time has passed (402) and one sending it late (404). Each run waits for the day
+-- before; that moment then really passes, so the day-before steps go out at T, and for a run placed at T from then on the
+-- day-before wait has passed (skipped, or sent late), while the hour before is still to come.
+insert into rr_times select n,'T',date_trunc('second',clock_timestamp())+interval '24 hours 15 seconds' from generate_series(309,315) n;
+insert into rr_times select n,'T2',date_trunc('minute',clock_timestamp())+interval '3 days' from generate_series(309,315) n;
+update rr_times set at=(select t.at-interval '3 hours' from rr_times t where t.n=311 and t.k='T') where n=311 and k='T2';
+select pg_temp.rr_analyze();
+select pg_temp.publish(402,403,'A day before and an hour before (a passed one skipped)',pg_temp.rr_graph_x('skip'));
+select pg_temp.publish(404,405,'A day before and an hour before (a passed one sent late)',pg_temp.rr_graph_x('continue'));
+select pg_temp.rr_only(402,404);
+select pg_temp.rr_book(n,'T') from generate_series(309,315) n;
+-- Lead 312's day-before email is held for sending hours.
+insert into rr_plan values (pg_temp.id(312),'e24','hold');
+select pg_temp.rr_pass();
+select pg_temp.rr_ok('pin setup X',(select count(*)=14 and bool_and(r.status='waiting' and r.current_node_id='w24'
+    and r.due_at=(select t.at-interval '24 hours' from rr_times t where t.n=309 and t.k='T')) from private.automation_runs r
+  where r.workflow_id in (pg_temp.id(402),pg_temp.id(404)) and r.contact_id in (select pg_temp.id(n) from generate_series(309,315) n)),
+  'leads 309 to 315 each wait on both automations until a day before T, seconds from now');
+select pg_sleep(greatest(0,extract(epoch from (select t.at-interval '24 hours' from rr_times t where t.n=309 and t.k='T')
+  -clock_timestamp()))+0.3);
+select pg_temp.rr_pass();
+delete from rr_plan;
+select pg_temp.rr_ok('pin setup X',(select bool_and(pg_temp.rr_sent(w,n)=case n when 312 then 't24@T' else 't24@T, e24@T' end
+    and pg_temp.rr_runs(w,n)=case n when 312 then 'held:Outside the recipient local sending window. [w24=elapsed, '
+      ||'t24=accepted:Verified provider receipt, e24=held:Outside the recipient local sending window.]'
+      else 'waiting:- [w24=elapsed, t24=accepted:Verified provider receipt, e24=accepted:Verified provider receipt, k24=created, w1=wait]' end)
+  from generate_series(309,315) n,(values (402),(404)) v(w)),
+  'the day before T, the text, email and task go out for T (lead 312''s email is held) and the runs wait for the hour before: '
+    ||pg_temp.rr_runs(402,309)||' / '||pg_temp.rr_runs(402,312));
+
+-- Lead 309, A1 (402) and A2 (404), the acceptance case (the final send check and the catch-up through a passed wait,
+-- automation_message_issue and automation_finish_node). An ordinary move to T2,
+-- three days out, whose day-before time is still to come, so the automation starts over there; the T2 run gives its
+-- reminders and finishes; an ordinary move back to T then starts a new run at T. Before this change that run ended at
+-- the passed day-before wait and T lost its hour-before text (402), or it sent the day-before text and email again (404).
+-- Now the new run passes the day-before wait as already reached (402) or late (404), skips what T was given and sends
+-- the hour-before text once. A task is created once per time (H1).
+select pg_temp.save(309,pg_temp.rr_at(309,'T2'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(402,309);
+select pg_temp.rr_all(404,309);
+select pg_temp.save(309,pg_temp.rr_at(309,'T'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(402,309);
+select pg_temp.rr_all(404,309);
+select pg_temp.rr_ok('pin A6 (lead 309)',pg_temp.rr_run(402,309,2)='completed:Verified provider receipt [w24=elapsed, '
+    ||'t24=accepted:Verified provider receipt, e24=accepted:Verified provider receipt, k24=created, w1=elapsed, '
+    ||'t1=accepted:Verified provider receipt]' and pg_temp.rr_run(404,309,2)=pg_temp.rr_run(402,309,2),
+  'the genuinely new time T2 gets every reminder: '||pg_temp.rr_run(402,309,2));
+select pg_temp.rr_ok('fix A1 sends',pg_temp.rr_sent(402,309)='t24@T, e24@T, t24@T2, e24@T2, t1@T2, t1@T',
+  'back at T, one day-before text in all for T and its hour-before text once: '||pg_temp.rr_sent(402,309));
+select pg_temp.rr_ok('fix A1 steps',pg_temp.rr_run(402,309,3)='completed:Verified provider receipt [w24=elapsed:Already reached '
+    ||'for this appointment time, t24=skipped:Already sent for this appointment time, e24=skipped:Already sent for this '
+    ||'appointment time, k24=skipped:Already created for this appointment time, w1=elapsed, t1=accepted:Verified provider receipt]',
+  'the new run at T passes the day-before wait as already reached and skips what T was given: '||pg_temp.rr_run(402,309,3));
+select pg_temp.rr_ok('pin A1 first run',pg_temp.rr_run(402,309,1)='stopped:Appointment was rescheduled [w24=elapsed, '
+    ||'t24=accepted:Verified provider receipt, e24=accepted:Verified provider receipt, k24=created, w1=wait]',
+  'the first run ended as rescheduled: '||pg_temp.rr_run(402,309,1));
+select pg_temp.rr_ok('fix A2 sends',pg_temp.rr_sent(404,309)='t24@T, e24@T, t24@T2, e24@T2, t1@T2, t1@T',
+  'sent late when passed, back at T the day-before text and email are not sent again: '||pg_temp.rr_sent(404,309));
+select pg_temp.rr_ok('fix A2 steps',pg_temp.rr_run(404,309,3)='completed:Verified provider receipt [w24=elapsed:The reminder '
+    ||'time had already passed, t24=skipped:Already sent for this appointment time, e24=skipped:Already sent for this '
+    ||'appointment time, k24=skipped:Already created for this appointment time, w1=elapsed, t1=accepted:Verified provider receipt]',
+  'the new run at T: '||pg_temp.rr_run(404,309,3));
+select pg_temp.rr_ok('fix H1',pg_temp.rr_tasks(404,309)='k24@T, k24@T2' and pg_temp.rr_tasks(402,309)='k24@T, k24@T2',
+  'a task another run already created at T is not created again: '||pg_temp.rr_tasks(404,309));
+select pg_temp.rr_ok('fix A1 record',pg_temp.rr_ledger(402,309)='t24@T#1:sms:r1, e24@T#1:email:r1, k24@T#1:task:r1, '
+    ||'t24@T2#1:sms:r2, e24@T2#1:email:r2, k24@T2#1:task:r2, t1@T2#1:sms:r2, t1@T#1:sms:r3',
+  'the record holds each step once per time, by the run that gave it: '||pg_temp.rr_ledger(402,309));
+
+-- Lead 310 (Pins, the sign-off story of a move away and back): the same move away to T2 and back, while the T2 run has given nothing
+-- yet. The move back carries the first run on, so T has one day-before text in all and its hour-before text once.
+select pg_temp.save(310,pg_temp.rr_at(310,'T2'));
+select pg_temp.rr_pass();
+select pg_temp.save(310,pg_temp.rr_at(310,'T'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(402,310);
+select pg_temp.rr_all(404,310);
+select pg_temp.rr_ok('pin A1 natural',(select bool_and(pg_temp.rr_sent(w,310)='t24@T, e24@T, t1@T' and pg_temp.rr_tasks(w,310)='k24@T'
+    and pg_temp.rr_runs(w,310)='completed:Verified provider receipt [w24=elapsed, t24=accepted:Verified provider receipt, '
+      ||'e24=accepted:Verified provider receipt, k24=created, w1=elapsed, t1=accepted:Verified provider receipt] | '
+      ||'stopped:Appointment was moved back [w24=wait]') from (values (402),(404)) v(w)),
+  'moved away and straight back, the first run carries on: '||pg_temp.rr_sent(402,310)||' / '||pg_temp.rr_runs(402,310));
+select pg_temp.rr_ok('fix A1 natural record',pg_temp.rr_ledger(402,310)='t24@T#1:sms:r1, e24@T#1:email:r1, k24@T#1:task:r1, '
+    ||'t1@T#1:sms:r1','and the record holds T''s steps once: '||pg_temp.rr_ledger(402,310));
+
+-- Lead 311, A3 (402; the acceptance case after a reopening, the shape of automation_run_holds' rule (d)). An ordinary move to
+-- T2, three hours before T and also inside its day-before time, so the first run follows it in place, gives the
+-- hour-before text there and finishes: it passed through T and left. Cancelled, moved back to T while cancelled and
+-- reopened: rule (d) lets a new run start at T. Before this change it ended at the passed day-before wait and T never got
+-- its hour-before text. With late sending (404, pins) the move to T2 started over there, and the reopening carries the
+-- first run on at T.
+select pg_temp.save(311,pg_temp.rr_at(311,'T2'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(402,311);
+select pg_temp.rr_all(404,311);
+select pg_temp.save(311,'status=''Cancelled''');
+select pg_temp.rr_pass();
+select pg_temp.save(311,pg_temp.rr_at(311,'T'));
+select pg_temp.rr_pass();
+select pg_temp.save(311,'status=''Scheduled''');
+select pg_temp.rr_pass();
+select pg_temp.rr_all(402,311);
+select pg_temp.rr_all(404,311);
+select pg_temp.rr_ok('fix A3 sends',pg_temp.rr_sent(402,311)='t24@T, e24@T, t1@T2, t1@T' and pg_temp.rr_tasks(402,311)='k24@T',
+  'reopened at T, nothing is repeated there and its hour-before text goes out once: '||pg_temp.rr_sent(402,311));
+select pg_temp.rr_ok('fix A3 steps',pg_temp.rr_runs(402,311)='completed:Verified provider receipt [w24=elapsed, '
+    ||'t24=accepted:Verified provider receipt, e24=accepted:Verified provider receipt, k24=created, w1=elapsed, '
+    ||'t1=accepted:Verified provider receipt] | completed:Verified provider receipt [w24=elapsed:Already reached for this '
+    ||'appointment time, t24=skipped:Already sent for this appointment time, e24=skipped:Already sent for this appointment time, '
+    ||'k24=skipped:Already created for this appointment time, w1=elapsed, t1=accepted:Verified provider receipt]',
+  'the run the reopening started: '||pg_temp.rr_runs(402,311));
+select pg_temp.rr_ok('pin A3 late sending',pg_temp.rr_sent(404,311)='t24@T, e24@T, t24@T2, e24@T2, t1@T2, t1@T'
+    and pg_temp.rr_runs(404,311)='completed:Verified provider receipt [w24=elapsed, t24=accepted:Verified provider receipt, '
+      ||'e24=accepted:Verified provider receipt, k24=created, w1=elapsed, t1=accepted:Verified provider receipt] | '
+      ||'completed:Verified provider receipt [w24=elapsed:The reminder time had already passed, t24=accepted:Verified provider '
+      ||'receipt, e24=accepted:Verified provider receipt, k24=created, w1=elapsed, t1=accepted:Verified provider receipt]',
+  'sent late when passed, the first run is carried on at T: '||pg_temp.rr_sent(404,311)||' / '||pg_temp.rr_runs(404,311));
+
+-- Lead 312, C1 (the late rule in a caught-up segment): T got its day-before text but not its email twin
+-- (held for sending hours) nor the task after it. The T2 run finishes, and an ordinary move back starts a new run at T.
+-- With a passed reminder skipped (402), that run skips the text as sent and the email and task as late, then sends the
+-- hour-before text. Sent late when passed (404), the email and task go out late, and the text is not sent again.
+select pg_temp.save(312,pg_temp.rr_at(312,'T2'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(402,312);
+select pg_temp.rr_all(404,312);
+select pg_temp.save(312,pg_temp.rr_at(312,'T'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(402,312);
+select pg_temp.rr_all(404,312);
+select pg_temp.rr_ok('fix C1',pg_temp.rr_sent(402,312)='t24@T, t24@T2, e24@T2, t1@T2, t1@T' and pg_temp.rr_tasks(402,312)='k24@T2'
+    and pg_temp.rr_run(402,312,3)='completed:Verified provider receipt [w24=elapsed:Already reached for this appointment time, '
+      ||'t24=skipped:Already sent for this appointment time, e24=skipped:The reminder time had already passed, '
+      ||'k24=skipped:The reminder time had already passed, w1=elapsed, t1=accepted:Verified provider receipt]',
+  'the email and task T never got are late, and its hour-before text goes out: '||pg_temp.rr_sent(402,312)||' / '
+    ||pg_temp.rr_run(402,312,3));
+select pg_temp.rr_ok('fix C1 late sending',pg_temp.rr_sent(404,312)='t24@T, t24@T2, e24@T2, t1@T2, e24@T, t1@T'
+    and pg_temp.rr_tasks(404,312)='k24@T2, k24@T'
+    and pg_temp.rr_run(404,312,3)='completed:Verified provider receipt [w24=elapsed:The reminder time had already passed, '
+      ||'t24=skipped:Already sent for this appointment time, e24=accepted:Verified provider receipt, k24=created, w1=elapsed, '
+      ||'t1=accepted:Verified provider receipt]',
+  'sent late when passed, only the text is not sent again: '||pg_temp.rr_sent(404,312)||' / '||pg_temp.rr_run(404,312,3));
+-- C1, the lock window (review RV3-2): the late rule is decided before the handoff's lock, by the worker's check
+-- (automation_message_check), not by the final send check the handoff makes under its lock (automation_message_issue),
+-- which keeps to index lookups. It depends only on the run's version's graph, its own steps, the slots its reminders
+-- and its lease are for and their start times, none of which changes while the run holds its lease. At each check of
+-- lead 312's day-before email, what both answered:
+select pg_temp.rr_ok('fix C1 lock window',pg_temp.rr_answers(402,312,'e24')
+    ='null | null | null | skip:The reminder time had already passed'
+  and pg_temp.rr_issues(402,312,'e24')='null | null | null | null',
+  'the worker''s check skips the late email, and the check under the handoff''s lock does not decide it: '
+    ||pg_temp.rr_answers(402,312,'e24')||' / '||pg_temp.rr_issues(402,312,'e24'));
+
+-- Leads 313 and 314, A4 and A5 (Pins, the sign-off story of a corrected outcome): marked No Show (313) or Completed (314) by mistake
+-- before T. The hour-before text is held while the outcome stands; corrected (Scheduled), it goes out once, and the
+-- day-before text is never repeated.
+select pg_temp.save(313,'status=''No Show''');
+select pg_temp.save(314,'status=''Completed''');
+select pg_temp.rr_pass();
+select pg_temp.rr_due(w,n) from generate_series(313,314) n,(values (402),(404)) v(w);
+select pg_temp.rr_ok('pin A4 A5 held',(select bool_and(pg_temp.rr_runs(w,n)='held:The appointment has an outcome recorded [w24=elapsed, '
+    ||'t24=accepted:Verified provider receipt, e24=accepted:Verified provider receipt, k24=created, w1=elapsed, '
+    ||'t1=held:The appointment has an outcome recorded]') from generate_series(313,314) n,(values (402),(404)) v(w)),
+  'the hour-before text is held while No Show or Completed stands: '||pg_temp.rr_runs(402,313));
+select pg_temp.save(n,'status=''Scheduled''') from generate_series(313,314) n;
+select pg_temp.rr_pass();
+select pg_temp.rr_all(w,n) from generate_series(313,314) n,(values (402),(404)) v(w);
+select pg_temp.rr_ok('pin A4 A5',(select bool_and(pg_temp.rr_sent(w,n)='t24@T, e24@T, t1@T' and pg_temp.rr_tasks(w,n)='k24@T'
+    and pg_temp.rr_runs(w,n)='completed:Verified provider receipt [w24=elapsed, t24=accepted:Verified provider receipt, '
+      ||'e24=accepted:Verified provider receipt, k24=created, w1=elapsed, t1=accepted:Verified provider receipt]')
+  from generate_series(313,314) n,(values (402),(404)) v(w)),
+  'corrected before T, the held hour-before text goes out once and nothing is repeated: '||pg_temp.rr_sent(402,313)
+    ||' / '||pg_temp.rr_sent(404,314));
+select pg_temp.rr_ok('fix A4 record',pg_temp.rr_ledger(402,313)='t24@T#1:sms:r1, e24@T#1:email:r1, k24@T#1:task:r1, t1@T#1:sms:r1',
+  'the record: '||pg_temp.rr_ledger(402,313));
+
+-- Lead 315, A6 and H2 (Pins): a genuinely new time, T3 four days out, gets every reminder, its task included.
+insert into rr_times values (315,'T3',date_trunc('minute',clock_timestamp())+interval '4 days');
+select pg_temp.save(315,pg_temp.rr_at(315,'T3'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(402,315);
+select pg_temp.rr_all(404,315);
+select pg_temp.rr_ok('pin A6 H2',(select bool_and(pg_temp.rr_sent(w,315)='t24@T, e24@T, t24@T3, e24@T3, t1@T3'
+    and pg_temp.rr_tasks(w,315)='k24@T, k24@T3'
+    and pg_temp.rr_runs(w,315)='stopped:Appointment was rescheduled [w24=elapsed, t24=accepted:Verified provider receipt, '
+      ||'e24=accepted:Verified provider receipt, k24=created, w1=wait] | completed:Verified provider receipt [w24=elapsed, '
+      ||'t24=accepted:Verified provider receipt, e24=accepted:Verified provider receipt, k24=created, w1=elapsed, '
+      ||'t1=accepted:Verified provider receipt]') from (values (402),(404)) v(w)),
+  'a new time gets every reminder and its task: '||pg_temp.rr_sent(402,315)||' / '||pg_temp.rr_tasks(402,315));
+update public.workflows set status='paused' where id in (pg_temp.id(402),pg_temp.id(404));
+select pg_temp.retire();
+-- Leads 316 to 343: one retry, for texts only, its window, an opt-out before it and a run that carries on. One
+-- automation: a text a day before, then an hour before an email and a text, each
+-- sent late when its time passed. Each appointment is at T, three days out (lead 321's and 342's forty minutes out, lead
+-- 341's fifty), and a qualifying new run at T comes from an ordinary move to another time where the automation starts
+-- over and its run there hands off its first text, and an ordinary move back, which starts over at T (rr_away_back).
+-- Before this change that run sent T's day-before text again, whatever its provider had said.
+insert into rr_times select n,'T',date_trunc('minute',clock_timestamp())+interval '3 days' from generate_series(316,343) n;
+insert into rr_times select n,v.k,date_trunc('minute',clock_timestamp())+make_interval(days=>v.d) from generate_series(316,343) n,
+  (values ('T2',4),('T3',5),('T4',6),('T5',7)) v(k,d);
+update rr_times set at=date_trunc('minute',clock_timestamp())+interval '40 minutes' where k='T' and n in (321,342);
+update rr_times set at=date_trunc('minute',clock_timestamp())+interval '50 minutes' where k='T' and n=341;
+select pg_temp.rr_analyze();
+select pg_temp.publish(406,407,'A day before, then an hour before an email and a text (sent late when passed)',pg_temp.rr_graph_f());
+select pg_temp.rr_only(406);
+insert into rr_plan values (pg_temp.id(318),'t24','reject:20429'),(pg_temp.id(319),'t24','reject:first_contact_4xx:20429'),
+  (pg_temp.id(320),'t24','reject:429'),(pg_temp.id(321),'e1','hold'),(pg_temp.id(325),'t24','reject:21610'),
+  (pg_temp.id(327),'t24','reject:21211'),(pg_temp.id(329),'e1','email_4xx'),(pg_temp.id(330),'t24','timeout'),
+  (pg_temp.id(331),'t24','crash'),(pg_temp.id(333),'e1','email_5xx'),(pg_temp.id(341),'t1','reject:20429');
+-- K1: another agency books the same time on its own automation with the same step ids (leads 3001 and 3002).
+insert into auth.users(id,email) values (pg_temp.id(3000),'v2-appt-3000@example.invalid');
+insert into public.profiles(id,organization_id,role,status,email)
+  values (pg_temp.id(3000),pg_temp.id(2),'Admin','Active','v2-appt-3000@example.invalid')
+  on conflict (id) do update set organization_id=excluded.organization_id,role=excluded.role,status=excluded.status;
+update private.automation_release_controls set dispatch_enabled=true where organization_id=pg_temp.id(2);
+insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id,user_id)
+  select pg_temp.id(n),pg_temp.id(2),'Lead '||n,'+1202555'||n::text,pg_temp.id(14),pg_temp.id(14) from generate_series(3001,3002) n;
+insert into public.workflows(id,organization_id,name,status,trigger_type,automation_graph,automation_revision)
+  values(pg_temp.id(430),pg_temp.id(2),'Another agency''s reminders','active','manual',pg_temp.rr_graph_f(),1);
+insert into public.workflow_versions(id,organization_id,workflow_id,name,revision,graph,published_at,published_by)
+  values(pg_temp.id(431),pg_temp.id(2),pg_temp.id(430),'Another agency''s reminders',1,pg_temp.rr_graph_f(),clock_timestamp(),pg_temp.id(3000));
+update public.workflows set automation_version_id=pg_temp.id(431) where id=pg_temp.id(430);
+insert into public.automation_intervals(organization_id,workflow_id,version_id,starts_at)
+  values(pg_temp.id(2),pg_temp.id(430),pg_temp.id(431),clock_timestamp());
+insert into rr_times select n,'T',(select t.at from rr_times t where t.n=343 and t.k='T') from generate_series(3001,3002) n;
+insert into public.appointments(id,organization_id,title,contact_id,user_id,start_time,sync_source)
+  select pg_temp.id(t.n+10),pg_temp.id(2),'Another agency''s appointment',pg_temp.id(t.n),pg_temp.id(14),t.at,'internal'
+  from rr_times t where t.n in (3001,3002) and t.k='T';
+insert into booked select t.n,pg_temp.id(t.n+10),t.at from rr_times t where t.n in (3001,3002) and t.k='T';
+select pg_temp.rr_book(n,'T') from generate_series(316,343) n;
+select pg_temp.rr_pass();
+-- Records another agency holds for this agency's lead 343 at its time and steps, as if a lookup ignored the organization:
+-- a failed day-before text a retry would follow, and an hour-before text.
+do $$
+begin
+  if pg_temp.rr_has_ledger() then
+    begin
+      execute $q$insert into private.automation_given_steps(organization_id,workflow_id,appointment_id,starts_at,node_id,attempt,
+          kind,run_id,failure_status,failure_code)
+        select pg_temp.id(2),pg_temp.id(406),b.id,b.starts,v.node,1,'sms',(select r.id from private.automation_runs r
+            where r.workflow_id=pg_temp.id(430) and r.contact_id=pg_temp.id(3002)),v.status,v.code
+        from booked b,(values ('t24','undelivered','30003'),('t1',null,null)) v(node,status,code) where b.n=343$q$;
+    exception when others then
+      raise notice 'rr K1: the record refuses another agency''s rows for this agency''s keys (%)',sqlerrm;
+    end;
+  end if;
+end $$;
+select pg_temp.rr_ok('pin setup F',(select count(*)=25 and bool_and(r.status='waiting' and r.current_node_id='w24')
+    from private.automation_runs r where r.workflow_id=pg_temp.id(406) and r.contact_id in (select pg_temp.id(n)
+      from generate_series(316,343) n where n not in (321,341,342)))
+  and (select count(*)=2 and bool_and(r.status='waiting' and r.current_node_id='w24') from private.automation_runs r
+    where r.workflow_id=pg_temp.id(430))
+  and pg_temp.rr_runs(406,321)='held:Outside the recipient local sending window. [w24=elapsed:The reminder time had already '
+    ||'passed, t24=accepted:Verified provider receipt, w1=elapsed:The reminder time had already passed, e1=held:Outside the '
+    ||'recipient local sending window.]'
+  and pg_temp.rr_sent(406,341)='t24@T, e1@T, t1@T!reject:20429' and pg_temp.rr_runs(406,341) like 'failed:%'
+  and pg_temp.rr_sent(406,342)='t24@T, e1@T, t1@T' and pg_temp.rr_runs(406,342) like 'completed:%',
+  'the runs three days out wait for the day before; forty and fifty minutes out, every reminder has passed and goes out '
+    ||'late: '||pg_temp.rr_runs(406,321)||' / '||pg_temp.rr_runs(406,341));
+-- The day before T comes for every run three days out, and each hands off its day-before text.
+select pg_temp.rr_due(406,n) from generate_series(316,343) n where n not in (321,341,342);
+select pg_temp.rr_due(430,3001);
+-- Leads 329 and 333 also reach the hour before: their emails fail (HTTP 4xx) or have no confirmed outcome (HTTP 5xx).
+select pg_temp.rr_due(406,n) from (values (329),(333)) v(n);
+delete from rr_plan where contact_id<>pg_temp.id(341);
+-- The provider's status callbacks for the day-before texts.
+select pg_temp.rr_receipt(406,n,1,'t24',v.status,v.code) from (values (316,'undelivered','30003'),(317,'failed','30001'),
+  (321,'undelivered','30003'),(322,'undelivered','30003'),(323,'undelivered','30003'),(324,'undelivered','30008'),
+  (326,'undelivered','30006'),(328,'failed',null),(335,'undelivered','30003'),(336,'undelivered','30003'),
+  (338,'undelivered','30003'),(339,'undelivered','30003'),(340,'undelivered','30003'),(342,'undelivered','30003')) v(n,status,code);
+select pg_temp.rr_receipt(430,3001,1,'t24','undelivered','30003');
+-- F1: the same failure reported twice and then a different one: the first status and code are kept.
+create temporary table rr_marks(n integer, what text, at timestamptz, primary key(n,what)) on commit drop;
+insert into rr_marks values (334,'before',clock_timestamp());
+select pg_temp.rr_receipt(406,334,1,'t24','undelivered','30003');
+insert into rr_marks values (334,'after',clock_timestamp());
+select pg_temp.rr_receipt(406,334,1,'t24','undelivered','30003');
+select pg_temp.rr_receipt(406,334,1,'t24','failed','30001');
+-- F2: failed, then delivered before any retry.
+select pg_temp.rr_receipt(406,335,1,'t24','delivered',null);
+select pg_temp.rr_ok('fix F1 receipts',pg_temp.rr_ledger(406,334)='t24@T#1:sms:r1:undelivered:30003'
+    and pg_temp.rr_ledger(406,316)='t24@T#1:sms:r1:undelivered:30003' and pg_temp.rr_ledger(406,317)='t24@T#1:sms:r1:failed:30001'
+    and pg_temp.rr_ledger(406,328)='t24@T#1:sms:r1:failed' and pg_temp.rr_ledger(406,335)='t24@T#1:sms:r1:undelivered:30003'
+    and pg_temp.rr_ledger(406,318)='t24@T#1:sms:r1',
+  'each verified callback keeps the provider''s first failure, never overwritten, with no code when none was sent, and a '
+    ||'request rejection writes none: '||pg_temp.rr_ledger(406,334)||' / '||pg_temp.rr_ledger(406,328)||' / '
+    ||pg_temp.rr_ledger(406,318));
+do $$
+declare at timestamptz;
+begin
+  if pg_temp.rr_has_ledger() then
+    execute $q$select g.failure_at from private.automation_given_steps g where g.organization_id=pg_temp.id(1)
+      and g.workflow_id=pg_temp.id(406) and g.appointment_id=(select b.id from booked b where b.n=334) and g.node_id='t24'$q$ into at;
+  end if;
+  perform pg_temp.rr_ok('fix F1 first failure time',at between (select m.at from rr_marks m where m.n=334 and m.what='before')
+      and (select m.at from rr_marks m where m.n=334 and m.what='after'),
+    'the failure is dated by the first failed callback: '||coalesce(at::text,'none'));
+end $$;
+select pg_temp.rr_ok('pin F2 receipts',pg_temp.rr_msgs(406,335,'t24')='r1:delivered' and pg_temp.rr_msgs(406,334,'t24')='r1:failed',
+  'a delivered callback after a failed one leaves the message delivered: '||pg_temp.rr_msgs(406,335,'t24'));
+-- D3, D3b and D4: the provider rate-limited the request (20429, also as a first contact's 4xx, or HTTP 429 with no code).
+-- The rejection is dated by its dispatch: leads 319 and 320's a minute and a second ago, so their backoff has passed;
+-- lead 318's ten seconds ago when its new run reaches the text, and a minute and a second ago after that.
+update public.sms_dispatches d set updated_at=clock_timestamp()-interval '61 seconds' from private.automation_runs r
+  where d.organization_id=r.organization_id and d.request_key='automation:'||r.id||':t24' and d.state='failed'
+    and r.workflow_id=pg_temp.id(406) and r.contact_id in (pg_temp.id(319),pg_temp.id(320));
+
+-- Each comes back to T on a qualifying new run (I1, G1, G1b, J1, J2 and K1 do not; F4 does three times).
+select pg_temp.rr_away_back(406,n,'T2','T') from generate_series(316,337) n;
+update public.sms_dispatches d set updated_at=clock_timestamp()-interval '10 seconds' from private.automation_runs r
+  where d.organization_id=r.organization_id and d.request_key='automation:'||r.id||':t24' and d.state='failed'
+    and r.workflow_id=pg_temp.id(406) and r.contact_id=pg_temp.id(318);
+select pg_temp.rr_due(406,318);
+select pg_temp.rr_ok('fix D3 backoff',pg_temp.rr_run(406,318,3)='held:Waiting before retrying a text the provider rate-limited '
+    ||'[w24=elapsed, t24=held:Waiting before retrying a text the provider rate-limited]' and pg_temp.rr_sent(406,318)='t24@T!reject:20429, t24@T2',
+  'within a minute of the rate-limited request the new run holds its retry: '||pg_temp.rr_run(406,318,3));
+update public.sms_dispatches d set updated_at=clock_timestamp()-interval '61 seconds' from private.automation_runs r
+  where d.organization_id=r.organization_id and d.request_key='automation:'||r.id||':t24' and d.state='failed'
+    and r.workflow_id=pg_temp.id(406) and r.contact_id=pg_temp.id(318);
+select pg_temp.rr_all(406,n) from generate_series(316,337) n;
+
+-- D1, D2, D3, D3b and D4: exactly one retry on the new run at T, which the database asks for ('retry:'). The first
+-- attempt keeps its message, its status and its code; the retry is attempt 2 on its own run.
+select pg_temp.rr_ok('fix D1 D2 D3 D4 sends',(select bool_and(pg_temp.rr_sent(406,n)=case n when 316 then 't24@T' when 317 then 't24@T'
+      when 318 then 't24@T!reject:20429' when 319 then 't24@T!reject:first_contact_4xx:20429' else 't24@T!reject:429' end
+    ||', t24@T2, t24@T+retry, e1@T, t1@T') from generate_series(316,320) n),
+  'each failed day-before text is sent again once, as a retry: '||pg_temp.rr_sent(406,316)||' / '||pg_temp.rr_sent(406,318)
+    ||' / '||pg_temp.rr_sent(406,320));
+select pg_temp.rr_ok('fix D1 D2 D3 D4 steps',(select bool_and(pg_temp.rr_run(406,n,3)='completed:Verified provider receipt '
+    ||'[w24=elapsed, t24=accepted:Verified provider receipt, w1=elapsed, e1=accepted:Verified provider receipt, '
+    ||'t1=accepted:Verified provider receipt]'
+  and pg_temp.rr_answers(406,n,'t24')=case n when 318 then 'null | null | Waiting before retrying a text the provider rate-limited | retry:'
+    else 'null | null | retry:' end) from generate_series(316,320) n)
+  and pg_temp.rr_run(406,316,1)='stopped:Appointment was rescheduled [w24=elapsed, t24=accepted:Verified provider receipt, w1=wait]'
+  and pg_temp.rr_run(406,318,1)='failed:The provider did not accept this message. [w24=elapsed, t24=failed:The provider did '
+    ||'not accept this message.]',
+  'the new run at T is asked to retry: '||pg_temp.rr_answers(406,318,'t24')||' / '||pg_temp.rr_run(406,316,3));
+select pg_temp.rr_ok('fix D1 D2 D3 D4 record',pg_temp.rr_ledger(406,316)='t24@T#1:sms:r1:undelivered:30003, t24@T2#1:sms:r2, '
+    ||'t24@T#2:sms:r3, e1@T#1:email:r3, t1@T#1:sms:r3'
+  and pg_temp.rr_ledger(406,317)='t24@T#1:sms:r1:failed:30001, t24@T2#1:sms:r2, t24@T#2:sms:r3, e1@T#1:email:r3, t1@T#1:sms:r3'
+  and (select bool_and(pg_temp.rr_ledger(406,n)='t24@T#1:sms:r1, t24@T2#1:sms:r2, t24@T#2:sms:r3, e1@T#1:email:r3, t1@T#1:sms:r3')
+    from generate_series(318,320) n)
+  and pg_temp.rr_msgs(406,316,'t24')='r1:failed, r2:accepted, r3:accepted' and pg_temp.rr_msgs(406,318,'t24')='r1:unknown, r2:accepted, r3:accepted',
+  'two messages on two runs for T, attempts 1 and 2, the first keeping the provider''s result: '||pg_temp.rr_ledger(406,316)
+    ||' / '||pg_temp.rr_msgs(406,316,'t24'));
+
+-- D5 (lead 321, forty minutes out): the hour-before time has come, so the retry window is closed. The new run skips the
+-- older retry and goes on to the current reminder, which its first run never handed off.
+select pg_temp.rr_ok('fix D5',pg_temp.rr_sent(406,321)='t24@T, t24@T2, e1@T, t1@T'
+    and pg_temp.rr_run(406,321,3)='completed:Verified provider receipt [w24=elapsed:The reminder time had already passed, '
+      ||'t24=skipped:Not retried: the next reminder for this appointment time is already due, w1=elapsed:The reminder time '
+      ||'had already passed, e1=accepted:Verified provider receipt, t1=accepted:Verified provider receipt]'
+    and pg_temp.rr_answers(406,321,'t24')='null | null | skip:Not retried: the next reminder for this appointment time is already due',
+  'the older retry is skipped and the hour-before email and text go out: '||pg_temp.rr_sent(406,321)||' / '||pg_temp.rr_run(406,321,3));
+
+-- D6 (lead 322): the retry itself is undelivered (30003). A later qualifying run makes no third attempt.
+select pg_temp.rr_receipt(406,322,3,'t24','undelivered','30003');
+select pg_temp.rr_away_back(406,322,'T3','T');
+select pg_temp.rr_all(406,322);
+select pg_temp.rr_ok('fix D6',pg_temp.rr_sent(406,322)='t24@T, t24@T2, t24@T+retry, e1@T, t1@T, t24@T3'
+    and pg_temp.rr_run(406,322,5)='completed:Already sent for this appointment time [w24=elapsed, t24=skipped:Not sent again: '
+      ||'already retried once for this appointment time, w1=elapsed, e1=skipped:Already sent for this appointment time, '
+      ||'t1=skipped:Already sent for this appointment time]'
+    and pg_temp.rr_ledger(406,322)='t24@T#1:sms:r1:undelivered:30003, t24@T2#1:sms:r2, t24@T#2:sms:r3:undelivered:30003, '
+      ||'e1@T#1:email:r3, t1@T#1:sms:r3, t24@T3#1:sms:r4',
+  'a failed retry is not followed by a third attempt: '||pg_temp.rr_sent(406,322)||' / '||pg_temp.rr_run(406,322,5));
+
+-- D7 (lead 323): after the retry, the appointment comes back to T three more times. Nothing more goes out there.
+do $$
+declare k text;
+begin
+  foreach k in array array['T3','T4','T5'] loop
+    perform pg_temp.rr_away_back(406,323,k,'T');
+    perform pg_temp.rr_all(406,323);
+  end loop;
+end $$;
+select pg_temp.rr_ok('fix D7',pg_temp.rr_sent(406,323)='t24@T, t24@T2, t24@T+retry, e1@T, t1@T, t24@T3, t24@T4, t24@T5'
+    and (select bool_and(pg_temp.rr_run(406,323,k)='completed:Already sent for this appointment time [w24=elapsed, '
+      ||'t24=skipped:Not sent again: already retried once for this appointment time, w1=elapsed, e1=skipped:Already sent for '
+      ||'this appointment time, t1=skipped:Already sent for this appointment time]') from (values (5),(7),(9)) v(k)),
+  'three more new runs at T send nothing: '||pg_temp.rr_sent(406,323));
+
+-- E1 to E4: never retried. A code the provider does not list as temporary (30008), a permanent code (21610 and 21211 at
+-- the request, 30006 by callback), a failure with no code, and an email the provider refused (HTTP 4xx). The new run at T
+-- skips that step and its later steps still run. 21610 is also recorded as the lead's opt-out (lead 325), so the run
+-- that starts at T2 and the hour-before text at T are held for it, as any first attempt to that number is.
+select pg_temp.rr_ok('fix E1 E2 E3',(select bool_and(pg_temp.rr_sent(406,n)=case n when 327 then 't24@T!reject:21211' else 't24@T' end
+      ||', t24@T2, e1@T, t1@T'
+    and pg_temp.rr_run(406,n,3)='completed:Verified provider receipt [w24=elapsed, t24=skipped:Not sent again: delivery failed '
+      ||'for this appointment time and cannot be retried, w1=elapsed, e1=accepted:Verified provider receipt, '
+      ||'t1=accepted:Verified provider receipt]') from (values (324),(326),(327),(328)) v(n)),
+  'a failure that cannot be retried is not sent again, and the later steps run: '||pg_temp.rr_sent(406,324)||' / '
+    ||pg_temp.rr_run(406,324,3));
+select pg_temp.rr_ok('fix E2 opt-out',pg_temp.rr_sent(406,325)='t24@T!reject:21610, e1@T'
+    and pg_temp.rr_runs(406,325)='failed:The provider did not accept this message. [w24=elapsed, t24=failed:The provider did '
+      ||'not accept this message.] | stopped:Appointment was rescheduled [w24=elapsed, t24=held:This recipient has opted out '
+      ||'of agency texts.] | held:This recipient has opted out of agency texts. [w24=elapsed, t24=skipped:Not sent again: '
+      ||'delivery failed for this appointment time and cannot be retried, w1=elapsed, e1=accepted:Verified provider receipt, '
+      ||'t1=held:This recipient has opted out of agency texts.]',
+  'a blocked recipient''s failed text is not sent again and the email still goes out: '||pg_temp.rr_runs(406,325));
+select pg_temp.rr_ok('fix E4',pg_temp.rr_sent(406,329)='t24@T, e1@T!email_4xx, t24@T2, t1@T'
+    and pg_temp.rr_run(406,329,3)='completed:Verified provider receipt [w24=elapsed, t24=skipped:Already sent for this '
+      ||'appointment time, w1=elapsed, e1=skipped:Not sent again: delivery failed for this appointment time and cannot be '
+      ||'retried, t1=accepted:Verified provider receipt]'
+    and pg_temp.rr_ledger(406,329)='t24@T#1:sms:r1, e1@T#1:email:r1, t24@T2#1:sms:r2, t1@T#1:sms:r3',
+  'an email the provider refused is never retried: '||pg_temp.rr_sent(406,329)||' / '||pg_temp.rr_run(406,329,3));
+select pg_temp.rr_ok('fix E1 E3 record',pg_temp.rr_ledger(406,324)='t24@T#1:sms:r1:undelivered:30008, t24@T2#1:sms:r2, '
+    ||'e1@T#1:email:r3, t1@T#1:sms:r3' and pg_temp.rr_ledger(406,328)='t24@T#1:sms:r1:failed, t24@T2#1:sms:r2, e1@T#1:email:r3, '
+    ||'t1@T#1:sms:r3','no second attempt is recorded: '||pg_temp.rr_ledger(406,324));
+
+-- E5: an outcome that is not a confirmed failure is never sent again: no answer from the provider (an uncertain dispatch,
+-- transport_unknown, lead 330), the worker stopping right after the handoff (an intent still handed_off, lead 331), an
+-- acceptance with no final receipt (lead 332), and an email with no confirmed outcome (HTTP 5xx, lead 333).
+select pg_temp.rr_ok('fix E5',pg_temp.rr_sent(406,330)='t24@T!timeout, t24@T2, e1@T, t1@T'
+    and pg_temp.rr_sent(406,331)='t24@T!crash, t24@T2, e1@T, t1@T' and pg_temp.rr_sent(406,332)='t24@T, t24@T2, e1@T, t1@T'
+    and pg_temp.rr_sent(406,333)='t24@T, e1@T!email_5xx, t24@T2, t1@T'
+    and (select bool_and(pg_temp.rr_run(406,n,3)='completed:Verified provider receipt [w24=elapsed, t24=skipped:Already sent for '
+      ||'this appointment time, w1=elapsed, e1=accepted:Verified provider receipt, t1=accepted:Verified provider receipt]')
+      from (values (330),(331),(332)) v(n))
+    and pg_temp.rr_run(406,333,3)='completed:Verified provider receipt [w24=elapsed, t24=skipped:Already sent for this '
+      ||'appointment time, w1=elapsed, e1=skipped:Already sent for this appointment time, t1=accepted:Verified provider receipt]',
+  'an uncertain or pending outcome counts as sent: '||pg_temp.rr_sent(406,330)||' / '||pg_temp.rr_sent(406,331)||' / '
+    ||pg_temp.rr_run(406,333,3));
+select pg_temp.rr_ok('pin E5 first runs',pg_temp.rr_run(406,330,1)='stopped:Appointment was rescheduled [w24=elapsed, '
+    ||'t24=unknown:Delivery could not be confirmed. This message will not be sent again automatically.]'
+  and pg_temp.rr_run(406,331,1)='stopped:Appointment was rescheduled [w24=elapsed]'
+  and (select i.status from private.automation_intents i join private.automation_runs r on r.id=i.run_id
+    where i.run_id=(select pg_temp.rr_run_id(406,331,1)) and i.node_id='t24' and r.id=i.run_id)='handed_off'
+  and pg_temp.rr_run(406,333,1)='stopped:Appointment was rescheduled [w24=elapsed, t24=accepted:Verified provider receipt, '
+    ||'w1=elapsed, e1=unknown:Email provider returned HTTP 503.]',
+  'the first runs, as their outcomes left them: '||pg_temp.rr_run(406,330,1)||' / '||pg_temp.rr_run(406,331,1));
+
+-- F2 and F3: failed, then delivered before the retry: no retry (lead 335). Delivered after the retry: both attempts are
+-- kept (lead 336).
+select pg_temp.rr_receipt(406,336,1,'t24','delivered',null);
+select pg_temp.rr_ok('fix F2',pg_temp.rr_sent(406,335)='t24@T, t24@T2, e1@T, t1@T'
+    and pg_temp.rr_run(406,335,3)='completed:Verified provider receipt [w24=elapsed, t24=skipped:Already sent for this '
+      ||'appointment time, w1=elapsed, e1=accepted:Verified provider receipt, t1=accepted:Verified provider receipt]',
+  'a text delivered after all is not retried: '||pg_temp.rr_run(406,335,3));
+select pg_temp.rr_ok('fix F3',pg_temp.rr_sent(406,336)='t24@T, t24@T2, t24@T+retry, e1@T, t1@T'
+    and pg_temp.rr_msgs(406,336,'t24')='r1:delivered, r2:accepted, r3:accepted'
+    and pg_temp.rr_ledger(406,336)='t24@T#1:sms:r1:undelivered:30003, t24@T2#1:sms:r2, t24@T#2:sms:r3, e1@T#1:email:r3, t1@T#1:sms:r3',
+  'delivered after the retry, both attempts stay in history: '||pg_temp.rr_msgs(406,336,'t24')||' / '||pg_temp.rr_ledger(406,336));
+
+-- F4 (lead 337): accepted with no receipt, so the first new run skips the text as sent; a failed callback for it then
+-- arrives late, and a later qualifying run retries once; late and repeated failed callbacks for both attempts never
+-- authorize a third, which the record's key (attempt 1 or 2) also refuses outright.
+select pg_temp.rr_receipt(406,337,1,'t24','undelivered','30003');
+select pg_temp.rr_away_back(406,337,'T3','T');
+select pg_temp.rr_all(406,337);
+select pg_temp.rr_receipt(406,337,1,'t24','undelivered','30003');
+select pg_temp.rr_receipt(406,337,5,'t24','undelivered','30003');
+select pg_temp.rr_away_back(406,337,'T4','T');
+select pg_temp.rr_all(406,337);
+select pg_temp.rr_ok('fix F4',pg_temp.rr_sent(406,337)='t24@T, t24@T2, e1@T, t1@T, t24@T3, t24@T+retry, t24@T4'
+    and pg_temp.rr_run(406,337,3)='completed:Verified provider receipt [w24=elapsed, t24=skipped:Already sent for this '
+      ||'appointment time, w1=elapsed, e1=accepted:Verified provider receipt, t1=accepted:Verified provider receipt]'
+    and pg_temp.rr_run(406,337,5)='completed:Already sent for this appointment time [w24=elapsed, t24=accepted:Verified provider '
+      ||'receipt, w1=elapsed, e1=skipped:Already sent for this appointment time, t1=skipped:Already sent for this appointment time]'
+    and pg_temp.rr_run(406,337,7)='completed:Already sent for this appointment time [w24=elapsed, t24=skipped:Not sent again: '
+      ||'already retried once for this appointment time, w1=elapsed, e1=skipped:Already sent for this appointment time, '
+      ||'t1=skipped:Already sent for this appointment time]'
+    and pg_temp.rr_ledger(406,337)='t24@T#1:sms:r1:undelivered:30003, t24@T2#1:sms:r2, e1@T#1:email:r3, t1@T#1:sms:r3, '
+      ||'t24@T3#1:sms:r4, t24@T#2:sms:r5:undelivered:30003, t24@T4#1:sms:r6',
+  'a late failure allows one retry and no third attempt: '||pg_temp.rr_sent(406,337)||' / '||pg_temp.rr_ledger(406,337));
+do $$
+declare third text:='no record'; again text:='no record';
+begin
+  if pg_temp.rr_has_ledger() then
+    begin
+      execute $q$insert into private.automation_given_steps(organization_id,workflow_id,appointment_id,starts_at,node_id,attempt,kind,run_id)
+        select pg_temp.id(1),pg_temp.id(406),b.id,b.starts,'t24',3,'sms',pg_temp.rr_run_id(406,337,7)
+        from booked b where b.n=337$q$;
+      third:='inserted';
+    exception when check_violation then third:='refused';
+      when others then third:='refused with '||sqlstate;
+    end;
+    begin
+      execute $q$insert into private.automation_given_steps(organization_id,workflow_id,appointment_id,starts_at,node_id,attempt,kind,run_id)
+        select pg_temp.id(1),pg_temp.id(406),b.id,b.starts,'t24',2,'sms',pg_temp.rr_run_id(406,337,7)
+        from booked b where b.n=337$q$;
+      again:='inserted';
+    exception when unique_violation then again:='refused';
+      when others then again:='refused with '||sqlstate;
+    end;
+  end if;
+  perform pg_temp.rr_ok('fix F4 key',third='refused' and again='refused',
+    'a third attempt, or a second attempt 2, cannot be recorded: '||third||' / '||again);
+end $$;
+
+-- G1 and G1b: before the retry, the lead's number is suppressed (an opt-out, lead 338) or put on the do-not-call list
+-- (lead 339). automation_message_check skips the retry ('Not retried: the lead can no longer receive this message'),
+-- there is no attempt 2, and the run's later steps still run: the hour-before email goes out, and the hour-before text,
+-- a first attempt, is held for the opt-out as before. G2, a temporary failure to confirm consent, is the worker's to
+-- decide (channel.ts) and is covered by its unit tests.
+select pg_temp.save(n,pg_temp.rr_at(n,'T2')) from (values (338),(339)) v(n);
+select pg_temp.rr_pass();
+select pg_temp.rr_due(406,n) from (values (338),(339)) v(n);
+insert into public.sms_suppressions(organization_id,phone_e164,reason,source_id) values (pg_temp.id(1),'+12025550338','stop','suite:338');
+insert into public.dnc_list(organization_id,phone_number,reason) values (pg_temp.id(1),'+12025550339','Asked not to be contacted');
+select pg_temp.save(n,pg_temp.rr_at(n,'T')) from (values (338),(339)) v(n);
+select pg_temp.rr_pass();
+select pg_temp.rr_all(406,n) from (values (338),(339)) v(n);
+select pg_temp.rr_ok('fix G1',(select bool_and(pg_temp.rr_sent(406,n)='t24@T, t24@T2, e1@T'
+    and pg_temp.rr_run(406,n,3)='held:This recipient has opted out of agency texts. [w24=elapsed, t24=skipped:Not retried: the '
+      ||'lead can no longer receive this message, w1=elapsed, e1=accepted:Verified provider receipt, t1=held:This recipient has '
+      ||'opted out of agency texts.]'
+    and pg_temp.rr_answers(406,n,'t24')='null | null | skip:Not retried: the lead can no longer receive this message'
+    and pg_temp.rr_ledger(406,n)='t24@T#1:sms:r1:undelivered:30003, t24@T2#1:sms:r2, e1@T#1:email:r3')
+    from (values (338),(339)) v(n)),
+  'an opted-out or do-not-call lead''s retry is skipped and the email still goes out: '||pg_temp.rr_run(406,338,3)||' / '
+    ||pg_temp.rr_answers(406,339,'t24'));
+-- G2 (informational, never an assertion): a temporary failure to confirm consent holds a retry. The worker decides it
+-- (channel.ts), and the Deno tests in channel_test.ts cover it: 'a retry the consent service cannot verify at its first
+-- check holds before any request is reserved' and 'a retry the consent service cannot verify after its request was
+-- reserved holds and the reservation is cancelled'.
+do $$ begin raise notice 'rr info G2: a retry consent cannot verify now is held by the worker (channel.ts, channel_test.ts)'; end $$;
+
+-- I1 (lead 340, a run that carries on): the live run's day-before text was undelivered (30003). Cancelled and reopened at the same
+-- time, the run is carried on: it never rewinds to retry that text, and its still-due hour-before text goes out once.
+select pg_temp.save(340,'status=''Cancelled''');
+select pg_temp.rr_pass();
+select pg_temp.save(340,'status=''Scheduled''');
+select pg_temp.rr_pass();
+select pg_temp.rr_all(406,340);
+select pg_temp.rr_ok('pin I1',pg_temp.rr_sent(406,340)='t24@T, e1@T, t1@T'
+    and pg_temp.rr_runs(406,340)='completed:Verified provider receipt [w24=elapsed, t24=accepted:Verified provider receipt, '
+      ||'w1=elapsed, e1=accepted:Verified provider receipt, t1=accepted:Verified provider receipt]'
+    and pg_temp.rr_answers(406,340,'t24')='null',
+  'a run carried on does not go back to retry, and the hour-before reminders go out once: '||pg_temp.rr_runs(406,340));
+select pg_temp.rr_ok('fix I1 record',pg_temp.rr_ledger(406,340)='t24@T#1:sms:r1:undelivered:30003, e1@T#1:email:r1, t1@T#1:sms:r1',
+  'the record: '||pg_temp.rr_ledger(406,340));
+
+-- J1 (lead 341, fifty minutes out, sent late when passed; automation_run_holds' rule (a)): the run's hour-before text was rate-limited
+-- (20429) and it failed. Cancelled, moved away and back while cancelled and reopened, a new run starts at T: a finished
+-- or failed run does not hold a time where a text is owed its retry and the window is open. Before this change the
+-- failed run held T and nothing started. The day-before text and the email are skipped, and the text is retried once.
+update public.sms_dispatches d set updated_at=clock_timestamp()-interval '61 seconds' from private.automation_runs r
+  where d.organization_id=r.organization_id and d.request_key='automation:'||r.id||':t1' and r.workflow_id=pg_temp.id(406)
+    and r.contact_id=pg_temp.id(341);
+delete from rr_plan;
+select pg_temp.rr_reopen_via(341,'T2','T');
+select pg_temp.rr_all(406,341);
+select pg_temp.rr_ok('fix J1',pg_temp.rr_sent(406,341)='t24@T, e1@T, t1@T!reject:20429, t1@T+retry'
+    and pg_temp.rr_run(406,341,2)='completed:Verified provider receipt [w24=elapsed:The reminder time had already passed, '
+      ||'t24=skipped:Already sent for this appointment time, w1=elapsed:The reminder time had already passed, '
+      ||'e1=skipped:Already sent for this appointment time, t1=accepted:Verified provider receipt]'
+    and pg_temp.rr_ledger(406,341)='t24@T#1:sms:r1, e1@T#1:email:r1, t1@T#1:sms:r1, t1@T#2:sms:r2',
+  'reopened, the rate-limited hour-before text is retried once and nothing else is repeated: '||pg_temp.rr_sent(406,341)
+    ||' / '||pg_temp.rr_runs(406,341));
+
+-- J2 (lead 342, Pins, automation_run_holds' rule (a)): the day-before text was undelivered (30003), but the hour-before time has come,
+-- so its retry window is closed: the finished run still holds T, and a reopening starts nothing.
+select pg_temp.rr_reopen_via(342,'T2','T');
+select pg_temp.rr_all(406,342);
+select pg_temp.rr_ok('pin J2',pg_temp.rr_sent(406,342)='t24@T, e1@T, t1@T'
+    and pg_temp.rr_runs(406,342)='completed:Verified provider receipt [w24=elapsed:The reminder time had already passed, '
+      ||'t24=accepted:Verified provider receipt, w1=elapsed:The reminder time had already passed, e1=accepted:Verified provider '
+      ||'receipt, t1=accepted:Verified provider receipt]',
+  'reopened after the window closed, nothing starts: '||pg_temp.rr_runs(406,342));
+
+-- K1 (lead 343, and another agency's leads 3001 and 3002; every lookup is by organization): two agencies with the same step ids and the
+-- same time. This agency's run sends both texts as first attempts, whatever the other agency's record holds, and each
+-- agency's record holds only its own runs.
+select pg_temp.rr_all(406,343);
+select pg_temp.rr_ok('pin K1',pg_temp.rr_sent(406,343)='t24@T, e1@T, t1@T' and pg_temp.rr_answers(406,343,'t24')='null'
+    and pg_temp.rr_answers(406,343,'t1')='null' and pg_temp.rr_sent(430,3001)='t24@T',
+  'another agency''s record at the same time and steps changes nothing here: '||pg_temp.rr_sent(406,343)||' / '
+    ||pg_temp.rr_answers(406,343,'t24')||' / '||pg_temp.rr_answers(406,343,'t1'));
+do $$
+declare mixed bigint;
+begin
+  if pg_temp.rr_has_ledger() then
+    execute $q$select count(*) from private.automation_given_steps g join private.automation_runs r on r.id=g.run_id
+      where g.organization_id<>r.organization_id$q$ into mixed;
+  end if;
+  perform pg_temp.rr_ok('fix K1 record',pg_temp.rr_ledger(406,343)='t24@T#1:sms:r1, e1@T#1:email:r1, t1@T#1:sms:r1'
+      and pg_temp.rr_ledger(430,3001)='t24@T#1:sms:r1:undelivered:30003' and mixed=0,
+    'each agency''s record holds its own runs: '||pg_temp.rr_ledger(406,343)||' / '||pg_temp.rr_ledger(430,3001));
+end $$;
+
+-- F1b (lead 356, the retry review's F1): the provider reports the day-before text failed with no ErrorCode, then
+-- undelivered with 30003. The first failed callback is kept as a whole, so the text stays a failure with no code, which
+-- is never retried: a qualifying new run at T does not send it again. Before the fix the later callback filled in the
+-- code the first one lacked, and the text was retried.
+insert into rr_times values (356,'T',date_trunc('minute',clock_timestamp())+interval '3 days'),
+  (356,'T2',date_trunc('minute',clock_timestamp())+interval '4 days');
+select pg_temp.rr_book(356,'T');
+select pg_temp.rr_pass();
+select pg_temp.rr_due(406,356);
+select pg_temp.rr_receipt(406,356,1,'t24','failed',null);
+select pg_temp.rr_receipt(406,356,1,'t24','undelivered','30003');
+select pg_temp.rr_away_back(406,356,'T2','T');
+select pg_temp.rr_all(406,356);
+select pg_temp.rr_ok('fix F1b',pg_temp.rr_ledger(406,356)='t24@T#1:sms:r1:failed, t24@T2#1:sms:r2, e1@T#1:email:r3, t1@T#1:sms:r3'
+    and pg_temp.rr_sent(406,356)='t24@T, t24@T2, e1@T, t1@T'
+    and pg_temp.rr_run(406,356,3)='completed:Verified provider receipt [w24=elapsed, t24=skipped:Not sent again: delivery '
+      ||'failed for this appointment time and cannot be retried, w1=elapsed, e1=accepted:Verified provider receipt, '
+      ||'t1=accepted:Verified provider receipt]',
+  'a failure first reported with no code stays one, and is not retried: '||pg_temp.rr_ledger(406,356)||' / '
+    ||pg_temp.rr_run(406,356,3));
+
+-- J1b (lead 355, the retry review's F2; automation_run_holds' rule (a)): the run that gave T its reminders finishes; an
+-- ordinary move to T2 starts a run that gives T2 its own and finishes; an ordinary move back starts a run at T, which
+-- skips every step as already sent (no failure is known yet) and finishes. Only then does the provider report T's
+-- day-before text undelivered (30003). No finished run holds T while a text the automation gave there is owed its one
+-- retry and the window is open, also a run that did not give that text itself, so a reopening at T (cancelled, moved
+-- away and back while cancelled, reopened) starts a run that retries it once. Before the fix the last run, which gave T
+-- nothing, still held T, and the retry was never sent.
+create function pg_temp.rr_holds(workflow_n integer, lead_n integer, k text) returns text language sql as $$
+  select coalesce(string_agg('r'||o.ord||'='||private.automation_run_holds(o.organization_id,o.run_id,
+    (select t.at from rr_times t where t.n=lead_n and t.k=rr_holds.k))::text,', ' order by o.ord),'none')
+  from pg_temp.rr_ords(workflow_n,lead_n) o
+$$;
+insert into rr_times values (355,'T',date_trunc('minute',clock_timestamp())+interval '3 days'),
+  (355,'T2',date_trunc('minute',clock_timestamp())+interval '4 days');
+select pg_temp.rr_book(355,'T');
+select pg_temp.rr_pass();
+select pg_temp.rr_all(406,355);
+select pg_temp.save(355,pg_temp.rr_at(355,'T2'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(406,355);
+select pg_temp.save(355,pg_temp.rr_at(355,'T'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(406,355);
+select pg_temp.rr_ok('pin setup J1b',pg_temp.rr_sent(406,355)='t24@T, e1@T, t1@T, t24@T2, e1@T2, t1@T2'
+    and pg_temp.rr_run(406,355,3)='completed:Already sent for this appointment time [w24=elapsed, t24=skipped:Already sent '
+      ||'for this appointment time, w1=elapsed, e1=skipped:Already sent for this appointment time, t1=skipped:Already sent '
+      ||'for this appointment time]',
+  'back at T, the new run skips what T was given and finishes: '||pg_temp.rr_runs(406,355));
+select pg_temp.rr_receipt(406,355,1,'t24','undelivered','30003');
+select pg_temp.rr_ok('fix J1b holds',pg_temp.rr_holds(406,355,'T')='r1=false, r2=false, r3=false',
+  'while the late failure is owed its retry, no finished run holds T: '||pg_temp.rr_holds(406,355,'T'));
+select pg_temp.rr_reopen_via(355,'T2','T');
+select pg_temp.rr_all(406,355);
+select pg_temp.rr_ok('fix J1b',pg_temp.rr_sent(406,355)='t24@T, e1@T, t1@T, t24@T2, e1@T2, t1@T2, t24@T+retry'
+    and pg_temp.rr_run(406,355,4)='completed:Already sent for this appointment time [w24=elapsed, t24=accepted:Verified '
+      ||'provider receipt, w1=elapsed, e1=skipped:Already sent for this appointment time, t1=skipped:Already sent for this '
+      ||'appointment time]'
+    and pg_temp.rr_ledger(406,355)='t24@T#1:sms:r1:undelivered:30003, e1@T#1:email:r1, t1@T#1:sms:r1, t24@T2#1:sms:r2, '
+      ||'e1@T2#1:email:r2, t1@T2#1:sms:r2, t24@T#2:sms:r4'
+    and pg_temp.rr_holds(406,355,'T')='r1=true, r2=false, r3=true, r4=true',
+  'reopened at T, the late failure is retried once and T is held again: '||pg_temp.rr_sent(406,355)||' / '
+    ||pg_temp.rr_ledger(406,355)||' / '||pg_temp.rr_holds(406,355,'T'));
+
+-- F2, the record's own refusals at the handoff (review RV5-5; automation_record_given, called directly): lead 335's
+-- day-before text at T failed and was then delivered before any retry (F2). Recording it again for T, as a third run's
+-- handoff of it would, is refused by the record's key. A retry whose read of the record, before the lock, still found
+-- the text owed its retry when the receipt that delivered it committed since is refused by the delivered re-check: that
+-- read is given here by a stand-in that answers 'retry', which the block undoes, with all it did, when it ends.
+do $$
+declare r private.automation_runs; again text:='no record'; delivered text:='no record';
+begin
+  if to_regprocedure('private.automation_record_given(private.automation_runs,text)') is not null then
+    select x.* into r from private.automation_runs x where x.id=pg_temp.rr_run_id(406,335,3);
+    begin
+      execute 'select private.automation_record_given($1,$2)' using r,'t24';
+      again:='recorded';
+      raise exception using errcode='RRG01';
+    exception when sqlstate 'RRG01' then null;
+      when others then again:=sqlerrm;
+    end;
+    begin
+      execute $f$create or replace function private.automation_step_record(p_org uuid,p_workflow uuid,p_appointment uuid,
+          p_starts_at timestamptz,p_node text,p_except_run uuid) returns text language sql stable as $b$ select 'retry'::text $b$ $f$;
+      execute 'select private.automation_record_given($1,$2)' using r,'t24';
+      delivered:='recorded';
+      raise exception using errcode='RRG01';
+    exception when sqlstate 'RRG01' then null;
+      when others then delivered:=sqlerrm;
+    end;
+  end if;
+  perform pg_temp.rr_ok('fix F2 record refusals',again='This message was already given for this appointment time.'
+      and delivered='The first attempt of this text was delivered.'
+      and pg_temp.rr_ledger(406,335)='t24@T#1:sms:r1:undelivered:30003, t24@T2#1:sms:r2, e1@T#1:email:r3, t1@T#1:sms:r3',
+    'a text given there already, and a retry of one delivered since the record was read, are refused, recording nothing: '
+      ||again||' / '||delivered||' / '||pg_temp.rr_ledger(406,335));
+end $$;
+update public.workflows set status='paused' where id in (pg_temp.id(406),pg_temp.id(430));
+update public.automation_intervals set ends_at=clock_timestamp() where workflow_id=pg_temp.id(430) and ends_at is null;
+select pg_temp.retire();
+-- Leads 344 to 348: a stop holds its time (automation_message_check's full stop check, the final send check's cross-run
+-- guard, and automation_create_task). An automation that stops on a reply:
+-- a text and a task a day before, a text an hour before. Each appointment is at T, three days out.
+insert into rr_times select n,'T',date_trunc('minute',clock_timestamp())+interval '3 days' from generate_series(344,348) n;
+insert into rr_times select n,'T2',date_trunc('minute',clock_timestamp())+interval '4 days' from generate_series(344,348) n;
+select pg_temp.rr_analyze();
+select pg_temp.publish(408,409,'A day before and an hour before (stops on a reply)',pg_temp.rr_graph_s());
+select pg_temp.rr_only(408);
+-- Lead 348's first day-before text is held for sending hours, so its first run gave nothing.
+insert into rr_plan values (pg_temp.id(348),'t24','hold');
+select pg_temp.rr_book(n,'T') from generate_series(344,348) n;
+select pg_temp.rr_pass();
+select pg_temp.rr_due(408,348);
+delete from rr_plan;
+-- An Admin stops the runs of leads 344, 345 and 347 while they wait for the day before T; lead 346 replies.
+select pg_temp.admin_stop(408,n) from (values (344),(345),(347)) v(n);
+select pg_temp.reply(346);
+select pg_temp.rr_ok('pin setup S',(select bool_and(pg_temp.rr_runs(408,n)=case n when 346 then 'stopped:Verified reply received [w24=wait]'
+      when 348 then 'held:Outside the recipient local sending window. [w24=elapsed, t24=held:Outside the recipient local sending window.]'
+      else 'stopped:Stopped by user [w24=wait]' end) from generate_series(344,348) n),
+  'the stops are recorded: '||pg_temp.rr_runs(408,344)||' / '||pg_temp.rr_runs(408,346));
+
+-- B1 (lead 344): a person's stop at T, then an ordinary move to T2 (a genuinely new time, which gets its day-before text
+-- and task by the existing rules) and an ordinary move back, which starts over at T. Nothing goes out at T. Before this
+-- change the new run sent T's texts and created its task.
+select pg_temp.rr_away_back(408,344,'T2','T');
+select pg_temp.rr_all(408,344);
+select pg_temp.rr_ok('fix B1',pg_temp.rr_sent(408,344)='t24@T2' and pg_temp.rr_tasks(408,344)='k24@T2'
+    and pg_temp.rr_run(408,344,3)='completed:Stopped by a person for this appointment time [w24=elapsed, t24=skipped:Stopped by '
+      ||'a person for this appointment time, k24=skipped:Stopped by a person for this appointment time, w1=elapsed, '
+      ||'t1=skipped:Stopped by a person for this appointment time]',
+  'a person''s stop at T holds T after a move away and back: '||pg_temp.rr_runs(408,344));
+select pg_temp.rr_ok('pin B1 new time',pg_temp.rr_run(408,344,2)='stopped:Appointment was rescheduled [w24=elapsed, '
+    ||'t24=accepted:Verified provider receipt, k24=created, w1=wait]',
+  'the new time in between followed the existing rules: '||pg_temp.rr_run(408,344,2));
+-- B1, the same with the move back seen before the T2 run gave anything (lead 345): that run follows the appointment back
+-- to T in place, and the stop still holds T.
+select pg_temp.save(345,pg_temp.rr_at(345,'T2'));
+select pg_temp.rr_pass();
+select pg_temp.save(345,pg_temp.rr_at(345,'T'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(408,345);
+select pg_temp.rr_ok('fix B1 in place',pg_temp.rr_sent(408,345)='none' and pg_temp.rr_tasks(408,345)='none'
+    and pg_temp.rr_runs(408,345)='stopped:Stopped by user [w24=wait] | completed:Stopped by a person for this appointment time '
+      ||'[w24=elapsed, t24=skipped:Stopped by a person for this appointment time, k24=skipped:Stopped by a person for this '
+      ||'appointment time, w1=elapsed, t1=skipped:Stopped by a person for this appointment time]',
+  'the run that followed the move back in place gives T nothing: '||pg_temp.rr_runs(408,345));
+
+-- B2 (lead 346): a verified reply ended the run at T (a stop rule), then an ordinary move away and back. Nothing goes out
+-- at T.
+select pg_temp.rr_away_back(408,346,'T2','T');
+select pg_temp.rr_all(408,346);
+select pg_temp.rr_ok('fix B2',pg_temp.rr_sent(408,346)='t24@T2' and pg_temp.rr_tasks(408,346)='k24@T2'
+    and pg_temp.rr_run(408,346,3)='completed:Stopped by a stop rule for this appointment time [w24=elapsed, t24=skipped:Stopped '
+      ||'by a stop rule for this appointment time, k24=skipped:Stopped by a stop rule for this appointment time, w1=elapsed, '
+      ||'t1=skipped:Stopped by a stop rule for this appointment time]',
+  'a stop rule at T holds T after a move away and back: '||pg_temp.rr_runs(408,346));
+
+-- B3 (lead 347, Pins): a person's stop at T, then cancelled, moved away and back while cancelled and reopened at T.
+-- Nothing starts.
+select pg_temp.rr_reopen_via(347,'T2','T');
+select pg_temp.rr_all(408,347);
+select pg_temp.rr_ok('pin B3',pg_temp.rr_runs(408,347)='stopped:Stopped by user [w24=wait]' and pg_temp.rr_sent(408,347)='none',
+  'reopened at a time a person stopped, nothing starts: '||pg_temp.rr_runs(408,347));
+
+-- B4 (lead 348, the final send check's cross-run guard): the run that followed T gave nothing (its text was held) and ended as
+-- rescheduled; the T2 run hands off its first text, and a move back starts a new run at T. That run is leased at its
+-- day-before text; a person's stop of another booking run of the automation for the appointment then commits before
+-- the handoff (written here as automation_stop_run records one, on the run that followed T, since two booking runs of an
+-- automation never follow one appointment at once). The final check holds the handoff, and the next lease's full check
+-- skips the step because that stop holds T.
+select pg_temp.rr_away_back(408,348,'T2','T');
+update private.automation_runs set due_at=clock_timestamp()-interval '1 second'
+  where workflow_id=pg_temp.id(408) and contact_id=pg_temp.id(348) and status='waiting';
+select pg_temp.rr_step();
+do $$
+declare lease jsonb;
+begin
+  select * into lease from public.automation_claim_work(1);
+  perform pg_temp.rr_ok('pin setup B4',lease->>'node_id'='t24' and (lease->>'run_id')::uuid=pg_temp.rr_run_id(408,348,3),
+    'the new run at T is leased at its day-before text');
+  insert into rr_leases values (348,lease);
+end $$;
+update private.automation_runs r set reason='Stopped by user',ended_at=clock_timestamp(),updated_at=clock_timestamp()
+  where r.id=(select pg_temp.rr_run_id(408,348,1));
+do $$
+declare lease jsonb:=(select l.lease from rr_leases l where l.n=348); answer text; handed boolean;
+begin
+  answer:=pg_temp.rr_check((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,lease->>'node_id',pg_temp.id(348));
+  handed:=public.automation_authorize_handoff((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,lease->>'node_id');
+  perform pg_temp.rr_ok('fix B4 guard',answer='A run of this automation for this appointment was stopped just now' and not handed
+      and (select i.status from private.automation_intents i where i.run_id=(lease->>'run_id')::uuid and i.node_id='t24')='prepared',
+    'a stop of another run of the automation for the appointment after this lease holds the handoff: '||coalesce(answer,'null')
+      ||' / handed off: '||handed);
+  perform public.automation_finish_node((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,'held',
+    coalesce(answer,'Run no longer permits a provider handoff.'));
+end $$;
+select pg_temp.rr_all(408,348);
+select pg_temp.rr_ok('fix B4',pg_temp.rr_sent(408,348)='t24@T2'
+    and pg_temp.rr_run(408,348,3)='completed:Stopped by a person for this appointment time [w24=elapsed, t24=skipped:Stopped by '
+      ||'a person for this appointment time, k24=skipped:Stopped by a person for this appointment time, w1=elapsed, '
+      ||'t1=skipped:Stopped by a person for this appointment time]'
+    and pg_temp.rr_answers(408,348,'t24')='null | null | null | A run of this automation for this appointment was stopped just now'
+      ||' | skip:Stopped by a person for this appointment time',
+  'the next lease skips the step because the stop holds T: '||pg_temp.rr_run(408,348,3)||' / '||pg_temp.rr_answers(408,348,'t24'));
+update public.workflows set status='paused' where id=pg_temp.id(408);
+select pg_temp.retire();
+
+-- Leads 350 and 351, B2b and B2c (a stop rule's end outlives the move back's carry-on, review RV3-1): an automation that
+-- stops on a reply or a conversation, with a text, an email and a task a day before and a text an hour before. Each
+-- appointment is at T, three days out. The run that gave T its day-before steps starts over at T2 (an ordinary move,
+-- four days out); a stop rule then ends the T2 run while it waits, before it passed a step: a verified reply (lead 350),
+-- recorded at once, or a conversation (lead 351), a stop rule recorded when work is leased, so that run is still
+-- waiting. An ordinary move back to T carries the first run on there and records the T2 run as replaced ('Appointment
+-- was moved back'); an ordinary move to T2 again starts a run there. The stop rule's end still holds T2, so nothing goes
+-- out at T2. Before the fix the move back's record of the T2 run lost the stop rule's end (a reply's reason was
+-- overwritten; a conversation was never recorded), and T2's text, email and task were given again.
+insert into rr_times select n,'T',date_trunc('minute',clock_timestamp())+interval '3 days' from generate_series(350,351) n;
+insert into rr_times select n,'T2',date_trunc('minute',clock_timestamp())+interval '4 days' from generate_series(350,351) n;
+select pg_temp.rr_analyze();
+select pg_temp.publish(412,413,'A day before and an hour before (stops on a reply or a conversation)',
+  jsonb_set(pg_temp.rr_graph_x('skip'),'{settings}','{"reentry":"once","stop_on_reply":true,"stop_on_contact":true}'));
+select pg_temp.rr_only(412);
+select pg_temp.rr_book(n,'T') from generate_series(350,351) n;
+select pg_temp.rr_pass();
+select pg_temp.rr_due(412,n) from generate_series(350,351) n;
+select pg_temp.save(n,pg_temp.rr_at(n,'T2')) from generate_series(350,351) n;
+select pg_temp.rr_pass();
+select pg_temp.reply(350);
+select pg_temp.talk(351);
+select pg_temp.rr_ok('pin setup B2b B2c',pg_temp.rr_run(412,350,2)='stopped:Verified reply received [w24=wait]'
+    and pg_temp.rr_run(412,351,2)='waiting:- [w24=wait]',
+  'the reply ends the T2 run at once; the conversation is recorded when work is leased: '||pg_temp.rr_runs(412,350)||' / '
+    ||pg_temp.rr_runs(412,351));
+select pg_temp.save(n,pg_temp.rr_at(n,'T')) from generate_series(350,351) n;
+select pg_temp.rr_pass();
+select pg_temp.rr_ok('pin setup B2b B2c',(select bool_and(pg_temp.rr_runs(412,n)='waiting:- [w24=elapsed, t24=accepted:Verified '
+    ||'provider receipt, e24=accepted:Verified provider receipt, k24=created, w1=wait] | stopped:Appointment was moved back '
+    ||'[w24=wait]') from generate_series(350,351) n),
+  'the move back carries the first run on at T and records the T2 run as replaced: '||pg_temp.rr_runs(412,350)||' / '
+    ||pg_temp.rr_runs(412,351));
+do $$
+declare kept text:='no record';
+begin
+  if exists (select 1 from pg_attribute a where a.attrelid='private.automation_runs'::regclass
+      and a.attname='replaced_stop_reason' and not a.attisdropped) then
+    execute $q$select string_agg(coalesce(r.replaced_stop_reason,'-'),', ' order by n) from generate_series(350,351) n
+      join private.automation_runs r on r.id=pg_temp.rr_run_id(412,n,2)$q$ into kept;
+  end if;
+  perform pg_temp.rr_ok('fix B2b B2c replaced',kept='Verified reply received, Contact was reached',
+    'the replaced runs keep the stop rule''s end: '||coalesce(kept,'null'));
+end $$;
+select pg_temp.save(n,pg_temp.rr_at(n,'T2')) from generate_series(350,351) n;
+select pg_temp.rr_pass();
+select pg_temp.rr_all(412,n) from generate_series(350,351) n;
+select pg_temp.rr_ok('fix B2b',pg_temp.rr_sent(412,350)='t24@T, e24@T' and pg_temp.rr_tasks(412,350)='k24@T'
+    and pg_temp.rr_run(412,350,3)='completed:Stopped by a stop rule for this appointment time [w24=elapsed, '
+      ||'t24=skipped:Stopped by a stop rule for this appointment time, e24=skipped:Stopped by a stop rule for this '
+      ||'appointment time, k24=skipped:Stopped by a stop rule for this appointment time, w1=elapsed, t1=skipped:Stopped by '
+      ||'a stop rule for this appointment time]'
+    and pg_temp.rr_ledger(412,350)='t24@T#1:sms:r1, e24@T#1:email:r1, k24@T#1:task:r1',
+  'a verified reply''s end at T2 holds T2 after a move back to T carried an earlier run on: '||pg_temp.rr_sent(412,350)
+    ||' / '||pg_temp.rr_tasks(412,350)||' / '||pg_temp.rr_runs(412,350));
+select pg_temp.rr_ok('fix B2c',pg_temp.rr_sent(412,351)='t24@T, e24@T' and pg_temp.rr_tasks(412,351)='k24@T'
+    and pg_temp.rr_run(412,351,3)=pg_temp.rr_run(412,350,3)
+    and pg_temp.rr_ledger(412,351)='t24@T#1:sms:r1, e24@T#1:email:r1, k24@T#1:task:r1',
+  'a conversation''s end at T2, recorded only when the move back replaced the run, holds T2 too: '||pg_temp.rr_sent(412,351)
+    ||' / '||pg_temp.rr_tasks(412,351)||' / '||pg_temp.rr_runs(412,351));
+update public.workflows set status='paused' where id=pg_temp.id(412);
+select pg_temp.retire();
+
+-- Leads 352 to 354 (part Y, the catch-up through a passed wait as the appointment moves): an automation that texts a
+-- confirmation at once, then a day before a text, a plain wait of an hour and a task, then an hour before a text (a
+-- passed reminder skipped). Each appointment is at T, a day and a few seconds from now; the day before T then really
+-- passes, so each run gives T its confirmation and day-before text and waits in the plain wait.
+create function pg_temp.rr_graph_c() returns jsonb language sql as $$
+  select jsonb_build_object('format',1,'settings',jsonb_build_object('reentry','once','stop_on_reply',false),'nodes',jsonb_build_array(
+    jsonb_build_object('id','start','type','appointment_booked','version',1,'config','{}'::jsonb),
+    jsonb_build_object('id','c','type','send_sms','version',1,'config',jsonb_build_object('body','Booked','purpose','informational')),
+    jsonb_build_object('id','w24','type','wait_until_before_appointment','version',1,
+      'config',jsonb_build_object('amount',24,'unit','hours','late','skip')),
+    jsonb_build_object('id','t24','type','send_sms','version',1,'config',jsonb_build_object('body','See you tomorrow','purpose','informational')),
+    jsonb_build_object('id','pause','type','wait','version',1,'config',jsonb_build_object('duration',1,'unit','hours')),
+    jsonb_build_object('id','k24','type','create_task','version',1,'config',jsonb_build_object('title','Call to confirm',
+      'task_type','Follow Up','due_amount',0,'due_unit','minutes')),
+    jsonb_build_object('id','w1','type','wait_until_before_appointment','version',1,
+      'config',jsonb_build_object('amount',1,'unit','hours','late','skip')),
+    jsonb_build_object('id','t1','type','send_sms','version',1,'config',jsonb_build_object('body','See you in an hour','purpose','informational'))),
+    'edges',jsonb_build_array(jsonb_build_object('id','a','source','start','target','c'),
+      jsonb_build_object('id','b','source','c','target','w24'),jsonb_build_object('id','x','source','w24','target','t24'),
+      jsonb_build_object('id','y','source','t24','target','pause'),jsonb_build_object('id','z','source','pause','target','k24'),
+      jsonb_build_object('id','d','source','k24','target','w1'),jsonb_build_object('id','e','source','w1','target','t1')))
+$$;
+insert into rr_times select n,'T',date_trunc('second',clock_timestamp())+interval '24 hours 12 seconds' from generate_series(352,354) n;
+insert into rr_times select n,'T2',date_trunc('minute',clock_timestamp())+interval '3 days' from generate_series(352,354) n;
+insert into rr_times select n,'T3',date_trunc('minute',clock_timestamp())+interval '20 hours' from generate_series(352,354) n;
+select pg_temp.rr_analyze();
+select pg_temp.publish(414,415,'A confirmation, a day before (a text, a pause and a task) and an hour before',pg_temp.rr_graph_c());
+select pg_temp.rr_only(414);
+select pg_temp.rr_book(n,'T') from generate_series(352,354) n;
+select pg_temp.rr_pass();
+select pg_temp.rr_ok('pin setup Y',(select bool_and(pg_temp.rr_sent(414,n)='c@T' and pg_temp.rr_runs(414,n)
+    ='waiting:- [c=accepted:Verified provider receipt, w24=wait]') from generate_series(352,354) n),
+  'each run texts its confirmation and waits for the day before T, seconds from now: '||pg_temp.rr_runs(414,352));
+select pg_sleep(greatest(0,extract(epoch from (select t.at-interval '24 hours' from rr_times t where t.n=352 and t.k='T')
+  -clock_timestamp()))+0.3);
+select pg_temp.rr_pass();
+select pg_temp.rr_ok('pin setup Y',(select bool_and(pg_temp.rr_sent(414,n)='c@T, t24@T' and pg_temp.rr_runs(414,n)
+    ='waiting:- [c=accepted:Verified provider receipt, w24=elapsed, t24=accepted:Verified provider receipt, pause=wait]')
+  from generate_series(352,354) n),
+  'the day before T, each run gives T its day-before text and waits in the plain wait: '||pg_temp.rr_runs(414,352));
+
+-- Lead 352, A1 in place (review RV5-1; automation_refresh_appointment_runs follows a run through a passed wait): moved
+-- to T2, where the automation starts over and the run there texts its confirmation and waits for T2's day before; moved
+-- back to T. That run has given T2 something, so the first run is not carried on, and it follows the move back in
+-- place, to a day-before wait that has passed for T. Another run gave that reminder at T (automation_caught_up), so the
+-- run goes on past it instead of ending there: it skips the day-before text T was given and the task, late in the
+-- segment the first run gave (the same time), and T gets its hour-before text. Without that, the run ended at the
+-- passed wait and T never got its hour-before text.
+select pg_temp.save(352,pg_temp.rr_at(352,'T2'));
+select pg_temp.rr_pass();
+select pg_temp.save(352,pg_temp.rr_at(352,'T'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(414,352);
+select pg_temp.rr_ok('fix A1 in place',pg_temp.rr_sent(414,352)='c@T, t24@T, c@T2, t1@T'
+    and pg_temp.rr_run(414,352,2)='completed:Verified provider receipt [c=accepted:Verified provider receipt, '
+      ||'w24=elapsed:Already reached for this appointment time, t24=skipped:Already sent for this appointment time, '
+      ||'pause=elapsed, k24=skipped:The reminder time had already passed, w1=elapsed, t1=accepted:Verified provider receipt]'
+    and pg_temp.rr_ledger(414,352)='c@T#1:sms:r1, t24@T#1:sms:r1, c@T2#1:sms:r2, t1@T#1:sms:r2' and pg_temp.rr_tasks(414,352)='none',
+  'the run that texted its confirmation at T2 follows the move back to T in place past the passed day-before wait, and '
+    ||'T gets its hour-before text once: '||pg_temp.rr_sent(414,352)||' / '||pg_temp.rr_run(414,352,2));
+
+-- Leads 353 and 354, C1b (review RV1-1; the late rule applies to the time the segment was caught up for): lead 353 is
+-- moved to T2, where a run gives T2 every reminder and finishes, and back to T, where a new run passes the day-before
+-- wait as already reached and waits in the plain wait. Then an ordinary move to T3, twenty hours out, a genuinely new
+-- time: the run keeps its place (T3's day-before time has passed), and its task, which no run gave at T3, is created
+-- there, as for lead 354, whose first run is in the same place on the same move. Before the fix the catch-up made at T
+-- also made the task late at T3.
+select pg_temp.save(353,pg_temp.rr_at(353,'T2'));
+select pg_temp.rr_pass();
+select pg_temp.rr_all(414,353);
+select pg_temp.save(353,pg_temp.rr_at(353,'T'));
+select pg_temp.rr_pass();
+select pg_temp.rr_ok('pin setup C1b',pg_temp.rr_run(414,353,3)='waiting:- [c=skipped:Already sent for this appointment time, '
+    ||'w24=elapsed:Already reached for this appointment time, t24=skipped:Already sent for this appointment time, pause=wait]',
+  'back at T, the new run passes the day-before wait as already reached and waits in the plain wait: '||pg_temp.rr_runs(414,353));
+select pg_temp.save(n,pg_temp.rr_at(n,'T3')) from (values (353),(354)) v(n);
+select pg_temp.rr_pass();
+select pg_temp.rr_all(414,n) from (values (353),(354)) v(n);
+select pg_temp.rr_ok('fix C1b',pg_temp.rr_tasks(414,353)='k24@T2, k24@T3' and pg_temp.rr_sent(414,353)='c@T, t24@T, c@T2, t24@T2, '
+      ||'t1@T2, t1@T3'
+    and pg_temp.rr_run(414,353,3)='completed:Verified provider receipt [c=skipped:Already sent for this appointment time, '
+      ||'w24=elapsed:Already reached for this appointment time, t24=skipped:Already sent for this appointment time, '
+      ||'pause=elapsed, k24=created, w1=elapsed, t1=accepted:Verified provider receipt]',
+  'moved on to a genuinely new time, the caught-up run creates its task there: '||pg_temp.rr_tasks(414,353)||' / '
+    ||pg_temp.rr_run(414,353,3));
+select pg_temp.rr_ok('pin C1b control',pg_temp.rr_tasks(414,354)='k24@T3' and pg_temp.rr_sent(414,354)='c@T, t24@T, t1@T3'
+    and pg_temp.rr_runs(414,354)='completed:Verified provider receipt [c=accepted:Verified provider receipt, w24=elapsed, '
+      ||'t24=accepted:Verified provider receipt, pause=elapsed, k24=created, w1=elapsed, t1=accepted:Verified provider receipt]',
+  'a run that passed the day-before wait normally creates the task at T3 in the same place: '||pg_temp.rr_runs(414,354));
+update public.workflows set status='paused' where id=pg_temp.id(414);
+select pg_temp.retire();
+
+-- Leads 357 to 366, B5 to B8 (a stop rule's end hidden by another end recorded first, recheck rc1, amendment A8): an
+-- automation that stops on a reply or a conversation, with a text and a task a day before and a text and a task an hour
+-- before. Each appointment is at T, three days out; the run that follows T gives T its day-before text and task and
+-- waits for the hour before. A conversation then ends that run in fact, but something else ends it first, so it is
+-- recorded as rescheduled, never as stopped by the stop rule: a cancellation, then a move to T2 while cancelled and a
+-- reopening there that the conversation refuses (B5, lead 357; lead 358 moves and reopens in one save, and every save
+-- of lead 359 is the calendar sync's, with no signed-in person); a move to T2 made while the call was still under way,
+-- its length written after the move (B6, lead 360); or a move to T2 while the run waited for its provider's answer
+-- about its day-before text (B7, lead 361). An ordinary move back to T follows. The conversation's end still holds T, so
+-- T's remaining text and task are skipped as stopped by a stop rule. Before the fix the move back carried that run on,
+-- counting its stop rules from the move back, so T's hour-before text and task went out. Leads 362 to 365 are controls
+-- that pass before the fix too, and lead 366 records a known limitation.
+create function pg_temp.rr_graph_k() returns jsonb language sql as $$
+  select jsonb_build_object('format',1,'settings',jsonb_build_object('reentry','once','stop_on_reply',true,
+      'stop_on_contact',true),'nodes',jsonb_build_array(
+    jsonb_build_object('id','start','type','appointment_booked','version',1,'config','{}'::jsonb),
+    jsonb_build_object('id','w24','type','wait_until_before_appointment','version',1,'config',jsonb_build_object('amount',24,'unit','hours')),
+    jsonb_build_object('id','t24','type','send_sms','version',1,'config',jsonb_build_object('body','See you tomorrow','purpose','informational')),
+    jsonb_build_object('id','k24','type','create_task','version',1,'config',jsonb_build_object('title','Call before the appointment',
+      'task_type','Follow Up','due_amount',0,'due_unit','minutes')),
+    jsonb_build_object('id','w1','type','wait_until_before_appointment','version',1,'config',jsonb_build_object('amount',1,'unit','hours')),
+    jsonb_build_object('id','t1','type','send_sms','version',1,'config',jsonb_build_object('body','See you in an hour','purpose','informational')),
+    jsonb_build_object('id','k1','type','create_task','version',1,'config',jsonb_build_object('title','Last call before the appointment',
+      'task_type','Follow Up','due_amount',0,'due_unit','minutes'))),
+    'edges',jsonb_build_array(jsonb_build_object('id','a','source','start','target','w24'),
+      jsonb_build_object('id','b','source','w24','target','t24'),jsonb_build_object('id','c','source','t24','target','k24'),
+      jsonb_build_object('id','d','source','k24','target','w1'),jsonb_build_object('id','e','source','w1','target','t1'),
+      jsonb_build_object('id','f','source','t1','target','k1')))
+$$;
+-- A call with the lead that is under way (its length is written when it ends), and its end after three minutes.
+create function pg_temp.rr_call_starts(lead_n integer) returns void language sql as $$
+  insert into public.calls(id,organization_id,agent_id,contact_id,contact_type,contact_phone,direction,status,duration,started_at,
+      dialer_admission_required)
+    values(gen_random_uuid(),pg_temp.id(1),pg_temp.id(11),pg_temp.id(lead_n),'lead','+1202555'||lpad(lead_n::text,4,'0'),
+      'outbound','connected',null,clock_timestamp(),false)
+$$;
+create function pg_temp.rr_call_ends(lead_n integer) returns void language sql as $$
+  update public.calls set status='completed',duration=180
+    where organization_id=pg_temp.id(1) and contact_id=pg_temp.id(lead_n) and status='connected'
+$$;
+-- How a run at T held by that end finishes: what T was given is skipped as given (the task too, when the run that
+-- followed T created it), and the rest as stopped by a stop rule.
+create function pg_temp.rr_held_at_t(task_given boolean) returns text language sql as $$
+  select 'completed:Stopped by a stop rule for this appointment time [w24=elapsed, t24=skipped:Already sent for this '
+    ||'appointment time, k24=skipped:'||case when task_given then 'Already created for this appointment time'
+      else 'Stopped by a stop rule for this appointment time' end||', w1=elapsed, t1=skipped:Stopped by a stop rule for '
+    ||'this appointment time, k1=skipped:Stopped by a stop rule for this appointment time]'
+$$;
+-- The reason a run kept for a stop rule's end something else recorded first (none where the base has no such field).
+create function pg_temp.rr_kept(workflow_n integer, lead_n integer, ord integer) returns text language plpgsql as $$
+declare kept text;
+begin
+  if not exists (select 1 from pg_attribute a where a.attrelid='private.automation_runs'::regclass
+      and a.attname='replaced_stop_reason' and not a.attisdropped) then
+    return 'no record';
+  end if;
+  execute 'select coalesce(r.replaced_stop_reason,''-'') from private.automation_runs r where r.id=$1'
+    into kept using pg_temp.rr_run_id(workflow_n,lead_n,ord);
+  return kept;
+end $$;
+insert into rr_times select n,'T',date_trunc('minute',clock_timestamp())+interval '3 days' from generate_series(357,366) n;
+insert into rr_times select n,'T2',date_trunc('minute',clock_timestamp())+interval '4 days' from generate_series(357,366) n;
+select pg_temp.rr_analyze();
+select pg_temp.publish(416,417,'A text and a task a day before and an hour before (stops on a reply or a conversation)',
+  pg_temp.rr_graph_k());
+select pg_temp.rr_only(416);
+-- Lead 361's day-before text is handed off and the worker stops right after; the lease that comes back for it waits for
+-- the provider's answer.
+insert into rr_plan values (pg_temp.id(361),'t24','crash');
+select pg_temp.rr_book(n,'T') from generate_series(357,366) n;
+select pg_temp.rr_pass();
+select pg_temp.rr_due(416,n) from generate_series(357,366) n;
+delete from rr_plan;
+update private.automation_runs set leased_until=clock_timestamp()-interval '1 second'
+  where workflow_id=pg_temp.id(416) and contact_id=pg_temp.id(361) and status='queued';
+select pg_temp.rr_pass();
+select pg_temp.rr_ok('pin setup B5',(select bool_and(pg_temp.rr_runs(416,n)=case n
+      when 361 then 'unknown:Awaiting the provider receipt [w24=elapsed, t24=unknown:Awaiting the provider receipt]'
+      else 'waiting:- [w24=elapsed, t24=accepted:Verified provider receipt, k24=created, w1=wait]' end)
+    from generate_series(357,366) n),
+  'each run gives T its day-before text and task and waits for the hour before, lead 361''s for its provider''s answer: '
+    ||pg_temp.rr_runs(416,357)||' / '||pg_temp.rr_runs(416,361));
+-- A conversation while each run follows T (leads 357 to 359 and 361 to 363); lead 360's call is under way.
+select pg_temp.talk(n) from (values (357),(358),(359),(361),(362),(363)) v(n);
+select pg_temp.rr_call_starts(360);
+-- Leads 357, 358 and 363 to 365 are cancelled (lead 359 by the sync); leads 360 to 362 and 366 move to T2 in an
+-- ordinary move. Each change is seen.
+select pg_temp.save(n,'status=''Cancelled''') from (values (357),(358),(363),(364),(365)) v(n);
+select pg_temp.sync(359,'status=''Cancelled''');
+select pg_temp.save(n,pg_temp.rr_at(n,'T2')) from (values (360),(361),(362),(366)) v(n);
+select pg_temp.rr_pass();
+-- While cancelled, lead 365 replies (a verified reply), and leads 357, 364 and 365 move to T2; one save moves lead 358
+-- to T2 and opens it (lead 359's is the sync's), and lead 363 is opened again at T. Lead 360's call ends, the provider
+-- accepts lead 361's day-before text, and a call with lead 366 begins while its run follows T2 (still under way).
+select pg_temp.reply(365);
+select pg_temp.save(n,pg_temp.rr_at(n,'T2')) from (values (357),(364),(365)) v(n);
+select pg_temp.save(358,pg_temp.rr_at(358,'T2')||',status=''Scheduled''');
+select pg_temp.sync(359,pg_temp.rr_at(359,'T2')||',status=''Scheduled''');
+select pg_temp.save(363,'status=''Scheduled''');
+select pg_temp.rr_call_ends(360);
+select pg_temp.rr_receipt(416,361,1,'t24','sent',null);
+select pg_temp.rr_call_starts(366);
+select pg_temp.rr_pass();
+-- Leads 357, 364 and 365 are opened again at T2.
+select pg_temp.save(n,'status=''Scheduled''') from (values (357),(364),(365)) v(n);
+select pg_temp.rr_pass();
+select pg_temp.rr_ok('pin setup B5',(select bool_and(pg_temp.rr_runs(416,n)=case
+      when n in (357,358,359,365) then 'stopped:Appointment was rescheduled [w24=elapsed, t24=accepted:Verified provider '
+        ||'receipt, k24=created, w1=wait]'
+      when n=361 then 'stopped:Appointment was rescheduled [w24=elapsed, t24=unknown:Awaiting the provider receipt] | '
+        ||'waiting:- [w24=wait]'
+      when n in (362,363) then 'stopped:Contact was reached [w24=elapsed, t24=accepted:Verified provider receipt, k24=created, '
+        ||'w1=wait]'||case n when 362 then ' | waiting:- [w24=wait]' else '' end
+      else 'stopped:Appointment was rescheduled [w24=elapsed, t24=accepted:Verified provider receipt, k24=created, w1=wait] | '
+        ||'waiting:- [w24=wait]' end)
+    from generate_series(357,366) n),
+  'the conversation refuses T2 for leads 357 to 359 and the reply for lead 365, and the run that followed T is recorded '
+    ||'as rescheduled; leads 360, 361, 364 and 366 have a run at T2; a stop rule recorded the end of the runs of leads 362 '
+    ||'(at the move) and 363 (at the reopening): '||pg_temp.rr_runs(416,357)||' / '||pg_temp.rr_runs(416,360)||' / '
+    ||pg_temp.rr_runs(416,363));
+-- An ordinary move back to T (lead 359's by the sync). Lead 366's call is still under way.
+select pg_temp.save(n,pg_temp.rr_at(n,'T')) from (values (357),(358),(360),(361),(362),(364),(365),(366)) v(n);
+select pg_temp.sync(359,pg_temp.rr_at(359,'T'));
+select pg_temp.rr_pass();
+select pg_temp.rr_ok('fix B5 B6 B7 kept',(select string_agg(n||'='||pg_temp.rr_kept(416,n,1),', ' order by n)
+    from generate_series(357,365) n)='357=Contact was reached, 358=Contact was reached, 359=Contact was reached, '
+    ||'360=Contact was reached, 361=Contact was reached, 362=-, 363=-, 364=-, 365=-',
+  'the run that followed T keeps the conversation''s end that something else recorded first, and no control does: '
+    ||(select string_agg(n||'='||pg_temp.rr_kept(416,n,1),', ' order by n) from generate_series(357,365) n));
+select pg_temp.rr_all(416,n) from generate_series(357,365) n;
+-- B5 (leads 357 to 359): the move back starts a new run at T, which skips what T was given and its remaining text and
+-- task.
+select pg_temp.rr_ok('fix B5 cancel',pg_temp.rr_sent(416,357)='t24@T' and pg_temp.rr_tasks(416,357)='k24@T'
+    and pg_temp.rr_run(416,357,2)=pg_temp.rr_held_at_t(true) and pg_temp.rr_ledger(416,357)='t24@T#1:sms:r1, k24@T#1:task:r1',
+  'a conversation, a cancellation, a move to T2 while cancelled and a reopening there that the conversation refuses, and '
+    ||'an ordinary move back: T is held: '||pg_temp.rr_sent(416,357)||' / '||pg_temp.rr_tasks(416,357)||' / '
+    ||pg_temp.rr_runs(416,357));
+select pg_temp.rr_ok('fix B5 one save',pg_temp.rr_sent(416,358)='t24@T' and pg_temp.rr_tasks(416,358)='k24@T'
+    and pg_temp.rr_run(416,358,2)=pg_temp.rr_held_at_t(true) and pg_temp.rr_ledger(416,358)='t24@T#1:sms:r1, k24@T#1:task:r1',
+  'the same when one save moves the appointment to T2 and opens it: '||pg_temp.rr_sent(416,358)||' / '
+    ||pg_temp.rr_tasks(416,358)||' / '||pg_temp.rr_runs(416,358));
+select pg_temp.rr_ok('fix B5 sync',pg_temp.rr_sent(416,359)='t24@T' and pg_temp.rr_tasks(416,359)='k24@T'
+    and pg_temp.rr_run(416,359,2)=pg_temp.rr_held_at_t(true) and pg_temp.rr_ledger(416,359)='t24@T#1:sms:r1, k24@T#1:task:r1',
+  'the same when every save is the calendar sync''s, with no signed-in person: '||pg_temp.rr_sent(416,359)||' / '
+    ||pg_temp.rr_tasks(416,359)||' / '||pg_temp.rr_runs(416,359));
+-- B6 (lead 360) and B7 (lead 361): the run that started at T2 follows the move back to T in place, and is held there.
+select pg_temp.rr_ok('fix B6 call during the move',pg_temp.rr_sent(416,360)='t24@T' and pg_temp.rr_tasks(416,360)='k24@T'
+    and pg_temp.rr_run(416,360,2)=pg_temp.rr_held_at_t(true) and pg_temp.rr_ledger(416,360)='t24@T#1:sms:r1, k24@T#1:task:r1',
+  'a call under way while the appointment moves to T2, which ends before the move back, still holds T: '
+    ||pg_temp.rr_sent(416,360)||' / '||pg_temp.rr_tasks(416,360)||' / '||pg_temp.rr_runs(416,360));
+select pg_temp.rr_ok('fix B7 provider answer',pg_temp.rr_sent(416,361)='t24@T!crash' and pg_temp.rr_tasks(416,361)='none'
+    and pg_temp.rr_run(416,361,2)=pg_temp.rr_held_at_t(false)
+    and pg_temp.rr_msgs(416,361,'t24')='r1:accepted' and pg_temp.rr_ledger(416,361)='t24@T#1:sms:r1',
+  'a conversation while the run waits for its provider''s answer, then a move to T2, the answer, and the move back: T is '
+    ||'held: '||pg_temp.rr_sent(416,361)||' / '||pg_temp.rr_tasks(416,361)||' / '||pg_temp.rr_runs(416,361));
+-- The end that the move back kept holds only T, the time the reminders of the run that met it were for, never T2,
+-- where the move that ended that run took it (recheck rc3: before this, the end also held T2, through that run's
+-- appointment wait, which a move under way had moved to T2's slot, and the moment it ended, after the appointment stood
+-- at T2). Leads 360 and 361 move to T2 again: the run that starts there gives T2 its day-before text and task.
+select pg_temp.save(n,pg_temp.rr_at(n,'T2')) from (values (360),(361)) v(n);
+select pg_temp.rr_pass();
+select pg_temp.rr_due(416,n) from (values (360),(361)) v(n);
+select pg_temp.rr_ok('fix B6 B7 T2 not held',pg_temp.rr_sent(416,360)='t24@T, t24@T2'
+    and pg_temp.rr_tasks(416,360)='k24@T, k24@T2' and pg_temp.rr_sent(416,361)='t24@T!crash, t24@T2'
+    and pg_temp.rr_tasks(416,361)='k24@T2'
+    and pg_temp.rr_run(416,360,3)='waiting:- [w24=elapsed, t24=accepted:Verified provider receipt, k24=created, w1=wait]'
+    and pg_temp.rr_run(416,361,3)='waiting:- [w24=elapsed, t24=accepted:Verified provider receipt, k24=created, w1=wait]',
+  'back at T2, which the kept end does not hold, a new run gives T2 its day-before text and task: '
+    ||pg_temp.rr_sent(416,360)||' / '||pg_temp.rr_tasks(416,360)||' / '||pg_temp.rr_sent(416,361)||' / '
+    ||pg_temp.rr_tasks(416,361)||' / '||pg_temp.rr_runs(416,360));
+-- The controls (Pins). Lead 362: the conversation is recorded at the ordinary move to T2, and the run that started
+-- there follows the move back and is held at T. Lead 363: cancelled and opened again at T itself, the run ends as the
+-- conversation's. Lead 364: no conversation, so T2 starts a run and the move back carries the first run on at T, which
+-- gives T its hour-before text and task. Lead 365: a verified reply while the appointment is cancelled, after the run
+-- ended, does not hold T, and the move back carries the run on (as leads 155 and 156 pin).
+select pg_temp.rr_ok('pin B5 ordinary',pg_temp.rr_sent(416,362)='t24@T' and pg_temp.rr_tasks(416,362)='k24@T'
+    and pg_temp.rr_runs(416,362)='stopped:Contact was reached [w24=elapsed, t24=accepted:Verified provider receipt, '
+      ||'k24=created, w1=wait] | '||pg_temp.rr_held_at_t(true),
+  'a conversation, an ordinary move to T2 and back: T is held: '||pg_temp.rr_runs(416,362));
+select pg_temp.rr_ok('pin B5 cancelled at T',pg_temp.rr_sent(416,363)='t24@T' and pg_temp.rr_tasks(416,363)='k24@T'
+    and pg_temp.rr_runs(416,363)='stopped:Contact was reached [w24=elapsed, t24=accepted:Verified provider receipt, '
+      ||'k24=created, w1=wait]',
+  'a conversation, then cancelled and opened again at T: the run ends as the conversation''s: '||pg_temp.rr_runs(416,363));
+select pg_temp.rr_ok('pin B5 no conversation',pg_temp.rr_sent(416,364)='t24@T, t1@T' and pg_temp.rr_tasks(416,364)='k24@T, k1@T'
+    and pg_temp.rr_runs(416,364)='completed:- [w24=elapsed, t24=accepted:Verified provider receipt, k24=created, w1=elapsed, '
+      ||'t1=accepted:Verified provider receipt, k1=created] | stopped:Appointment was moved back [w24=wait]',
+  'no conversation: the move back carries the first run on at T: '||pg_temp.rr_runs(416,364));
+select pg_temp.rr_ok('pin B5 reply while cancelled',pg_temp.rr_sent(416,365)='t24@T, t1@T'
+    and pg_temp.rr_tasks(416,365)='k24@T, k1@T'
+    and pg_temp.rr_runs(416,365)='completed:- [w24=elapsed, t24=accepted:Verified provider receipt, k24=created, w1=elapsed, '
+      ||'t1=accepted:Verified provider receipt, k1=created]',
+  'a reply while the appointment is cancelled, after the run ended, does not hold T: '||pg_temp.rr_runs(416,365));
+-- B8 (lead 366, Pins, a known limitation): a call that begins while the run at T2 follows the appointment and is still
+-- under way at the move back to T has no length yet, so it is not counted when the move back replaces that run, and
+-- nothing attributes it to that run later. After the call ends, a move to T2 again starts a run there that gives T2 its
+-- day-before text and task.
+select pg_temp.rr_call_ends(366);
+select pg_temp.save(366,pg_temp.rr_at(366,'T2'));
+select pg_temp.rr_pass();
+select pg_temp.rr_due(416,366);
+select pg_temp.rr_ok('pin B8 known limitation',pg_temp.rr_sent(416,366)='t24@T, t24@T2' and pg_temp.rr_tasks(416,366)='k24@T, k24@T2'
+    and pg_temp.rr_runs(416,366)='stopped:Appointment was rescheduled [w24=elapsed, t24=accepted:Verified provider '
+      ||'receipt, k24=created, w1=wait] | stopped:Appointment was moved back [w24=wait] | waiting:- [w24=elapsed, '
+      ||'t24=accepted:Verified provider receipt, k24=created, w1=wait]'
+    and pg_temp.rr_kept(416,366,2) in ('-','no record'),
+  'a call still under way at the move back is not attributed to the run it began under, so T2 is not held: '
+    ||pg_temp.rr_sent(416,366)||' / '||pg_temp.rr_tasks(416,366)||' / '||pg_temp.rr_runs(416,366));
+update public.workflows set status='paused' where id=pg_temp.id(416);
+select pg_temp.retire();
+
+-- Lead 349, L1 (informational, never an assertion; nothing slow after the handoff's lock): the time automation_message_check
+-- and automation_authorize_handoff take with eleven booking runs of the automation on one appointment, a person's stop
+-- among them, and a long change log. Each handoff is undone at once, so every one is measured on the same lease.
+insert into rr_times select 349,'T'||k,date_trunc('minute',clock_timestamp())+make_interval(days=>3+k) from generate_series(0,10) k;
+select pg_temp.rr_analyze();
+select pg_temp.publish(410,411,'A day before (timing)',pg_temp.rr_graph_f());
+select pg_temp.rr_only(410);
+select pg_temp.rr_book(349,'T0');
+select pg_temp.rr_pass();
+select pg_temp.rr_due(410,349);
+do $$
+begin
+  for k in 1..9 loop
+    perform pg_temp.save(349,pg_temp.rr_at(349,'T'||k));
+    perform pg_temp.rr_pass();
+    perform pg_temp.rr_due(410,349);
+  end loop;
+end $$;
+select pg_temp.save(349,format('title=%L','Review '||i)) from generate_series(1,200) i;
+update private.automation_runs r set reason='Stopped by user' where r.id=(select pg_temp.rr_run_id(410,349,1));
+select pg_temp.save(349,pg_temp.rr_at(349,'T10'));
+select pg_temp.rr_pass();
+update private.automation_runs set due_at=clock_timestamp()-interval '1 second'
+  where workflow_id=pg_temp.id(410) and contact_id=pg_temp.id(349) and status='waiting';
+select pg_temp.rr_step();
+do $$
+declare lease jsonb; t0 timestamptz; checks double precision[]:='{}'; handoffs double precision[]:='{}'; answer text; ok boolean;
+begin
+  select * into lease from public.automation_claim_work(1);
+  for i in 1..20 loop
+    t0:=clock_timestamp();
+    answer:=public.automation_message_check((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,lease->>'node_id');
+    checks:=checks||extract(epoch from clock_timestamp()-t0)*1000;
+    begin
+      t0:=clock_timestamp();
+      ok:=public.automation_authorize_handoff((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,lease->>'node_id');
+      handoffs:=handoffs||extract(epoch from clock_timestamp()-t0)*1000;
+      raise exception using errcode='RRL01';
+    exception when sqlstate 'RRL01' then null;
+    end;
+  end loop;
+  raise notice 'rr L1 timing (informational): message_check avg % ms, max % ms (%); authorize_handoff avg % ms, max % ms (%); % runs, % log rows',
+    round((select avg(x) from unnest(checks) x)::numeric,3),round((select max(x) from unnest(checks) x)::numeric,3),coalesce(answer,'null'),
+    round((select avg(x) from unnest(handoffs) x)::numeric,3),round((select max(x) from unnest(handoffs) x)::numeric,3),ok,
+    (select count(*) from private.automation_runs r where r.workflow_id=pg_temp.id(410) and r.contact_id=pg_temp.id(349)),
+    (select count(*) from private.appointment_evidence_observations x where x.appointment_id=(select b.id from booked b where b.n=349));
+  perform public.automation_finish_node((lease->>'run_id')::uuid,(lease->>'lease_token')::uuid,'held','Timing only');
+end $$;
+update public.workflows set status='paused' where id=pg_temp.id(410);
 select pg_temp.retire();
 rollback;

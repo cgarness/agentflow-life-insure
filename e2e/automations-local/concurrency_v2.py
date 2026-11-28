@@ -7,7 +7,10 @@ that a reopened appointment seen by two workers at once gets one run, that an ap
 reminder's provider handoff while a handoff in progress keeps the save waiting only until it commits, that an
 unrelated save in flight is waited out briefly and never costs the reminder, that saves queued one behind another
 are waited out for half a second in all, and that a reopening committed while a worker waits to admit the booking
-paces the run from the reopening.
+paces the run from the reopening. The record of what a booking run gave for an appointment time decides two handoffs of
+one text for one time, two retries of it, a retry meeting a receipt in progress and two task steps for one time, and a
+stop committed before the handoff keeps the text from being handed off, also one committed while the handoff waits for
+its locks.
 """
 import json
 import os
@@ -39,7 +42,12 @@ ids = {name: str(uuid.uuid4()) for name in ["lead_flow", "lead_version", "call_f
                                              "first_seen_flow", "first_seen_version", "first_seen_lead", "first_seen",
                                              "text_flow", "text_version", "text_moved", "text_kept", "text_busy",
                                              "text_long", "text_queued", "race_flow", "race_version", "race_lead",
-                                             "race_appt"]}
+                                             "race_appt", "record_text_flow", "record_text_version", "record_task_flow",
+                                             "record_task_version", "record_stop_flow", "record_stop_version",
+                                             "record1_lead", "record1_appt", "record2_lead", "record2_appt", "record3_lead",
+                                             "record3_appt", "record4_lead", "record4_appt", "record5_lead", "record5_appt",
+                                             "record6_lead", "record6_appt", "record7_lead", "record7_appt", "record8_lead",
+                                             "record8_appt"]}
 
 def query(sql, timeout=25):
     return subprocess.check_output(psql, input=sql, text=True, timeout=timeout).strip()
@@ -555,6 +563,188 @@ try:
     assert paced == "true:queued", f"The run admitted as the reopening committed is paced from a moment while cancelled: {paced}"
     query("select public.automation_process_events(25);")
     assert query(race_runs) == "1", "Processing the reopening afterwards started another run"
+
+    # 13 to 18. The record of what a booking run gave for an appointment time (private.automation_given_steps), one row per
+    #     agency, automation, appointment, start time, step and attempt. Two booking runs of an automation never follow one
+    #     appointment at once, so each race adds the runs it needs for the same time as admission would start them, one
+    #     for each later booking of the appointment (a move a day later and back, each seen, opened their slots).
+    def only(flow, version, title, step):
+        """The one automation on: every other one is paused with its activation closed, so no booking waits for it."""
+        query(f"""update public.workflows set status='paused' where organization_id='{org}' and status='active';
+          update public.automation_intervals set ends_at=clock_timestamp() where organization_id='{org}' and ends_at is null;
+          update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,
+            leased_until=null where organization_id='{org}' and status in ('queued','waiting','held');
+          {publish_graph(flow, version, title, reminder_graph(step))}""")
+    only('record_text_flow', 'record_text_version', 'Concurrency record text', text_step)
+    query(f"update private.automation_release_controls set dispatch_enabled=true where organization_id='{org}'")
+    def record_runs(n, flow, version, node, extra):
+        """Book an appointment three hours out for a new lead, move it a day later and back (each seen), bring the run its
+        booking started to the step and add `extra` runs of the automation at that step for the same time, all leased now.
+        Returns the leases, the booking run first."""
+        lead, appointment = ids[f"record{n}_lead"], ids[f"record{n}_appt"]
+        query(f"""insert into public.leads(id,organization_id,first_name,phone,assigned_agent_id)
+            values ('{lead}','{org}','Record {n}','+120255501{80 + n}','{first}');
+          insert into public.appointments(id,organization_id,title,contact_id,user_id,start_time,sync_source)
+            values ('{appointment}','{org}','Record {n}','{lead}','{first}',date_trunc('minute',now())+interval '3 hours','internal');
+          select public.automation_process_events(25);""")
+        for item in claims():
+            assert query(f"select public.automation_finish_node('{item['run_id']}','{item['lease_token']}','wait')") == "t"
+        query(f"""update public.appointments set start_time=start_time+interval '1 day' where id='{appointment}';
+          select public.automation_process_events(25);
+          update public.appointments set start_time=start_time-interval '1 day' where id='{appointment}';
+          select public.automation_process_events(25);
+          update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where workflow_id='{ids[flow]}'
+            and status='waiting';""")
+        for item in claims():
+            assert query(f"select public.automation_finish_node('{item['run_id']}','{item['lease_token']}','elapsed')") == "t"
+        booked = query(f"""select string_agg(id::text,',' order by id) from private.automation_events where organization_id='{org}'
+            and event_type='appointment_booked' and subject->>'appointment_id'='{appointment}'""").split(",")
+        assert len(booked) == 3, booked
+        order = [query(f"select id from private.automation_runs where event_id={booked[0]} and workflow_id='{ids[flow]}'")]
+        for event in booked[1:1 + extra]:
+            order.append(query(f"""insert into private.automation_runs(organization_id,workflow_id,version_id,event_id,contact_id,
+                contact_type,scope_key,current_node_id,status,due_at,anchor_id,anchor_at,reminded_for,paced_from)
+              select '{org}','{ids[flow]}','{ids[version]}',e.id,'{lead}','lead','slot:'||(e.subject->>'occurrence_id'),'{node}',
+                'queued',clock_timestamp()-interval '1 second',s.occurrence_id,s.starts_at,s.occurrence_id,clock_timestamp()
+              from private.automation_events e,private.automation_appointment_state('{org}','{appointment}') s
+              where e.id={event} returning id"""))
+        leased = {item["run_id"]: item for item in claims()}
+        assert set(leased) == set(order) and all(item["node_id"] == node for item in leased.values()), leased
+        return [leased[run] for run in order]
+    def check(item):
+        return f"select public.automation_message_check('{item['run_id']}','{item['lease_token']}','{item['node_id']}');"
+    def given(n):
+        """The record's rows for the race's appointment (none where the database has no record)."""
+        if query("select to_regclass('private.automation_given_steps') is null") == "t":
+            return "none"
+        return query(f"""select coalesce(string_agg(g.node_id||'#'||g.attempt||':'||g.kind||':'||g.run_id,',' order by g.attempt),'none')
+            from private.automation_given_steps g where g.organization_id='{org}' and g.appointment_id='{ids[f"record{n}_appt"]}'""")
+    def message(item, n):
+        """The message row the handoff records (automation_begin_message), as its id."""
+        return query(f"""insert into private.automation_messages(organization_id,run_id,node_id,contact_id,contact_type,channel,
+            recipient,sender,owner_id,body) values ('{org}','{item['run_id']}','{item['node_id']}','{ids[f"record{n}_lead"]}','lead',
+            'sms','+120255501{80 + n}','+15550001000','{admin}','Reminder') returning id""")
+    def undelivered(sms, sid):
+        return f"""select public.automation_record_provider_receipt('{sms}','{org}','{sid}','failed',clock_timestamp(),
+            'undelivered','30003');"""
+    def set_aside():
+        """Each race leaves no run that a later one could lease."""
+        query(f"""update private.automation_runs set status='stopped',reason='Set aside',ended_at=clock_timestamp(),lease_token=null,
+            leased_until=null where organization_id='{org}' and status in ('queued','waiting','held')""")
+
+    # 13. Two runs hand off the same text for the same time at once. One handoff is recorded; the other waits for it, is
+    #     refused, is told the text was already sent for this time, and finishes skipped with no record of its own.
+    winner, twin = record_runs(1, "record_text_flow", "record_text_version", "text", 1)
+    with hold(authorize(winner)):
+        loser = contender("v2-record-handoff", authorize(twin))
+    lost = loser.wait(timeout=15)
+    assert lost == 0, "The run that lost the race raised instead of being refused: " + loser.stderr.read()
+    assert loser.stdout.read().strip() == "f", "Both runs handed off the same text for one time"
+    assert given(1) == f"text#1:sms:{winner['run_id']}", given(1)
+    assert intent(winner) == "handed_off" and intent(twin) == "prepared"
+    assert query(check(twin)) == "skip:Already sent for this appointment time", query(check(twin))
+    assert query(f"""select public.automation_finish_node('{twin['run_id']}','{twin['lease_token']}','skipped',
+        'Already sent for this appointment time')""") == "t"
+    assert query(f"""select r.status||':'||s.status||':'||s.reason from private.automation_runs r join private.automation_steps s
+        on s.run_id=r.id and s.node_id='text' where r.id='{twin['run_id']}'""") == "completed:skipped:Already sent for this appointment time"
+    assert given(1) == f"text#1:sms:{winner['run_id']}", "The run that lost the race recorded something"
+    set_aside()
+
+    # 14. The provider reported the first attempt undelivered (30003), and two runs try its one retry at once. One second
+    #     attempt is recorded; the other run is refused, told the text was already retried once for this time, and
+    #     finishes skipped without recording or using a retry.
+    first_try, retry_a, retry_b = record_runs(2, "record_text_flow", "record_text_version", "text", 2)
+    assert query(authorize(first_try)) == "t"
+    query(undelivered(message(first_try, 2), f"SM{uuid.uuid4().hex}"))
+    assert query(check(retry_a)) == "retry:" and query(check(retry_b)) == "retry:", query(check(retry_a))
+    with hold(authorize(retry_a)):
+        loser = contender("v2-record-retry", authorize(retry_b))
+    assert loser.wait(timeout=15) == 0 and loser.stdout.read().strip() == "f", "Two retries of one text went out"
+    assert given(2) == f"text#1:sms:{first_try['run_id']},text#2:sms:{retry_a['run_id']}", given(2)
+    assert query(check(retry_b)) == "skip:Not sent again: already retried once for this appointment time", query(check(retry_b))
+    assert intent(retry_b) == "prepared"
+    assert query(f"""select public.automation_finish_node('{retry_b['run_id']}','{retry_b['lease_token']}','skipped',
+        'Not sent again: already retried once for this appointment time')""") == "t"
+    assert query(f"select status from private.automation_runs where id='{retry_b['run_id']}'") == "completed"
+    assert given(2) == f"text#1:sms:{first_try['run_id']},text#2:sms:{retry_a['run_id']}", "The run that lost the retry recorded something"
+    set_aside()
+
+    # 15. A retry handoff while a provider receipt holds the first attempt's message row is refused at once (it never
+    #     queues for the row) and records no second attempt. Once the receipt commits, still failed, the worker's next
+    #     lease sends the retry once.
+    first_try, retry = record_runs(3, "record_text_flow", "record_text_version", "text", 1)
+    assert query(authorize(first_try)) == "t"
+    sms, sid = message(first_try, 3), f"SM{uuid.uuid4().hex}"
+    query(undelivered(sms, sid))
+    assert query(check(retry)) == "retry:"
+    with hold(undelivered(sms, sid)):
+        refused, took = run(authorize(retry))
+        assert refused.returncode != 0 and "A receipt for the first attempt of this text is being recorded." in refused.stderr, \
+            refused.stdout + refused.stderr
+        assert took < 1.5, f"The retry waited {took:.1f}s for a receipt in progress"
+        assert given(3) == f"text#1:sms:{first_try['run_id']}" and intent(retry) == "prepared", given(3)
+    assert query(f"select state from private.automation_messages where id='{sms}'") == "failed"
+    assert query(f"""select public.automation_finish_node('{retry['run_id']}','{retry['lease_token']}','held',
+        'Run no longer permits a provider handoff.')""") == "t"
+    query(f"update private.automation_runs set due_at=clock_timestamp()-interval '1 second' where id='{retry['run_id']}'")
+    again = [item for item in claims() if item["run_id"] == retry["run_id"]]
+    assert len(again) == 1 and query(check(again[0])) == "retry:" and query(authorize(again[0])) == "t", again
+    assert given(3) == f"text#1:sms:{first_try['run_id']},text#2:sms:{retry['run_id']}", given(3)
+    set_aside()
+
+    # 16. Two task steps for the same time at once create one task: the second waits for the first's record and is
+    #     skipped as already created.
+    only('record_task_flow', 'record_task_version', 'Concurrency record task', task_step)
+    made, twin = record_runs(4, "record_task_flow", "record_task_version", "task", 1)
+    def create(item):
+        return f"select public.automation_create_task('{item['run_id']}','{item['lease_token']}','task','Synthetic reminder',null);"
+    with hold(create(made)):
+        other = contender("v2-record-task", create(twin))
+    assert other.wait(timeout=15) == 0, other.stderr.read()
+    second = other.stdout.read()
+    assert '"skipped"' in second and "Already created for this appointment time" in second, second
+    assert query(f"select count(*) from public.tasks where contact_id='{ids['record4_lead']}'") == "1"
+    assert given(4) == f"task#1:task:{made['run_id']}", given(4)
+    set_aside()
+
+    # 17. A person's stop of the run itself, committed while its handoff waits for the run, or just before it, keeps the
+    #     text from being handed off.
+    only('record_stop_flow', 'record_stop_version', 'Concurrency record stops', text_step)
+    def stop(item):
+        return f"""update private.automation_runs set status='stopped',reason='Stopped by user',ended_at=clock_timestamp(),
+            updated_at=clock_timestamp(),lease_token=null,leased_until=null where id='{item['run_id']}';"""
+    [stopped] = record_runs(5, "record_stop_flow", "record_stop_version", "text", 0)
+    with hold(stop(stopped)):
+        waiting = contender("v2-record-own-stop", authorize(stopped))
+    assert waiting.wait(timeout=15) == 0 and waiting.stdout.read().strip() == "f", "A stopped run handed its text off"
+    assert intent(stopped) == "prepared" and given(5) == "none", given(5)
+    [stopped] = record_runs(6, "record_stop_flow", "record_stop_version", "text", 0)
+    query(stop(stopped))
+    assert query(authorize(stopped)) == "f" and intent(stopped) == "prepared" and given(6) == "none"
+    set_aside()
+
+    # 18. A person's stop of another booking run of the automation for the appointment, committed after this run's lease
+    #     and before its handoff, keeps the text from being handed off (the final check's cross-run guard).
+    leased, other = record_runs(7, "record_stop_flow", "record_stop_version", "text", 1)
+    query(stop(other))
+    assert query(authorize(leased)) == "f", "A run handed its text off after another run was stopped at its time"
+    assert query(check(leased)) == "A run of this automation for this appointment was stopped just now", query(check(leased))
+    assert intent(leased) == "prepared" and given(7) == "none", given(7)
+    set_aside()
+    # The same stop committed while the handoff waits for its locks: the workflow row is held for share (as a task step
+    # holds it), the handoff queues for it, the other run's stop commits from another session, then the row is released.
+    # The final check reads after the locks, so it sees the stop and refuses.
+    leased, other = record_runs(8, "record_stop_flow", "record_stop_version", "text", 1)
+    assert query(check(leased)) == "", "The text was not ready to go before the race: " + query(check(leased))
+    with hold(f"select 1 from public.workflows where id='{ids['record_stop_flow']}' for share;"):
+        waiting = contender("v2-record-other-stop", authorize(leased))
+        query(stop(other))
+    answered = waiting.wait(timeout=15)
+    assert answered == 0, "The handoff raised while a stop was committed during its wait: " + waiting.stderr.read()
+    assert waiting.stdout.read().strip() == "f", "A run handed its text off after another run was stopped while it waited"
+    assert intent(leased) == "prepared" and given(8) == "none", given(8)
+    query(f"""update public.workflows set status='paused' where id='{ids['record_stop_flow']}';
+      update private.automation_release_controls set dispatch_enabled=false where organization_id='{org}';""")
     print("PASS one winner of two simultaneous callback claims; one task from a twice-delivered step; one callback for a call "
           f"two automations reached together; an appointment saved in {waited:.2f}s during a held publish lock and its event recovered; "
           "an answer confirmed while a missed call's task or callback was being made closed it; an answer recorded while "
@@ -564,6 +754,10 @@ try:
           "carried on while its new time was admitted at the same moment has one run; a short unrelated save was waited out "
           "and a long one refused the handoff without cost, the next lease handing the reminder off once; two queued saves were waited "
           "out for half a second in all; a reopening committed while a worker waited to admit the booking paced its run from "
-          "the reopening")
+          "the reopening; two runs handing off one text for one time made one handoff, the other skipped as already sent with "
+          "no record of its own; two retries at once made one second attempt; a retry met a receipt holding the first "
+          "attempt's message and was refused at once, then sent once on the next lease; two task steps for one time made one "
+          "task; a person's stop of the run or of another run of the automation for the appointment, committed before the "
+          "handoff or while it waited for its locks, kept the text from being handed off")
 finally:
     cleanup()

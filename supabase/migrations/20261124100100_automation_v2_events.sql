@@ -59,7 +59,13 @@ ALTER TABLE private.automation_runs
   -- For a booking taken up because its appointment was reopened, the moment its stop rules count from
   -- (automation_stops_from), and for a run carried on by a move back to the time its reminders were for, the same
   -- moment for that move back. Empty for every other run, whose stop rules count from its event.
-  ADD COLUMN stops_from timestamptz;
+  ADD COLUMN stops_from timestamptz,
+  -- For a run a stop rule ended (a verified reply, a conversation, another booking) that a move back then recorded as
+  -- replaced ('Appointment was moved back'), that stop rule's reason, so its end still holds the times the run followed
+  -- at send time (automation_time_stopped). The same for a run recorded as rescheduled ('Appointment was rescheduled')
+  -- that such a fact had ended while it still followed the time its reminders were for, before that end was recorded;
+  -- a move back to that time finds it. Empty for every other run.
+  ADD COLUMN replaced_stop_reason text;
 UPDATE private.automation_runs SET scope_key=contact_type||':'||contact_id::text WHERE scope_key IS NULL AND contact_id IS NOT NULL;
 CREATE INDEX automation_runs_scope ON private.automation_runs(organization_id,workflow_id,scope_key,ended_at);
 -- An appointment change finds the runs that its booking started.
@@ -567,7 +573,9 @@ $$;
 --     wait) also holds the time the appointment stood at when it ended (automation_stood_at). Failed: the same, but
 --     only once it gave something other than the message that failed (an intent handed off, accepted or unknown, or a
 --     task receipt). A run that failed at its first message gave its time nothing, so that time still gets its
---     reminders.
+--     reminders. Neither holds a time while a text the automation gave the appointment there is owed its one retry,
+--     whichever run gave it (the reminder record, automation_step_record, and the retry window, automation_retry_open):
+--     a reopening there starts a run that sends that text once more and skips what was given.
 -- (b) Stopped by a person ('Stopped by user'): every time it followed. That is the times in (a), the time the
 --     appointment stood at when it was stopped, whatever slot its appointment wait still names, and each time the
 --     appointment stood at when the run gave something: a message handed to a provider (an intent no longer
@@ -580,11 +588,15 @@ $$;
 --     followed another time, and a reopening at its time gets the reminders the hold kept from going out.
 -- (d) Deliberately, a completed or failed run does not hold a time it passed through and then left (it gave part of
 --     that time's sequence and then followed another time): holding it would leave the current time without
---     reminders it is still owed, so such a reopening starts the sequence over and repeats what was given there, as
---     does the outcome hold's take-back of a later run that never reached an appointment wait and followed an ordinary
---     move back to that time (a known limitation). A run stopped any other way holds nothing here: a cancellation's
---     stop is the carry-on's to decide, and a stop rule's (a verified reply, a conversation, another booking) is
---     admission's.
+--     reminders it is still owed, so such a reopening starts the sequence over, as does the outcome hold's take-back
+--     of a later run that never reached an appointment wait and followed an ordinary move back to that time. What was
+--     given there is not given again: the reminder record skips each step already given for the time
+--     (automation_step_record), and a run reaching a reminder wait whose time passed goes on when another run already
+--     gave that reminder (automation_caught_up), so only what the time is still owed goes out. A run stopped any other
+--     way holds nothing here: a cancellation's stop is the carry-on's to decide, and a stop rule's (a verified reply, a
+--     conversation, another booking) is admission's. At send time, a person's stop and a stop rule's end still hold the
+--     times their run followed (automation_time_stopped), a stop rule's end also after a move back recorded its run as
+--     replaced, and one a run recorded as rescheduled met before that end was recorded (replaced_stop_reason).
 -- Each worker call is its own transaction, so an intent's created_at (now()) is the moment of the call that first
 -- leased the message, and a task receipt's is the moment the task was created. Neither changes afterwards, unlike
 -- automation_steps.updated_at, which every later finish of the step rewrites (a hold, a receipt, a reconciliation). A
@@ -625,6 +637,18 @@ BEGIN
       RETURN false;
     END IF;
   END IF;
+  -- (a) Not while a text the automation gave the appointment at this time, by this run or another, is owed its one
+  -- retry and the retry window is open (the record's key: organization, automation, appointment, start). The reminder
+  -- record is installed by the runtime migration, so an installation stopped before it has none to read.
+  IF r.status IN ('completed','failed') AND to_regclass('private.automation_given_steps') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM private.automation_given_steps g WHERE g.organization_id=p_org AND g.workflow_id=r.workflow_id
+        AND g.appointment_id=appointment AND g.starts_at=p_starts_at AND g.attempt=1 AND g.kind='sms'
+        AND private.automation_step_record(p_org,g.workflow_id,g.appointment_id,g.starts_at,g.node_id,NULL)
+          IN ('retry','retry_wait')
+        AND private.automation_retry_open(r,g.node_id,g.starts_at)) THEN
+      RETURN false;
+    END IF;
+  END IF;
   -- (a) The time it ended at.
   IF EXISTS (SELECT 1 FROM private.appointment_occurrences o WHERE o.organization_id=p_org
       AND o.id=coalesce(r.anchor_id,r.reminded_for,nullif(origin.subject->>'occurrence_id','')::uuid)
@@ -649,7 +673,10 @@ END $$;
 
 -- Whether a run a booking started on the automation for the appointment, other than p_except_run, holds the time
 -- (automation_run_holds). Admission's reopening path, the cancellation carry-on and the move back after a reopening all
--- decide by it, so they never disagree about a time.
+-- decide by it, so they never disagree about a time. A time no run holds may still have been partly given: a run that
+-- starts or carries on there skips, step by step, what the reminder record shows was given at that time
+-- (automation_step_record), and a finished or failed run does not hold a time while a text the automation gave the
+-- appointment there is owed its one retry.
 CREATE FUNCTION private.automation_time_held(p_org uuid,p_workflow uuid,p_appointment uuid,p_starts_at timestamptz,
   p_except_run uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
@@ -750,8 +777,10 @@ begin
     -- finished or failed holds the time it ended at, and a person's stop and the stop after seven days on hold also
     -- hold the times the run followed until it was stopped, the hold's only while its run is the latest or gave
     -- something. Another time starts over, and so does a time a run that finished or failed passed through and then
-    -- left, which repeats what that run gave there (a known limitation). Only this path checks it, against every run a
-    -- booking started on the automation for the appointment.
+    -- left, or one it ended at while a text the automation gave the appointment there, whichever run gave it, is owed
+    -- its one retry and the retry window is open (automation_retry_open); there the reminder record skips what was
+    -- already given for the time (automation_step_record). Only this path checks it, against every run a booking
+    -- started on the automation for the appointment.
     if stood_again is not null then
       basis:=private.automation_stops_from(e.organization_id,candidate.workflow_id,e.subject->>'appointment_id',
         e.occurred_at);
@@ -857,7 +886,7 @@ CREATE FUNCTION private.automation_refresh_appointment_runs(p_org uuid,p_appoint
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE prior private.automation_runs; node jsonb; placed record; current_slot record; booked private.automation_events;
   person record; flow record; window_id uuid; stood_at timestamptz; reopened timestamptz; reopening_recorded boolean;
-  first_stood timestamptz;
+  first_stood timestamptz; caught boolean;
 BEGIN
   -- The appointment stands again at a time still to come, so no cancellation of it is in effect: on each
   -- automation, the latest run that followed this appointment carries on from the step it was on when a
@@ -872,8 +901,8 @@ BEGIN
   -- (stops_from, else its booking). A run that never followed the appointment's current time (the slot of its
   -- appointment wait, else of its reminders, else of its booking; with neither an appointment wait nor reminders, also
   -- the time the appointment last stood at before it was stopped) is not carried on to a time another booking run of
-  -- the automation holds (automation_time_held), since it would give that time's remaining reminders again, also after
-  -- a person's stop there. One whose reminders were for a slot is recorded as rescheduled, and a later move back to
+  -- the automation holds (automation_time_held): that run gave the time its reminders, or a person's stop holds them
+  -- there. One whose reminders were for a slot is recorded as rescheduled, and a later move back to
   -- that slot's time carries it on. One whose reminders were for no slot (it has not passed an appointment wait) stays
   -- stopped by the cancellation, and this carry-on takes it up at a later reopening or move to a time it followed (or
   -- that no other booking run of the automation holds). A plain wait that had started keeps its end, or ends at the
@@ -1016,11 +1045,15 @@ BEGIN
     -- other time, starting nothing). While every run a booking started since has passed no step and handed nothing to a
     -- provider (it may have been carried on above, ended by a stop rule since the move away, or stopped by a
     -- cancellation and not carried on), the run that was following this time carries on from the step it was on, and
-    -- those others end or are recorded as replaced, so they give this time nothing. After a reopening (the current
-    -- slot's booking was followed by one, automation_stood_again), a later run that has ended and does not hold this
-    -- time (automation_run_holds) does not keep the run from carrying on either: it followed only other times, or it
-    -- passed through this time and left, so what it gave here may be given again (rule (d) there). A later run that
-    -- was also recorded as rescheduled with its reminders for this time still does, so at most one run of the
+    -- those others end or are recorded as replaced, so they give this time nothing. A run a stop rule had already ended
+    -- in fact is not carried on (found first, below). A stop rule's end of one of the others is kept: one in fact but
+    -- not yet recorded (a conversation or another booking, recorded when work is leased) is recorded first
+    -- (automation_settle_stop), and the replaced run keeps the stop rule's reason as replaced_stop_reason, so that end
+    -- still holds the times the run followed at send time (automation_time_stopped). After a reopening (the
+    -- current slot's booking was followed by one, automation_stood_again), a later run that has ended and does not hold
+    -- this time (automation_run_holds) does not keep the run from carrying on either: it followed only other times, or it
+    -- passed through this time and left (rule (d) there), and the reminder record skips what it gave here. A later
+    -- run that was also recorded as rescheduled with its reminders for this time still does, so at most one run of the
     -- automation carries on. The run is not carried on to a time another booking run of the automation holds
     -- (automation_time_held), which admission refuses too. A run another trigger started (a no-show run after a
     -- republish) follows no booking: it neither keeps the run from carrying on nor is replaced, and ends for its own
@@ -1036,10 +1069,53 @@ BEGIN
     IF booked.id IS NOT NULL THEN
       reopened:=private.automation_stood_again(p_org,p_appointment::uuid,booked.occurred_at);
     END IF;
+    -- First, a run recorded as rescheduled whose reminders were for this time, that a stop rule had in fact ended
+    -- while it still followed this time, keeps that end. Something else ended the run before the stop rule's end was
+    -- recorded: a cancellation (its stop check names the cancellation before any stop rule), a move made before a
+    -- call's length was written, or a move while it waited for its provider's answer. The facts are those of
+    -- automation_stop_check, under the run's version: another booking or a conversation (automation_contact_stop, asked
+    -- for each rule on its own, so a later fact under one never hides an earlier one under the other) and a verified
+    -- reply (the reply watermark), counted from its stop basis (stops_from, else its booking) until before it ended or
+    -- the appointment left the slot its reminders were for, whichever came first. The first such fact's reason is kept
+    -- as replaced_stop_reason: the move back below does not carry the run on, and its end holds this time at send time
+    -- for the run that follows the appointment here (automation_time_stopped). A fact after the run ended, such as a
+    -- reply or a conversation while the appointment was cancelled, does not count, so that run is still carried on. A
+    -- call still under way at the move back has no length yet and is not counted, and nothing attributes it later to
+    -- the run it began under: a known limitation.
+    WITH ended_by_rule AS (
+      SELECT r.id,(SELECT f.stop_reason FROM (
+            SELECT s.stop_reason,s.stopped_at FROM private.automation_contact_stop(p_org,
+              jsonb_build_object('stop_on_booking',span.settings->>'stop_on_booking'),r.contact_id,span.since,
+              p_appointment,NULL) s
+            UNION ALL
+            SELECT s.stop_reason,s.stopped_at FROM private.automation_contact_stop(p_org,
+              jsonb_build_object('stop_on_contact',span.settings->>'stop_on_contact'),r.contact_id,span.since,
+              p_appointment,NULL) s
+            UNION ALL
+            SELECT 'Verified reply received',m.latest_reply_at FROM private.automation_reply_watermarks m
+            WHERE span.settings->>'stop_on_reply'='true' AND m.organization_id=p_org AND m.contact_type=r.contact_type
+              AND m.contact_id=r.contact_id AND m.latest_reply_at>=span.since) f
+          WHERE f.stopped_at<span.until ORDER BY f.stopped_at LIMIT 1) AS stop_reason
+      FROM private.automation_runs r
+      JOIN private.automation_events origin ON origin.organization_id=r.organization_id AND origin.id=r.event_id
+      JOIN private.appointment_occurrences o ON o.organization_id=r.organization_id AND o.id=r.reminded_for
+      JOIN public.workflow_versions v ON v.organization_id=r.organization_id AND v.workflow_id=r.workflow_id
+        AND v.id=r.version_id
+      CROSS JOIN LATERAL (SELECT v.graph->'settings' AS settings,coalesce(r.stops_from,origin.occurred_at) AS since,
+        coalesce(least(r.ended_at,o.closed_at),clock_timestamp()) AS until) span
+      WHERE r.organization_id=p_org AND r.status='stopped' AND r.reason='Appointment was rescheduled'
+        AND r.replaced_stop_reason IS NULL AND r.contact_id IS NOT NULL
+        AND origin.event_type='appointment_booked' AND origin.subject ? 'appointment_id'
+        AND origin.subject->>'appointment_id'=p_appointment AND o.scheduled_start=current_slot.starts_at)
+    UPDATE private.automation_runs r SET replaced_stop_reason=ended_by_rule.stop_reason,updated_at=clock_timestamp()
+      FROM ended_by_rule
+      WHERE r.organization_id=p_org AND r.id=ended_by_rule.id AND ended_by_rule.stop_reason IS NOT NULL;
     FOR prior IN SELECT r.* FROM private.automation_runs r
         JOIN private.automation_events origin ON origin.organization_id=r.organization_id AND origin.id=r.event_id
         JOIN public.workflows w ON w.organization_id=r.organization_id AND w.id=r.workflow_id AND w.status IN ('active','paused')
       WHERE r.organization_id=p_org AND r.status='stopped' AND r.reason='Appointment was rescheduled'
+        -- Not a run a stop rule ended in fact (above).
+        AND r.replaced_stop_reason IS NULL
         AND origin.event_type='appointment_booked' AND origin.subject ? 'appointment_id'
         AND origin.subject->>'appointment_id'=p_appointment
         AND EXISTS (SELECT 1 FROM private.appointment_occurrences o WHERE o.organization_id=p_org AND o.id=r.reminded_for
@@ -1067,6 +1143,16 @@ BEGIN
                 AND i.status<>'prepared')))
       ORDER BY r.id FOR UPDATE OF r
     LOOP
+      -- A later live run that a stop rule already ended in fact (a conversation or another booking, which is recorded
+      -- when work is leased, as the loop below records it on every change) is recorded as stopped by it first, so the
+      -- move back keeps that end as it keeps one recorded before (below).
+      PERFORM private.automation_settle_stop(other) FROM private.automation_runs other JOIN private.automation_events later
+          ON later.organization_id=other.organization_id AND later.id=other.event_id
+        WHERE other.organization_id=p_org AND other.workflow_id=prior.workflow_id AND later.event_type='appointment_booked'
+          AND later.subject ? 'appointment_id' AND later.subject->>'appointment_id'=p_appointment
+          AND later.occurred_at>(SELECT e.occurred_at FROM private.automation_events e
+            WHERE e.organization_id=p_org AND e.id=prior.event_id)
+          AND other.status IN ('queued','waiting','held');
       UPDATE private.automation_runs other SET status='stopped',reason='Appointment was moved back',ended_at=clock_timestamp(),
           updated_at=clock_timestamp(),lease_token=NULL,leased_until=NULL,held_since=NULL
         FROM private.automation_events later
@@ -1078,8 +1164,13 @@ BEGIN
           AND other.status IN ('queued','waiting','held');
       -- The later runs the move back replaced that had already stopped (by a stop rule, or by a cancellation nothing
       -- carried on) are recorded as replaced too, keeping when they ended, so the cancellation carry-on and a reopening's
-      -- admission see the run carried on here as the one that follows the appointment.
-      UPDATE private.automation_runs other SET reason='Appointment was moved back',updated_at=clock_timestamp()
+      -- admission see the run carried on here as the one that follows the appointment. A stop rule's reason is kept as
+      -- replaced_stop_reason, so its end still holds the times that run followed at send time (automation_time_stopped),
+      -- also after the appointment moves away and back to one of them.
+      UPDATE private.automation_runs other SET reason='Appointment was moved back',
+          replaced_stop_reason=CASE WHEN other.reason IN ('Verified reply received','Contact was reached','Appointment booked')
+            THEN other.reason END,
+          updated_at=clock_timestamp()
         FROM private.automation_events later
         WHERE later.organization_id=other.organization_id AND later.id=other.event_id
           AND other.organization_id=p_org AND other.workflow_id=prior.workflow_id AND later.event_type='appointment_booked'
@@ -1200,9 +1291,20 @@ BEGIN
     IF NOT FOUND THEN CONTINUE; END IF;
     SELECT * INTO placed FROM private.automation_appointment_wait(p_org,p_appointment::uuid,node);
     IF placed.verdict='gone' OR placed.anchor=prior.anchor_id THEN CONTINUE; END IF;
+    -- A passed reminder another run of the automation already gave for the new time (automation_caught_up, installed by
+    -- the runtime migration, so an installation stopped before it has none) does not end the run here.
+    caught:=false;
+    IF placed.verdict='skip' AND to_regclass('private.automation_given_steps') IS NOT NULL THEN
+      caught:=private.automation_caught_up(prior,node,placed.anchor_start);
+    END IF;
     IF placed.verdict IN ('wait','advance') THEN
       UPDATE private.automation_runs SET anchor_id=placed.anchor,anchor_at=placed.anchor_start,
         due_at=CASE placed.verdict WHEN 'wait' THEN placed.due ELSE clock_timestamp() END,updated_at=clock_timestamp()
+        WHERE id=prior.id AND organization_id=prior.organization_id;
+    ELSIF caught THEN
+      -- Due now with its anchor unchanged: the next lease places the wait against the new time and goes on past it to
+      -- the next reminder (automation_finish_node), recording it as already reached for this appointment time.
+      UPDATE private.automation_runs SET due_at=clock_timestamp(),updated_at=clock_timestamp()
         WHERE id=prior.id AND organization_id=prior.organization_id;
     ELSE
       INSERT INTO private.automation_steps(organization_id,run_id,node_id,status,reason)

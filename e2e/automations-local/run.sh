@@ -381,3 +381,9 @@ native scripts/tests/automations/appointment-refusal-native.ts refuse
 refusal open
 native scripts/tests/automations/appointment-refusal-native.ts send
 refusal check
+# The reminder record with the real worker: a booking's texts go out once per appointment time across runs, a text that
+# failed for a temporary reason is retried at most once, and a stop committed before the final handoff wins. A move
+# away and back, corrected outcomes, two workers at one reminder, late receipts after the retry and a run carried on.
+docker exec -i -e PGOPTIONS -e PGPASSWORD "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < scripts/tests/automations/appointment-record-fixture.sql
+native scripts/tests/automations/appointment-record-native.ts
+docker exec -i -e PGPASSWORD "$db" psql -Xq -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < scripts/tests/automations/appointment-record-check.sql

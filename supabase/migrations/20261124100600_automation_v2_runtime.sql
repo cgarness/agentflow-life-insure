@@ -1,6 +1,8 @@
 -- Automations V2 runtime. Leases carry the facts a step needs, internal task steps are created once,
--- appointment waits follow the appointment, and activity shows every contact type with the step name
--- from the version that ran. Installs no job, definition, enrollment or send.
+-- appointment waits follow the appointment, a booking's texts, emails and tasks are given once per appointment time
+-- across runs (the reminder record, with one retry of a text a provider failed for a temporary reason), and activity
+-- shows every contact type with the step name from the version that ran. Installs no job, definition, enrollment or
+-- send.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 -- Never installed over a database where Automations V2 was rolled back, or where a stopped installation was backed
@@ -11,6 +13,324 @@ DO $v2_guard$ BEGIN
     RAISE EXCEPTION 'Automations V2 was rolled back or backed out on this database. Installing it again takes a new migration.';
   END IF;
 END $v2_guard$;
+
+-- The reminder record: what booking runs gave for an appointment time, across runs. One row is one text, email or task
+-- a run that a booking started gave for the automation, the appointment, the start time its lease verified and the step
+-- (node id, the same step across published versions). A text the provider rejected or reported failed with a code that
+-- can be retried gets one more row, attempt 2, written by the one later run that sends it again. Rows are never deleted;
+-- only the provider's failure, from a signed status callback, is added to a row: the first failed callback, as a whole
+-- (its status, its error code or none, and its time), and never changed after (automation_record_provider_receipt).
+CREATE TABLE private.automation_given_steps (
+  organization_id uuid NOT NULL,
+  workflow_id uuid NOT NULL,
+  appointment_id uuid NOT NULL,
+  starts_at timestamptz NOT NULL,
+  node_id text NOT NULL,
+  attempt smallint NOT NULL CHECK (attempt IN (1,2)),
+  kind text NOT NULL CHECK (kind IN ('sms','email','task')),
+  run_id uuid NOT NULL REFERENCES private.automation_runs(id),
+  slot_id uuid,
+  version_id uuid,
+  given_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  failure_status text CHECK (length(failure_status)<=20),
+  failure_code text CHECK (length(failure_code)<=40),
+  failure_at timestamptz,
+  PRIMARY KEY (organization_id,workflow_id,appointment_id,starts_at,node_id,attempt),
+  UNIQUE (organization_id,run_id,node_id),
+  CHECK (attempt=1 OR kind='sms')
+);
+COMMENT ON TABLE private.automation_given_steps IS 'What booking runs gave for an appointment time, by automation, appointment, start and step, across runs: written at the provider handoff and when a task is created, never deleted. Attempt 2 is the one retry of a text that failed with a retryable provider code. Only automation definer functions read or write it.';
+ALTER TABLE private.automation_given_steps ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.automation_given_steps FROM PUBLIC,anon,authenticated,service_role;
+
+-- Whether a provider failure may be sent once more. 'request': Twilio refused the request as rate limited (20429, or
+-- HTTP 429 without a code). 'callback': a signed status callback reported it failed or undelivered for a temporary
+-- reason (30001 queue overflow, 30003 handset unreachable). Every other code, and no code, is permanent.
+CREATE FUNCTION private.automation_failure_retryable(p_source text,p_code text)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path='' AS $$
+  SELECT coalesce(CASE p_source
+    WHEN 'request' THEN regexp_replace(p_code,'^first_contact_4xx:','') IN ('20429','429')
+    WHEN 'callback' THEN regexp_replace(p_code,'^first_contact_4xx:','') IN ('30001','30003') END,false)
+$$;
+
+-- What the reminder record holds for a step at an appointment time (K: the agency, automation, appointment, start and
+-- step), not counting what p_except_run gave there itself. 'none': nothing. 'retried': a text was already sent again.
+-- 'given': a task or email was given (an email still pending included), or a text may have reached the customer: it
+-- was delivered, is pending or uncertain with the provider, or is not confirmed failed. 'permanent': a confirmed failure
+-- that is never sent again. 'retry': exactly one text, which failed with a retryable code (a request refused as rate
+-- limited, or a signed failed or undelivered callback) and was not delivered; 'retry_wait': the same, refused at the
+-- request less than a minute ago. Index lookups only: the record's key, a message, dispatch and intent by their keys.
+CREATE FUNCTION private.automation_step_record(p_org uuid,p_workflow uuid,p_appointment uuid,p_starts_at timestamptz,
+  p_node text,p_except_run uuid)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE g private.automation_given_steps; m private.automation_messages; d public.sms_dispatches; intent text;
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.automation_given_steps x WHERE x.organization_id=p_org AND x.workflow_id=p_workflow
+      AND x.appointment_id=p_appointment AND x.starts_at=p_starts_at AND x.node_id=p_node AND x.attempt=2) THEN
+    RETURN 'retried';
+  END IF;
+  SELECT * INTO g FROM private.automation_given_steps x WHERE x.organization_id=p_org AND x.workflow_id=p_workflow
+    AND x.appointment_id=p_appointment AND x.starts_at=p_starts_at AND x.node_id=p_node AND x.attempt=1
+    AND x.run_id IS DISTINCT FROM p_except_run;
+  IF NOT FOUND THEN RETURN 'none'; END IF;
+  IF g.kind='task' THEN RETURN 'given'; END IF;
+  SELECT * INTO m FROM private.automation_messages x WHERE x.organization_id=p_org AND x.run_id=g.run_id AND x.node_id=p_node;
+  SELECT i.status INTO intent FROM private.automation_intents i WHERE i.run_id=g.run_id AND i.node_id=p_node
+    AND i.organization_id=p_org;
+  IF m.state='delivered' THEN RETURN 'given'; END IF;
+  IF g.kind='email' THEN
+    RETURN CASE WHEN m.state='failed' OR intent='failed' THEN 'permanent' ELSE 'given' END;
+  END IF;
+  SELECT * INTO d FROM public.sms_dispatches x WHERE x.organization_id=p_org
+    AND x.request_key='automation:'||g.run_id::text||':'||p_node;
+  -- Pending or uncertain with the provider: a timeout or a missing receipt is never sent again.
+  IF d.state IN ('attempting','uncertain') THEN RETURN 'given'; END IF;
+  IF d.state='failed' THEN
+    IF NOT private.automation_failure_retryable('request',d.error_code) THEN RETURN 'permanent'; END IF;
+    RETURN CASE WHEN d.updated_at+interval '60 seconds'<=clock_timestamp() THEN 'retry' ELSE 'retry_wait' END;
+  END IF;
+  IF m.state='failed' THEN
+    RETURN CASE WHEN g.failure_status IN ('failed','undelivered') AND private.automation_failure_retryable('callback',g.failure_code)
+      THEN 'retry' ELSE 'permanent' END;
+  END IF;
+  -- An intent the worker recorded failed, with no failed dispatch or message: a confirmed failure with no code, which is
+  -- never sent again.
+  IF intent='failed' THEN RETURN 'permanent'; END IF;
+  RETURN 'given';
+END $$;
+
+-- Whether a retry of step p_node for an appointment starting at p_starts_at may still go out: not once the appointment
+-- has started, nor once the next reminder after the step is due (every appointment wait reachable from the step,
+-- stopping at the first on each path, its due time computed as automation_appointment_wait does, for this start).
+-- Every caller passes the appointment's current start, so this is the wait's own verdict, without reading the slot
+-- again under the handoff lock.
+CREATE FUNCTION private.automation_retry_open(r private.automation_runs,p_node text,p_starts_at timestamptz)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE graph jsonb; wait jsonb; zone text; zoned boolean:=false; amount integer; due timestamptz;
+BEGIN
+  IF p_starts_at IS NULL OR p_starts_at<=clock_timestamp() THEN RETURN false; END IF;
+  SELECT v.graph INTO graph FROM public.workflow_versions v
+    WHERE v.organization_id=r.organization_id AND v.workflow_id=r.workflow_id AND v.id=r.version_id;
+  FOR wait IN WITH RECURSIVE ahead(id) AS (
+        SELECT e->>'target' FROM jsonb_array_elements(graph->'edges') e WHERE e->>'source'=p_node
+        UNION
+        SELECT e->>'target' FROM ahead a JOIN jsonb_array_elements(graph->'edges') e ON e->>'source'=a.id
+        WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(graph->'nodes') n
+          WHERE n->>'id'=a.id AND n->>'type'='wait_until_before_appointment'))
+      SELECT n FROM ahead a JOIN jsonb_array_elements(graph->'nodes') n ON n->>'id'=a.id
+      WHERE n->>'type'='wait_until_before_appointment' LOOP
+    amount:=(wait#>>'{config,amount}')::integer;
+    IF wait#>>'{config,unit}'='days' THEN
+      IF NOT zoned THEN zone:=private.automation_agency_time_zone(r.organization_id); zoned:=true; END IF;
+      due:=CASE WHEN zone IS NULL THEN p_starts_at-make_interval(days=>amount)
+        ELSE ((p_starts_at AT TIME ZONE zone)-make_interval(days=>amount)) AT TIME ZONE zone END;
+    ELSE
+      due:=p_starts_at-CASE wait#>>'{config,unit}' WHEN 'minutes' THEN make_interval(mins=>amount)
+        ELSE make_interval(hours=>amount) END;
+    END IF;
+    IF due IS NULL OR due<=clock_timestamp() THEN RETURN false; END IF;
+  END LOOP;
+  RETURN true;
+END $$;
+
+-- Whether another run of the automation already gave something at this appointment time in the segment of an
+-- appointment wait: every step reachable from the wait without entering another appointment wait. A graph may join two
+-- paths into one step, so the walk follows every edge. A run that reaches that wait after its time passed, under the
+-- rule that skips a passed reminder, then goes on past it instead of ending there (automation_finish_node).
+CREATE FUNCTION private.automation_caught_up(r private.automation_runs,p_wait jsonb,p_starts_at timestamptz)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE graph jsonb; appointment uuid;
+BEGIN
+  IF p_starts_at IS NULL THEN RETURN false; END IF;
+  SELECT nullif(e.subject->>'appointment_id','')::uuid INTO appointment FROM private.automation_events e
+    WHERE e.organization_id=r.organization_id AND e.id=r.event_id AND e.event_type='appointment_booked';
+  IF appointment IS NULL THEN RETURN false; END IF;
+  SELECT v.graph INTO graph FROM public.workflow_versions v
+    WHERE v.organization_id=r.organization_id AND v.workflow_id=r.workflow_id AND v.id=r.version_id;
+  RETURN EXISTS (WITH RECURSIVE segment(id) AS (
+        SELECT e->>'target' FROM jsonb_array_elements(graph->'edges') e WHERE e->>'source'=p_wait->>'id'
+        UNION
+        SELECT e->>'target' FROM segment s JOIN jsonb_array_elements(graph->'edges') e ON e->>'source'=s.id
+        WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(graph->'nodes') n
+          WHERE n->>'id'=s.id AND n->>'type'='wait_until_before_appointment'))
+      SELECT 1 FROM segment s WHERE EXISTS (SELECT 1 FROM private.automation_given_steps g
+        WHERE g.organization_id=r.organization_id AND g.workflow_id=r.workflow_id AND g.appointment_id=appointment
+          AND g.starts_at=p_starts_at AND g.node_id=s.id AND g.run_id<>r.id));
+END $$;
+
+-- Whether a step is late in a segment the run caught up through: the appointment wait the run passed last before the
+-- step (the nearest before it on the way the run came, by the run's own steps) was passed as already reached for this
+-- appointment time (automation_finish_node), under the rule that skips a passed reminder, and the run's reminders are
+-- still for the time its lease verified (the slot they were for starts when the leased slot does). Such a step, which no
+-- run gave at this time, is skipped as its time passed, as the run that gave the rest of the segment would have skipped
+-- it. After a move to a genuinely new time the segment was caught up for the old time, so the step is not late there. A
+-- step owed a retry is decided by the retry window instead (automation_message_issue). It reads the run's version's
+-- graph, the run's own steps, the slots its reminders and its lease are for (reminded_for, leased_for) and those two
+-- slots' start times. None of these changes while the run holds its lease: a published version's graph never changes,
+-- only the run's own lease and finish write its steps and those two slots, and a slot's start never changes (a move
+-- opens a new slot). So it is asked before the handoff's lock (automation_message_check, automation_create_task) and
+-- not again under it; a change that rewrote any of them for a leased run would have to ask it again there. False,
+-- never null.
+CREATE FUNCTION private.automation_late_in_segment(r private.automation_runs,p_node text)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE graph jsonb; passed record;
+BEGIN
+  SELECT v.graph INTO graph FROM public.workflow_versions v
+    WHERE v.organization_id=r.organization_id AND v.workflow_id=r.workflow_id AND v.id=r.version_id;
+  SELECT s.status,s.reason,w.node INTO passed
+    FROM (WITH RECURSIVE behind(id) AS (
+          SELECT e->>'source' FROM jsonb_array_elements(graph->'edges') e WHERE e->>'target'=p_node
+          UNION
+          SELECT e->>'source' FROM behind b JOIN jsonb_array_elements(graph->'edges') e ON e->>'target'=b.id
+          WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(graph->'nodes') n
+            WHERE n->>'id'=b.id AND n->>'type'='wait_until_before_appointment'))
+        SELECT n AS node FROM behind b JOIN jsonb_array_elements(graph->'nodes') n ON n->>'id'=b.id
+        WHERE n->>'type'='wait_until_before_appointment') w
+    JOIN private.automation_steps s ON s.run_id=r.id AND s.node_id=w.node->>'id' AND s.organization_id=r.organization_id
+    ORDER BY s.updated_at DESC,s.node_id LIMIT 1;
+  RETURN coalesce(FOUND AND passed.status='elapsed' AND passed.reason='Already reached for this appointment time'
+    AND coalesce(passed.node#>>'{config,late}','skip')<>'continue'
+    AND EXISTS (SELECT 1 FROM private.appointment_occurrences o JOIN private.appointment_occurrences l
+        ON l.organization_id=o.organization_id AND l.id=r.leased_for
+      WHERE o.organization_id=r.organization_id AND o.id=r.reminded_for AND o.scheduled_start=l.scheduled_start),false);
+END $$;
+
+-- The times a stopped booking run followed, for a stop rule's end (a verified reply, a conversation, another booking):
+-- the times automation_run_holds counts for a person's stop, rule (b). That is the slot of its appointment wait, else of
+-- its reminders, else of its booking; the time the appointment stood at when it was stopped; and each time it stood at
+-- when the run gave something. A run recorded as rescheduled whose stop rule's end the move back found later
+-- (replaced_stop_reason, automation_refresh_appointment_runs) met that end while it followed the time its reminders were
+-- for: the slot its appointment wait may name since, and the moment it ended, belong to the move that ended it, so only
+-- its reminders' slot and the times it gave something count.
+CREATE FUNCTION private.automation_followed_time(p_org uuid,p_run uuid,p_starts_at timestamptz)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE r private.automation_runs; origin private.automation_events; appointment uuid;
+BEGIN
+  SELECT * INTO r FROM private.automation_runs x WHERE x.organization_id=p_org AND x.id=p_run;
+  IF NOT FOUND OR p_starts_at IS NULL OR r.status<>'stopped' THEN RETURN false; END IF;
+  SELECT * INTO origin FROM private.automation_events e WHERE e.organization_id=p_org AND e.id=r.event_id;
+  IF origin.event_type IS DISTINCT FROM 'appointment_booked' OR NOT coalesce(origin.subject ? 'appointment_id',false) THEN
+    RETURN false;
+  END IF;
+  appointment:=nullif(origin.subject->>'appointment_id','')::uuid;
+  IF EXISTS (SELECT 1 FROM private.appointment_occurrences o WHERE o.organization_id=p_org
+      AND o.id=CASE WHEN r.reason='Appointment was rescheduled' THEN r.reminded_for
+        ELSE coalesce(r.anchor_id,r.reminded_for,nullif(origin.subject->>'occurrence_id','')::uuid) END
+      AND o.scheduled_start=p_starts_at) THEN
+    RETURN true;
+  END IF;
+  IF r.reason IS DISTINCT FROM 'Appointment was rescheduled'
+      AND private.automation_stood_at(p_org,appointment,r.ended_at)=p_starts_at THEN RETURN true; END IF;
+  RETURN EXISTS (SELECT 1 FROM (SELECT coalesce((SELECT m.authorized_at FROM private.automation_messages m
+          WHERE m.organization_id=p_org AND m.run_id=r.id AND m.node_id=i.node_id),i.created_at) AS at
+        FROM private.automation_intents i WHERE i.organization_id=p_org AND i.run_id=r.id AND i.status<>'prepared'
+      UNION ALL SELECT k.created_at FROM private.automation_task_receipts k WHERE k.organization_id=p_org AND k.run_id=r.id) given
+    WHERE private.automation_stood_at(p_org,appointment,given.at)=p_starts_at);
+END $$;
+
+-- Whether a stop of another booking run of the automation for the appointment holds this appointment time: 'person' for
+-- a person's stop ('Stopped by user'), 'rule' for a stop rule's end, null otherwise. A stop holds the times its run
+-- followed (automation_run_holds, rule (b), and automation_followed_time), so it still holds a time the appointment
+-- moved away from and back to. A genuinely new time is not one of them. A stop rule's end counts the same once its run
+-- is recorded as replaced, with the stop rule's reason kept as replaced_stop_reason
+-- (automation_refresh_appointment_runs): by a move back ('Appointment was moved back'), or as rescheduled ('Appointment
+-- was rescheduled') when a cancellation, a move or a pending provider answer ended it before the stop rule's end was
+-- recorded. Read before the handoff lock; the final send check's guard holds a message when such a stop was made since
+-- its lease (automation_message_issue).
+CREATE FUNCTION private.automation_time_stopped(r private.automation_runs,p_starts_at timestamptz)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE origin private.automation_events; other record; by_rule boolean:=false;
+BEGIN
+  IF p_starts_at IS NULL THEN RETURN NULL; END IF;
+  SELECT * INTO origin FROM private.automation_events e WHERE e.organization_id=r.organization_id AND e.id=r.event_id;
+  IF origin.event_type IS DISTINCT FROM 'appointment_booked' OR NOT coalesce(origin.subject ? 'appointment_id',false) THEN
+    RETURN NULL;
+  END IF;
+  FOR other IN SELECT x.id,CASE WHEN x.reason IN ('Appointment was moved back','Appointment was rescheduled')
+          THEN x.replaced_stop_reason ELSE x.reason END AS reason
+      FROM private.automation_events b
+      JOIN private.automation_runs x ON x.organization_id=b.organization_id AND x.event_id=b.id
+    WHERE b.organization_id=r.organization_id AND b.subject ? 'appointment_id'
+      AND b.subject->>'appointment_id'=origin.subject->>'appointment_id' AND b.event_type='appointment_booked'
+      AND x.workflow_id=r.workflow_id AND x.id<>r.id AND x.status='stopped'
+      AND (x.reason IN ('Stopped by user','Verified reply received','Contact was reached','Appointment booked')
+        OR (x.reason IN ('Appointment was moved back','Appointment was rescheduled')
+          AND x.replaced_stop_reason IN ('Verified reply received','Contact was reached','Appointment booked')))
+    ORDER BY x.reason='Stopped by user' DESC,x.id LOOP
+    IF other.reason='Stopped by user' THEN
+      IF private.automation_run_holds(r.organization_id,other.id,p_starts_at) THEN RETURN 'person'; END IF;
+    ELSIF NOT by_rule AND private.automation_followed_time(r.organization_id,other.id,p_starts_at) THEN
+      by_rule:=true;
+    END IF;
+  END LOOP;
+  RETURN CASE WHEN by_rule THEN 'rule' END;
+END $$;
+
+-- At the provider handoff of a booking run's message (automation_authorize_handoff, under its locks), the reminder
+-- record notes it for the automation, the appointment and the start of the slot the final send check just verified.
+-- A text owed its retry is attempt 2, written only while the first attempt's message row is free and not delivered: a
+-- delivered message, or a receipt being recorded for it ('A receipt for the first attempt of this text is being
+-- recorded.'), refuses the handoff, and the next lease decides. A row already there refuses it too. Other runs write
+-- nothing.
+CREATE FUNCTION private.automation_record_given(r private.automation_runs,p_node text)
+RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path='' AS $$
+DECLARE origin private.automation_events; appointment uuid; starts timestamptz; kind text; attempt smallint:=1;
+  first_run uuid; first_state text;
+BEGIN
+  SELECT * INTO origin FROM private.automation_events e WHERE e.organization_id=r.organization_id AND e.id=r.event_id;
+  IF origin.event_type IS DISTINCT FROM 'appointment_booked' THEN RETURN; END IF;
+  appointment:=nullif(origin.subject->>'appointment_id','')::uuid;
+  SELECT o.scheduled_start INTO starts FROM private.appointment_occurrences o
+    WHERE o.organization_id=r.organization_id AND o.id=r.leased_for;
+  SELECT CASE n->>'type' WHEN 'send_sms' THEN 'sms' WHEN 'send_email' THEN 'email' END INTO kind
+    FROM public.workflow_versions v CROSS JOIN LATERAL jsonb_array_elements(v.graph->'nodes') n
+    WHERE v.organization_id=r.organization_id AND v.workflow_id=r.workflow_id AND v.id=r.version_id AND n->>'id'=p_node;
+  IF appointment IS NULL OR starts IS NULL OR kind IS NULL THEN
+    RAISE EXCEPTION 'The appointment time of this message could not be recorded.';
+  END IF;
+  IF private.automation_step_record(r.organization_id,r.workflow_id,appointment,starts,p_node,r.id)='retry' THEN
+    SELECT g.run_id INTO first_run FROM private.automation_given_steps g WHERE g.organization_id=r.organization_id
+      AND g.workflow_id=r.workflow_id AND g.appointment_id=appointment AND g.starts_at=starts AND g.node_id=p_node
+      AND g.attempt=1;
+    BEGIN
+      SELECT m.state INTO first_state FROM private.automation_messages m
+        WHERE m.organization_id=r.organization_id AND m.run_id=first_run AND m.node_id=p_node FOR SHARE NOWAIT;
+    EXCEPTION WHEN lock_not_available THEN
+      RAISE EXCEPTION 'A receipt for the first attempt of this text is being recorded.';
+    END;
+    IF first_state='delivered' THEN
+      RAISE EXCEPTION 'The first attempt of this text was delivered.';
+    END IF;
+    attempt:=2;
+  END IF;
+  INSERT INTO private.automation_given_steps(organization_id,workflow_id,appointment_id,starts_at,node_id,attempt,kind,
+      run_id,slot_id,version_id)
+    VALUES(r.organization_id,r.workflow_id,appointment,starts,p_node,attempt,kind,r.id,r.leased_for,r.version_id)
+    ON CONFLICT DO NOTHING;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'This message was already given for this appointment time.';
+  END IF;
+END $$;
+
+-- A signed SMS status callback: the provider's result is recorded on the message as before (automation_record_receipt),
+-- and a failure is kept on the reminder record for the step as the provider reported it: the first failed callback as a
+-- whole, its status and its error code (none when it sent none) and its time. A later failed callback changes nothing,
+-- so it never adds a code the first one lacked. A late failure for a message already delivered changes nothing.
+CREATE FUNCTION public.automation_record_provider_receipt(p_message uuid,p_org uuid,p_provider text,p_state text,
+  p_at timestamptz,p_status text,p_error_code text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  PERFORM public.automation_record_receipt(p_message,'sms',p_provider,p_state,p_at,NULL,p_org);
+  IF p_state='failed' THEN
+    UPDATE private.automation_given_steps g SET failure_status=coalesce(g.failure_status,left(p_status,20)),
+        failure_code=coalesce(g.failure_code,nullif(left(regexp_replace(coalesce(p_error_code,''),'[^0-9]','','g'),40),'')),
+        failure_at=coalesce(g.failure_at,p_at)
+      FROM private.automation_messages m
+      WHERE m.id=p_message AND m.organization_id=p_org AND m.state='failed'
+        AND g.organization_id=m.organization_id AND g.run_id=m.run_id AND g.node_id=m.node_id
+        AND g.failure_at IS NULL;
+  END IF;
+END $$;
 
 -- A lease covers one node. A run whose stop condition already happened ends here instead of running,
 -- and the claim keeps looking, so a page of stopped runs never reads as an empty queue. A lease records
@@ -268,6 +588,16 @@ begin
       next_paced_from:=greatest(r.paced_from,placed.due);
       step_status:='elapsed';
       p_reason:='The reminder time had already passed';
+    elsif placed.verdict='skip' and private.automation_caught_up(r,node,placed.anchor_start) then
+      -- Another run of the automation already gave this reminder for this appointment time: the run goes on to the
+      -- next reminder instead of ending at the passed wait (the reminder record skips what was given).
+      advance:=true;
+      next_anchor:=placed.anchor;
+      next_anchor_at:=placed.anchor_start;
+      next_reminded_for:=placed.anchor;
+      next_paced_from:=greatest(r.paced_from,placed.due);
+      step_status:='elapsed';
+      p_reason:='Already reached for this appointment time';
     else
       next_status:='completed';
       next_anchor:=placed.anchor;
@@ -330,10 +660,20 @@ end $$;
 -- sent once it has started by both the slot record and the calendar, nor is any message for an appointment that now
 -- begins at or before its booking (for a reopened booking, its latest recorded reopening, one after the start
 -- included), and a follow-up timed after the start goes out.
+-- After every check above, a booking's message also answers to the reminder record for its step at this appointment
+-- time (automation_step_record), so a time gets each reminder once across runs. A refusal from the record starts with
+-- 'skip:': the worker finishes the step as skipped and goes on, rather than holding it. Given already, failed for good
+-- or retried once: skipped. Owed its one retry: sent, while the retry window is open (automation_retry_open), else
+-- skipped; a text the provider rate-limited is held until a minute has passed. Before that, a stop of another booking run
+-- of the automation for the appointment made since this lease holds the message, and the next lease's full check
+-- decides (automation_time_stopped, in automation_message_check). This runs under the handoff lock: index lookups only.
+-- A step no run gave that is late in a segment the run caught up through is decided before the lock
+-- (automation_late_in_segment, in automation_message_check): what it reads (the run's version's graph, its own steps,
+-- the slots its reminders and its lease are for and their start times) does not change while the run holds its lease.
 CREATE FUNCTION private.automation_message_issue(r private.automation_runs)
 RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
 DECLARE origin private.automation_events; reason text; appointment uuid; current_slot uuid; slot_start timestamptz; booked_start timestamptz;
-  outcome text;
+  outcome text; recorded text;
 BEGIN
   SELECT s.stop_reason INTO reason FROM private.automation_stop_check(r) s WHERE s.stop_reason IS NOT NULL LIMIT 1;
   IF reason IS NOT NULL THEN RETURN reason; END IF;
@@ -364,21 +704,85 @@ BEGIN
   IF booked_start IS DISTINCT FROM slot_start THEN
     RETURN 'The appointment''s new time is not recorded yet';
   END IF;
+  -- Another booking run of the automation for this appointment was stopped by a person or a stop rule since this lease
+  -- began (its stop's own time, or when it was recorded): held, and the next lease's full check decides.
+  IF EXISTS (SELECT 1 FROM private.automation_events b
+      JOIN private.automation_runs x ON x.organization_id=b.organization_id AND x.event_id=b.id
+    WHERE b.organization_id=r.organization_id AND b.subject ? 'appointment_id'
+      AND b.subject->>'appointment_id'=origin.subject->>'appointment_id' AND b.event_type='appointment_booked'
+      AND x.workflow_id=r.workflow_id AND x.id<>r.id AND x.status='stopped'
+      AND x.reason IN ('Stopped by user','Verified reply received','Contact was reached','Appointment booked')
+      AND greatest(x.ended_at,x.updated_at)>=r.leased_until-interval '2 minutes') THEN
+    RETURN 'A run of this automation for this appointment was stopped just now';
+  END IF;
+  recorded:=private.automation_step_record(r.organization_id,r.workflow_id,appointment,slot_start,r.current_node_id,r.id);
+  IF recorded='given' THEN RETURN 'skip:Already sent for this appointment time'; END IF;
+  IF recorded='permanent' THEN
+    RETURN 'skip:Not sent again: delivery failed for this appointment time and cannot be retried';
+  END IF;
+  IF recorded='retried' THEN RETURN 'skip:Not sent again: already retried once for this appointment time'; END IF;
+  IF recorded IN ('retry','retry_wait') AND NOT private.automation_retry_open(r,r.current_node_id,slot_start) THEN
+    RETURN 'skip:Not retried: the next reminder for this appointment time is already due';
+  END IF;
+  IF recorded='retry_wait' THEN RETURN 'Waiting before retrying a text the provider rate-limited'; END IF;
   RETURN NULL;
 END $$;
 
 -- Asked by the worker before it reserves a provider request, so a change already made holds the message without
 -- spending that request. Only an answer sooner: the handoff checks again under lock. A message already handed to a
--- provider is left to its own record, so a replay still finds its original receipt.
+-- provider is left to its own record, so a replay still finds its original receipt. Null sends it; an answer starting
+-- 'skip:' finishes the step as skipped with the rest as its reason; 'retry:' sends a text owed its one retry; any other
+-- answer holds it. For a booking, the full stop check runs here, before the lock: a person's stop or a stop rule's end
+-- of another booking run of the automation for the appointment holds the times that run followed
+-- (automation_time_stopped), also after the appointment moved away and back. A retry is not sent to a lead whose number
+-- is now suppressed or on the do-not-call list; the run goes on. A step the record has nothing for at this time that is
+-- late in a segment the run caught up through (automation_late_in_segment) is skipped as its time passed: the handoff
+-- does not ask again, since none of what that reads (the run's version's graph, its own steps, the slots its reminders
+-- and its lease are for, and their start times) changes while the run holds its lease, and the handoff reads the record
+-- itself again (automation_message_issue).
 CREATE FUNCTION public.automation_message_check(p_run uuid,p_token uuid,p_node text)
-RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
-  SELECT CASE WHEN EXISTS (SELECT 1 FROM private.automation_intents i WHERE i.run_id=p_run AND i.node_id=p_node
-        AND i.status<>'prepared') THEN NULL
-    WHEN r.id IS NULL THEN 'This step is no longer leased to this worker'
-    ELSE private.automation_message_issue(r) END
-  FROM (SELECT 1) one LEFT JOIN private.automation_runs r ON r.id=p_run AND r.lease_token=p_token AND r.current_node_id=p_node
-    AND r.leased_until>=clock_timestamp() AND r.status IN ('queued','held','waiting')
-$$;
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE r private.automation_runs; origin private.automation_events; answer text; slot_start timestamptz;
+  stopped text; destination text; recorded text;
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.automation_intents i WHERE i.run_id=p_run AND i.node_id=p_node
+      AND i.status<>'prepared') THEN
+    RETURN NULL;
+  END IF;
+  SELECT * INTO r FROM private.automation_runs x WHERE x.id=p_run AND x.lease_token=p_token AND x.current_node_id=p_node
+    AND x.leased_until>=clock_timestamp() AND x.status IN ('queued','held','waiting');
+  IF NOT FOUND THEN RETURN 'This step is no longer leased to this worker'; END IF;
+  answer:=private.automation_message_issue(r);
+  IF answer IS NOT NULL THEN RETURN answer; END IF;
+  SELECT * INTO origin FROM private.automation_events e WHERE e.organization_id=r.organization_id AND e.id=r.event_id;
+  IF origin.event_type IS DISTINCT FROM 'appointment_booked' THEN RETURN NULL; END IF;
+  SELECT o.scheduled_start INTO slot_start FROM private.appointment_occurrences o
+    WHERE o.organization_id=r.organization_id AND o.id=r.leased_for;
+  stopped:=private.automation_time_stopped(r,slot_start);
+  IF stopped='person' THEN RETURN 'skip:Stopped by a person for this appointment time'; END IF;
+  IF stopped='rule' THEN RETURN 'skip:Stopped by a stop rule for this appointment time'; END IF;
+  recorded:=private.automation_step_record(r.organization_id,r.workflow_id,nullif(origin.subject->>'appointment_id','')::uuid,
+    slot_start,p_node,r.id);
+  IF recorded='retry' THEN
+    -- A confirmed opt-out recorded here (a suppression or a do-not-call entry for the lead's current number). A number
+    -- that cannot be normalized is not one: the sending path refuses it and holds the text.
+    SELECT l.phone INTO destination FROM public.leads l
+      WHERE r.contact_type='lead' AND l.organization_id=r.organization_id AND l.id=r.contact_id;
+    BEGIN
+      destination:=private.affinity_phone(destination);
+    EXCEPTION WHEN OTHERS THEN
+      destination:=NULL;
+    END;
+    IF destination IS NOT NULL AND private.sms_recipient_guard(r.organization_id,destination) THEN
+      RETURN 'skip:Not retried: the lead can no longer receive this message';
+    END IF;
+    RETURN 'retry:';
+  END IF;
+  IF recorded='none' AND private.automation_late_in_segment(r,p_node) THEN
+    RETURN 'skip:The reminder time had already passed';
+  END IF;
+  RETURN NULL;
+END $$;
 
 -- Linearize the last local authorization against pause, stop, revocation and release gates, and against the
 -- appointment the message is about (automation_message_issue). The appointment row is share-locked before it is
@@ -390,7 +794,10 @@ $$;
 -- calendar save never waits behind a handoff that is still trying. Once the handoff holds the lock, a save of that
 -- appointment waits until the handoff's transaction commits. In automation_begin_message that transaction also starts
 -- a text's dispatch (the recipient's sending lock and its dispatch row) and records the message: keep nothing slow
--- after this lock.
+-- after this lock. The handoff of a booking run's message is noted in the reminder record for its appointment time
+-- (automation_record_given): a refusal from the record (already given, or a second run reaching the same reminder) is
+-- a refusal here, and the workflow row this takes for update orders the handoffs of an automation, so the run that
+-- loses sees the winner's record and is skipped.
 CREATE OR REPLACE FUNCTION public.automation_authorize_handoff(p_run uuid,p_token uuid,p_node text)
 returns boolean language plpgsql security definer set search_path='' as $$
 declare scope record; run private.automation_runs; origin private.automation_events; deadline timestamptz;
@@ -424,7 +831,9 @@ begin
   if private.automation_message_issue(run) is not null then return false; end if;
   update private.automation_intents set status='handed_off'
     where organization_id=scope.organization_id and run_id=p_run and node_id=p_node and status='prepared';
-  return found;
+  if not found then return false; end if;
+  perform private.automation_record_given(run, p_node);
+  return true;
 end $$;
 
 -- A text refused before its handoff can try again on a later lease. The sticky sending path cancels a reservation that
@@ -456,12 +865,17 @@ BEGIN
 END $$;
 
 -- Create the task for a "Create task" step exactly once. The worker supplies the rendered text.
--- The database decides who it is for, when it is due and whether it should exist at all.
+-- The database decides who it is for, when it is due and whether it should exist at all. A booking run's task is
+-- created once for its appointment time across runs (the reminder record, keyed by the start of the slot its lease
+-- verified, else the appointment's current one): one already created there, a time a person's stop or a stop rule's end
+-- of another booking run holds, and a task late in a segment the run caught up through are skipped. The record's row
+-- is written just before the task, and a second run creating the same one at the same moment waits for it and skips.
 CREATE FUNCTION public.automation_create_task(p_run uuid,p_token uuid,p_node text,p_title text,p_notes text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE r private.automation_runs; published record; node jsonb; cfg jsonb; origin private.automation_events;
   title text:=left(btrim(coalesce(p_title,'')),200); notes text:=nullif(left(btrim(coalesce(p_notes,'')),2000),'');
   kind text; owner_id uuid; claimant uuid; due timestamptz; made uuid; inbound uuid; evidence text; known boolean;
+  appointment uuid; slot uuid; starts timestamptz; stopped text; keyed boolean:=false; recorded boolean;
 BEGIN
   SELECT run.* INTO r FROM private.automation_runs run WHERE run.id=p_run;
   IF NOT FOUND THEN RETURN jsonb_build_object('status','held','reason','Run is unavailable'); END IF;
@@ -490,6 +904,26 @@ BEGIN
   IF NOT FOUND THEN RETURN jsonb_build_object('status','held','reason','Automations are turned off for this agency'); END IF;
   IF private.automation_settle_stop(r) THEN
     RETURN jsonb_build_object('status','stopped','reason',(SELECT run.reason FROM private.automation_runs run WHERE run.id=r.id));
+  END IF;
+  IF origin.event_type='appointment_booked' THEN
+    appointment:=nullif(origin.subject->>'appointment_id','')::uuid;
+    SELECT o.id,o.scheduled_start INTO slot,starts FROM private.appointment_occurrences o
+      WHERE o.organization_id=r.organization_id AND o.id=r.leased_for;
+    IF starts IS NULL THEN
+      SELECT s.occurrence_id,s.starts_at INTO slot,starts FROM private.automation_appointment_state(r.organization_id,appointment) s;
+    END IF;
+    IF appointment IS NOT NULL AND starts IS NOT NULL THEN
+      IF private.automation_step_record(r.organization_id,r.workflow_id,appointment,starts,p_node,r.id)<>'none' THEN
+        RETURN jsonb_build_object('status','skipped','reason','Already created for this appointment time'); END IF;
+      stopped:=private.automation_time_stopped(r,starts);
+      IF stopped='person' THEN
+        RETURN jsonb_build_object('status','skipped','reason','Stopped by a person for this appointment time'); END IF;
+      IF stopped='rule' THEN
+        RETURN jsonb_build_object('status','skipped','reason','Stopped by a stop rule for this appointment time'); END IF;
+      IF private.automation_late_in_segment(r,p_node) THEN
+        RETURN jsonb_build_object('status','skipped','reason','The reminder time had already passed'); END IF;
+      keyed:=true;
+    END IF;
   END IF;
   -- Fields that render to nothing (an unmatched caller, a contact without a name) still give the task
   -- a title: the step's name, the caller for a missed call, or the task type.
@@ -566,6 +1000,14 @@ BEGIN
       RETURN jsonb_build_object('status','skipped','reason','An earlier task from this automation is still open'); END IF;
   END IF;
 
+  IF keyed THEN
+    INSERT INTO private.automation_given_steps(organization_id,workflow_id,appointment_id,starts_at,node_id,attempt,kind,
+        run_id,slot_id,version_id)
+      VALUES(r.organization_id,r.workflow_id,appointment,starts,p_node,1,'task',r.id,slot,r.version_id)
+      ON CONFLICT DO NOTHING RETURNING true INTO recorded;
+    IF recorded IS NULL THEN
+      RETURN jsonb_build_object('status','skipped','reason','Already created for this appointment time'); END IF;
+  END IF;
   INSERT INTO public.tasks(organization_id,contact_id,contact_type,assigned_to,created_by,title,task_type,due_date,notes,
       all_day,automation_run_id)
     VALUES(r.organization_id,r.contact_id,r.contact_type,owner_id,NULL,title,cfg->>'task_type',due,notes,false,r.id)
@@ -672,7 +1114,19 @@ REVOKE ALL ON FUNCTION public.automation_create_task(uuid,uuid,text,text,text),
   public.automation_message_timezone(uuid,text,text),public.automation_message_check(uuid,uuid,text),
   public.automation_release_refused_dispatch(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION private.automation_message_issue(private.automation_runs) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.automation_failure_retryable(text,text),
+  private.automation_step_record(uuid,uuid,uuid,timestamptz,text,uuid),
+  private.automation_retry_open(private.automation_runs,text,timestamptz),
+  private.automation_caught_up(private.automation_runs,jsonb,timestamptz),
+  private.automation_late_in_segment(private.automation_runs,text),
+  private.automation_followed_time(uuid,uuid,timestamptz),
+  private.automation_time_stopped(private.automation_runs,timestamptz),
+  private.automation_record_given(private.automation_runs,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.automation_record_provider_receipt(uuid,uuid,text,text,timestamptz,text,text)
+  FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.automation_create_task(uuid,uuid,text,text,text),
   public.automation_message_timezone(uuid,text,text),public.automation_message_check(uuid,uuid,text),
-  public.automation_release_refused_dispatch(uuid,uuid,text) TO service_role;
+  public.automation_release_refused_dispatch(uuid,uuid,text),
+  public.automation_record_provider_receipt(uuid,uuid,text,text,timestamptz,text,text) TO service_role;
 COMMIT;
