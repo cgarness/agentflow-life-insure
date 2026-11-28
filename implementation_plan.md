@@ -1,3 +1,135 @@
+## November 28, 2026 — Automations V2: reminders remembered across runs for the same appointment time
+
+Chris approved this on November 28, for draft pull request cgarness/agentflow-life-insure#536 only. It is one focused change: AgentFlow remembers which texts, emails and tasks it already gave for the same appointment, automation and appointment time, across runs. It is automatic, with no new builder setting.
+
+The pull request stays a draft. A merge, deployment, production migration, enrollment, schedule, live workflow or message each still needs its own approval. Production is only read, by the two read-only checks below.
+
+The Google Calendar cancellation overwrite stays separate, as cgarness/agentflow-life-insure#542. That issue includes the sync's save that also moves the appointment and resumes the reminders.
+
+**Base.** `claude/cool-maxwell-15hyq7` at `6f170c6`. Automations V2 is unreleased: production has no `automation_v2_…` migration and, when last read, no automation events or runs.
+
+**Chris's decisions**
+
+1. **Stops for the same time.** A workflow stop rule or an agent's manual stop for Friday at 2 PM still holds if the same appointment moves away and back to Friday at 2 PM. The stop rules are a verified reply, a reached contact and another booking. A genuinely new appointment time follows the existing rules.
+2. **One retry, SMS only.** There is at most one retry across all runs for that reminder and time. A retry is allowed only after one of these:
+   - a confirmed Twilio request rejection of 20429 or HTTP 429, after a backoff of at least one minute from the rejection;
+   - a verified failed or undelivered callback with 30001 or 30003.
+
+   Nothing else is retried automatically: not 30008, not a missing code and not any unlisted code. The actual provider result is kept in history. A timeout, a pending result or a missing receipt never causes a second send.
+3. **Retry window.** The window closes at the earlier of two times: when the next applicable reminder is due, or when the appointment starts. If the next reminder is already due, the older retry is skipped and the run goes on to the current reminder.
+4. **Opt-out before a retry.** A confirmed SMS opt-out skips the retry:
+   - a local suppression or do-not-call entry for the number;
+   - the consent service's "opted out" or "no permission" answer.
+
+   Later tasks continue, and an email continues if it is independently eligible. If consent cannot be verified for the moment, the step is held, as today.
+5. **Carried-on runs.** For the pilot, a resumed run does not rewind to retry an earlier failed text, and a still-due later reminder stays reachable. The retry is described as "at most once on a qualifying new run".
+6. **Production reads.** After local verification, two read-only production checks are approved:
+   - that there are still no V2 migrations or runs;
+   - the updated dependency check.
+
+   Production migrations, deployments, enrollment, scheduling and live delivery remain separate approvals.
+7. **Defaults.**
+   - A reminder is its step id, which is stable across published versions.
+   - Tasks are recorded once per appointment time and never retried.
+   - Both SMS attempts are kept in history.
+   - The builder is unchanged.
+
+**What changes**
+
+1. **A record of what was given.** A new private table, `private.automation_given_steps`, keeps one row for each text, email or task that a booking run gave. Its key is the agency, automation, appointment, appointment start time, step and attempt.
+   - **Access:** row-level security is on, with no policy and no grant. Only the automation's own database functions read or write the table, and every lookup uses the `organization_id` of the run or message.
+   - **Keeping rows:** rows are never deleted, and the full rollback keeps them.
+   - **Writing rows:** a row is written when a message is handed to its provider (`automation_authorize_handoff`) and when a task is created (`automation_create_task`).
+2. **Skip what was already given.** After every existing check, the final send check (`private.automation_message_issue`) skips a step already given for the current start time. The worker records the step as skipped, with its reason, and goes on.
+   - **Reasons:** "Already sent for this appointment time" and, for tasks, "Already created for this appointment time".
+   - **Unknown outcome:** a message whose delivery outcome is unknown counts as given.
+3. **Reach the next reminder.** Under the default late rule ("Skip the remaining steps"), a new run whose 24-hour reminder time has passed ends there today, so the 1-hour reminder is lost.
+   - **Passing the wait:** when another run of the automation already gave that reminder for the same start time, the run now passes the wait ("Already reached for this appointment time") and goes on.
+   - **Never-given steps:** any step of that reminder that was never given is skipped as late.
+   - **Moves in place:** this also applies to a run that follows a move in place.
+4. **One retry across all runs.** A text whose delivery failed as in decision 2 gets one more attempt. It is sent at most once, by a qualifying new run that reaches that step for the same start time.
+   - **Callback codes:** a new service-role function, `automation_record_provider_receipt`, stores the callback's status and error code, which are dropped today.
+   - **Existing checks:** consent, suppression, sending hours and daily limits still apply.
+   - **History:** both attempts keep their own run, step, message and dispatch history.
+   - **Reasons shown:**
+     - "Not sent again: delivery failed for this appointment time and cannot be retried";
+     - "Not sent again: already retried once for this appointment time";
+     - "Not retried: the next reminder for this appointment time is already due";
+     - "Not retried: the lead can no longer receive this message".
+5. **Stops for that time still hold.** A stop for an appointment time also holds that time for later runs, including after an ordinary move away and back. This covers a person's stop and a stop rule that ended a run at that start time.
+   - **Reasons:** those steps are skipped as "Stopped by a person for this appointment time" or "Stopped by a stop rule for this appointment time".
+   - **Where it is checked:** the full check runs before the handoff lock. A cheap check under the lock holds any message when another booking run of the automation for the appointment was stopped after this lease began, so a stop committed before the final handoff always wins.
+6. **Two workers at once.** The worker that loses a duplicate-send race asks the send check again, records the step as skipped and advances. It sends nothing and does not use the retry.
+7. **Held time.** A completed or failed run no longer holds a start time where a text is owed its retry and the retry window is open. The other held-time rules are unchanged.
+
+**Acceptance case.** The lead got the 24-hour text for Friday at 2 PM. Then either the appointment moves away and back to Friday at 2 PM, or an agent corrects a mistaken No Show or Completed. If the 1-hour text is still due and the automation is eligible, it goes out once, and the 24-hour text stays suppressed. A person's stop, or an applicable stop rule, for that time still holds. A genuinely new time gets every reminder, as today.
+
+**Sign-off demonstrations**, with the real worker:
+- **Friday at 2 PM:** through a move away and back, and through a corrected No Show or Completed. Each gives one 24-hour text in total and one still-due 1-hour text.
+- **Two workers:** the worker that loses the duplicate-send race advances past the step without sending or using the retry.
+- **Stops:** a stop committed before the final handoff wins.
+- **Receipts:** a late or duplicate receipt cannot authorize a third attempt.
+- **Carried-on runs:** a resumed run still reaches a still-due later reminder.
+
+**Known limitations kept**
+- **Carried-on runs:** a reopening that carries a stopped run on, or a corrected outcome that releases a held run, continues that run from where it was. It sends no retry of an earlier reminder.
+- **Earlier limitations:** two runs that the seven-day hold ended at one time still block each other (S16 961), and runs are still compared per automation across republished versions (N4 472).
+- **Builder wording:** "Skip the remaining steps" is unchanged. The new pass-through is documented in AGENT_RULES.md and the release plan.
+
+**Migrations and rollback**
+- **Two unreleased files are edited in place.** There is no eighth file, because the install and rollback tooling expects exactly seven:
+  - `20261124100600_automation_v2_runtime.sql`: the table, its helper functions, the receipt function, `automation_authorize_handoff` and `automation_finish_node` (both checked by the rollbacks), `automation_message_issue`, `automation_message_check` and `automation_create_task`;
+  - `20261124100100_automation_v2_events.sql`: the held-time rule for a retry, the refresh's follow-in-place step, and comments, including the comment inside `automation_admit_event` (its logic is unchanged).
+- **No first-release table is altered.**
+- **Both rollback files are regenerated.**
+  - Only the changed functions' V2 digests move. The seventeen first-release bodies they restore stay byte for byte.
+  - The stopped-install back-out is unchanged in logic, because the table is created only in file 7. install-stops is run again.
+- **The dependency check changes.** `supabase/ops/automation_v2_dependency_check.sql` lists the new names and the existing objects the change now uses, so its checksum and stored production reading change.
+
+**Existing runs.** No backfill.
+- **Production:** no V2 migration and no V2 runs, so no database ever has V2 without the record.
+- **Test and rehearsal databases:** rebuilt from the edited files.
+- **First-release runs in flight at upgrade:** these are lead and campaign runs, not booking runs, so the record ignores them.
+- **A run with no record rows:** treated as having given nothing, the same as a new time.
+
+**Files**
+- **Migrations:** the two files above.
+- **Rollbacks, regenerated:** `supabase/migrations/rollback/20261124100600_automation_v2.rollback.sql` and `supabase/migrations/rollback/20261124100600_automation_v2_stopped_install.rollback.sql`.
+- **Worker:** `supabase/functions/_shared/automations/channel.ts` and `receiptHandler.ts`.
+- **Tests:**
+  - `channel_test.ts`, `receiptHandler_test.ts` and `runtime_test.ts` in the same folder;
+  - `supabase/tests/automation_v2_appointments.sql` and `supabase/tests/automation_v2_rollback.sql`;
+  - `e2e/automations-local/concurrency_v2.py`;
+  - the real-worker demonstration in `scripts/tests/automations/appointment-record-fixture.sql`, `appointment-record-native.ts` and `appointment-record-check.sql`, run by `e2e/automations-local/run.sh`.
+- **Ops:** `supabase/ops/automation_v2_dependency_check.sql` and its stored production reading.
+- **Docs:**
+  - `AGENT_RULES.md`;
+  - `docs/plans/automations-v2/release-plan.md`, including a correction: a text accepted and then reported undelivered fails its run only when the report arrives before the acceptance is recorded;
+  - `docs/plans/automations-v2/context-snapshot.md`;
+  - this file and `WORK_LOG.md`.
+- **Frontend:** no file changes, so there is no form or styling work.
+
+**Verification**
+- **Type check and unit tests:** `npx tsc --noEmit`, and the Deno tests in `supabase/functions/_shared/automations/`.
+- **Rollbacks:** regenerate both. Their diff must show only the changed digests.
+- **Suites:** `bash e2e/automations-local/run.sh`, which runs every automation SQL suite, the rollback rehearsal, both race scripts and the native demonstrations. Then `install-stops`, `backend-first`, `release` and `release-full-synthetic.sh`.
+- **New appointment checks:**
+  - the acceptance case under both late rules: an ordinary move back, a move while cancelled followed by a reopening, and a corrected No Show or Completed;
+  - a new time, and both kinds of stop;
+  - a partly given reminder;
+  - retries after 30003, 30001 and 20429 (with its backoff), a closed retry window, and a retry that itself fails;
+  - 30008, permanent and missing error codes, and email failures;
+  - repeated reopenings, duplicate and late receipts, and a failure followed by a delivery;
+  - timeouts and unknown outcomes;
+  - a confirmed opt-out, a temporary consent failure, and a lead who opts back in;
+  - tasks, a carried-on run, and two agencies kept apart.
+- **New race checks:** two handoffs of one reminder at once, a retry while a receipt holds the first message, two task creations for one step, and a stop committed just before the final handoff.
+- **Rollback suite:** the record's rows survive the full rollback.
+- **Suite pins:** only the listed pins may change on purpose: leads 262, 269, 273, 278 to 285, 289, 294 and 295, plus any that pin a repeat after a stop. The code change is first run against the unchanged suite to confirm that only those pins fail.
+- **Checksums:** the SHA-256 of each changed migration, both rollbacks and the dependency check, recorded in the release plan.
+
+**Boundaries.** No push to main, merge, deployment, production migration, release-control change, enrollment, schedule, live workflow or message. Any change of scope is recorded here before its files are edited.
+
 ## November 24, 2026 (second approval) — Automations V2: verified complete-schema rehearsal, reopened bookings, retryable late answers, send-time appointment check
 
 Chris approved, for draft PR #536 only, five items of isolated branch work and synthetic verification. Production actions, enrollment, scheduling and delivery stay under separate approval. Production was read only. The approval named each item, so this entry records that scope and what was delivered.
