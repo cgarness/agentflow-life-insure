@@ -96,6 +96,13 @@ The Google Calendar cancellation overwrite stays separate, as cgarness/agentflow
   - the move-back carry-on applies a later live run's stop rules before it replaces the run, and keeps a replaced stop rule's reason in that column;
   - `private.automation_time_stopped` reads it.
 - **Effect on rollbacks:** no checked function changes for this. The rollback keeps the column, as it keeps every V2 column.
+- **A second recheck found three older paths:** a stop rule that applies only when work is leased (a reached contact, another booking) was never recorded against the run that followed the time:
+  - a cancellation was recorded first;
+  - the run was replaced at a move before the call's length was written;
+  - the run was waiting for its provider's answer when the appointment moved.
+
+  At the move back, the carry-on now looks for such a stop. That is one dated between that run's stop basis and its end, by the automation's own stop settings. When it finds one, it keeps the stop's reason in the same column and does not carry the run on, so the time stays stopped. There are no new objects and no checked function changes.
+  - **Known limitation:** a call still in progress through the move back is not attributed.
 - **The other review fixes stay inside the approved scope:**
   - a late-step marker counts only for the time it was written at;
   - the first reported failure wins as a whole;
