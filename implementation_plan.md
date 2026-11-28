@@ -80,11 +80,29 @@ The Google Calendar cancellation overwrite stays separate, as cgarness/agentflow
 - **Two unreleased files are edited in place.** There is no eighth file, because the install and rollback tooling expects exactly seven:
   - `20261124100600_automation_v2_runtime.sql`: the table, its helper functions, the receipt function, `automation_authorize_handoff` and `automation_finish_node` (both checked by the rollbacks), `automation_message_issue`, `automation_message_check` and `automation_create_task`;
   - `20261124100100_automation_v2_events.sql`: the held-time rule for a retry, the refresh's follow-in-place step, and comments, including the comment inside `automation_admit_event` (its logic is unchanged).
-- **No first-release table is altered.**
+- **One first-release table gains one column.** `private.automation_runs`, which V2 already extends in file 2, gains the nullable `replaced_stop_reason` (see the scope change below). No other first-release table is altered.
 - **Both rollback files are regenerated.**
   - Only the changed functions' V2 digests move. The seventeen first-release bodies they restore stay byte for byte.
   - The stopped-install back-out is unchanged in logic, because the table is created only in file 7. install-stops is run again.
 - **The dependency check changes.** `supabase/ops/automation_v2_dependency_check.sql` lists the new names and the existing objects the change now uses, so its checksum and stored production reading change.
+
+**Scope change after the independent review (November 28, recorded before the fix).**
+- **What the review found:** the move-back carry-on, an existing step in `private.automation_refresh_appointment_runs`, loses a stop rule's end in two ways.
+  - It rewrites the reason of a later booking run that a stop rule ended to 'Appointment was moved back'.
+  - It ends a later live run that a stop rule applied only when work is leased would have ended (a reached contact, another booking) without recording that stop.
+  - Either way, after the appointment came back to that run's time, its reminders went out again, against decision 1.
+- **The fix:**
+  - `private.automation_runs` gains one nullable column, `replaced_stop_reason`, in V2's existing `ALTER TABLE` in `20261124100100_automation_v2_events.sql`;
+  - the move-back carry-on applies a later live run's stop rules before it replaces the run, and keeps a replaced stop rule's reason in that column;
+  - `private.automation_time_stopped` reads it.
+- **Effect on rollbacks:** no checked function changes for this. The rollback keeps the column, as it keeps every V2 column.
+- **The other review fixes stay inside the approved scope:**
+  - a late-step marker counts only for the time it was written at;
+  - the first reported failure wins as a whole;
+  - a reopening can retry a text another run passed as given before its failure arrived;
+  - the late-step check moves before the handoff lock;
+  - a plain message when a receipt holds the first attempt;
+  - tests and comments.
 
 **Existing runs.** No backfill.
 - **Production:** no V2 migration and no V2 runs, so no database ever has V2 without the record.
