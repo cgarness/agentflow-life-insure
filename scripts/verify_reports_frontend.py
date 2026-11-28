@@ -80,7 +80,9 @@ for name, result in (('base', bj), ('branch', hj)):
     reported = runtime_errors(result, name)
     if reported is not None:
         assert reported == sum(runtime_signatures[name].values()), 'Runtime error reporters disagree'
-assert not (runtime_signatures['branch'] - runtime_signatures['base']), 'New unhandled runtime error'
+new_runtime_errors = runtime_signatures['branch'] - runtime_signatures['base']
+# Name each new error, so a failure can be diagnosed from the job log without the artifact.
+assert not new_runtime_errors, f'New unhandled runtime error: {dict(new_runtime_errors)}'
 assert checks['base_vitest'] in (0, 1) and checks['branch_vitest'] in (0, checks['base_vitest']), 'Vitest process regression or abnormal exit'
 report_tests=sorted(str(p.relative_to(root)) for p in (root/'src').rglob('*.test.*')
                     if any(t in p.name.lower() for t in ['reports','reportstat','normalizedpolicy']))

@@ -1,0 +1,610 @@
+{
+ "captured": "2026-11-25 and 2026-11-26, read-only, project jncvvsvckxhqgqvkppmj, database postgres, through the Supabase Management API's database connection (application_name mgmt-api, session_user postgres): the schema fingerprint on November 26 at 03:04 UTC, the Auth receipt at 05:56 UTC and the canonical receipt at 05:57 UTC on November 25, the index check on November 25 at 21:14 UTC, and the extension readings on November 25 at 23:49 UTC and November 26 at 01:09, 01:15 and 04:41 UTC",
+ "purpose": "The three queries capture-receipts.sh sends, as they stand after round 7d, run once on production: the format 3 schema fingerprint with its builtins and catalog_objects families, the Auth receipt and the canonical receipt. Only counts and digests are recorded. These are not receipts for release-full: that run needs receipts read within two hours of its own dump.",
+ "queries": {
+  "schema_fingerprint": "e2e/automations-local/schema-fingerprint.sql in connector form (receipts.py connector-sql), its full-line comments and blank lines removed and three fields added (query_md5, query_length, text_md5) that report the text the server received",
+  "auth": "e2e/automations-local/auth-receipt.sql in connector form, unchanged",
+  "canonical": "canonical-receipt.py query in connector form, its full-line comments removed and the same two fields added"
+ },
+ "text_check": "For the fingerprint, read again on November 26 at 03:04 UTC, the server's MD5 of the text it received, up to the comment the connector appends, is 12b59c410d8e95cb228b43aadadb009f, the MD5 of the text sent: the connector form of the committed fingerprint (receipts.py connector-sql) with its full-line comments and blank lines removed and three fields, query_md5, query_length and text_md5 (the last reporting this digest), inserted right after the format field. The text sent is 37,818 characters; the server received 37,926 with the connector's comment. The canonical query's text was confirmed the same way at 05:57 UTC on November 25 (the server's MD5 of the generated text followed by the connector's comment). The Auth query was sent unchanged and reports no digest.",
+ "image_check": "The builtins digest (9,870 objects) equals the one read from fresh clusters of supabase/postgres:17.6.1.063 (the image release-full builds its target on) and 17.6.1.085.",
+ "index_check": {
+  "captured_at": "2026-11-25T21:14:56.471755Z",
+  "invalid_indexes_pg_dump_omits": 0,
+  "invalid_indexes_all_schemas": 0,
+  "toast_tables": 280,
+  "indexes_on_toast_tables": 280,
+  "other_objects_in_pg_toast": 0,
+  "note": "Read-only, through the same connection: the count make-schema-bundle.sh checks before the dump (an invalid index pg_dump leaves out), every invalid or unready index, and what pg_toast holds."
+ },
+ "earlier_reading": "Earlier readings are replaced by this one. At 23:43 UTC on November 25, with the same fingerprint text (sent without the text_md5 field), all 36 families equalled the 21:12 reading. Between 23:43 and 03:04 seven families changed with no migration recorded (the latest is still 20261123231917): columns gained two (3,189 to 3,191), and constraints, indexes, inheritance, publication_tables, relations and types changed with the same counts. Realtime's daily partition rotation ran at midnight UTC: its message partitions now run from messages_2026_11_23 to messages_2026_11_29, and messages_2026_11_29 is the newest relation. That rotation accounts for the changes with unchanged counts; the two columns came from outside this repository's migrations. The families that hold only ownership and permission data (acls, builtins, catalog_permissions, default_privileges, events, extension_members, extensions, functions, memberships, namespaces, roles) are unchanged; relations and types, which also record owners and privileges, changed with the same counts. At 21:12 UTC, with the text before TOAST tables' storage settings were read, the families were as at 23:43. Three earlier readings, each with the fingerprint as it stood then, are replaced by this one. At 19:39 UTC, before an operator family member named its access method instead of its number and before every index on a TOAST table was left out of catalog_objects, the other 35 families were identical. At 16:44 UTC, before builtins read an aggregate's arguments, result and function attributes, the settings of range types, the access method, tablespace and replica identity of system relations and the clustering, replica identity and validity of system indexes, and before catalog_objects read pg_toast, the families other than builtins and opfamilies were identical and builtins had 9,864 objects. At 05:55 UTC, before builtins read pinned collations, built-in rules and an aggregate's parallel marking, and before the fingerprint read pg_toast permissions and other pg_ schemas, builtins had 9,856 objects and catalog_permissions 285.",
+ "schema_fingerprint": {
+  "format": "agentflow-schema-fingerprint/3",
+  "captured_at": "2026-11-26T03:04:53.994631Z",
+  "client": {
+   "session_user": "postgres",
+   "application_name": "mgmt-api"
+  },
+  "family_count": 36,
+  "absent": [
+   "aggregates",
+   "casts",
+   "catalog_objects",
+   "collations",
+   "conversions",
+   "foreign",
+   "large_objects",
+   "parameter_acls",
+   "security_labels",
+   "shared_comments",
+   "statistics",
+   "subscriptions",
+   "text_search",
+   "transforms"
+  ],
+  "families": [
+   {
+    "kind": "access_methods",
+    "objects": 7,
+    "sha256": "24ef86d1a7fd7da827321c59c3be2babc581471f382696a72d84ed9af1937d31",
+    "loose": "24ef86d1a7fd7da827321c59c3be2babc581471f382696a72d84ed9af1937d31"
+   },
+   {
+    "kind": "acls",
+    "objects": 20,
+    "sha256": "16602bd083eff793ca8677e0d6a3650b1d87b9e5438a1aee92fb46043e72542e",
+    "loose": "16602bd083eff793ca8677e0d6a3650b1d87b9e5438a1aee92fb46043e72542e"
+   },
+   {
+    "kind": "builtins",
+    "objects": 9870,
+    "sha256": "d111c7482694a3e79cefa6c95f7247fcccc17bdc6f368eb07523a01506645461",
+    "loose": "d111c7482694a3e79cefa6c95f7247fcccc17bdc6f368eb07523a01506645461"
+   },
+   {
+    "kind": "catalog_permissions",
+    "objects": 286,
+    "sha256": "7123ac754962ccf6a82a901e063d4601d23ff92688f4da8815edd8e63bed6297",
+    "loose": "7123ac754962ccf6a82a901e063d4601d23ff92688f4da8815edd8e63bed6297"
+   },
+   {
+    "kind": "columns",
+    "objects": 3191,
+    "sha256": "289be8903d0ce67759e19d3d15df39e16239ceac42149749e4e6707c90af9bb5",
+    "loose": "513acdd0f94940d9365ad05aa651dd16212cd8884f5026177a243f601b224c08"
+   },
+   {
+    "kind": "comments",
+    "objects": 220,
+    "sha256": "7b647ebe77f300774fd837d8284e033b20a229c4acdbdcede11825ba48b8012f",
+    "loose": "7b647ebe77f300774fd837d8284e033b20a229c4acdbdcede11825ba48b8012f"
+   },
+   {
+    "kind": "constraints",
+    "objects": 1216,
+    "sha256": "213c7d922f506aada1a2aee0733d5e31e2d6a45f113a68dbe6cda80fb9ec8534",
+    "loose": "ab7f67a7804fef7bdfb8e216483288c95deff5a457116dfeffbb1ffa4f3da2f8"
+   },
+   {
+    "kind": "database",
+    "objects": 1,
+    "sha256": "5d9ca42e0a346979b850d0845a41ebcf62d923f81dd460f198dbd94b0004d76e",
+    "loose": "5d9ca42e0a346979b850d0845a41ebcf62d923f81dd460f198dbd94b0004d76e"
+   },
+   {
+    "kind": "database_role_settings",
+    "objects": 9,
+    "sha256": "e8bdc02d1af1f845db13db4a09f6e86b259c7703b5c906b5d8fba075ee03f313",
+    "loose": "e8bdc02d1af1f845db13db4a09f6e86b259c7703b5c906b5d8fba075ee03f313"
+   },
+   {
+    "kind": "default_privileges",
+    "objects": 27,
+    "sha256": "31c7f30e0cab6edf3beffd335bbba919e87418ee698c80f1f5cbadbb63844676",
+    "loose": "31c7f30e0cab6edf3beffd335bbba919e87418ee698c80f1f5cbadbb63844676"
+   },
+   {
+    "kind": "enums",
+    "objects": 50,
+    "sha256": "ca788d77badcf4081a88d0292539a4d39b3f32608b925970c071538a76733c7b",
+    "loose": "ca788d77badcf4081a88d0292539a4d39b3f32608b925970c071538a76733c7b"
+   },
+   {
+    "kind": "events",
+    "objects": 6,
+    "sha256": "d5a0d989dd105dcb581ce222e7497a815bded300898d7a155e1d4450a8f61eb4",
+    "loose": "d5a0d989dd105dcb581ce222e7497a815bded300898d7a155e1d4450a8f61eb4"
+   },
+   {
+    "kind": "extension_members",
+    "objects": 307,
+    "sha256": "6b5177ccbff357bf6e913c360a90ca4570be79becc25d5d4217217c6254ba5b2",
+    "loose": "6b5177ccbff357bf6e913c360a90ca4570be79becc25d5d4217217c6254ba5b2"
+   },
+   {
+    "kind": "extensions",
+    "objects": 10,
+    "sha256": "c109fa14cf99ce1c4bd45c9b240c10a7c5432decedecd92cdb148122a8fd01d7",
+    "loose": "c109fa14cf99ce1c4bd45c9b240c10a7c5432decedecd92cdb148122a8fd01d7"
+   },
+   {
+    "kind": "functions",
+    "objects": 1010,
+    "sha256": "2b4eaa60849382ef8c217f89b7b702449372f33d9abb7f5cc9aabe26f9d56d26",
+    "loose": "2b4eaa60849382ef8c217f89b7b702449372f33d9abb7f5cc9aabe26f9d56d26"
+   },
+   {
+    "kind": "indexes",
+    "objects": 863,
+    "sha256": "94e96efbc1e183df1e38208a248dafda19e58d040ad6aafc447622a7a8b9190e",
+    "loose": "d1727d47342cfc84e250f1f0fdaf205f944fdca7dd8e6bae70c29da7ef68a6f2"
+   },
+   {
+    "kind": "inheritance",
+    "objects": 21,
+    "sha256": "ce61cee7c2a4f0c86e056b6f702852cca36585de3d911b277e1849d20cb82a05",
+    "loose": "ce61cee7c2a4f0c86e056b6f702852cca36585de3d911b277e1849d20cb82a05"
+   },
+   {
+    "kind": "languages",
+    "objects": 4,
+    "sha256": "3fb994b7fe9a0ab738dc14b6e872a30289c2bcc7afc3836bf9060f397e0715ac",
+    "loose": "3fb994b7fe9a0ab738dc14b6e872a30289c2bcc7afc3836bf9060f397e0715ac"
+   },
+   {
+    "kind": "memberships",
+    "objects": 29,
+    "sha256": "7c168a0f55d8fb781690065d305ff9382fedfe9f5aa27d0f4e9c39fd37e7ccb4",
+    "loose": "7c168a0f55d8fb781690065d305ff9382fedfe9f5aa27d0f4e9c39fd37e7ccb4"
+   },
+   {
+    "kind": "namespaces",
+    "objects": 19,
+    "sha256": "89fddfe230adee151e9010b9e42766c671ba00b76193245b3c2427e16c5c6235",
+    "loose": "89fddfe230adee151e9010b9e42766c671ba00b76193245b3c2427e16c5c6235"
+   },
+   {
+    "kind": "opclasses",
+    "objects": 6,
+    "sha256": "b72a4da7bccfaaab0ee9f441f5b23e3fbbdbad3f1a52d63c304be9c3e843eedb",
+    "loose": "b72a4da7bccfaaab0ee9f441f5b23e3fbbdbad3f1a52d63c304be9c3e843eedb"
+   },
+   {
+    "kind": "operators",
+    "objects": 59,
+    "sha256": "b51f7bd556554c491b7b936ea38d51f46926599fbc4918499939bbb3fa847303",
+    "loose": "b51f7bd556554c491b7b936ea38d51f46926599fbc4918499939bbb3fa847303"
+   },
+   {
+    "kind": "opfamilies",
+    "objects": 85,
+    "sha256": "d7907f6f57e19468b36cb9556dc19e5f97ed76aeeae10f77b54cd1ab5acfa936",
+    "loose": "d7907f6f57e19468b36cb9556dc19e5f97ed76aeeae10f77b54cd1ab5acfa936"
+   },
+   {
+    "kind": "policies",
+    "objects": 387,
+    "sha256": "65038f6672a53f7cf3acb433af0e4e852aa6cfbd3c99c9ffb191d28d1bf3d4c0",
+    "loose": "1c1d400b65ff9ea185b5b6406466c7eb9c336b9153e9cd8f35113fd9d0ab3c41"
+   },
+   {
+    "kind": "publication_tables",
+    "objects": 16,
+    "sha256": "c71e0ec2f4451393f13cfa7e1a13fa4b122758785ccd4a75a2c406cfd80b4337",
+    "loose": "c71e0ec2f4451393f13cfa7e1a13fa4b122758785ccd4a75a2c406cfd80b4337"
+   },
+   {
+    "kind": "publications",
+    "objects": 2,
+    "sha256": "10ae58a60b1855c68947db2130cb132eaaee2dd4c8c56502222dc8ed6cf9316a",
+    "loose": "10ae58a60b1855c68947db2130cb132eaaee2dd4c8c56502222dc8ed6cf9316a"
+   },
+   {
+    "kind": "relations",
+    "objects": 1157,
+    "sha256": "b4cb22addb6a914b7729f1f21bd3ed3b6ea19dba254432da9bba431e3051ef44",
+    "loose": "b4cb22addb6a914b7729f1f21bd3ed3b6ea19dba254432da9bba431e3051ef44"
+   },
+   {
+    "kind": "roles",
+    "objects": 35,
+    "sha256": "41568bcd2e43193c2594280eefac37e29539ba51805097b904e27c869368aba8",
+    "loose": "41568bcd2e43193c2594280eefac37e29539ba51805097b904e27c869368aba8"
+   },
+   {
+    "kind": "rules",
+    "objects": 4,
+    "sha256": "beca62c16b1ed5b2562d3ce92116b3bf2ab8e5a0db433f103c483a7a99ca17ee",
+    "loose": "5c4bdcc3b7e65e82bc08dccf4dd0b31b106258cc151fa79646fc2dbc8f5ce5d6"
+   },
+   {
+    "kind": "sequence_ownership",
+    "objects": 12,
+    "sha256": "36bf19de0dde5700b88115d140177d0d5cf855fbf5c2f9129fb4670c19e5e7bd",
+    "loose": "36bf19de0dde5700b88115d140177d0d5cf855fbf5c2f9129fb4670c19e5e7bd"
+   },
+   {
+    "kind": "sequences",
+    "objects": 15,
+    "sha256": "b4c864868098a5c2bc1a95c7b0ec1953cda9cf075495b42a0e8c75cf769463f5",
+    "loose": "b4c864868098a5c2bc1a95c7b0ec1953cda9cf075495b42a0e8c75cf769463f5"
+   },
+   {
+    "kind": "session",
+    "objects": 1,
+    "sha256": "e198ec373c9908698d8ddcf1a9f7a48f3326d814f87d7b9c3bb4833bfa4101b4",
+    "loose": "e198ec373c9908698d8ddcf1a9f7a48f3326d814f87d7b9c3bb4833bfa4101b4"
+   },
+   {
+    "kind": "tablespaces",
+    "objects": 2,
+    "sha256": "a69f171ec61f6aec28273ed05aff34846aaab536107070717d677343faf4fd1c",
+    "loose": "a69f171ec61f6aec28273ed05aff34846aaab536107070717d677343faf4fd1c"
+   },
+   {
+    "kind": "triggers",
+    "objects": 219,
+    "sha256": "8e489697ac8e90a507c2b3c8ed1484b2a41e52b71a1c27bd81b62e7eb3a195b9",
+    "loose": "c421cecb7e0f867aaab4819d81b2dc052ee58d2161a0767737778f64a74ac97c"
+   },
+   {
+    "kind": "types",
+    "objects": 596,
+    "sha256": "d36d696c8020a1bc6d852d02be74a08e4c914c4dfb6e399230b8c4ffff833be1",
+    "loose": "d36d696c8020a1bc6d852d02be74a08e4c914c4dfb6e399230b8c4ffff833be1"
+   },
+   {
+    "kind": "views",
+    "objects": 4,
+    "sha256": "f78e10e39946a78d58190cf4e79ba549992e54c792677f8fb6aa2bfbb1c03813",
+    "loose": "defc9e0e8b1c6971325f8474c11b93c5d0d32f6c4a0641a1a3871581bd11a461"
+   }
+  ]
+ },
+ "auth_reading": {
+  "version_count": 84,
+  "versions_sha256": "d82ee2c062ac0b3dd65235df4976c9cd10b55c2e3d7534dd3a4227d133a534d9",
+  "observed_at": "2026-11-25T05:56:42Z",
+  "client": {
+   "application_name": "mgmt-api",
+   "session_user": "postgres"
+  }
+ },
+ "canonical_receipt": {
+  "captured_at": "2026-11-25T05:57:53.665632Z",
+  "client": {
+   "application_name": "mgmt-api",
+   "session_user": "postgres"
+  },
+  "row_script_sha256": "a5c7b16cc01b71ca18ad884679928722c3bbe9011d48b4bbdc3934dcdd8ac891",
+  "rollup_script_sha256": "f4119048c1e5c1682fa601e654313e00b68acabf0d2ce019af61415fb52bef4c",
+  "rows_sha256": "0dfbaf591a99c106b9d94a8ddbed7910a4ae9d49d04fbcfe54415c64a625cea3",
+  "rollup_sha256": "c31beea0873545480f3b7b62cc40eefc63389f46eaa6c7684a96eaace52facf8",
+  "bucket_sha256": "188a851c9f1b030cc6841813de2e0dd6a0b881d86c5634700d93e5dc15e728ef",
+  "kinds": [
+   {
+    "kind": "bucket",
+    "rows": 7,
+    "sha256": "ee8f21c3672cf1a0d0d534789d7e21ac35319b8e90fa1e3be12d88cdbc3ea6b3"
+   },
+   {
+    "kind": "colacl",
+    "rows": 102,
+    "sha256": "f8ed839d44dbcdc83c0b7f8b7379c2be9ca58e72f676442315a0fe8bb7896fdc"
+   },
+   {
+    "kind": "column",
+    "rows": 2513,
+    "sha256": "f0d602096eb72ba25efe47efb794cdfe5ee197a6e71c838b42540a8444819bc1"
+   },
+   {
+    "kind": "comment",
+    "rows": 26,
+    "sha256": "dd3f19992111d6b00f57689987bdb99e544fa0c7da09a329ecdc48f6b5936b7f"
+   },
+   {
+    "kind": "constraint",
+    "rows": 1054,
+    "sha256": "f39ec243fea101a8199539115a5db9571675e5f8c748d490ea7b14b41661bba3"
+   },
+   {
+    "kind": "defacl",
+    "rows": 27,
+    "sha256": "74defeb77d07b0add9ec559f22f84472ccb45473060b25c7c655cc6491031a9e"
+   },
+   {
+    "kind": "extension",
+    "rows": 10,
+    "sha256": "5f9f6d58fe3d70d0a72c8733bda658d8b71182a15ada0c77de4cf288cd23ea07"
+   },
+   {
+    "kind": "function",
+    "rows": 845,
+    "sha256": "ca3eaa1c5370aa877670794c80c0f8b14474de5fd9f6c94a0f9e2a98315307f5"
+   },
+   {
+    "kind": "grants",
+    "rows": 214,
+    "sha256": "89a1acb52410007d525da00e220dfd2df5bd82ee1b7cc7c63817724b93856704"
+   },
+   {
+    "kind": "index",
+    "rows": 700,
+    "sha256": "426aaa982b951d05f7b923f48bee96322579bcf2dc52f6e30ea6517357a206d2"
+   },
+   {
+    "kind": "policy",
+    "rows": 385,
+    "sha256": "c29311bdec09f77b17346cefc57675514bdc3a8f1e4151687eb9b5f74f7965db"
+   },
+   {
+    "kind": "publication",
+    "rows": 10,
+    "sha256": "44993bcc87e4c3875d7ad12b442deb83b58e97f5606f02c90bc57358e74be578"
+   },
+   {
+    "kind": "replident",
+    "rows": 213,
+    "sha256": "b9d0e6a4635c8ebeaef7b2378231bf0e04abb9795f65cf84411a389c3a462190"
+   },
+   {
+    "kind": "rls",
+    "rows": 213,
+    "sha256": "025f751324ac464d85a9bab9c0995eb9eff8c24f9d06eec1ced0773995fc5dec"
+   },
+   {
+    "kind": "sequence",
+    "rows": 10,
+    "sha256": "5d1fc733bf9d8f4e87d6d9047164e897dfcbb2fa92c85712cc360cf71825d096"
+   },
+   {
+    "kind": "trigger",
+    "rows": 206,
+    "sha256": "50d28d4d25f417464dc1337c7a8c6c957a26962d5c2b80a973942aae47cf7c61"
+   },
+   {
+    "kind": "view",
+    "rows": 1,
+    "sha256": "d84e4765f733375b533b2f716e31895c03453f2a4b67e32ff2ab0b5840136492"
+   }
+  ]
+ },
+ "extension_readings": {
+  "purpose": "Read once to find what a schema-only dump cannot carry for production's extensions. Each query returned the server's MD5 of the text it received before the connector's own trailing comment (text_md5), which equals the MD5 of the query as written, and the server's length, which is that text plus the 108-character comment. Owner and privilege names are role names; no row of any table was read. The exact text of each query is in query_texts.",
+  "initial_privileges": {
+   "captured_at": "2026-11-25T23:49:49.050807Z",
+   "text_md5": "819de2f8f0c2bf7c95b8c161ec964e6b",
+   "query_length": 2142,
+   "client": {
+    "session_user": "postgres",
+    "application_name": "mgmt-api"
+   },
+   "extensions": [
+    [
+     "ltree",
+     "1.3",
+     "public",
+     "supabase_admin"
+    ],
+    [
+     "moddatetime",
+     "1.0",
+     "extensions",
+     "supabase_admin"
+    ],
+    [
+     "pg_cron",
+     "1.6.4",
+     "pg_catalog",
+     "supabase_admin"
+    ],
+    [
+     "pg_net",
+     "0.19.5",
+     "public",
+     "supabase_admin"
+    ],
+    [
+     "pg_stat_statements",
+     "1.11",
+     "extensions",
+     "postgres"
+    ],
+    [
+     "pg_trgm",
+     "1.6",
+     "public",
+     "supabase_admin"
+    ],
+    [
+     "pgcrypto",
+     "1.3",
+     "extensions",
+     "postgres"
+    ],
+    [
+     "plpgsql",
+     "1.0",
+     "pg_catalog",
+     "supabase_admin"
+    ],
+    [
+     "supabase_vault",
+     "0.3.1",
+     "vault",
+     "supabase_admin"
+    ],
+    [
+     "uuid-ossp",
+     "1.1",
+     "extensions",
+     "postgres"
+    ]
+   ],
+   "per_extension": {
+    "-": [
+     2,
+     "6af027de8d02481f42dad295d9e0b4d1"
+    ],
+    "pg_net": [
+     4,
+     "4e0750af46f689f2db79243e07de6278"
+    ],
+    "pg_cron": [
+     4,
+     "555e25b0c065a42dd1d39dbdc537e389"
+    ],
+    "supabase_vault": [
+     5,
+     "1dd2ad7713936b8891819aa9f9078a63"
+    ],
+    "pg_stat_statements": [
+     3,
+     "a6ec80d3427b25caf0687ae53cc17f20"
+    ]
+   },
+   "pg_net_initial_privileges_granting_postgres": 0,
+   "compared": "Each per-extension count and MD5 (privtype e rows of pg_init_privs, by object identity) equals a fresh install on supabase/postgres:17.6.1.063 or .085 except pg_stat_statements (production a6ec80d3..., fresh ecda650c...), whose initial privileges name postgres. The image's default versions of all ten extensions equal production's."
+  },
+  "owners": {
+   "captured_at": "2026-11-26T01:09:36.856233Z",
+   "text_md5": "685935263dcd584bbc90fdb07fdbd897",
+   "query_length": 2178,
+   "client": {
+    "session_user": "postgres",
+    "application_name": "mgmt-api"
+   },
+   "member_owners": {
+    "plpgsql/supabase_admin/language/-": 1,
+    "pgcrypto/postgres/function/postgres": 36,
+    "uuid-ossp/postgres/function/postgres": 10,
+    "ltree/supabase_admin/operator class/-": 4,
+    "ltree/supabase_admin/operator family/-": 4,
+    "pg_trgm/supabase_admin/operator class/-": 2,
+    "ltree/supabase_admin/type/supabase_admin": 8,
+    "pg_trgm/supabase_admin/operator family/-": 2,
+    "pg_net/supabase_admin/type/supabase_admin": 12,
+    "pg_stat_statements/postgres/type/postgres": 4,
+    "pg_stat_statements/postgres/view/postgres": 2,
+    "pg_cron/supabase_admin/type/supabase_admin": 4,
+    "pg_net/supabase_admin/table/supabase_admin": 2,
+    "pg_trgm/supabase_admin/type/supabase_admin": 2,
+    "pg_cron/supabase_admin/table/supabase_admin": 2,
+    "pg_net/supabase_admin/schema/supabase_admin": 1,
+    "ltree/supabase_admin/function/supabase_admin": 80,
+    "ltree/supabase_admin/operator/supabase_admin": 49,
+    "pg_cron/supabase_admin/schema/supabase_admin": 1,
+    "pg_net/supabase_admin/function/supabase_admin": 12,
+    "pg_net/supabase_admin/sequence/supabase_admin": 1,
+    "pg_stat_statements/postgres/function/postgres": 3,
+    "pg_cron/supabase_admin/function/supabase_admin": 7,
+    "pg_cron/supabase_admin/sequence/supabase_admin": 2,
+    "pg_trgm/supabase_admin/function/supabase_admin": 31,
+    "pg_trgm/supabase_admin/operator/supabase_admin": 10,
+    "plpgsql/supabase_admin/function/supabase_admin": 3,
+    "supabase_vault/supabase_admin/type/supabase_admin": 4,
+    "supabase_vault/supabase_admin/view/supabase_admin": 1,
+    "moddatetime/supabase_admin/function/supabase_admin": 1,
+    "supabase_vault/supabase_admin/table/supabase_admin": 1,
+    "supabase_vault/supabase_admin/function/supabase_admin": 5
+   },
+   "pg_stat_statements_initial_privileges": [
+    [
+     "extensions.pg_stat_statements",
+     "e",
+     "{=r/postgres,postgres=arwdDxtm/postgres}"
+    ],
+    [
+     "extensions.pg_stat_statements_info",
+     "e",
+     "{=r/postgres,postgres=arwdDxtm/postgres}"
+    ],
+    [
+     "extensions.pg_stat_statements_reset(pg_catalog.oid,pg_catalog.oid,bigint,boolean)",
+     "e",
+     "{postgres=X/postgres}"
+    ]
+   ]
+  },
+  "member_privileges": {
+   "captured_at": "2026-11-26T01:15:09.582916Z",
+   "text_md5": "2433b6a52bf23796e3f88a6a689a2f92",
+   "query_length": 3268,
+   "client": {
+    "session_user": "postgres",
+    "application_name": "mgmt-api"
+   },
+   "members": {
+    "pgcrypto/function": [
+     36,
+     36,
+     "PUBLIC,dashboard_user,postgres",
+     "postgres",
+     "9c99964260a8ba0c2cdace8a32158f4d"
+    ],
+    "uuid-ossp/function": [
+     10,
+     10,
+     "PUBLIC,dashboard_user,postgres",
+     "postgres",
+     "aad9af03051bc2f91b36c82c8bcb3983"
+    ],
+    "pg_stat_statements/view": [
+     2,
+     2,
+     "PUBLIC,dashboard_user,postgres",
+     "postgres",
+     "69c942361a6d50f17fc8b37b468d63a0"
+    ],
+    "pg_stat_statements/function": [
+     3,
+     3,
+     "PUBLIC,dashboard_user,postgres,dashboard_user,postgres",
+     "postgres",
+     "c511a1b8988d933f853fbf8f8399538b"
+    ]
+   },
+   "columns": "per extension and member type: members, members with an explicit privilege list, grantees, grantors, MD5 of identity|owner|privileges"
+  },
+  "shared_dependencies": {
+   "captured_at": "2026-11-26T04:41:26.034353Z",
+   "text_md5": "68b0be86208e50c2240ed38ae500aa2b",
+   "query_length": 3860,
+   "client": {
+    "session_user": "postgres",
+    "application_name": "mgmt-api"
+   },
+   "rows": 14,
+   "owner_rows": 3,
+   "initial_privilege_rows": 11,
+   "rows_md5": "601d29be047506bacd1ecff4b6919f6d",
+   "by_kind": {
+    "i/function/postgres": 1,
+    "i/schema/anon": 2,
+    "i/schema/authenticated": 2,
+    "i/schema/postgres": 2,
+    "i/schema/service_role": 2,
+    "i/view/postgres": 2,
+    "o/extension/postgres": 3
+   },
+   "restore_rule_rows": 14,
+   "restore_rule_md5": "601d29be047506bacd1ecff4b6919f6d",
+   "only_in_reading": 0,
+   "only_in_restore_rule": 0,
+   "init_privs": {
+    "e": 18,
+    "i": 223
+   },
+   "initdb_privileges_naming_unpinned_roles": 0,
+   "columns": "rows: production's pg_shdepend rows on roles that extension-ownership.sql reads (each extension's owner row, 'o', and every initial-privilege row, 'i'), as [type, object type, object names, object arguments, role]; restore_rule: the same rows as restore-full.sh's ownership step writes them from production's pg_init_privs and extension owners; by_kind: type/object type/role counts; MD5 of the rows' JSON text sorted bytewise and joined by newlines",
+   "compared": "Production's rows equal what the restore's ownership step writes (nothing only in either, same MD5), so production's history left no shared dependency the step would not rebuild, and the first operator run cannot stop on that check because of it. The MD5 equals the shared_dependencies of the production-like stand-in's reading (14 rows), which the restore reproduced and matched in every family."
+  },
+  "consequence": "pgcrypto, uuid-ossp and pg_stat_statements and all their members belong to postgres. A restore as supabase_admin makes them supabase_admin's, so a faithful copy differed in acls, extensions, functions, relations and types (shown on a scratch copy). The schemas graphql and graphql_public keep initial privileges from pg_graphql, which production no longer has, so pg_dump writes no grant for them and a restored copy would have lost their privileges. release-full now reproduces, from the bundle's reading (extension-ownership.json, format 2), extension owners, extension-recorded initial privileges, those two schemas' privileges and the shared dependencies PostgreSQL keeps for them, after restoring everything but the privileges and before restoring those, and then compares. Read on November 26 at 04:41 UTC: production's shared dependencies on roles for these (3 extension owner rows and 11 initial-privilege rows) are exactly what the restore's step rebuilds.",
+  "query_texts": {
+   "initial_privileges": "SELECT jsonb_build_object('reading','extension-initial-privileges/1','query_md5',md5(current_query()),'query_length',length(current_query()),'text_md5',md5(split_part(current_query(),E'\\n\\n-- source: POST /mcp',1)),\n  'captured_at',to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),\n  'client',jsonb_build_object('application_name',current_setting('application_name'),'session_user',session_user::text),\n  'pg_net_initial_privileges_granting_postgres',(SELECT count(*) FROM pg_catalog.pg_init_privs i WHERE ((i.classoid='pg_catalog.pg_namespace'::pg_catalog.regclass AND i.objoid=(SELECT oid FROM pg_catalog.pg_namespace WHERE nspname='net')) OR (i.classoid='pg_catalog.pg_class'::pg_catalog.regclass AND i.objoid IN (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='net'))) AND EXISTS (SELECT 1 FROM pg_catalog.aclexplode(i.initprivs) a WHERE a.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres'))),\n  'extensions',(SELECT jsonb_agg(jsonb_build_array(e.extname,e.extversion,n.nspname,pg_catalog.pg_get_userbyid(e.extowner)) ORDER BY e.extname) FROM pg_catalog.pg_extension e JOIN pg_catalog.pg_namespace n ON n.oid=e.extnamespace),\n  'initial_privileges',(SELECT jsonb_object_agg(x.k,jsonb_build_array(x.cnt,x.dig)) FROM (\n    SELECT coalesce(e.extname,'-') k,count(*) cnt,\n      md5(string_agg(concat_ws('|',i.type,i.identity,p.privtype,ARRAY(SELECT acl::text FROM unnest(p.initprivs) acl ORDER BY acl::text COLLATE \"C\")::text),E'\\n' ORDER BY i.type COLLATE \"C\",i.identity COLLATE \"C\",p.privtype)) dig\n    FROM pg_catalog.pg_init_privs p\n    CROSS JOIN LATERAL pg_catalog.pg_identify_object(p.classoid,p.objoid,p.objsubid) i\n    LEFT JOIN pg_catalog.pg_depend d ON d.classid=p.classoid AND d.objid=p.objoid AND d.objsubid=0 AND d.deptype='e' AND d.refclassid='pg_catalog.pg_extension'::pg_catalog.regclass\n    LEFT JOIN pg_catalog.pg_extension e ON e.oid=d.refobjid\n    WHERE p.privtype='e'\n    GROUP BY 1) x)) AS reading;",
+   "owners": "SELECT jsonb_build_object('reading','extension-owners/1','query_length',length(current_query()),'text_md5',md5(split_part(current_query(),E'\\n\\n-- source: POST /mcp',1)),\n  'captured_at',to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),\n  'client',jsonb_build_object('application_name',current_setting('application_name'),'session_user',session_user::text),\n  'member_owners',(SELECT jsonb_object_agg(x.k,x.n) FROM (\n    SELECT e.extname||'/'||pg_catalog.pg_get_userbyid(e.extowner)||'/'||i.type||'/'||coalesce(pg_catalog.pg_get_userbyid(coalesce(\n      (SELECT p.proowner FROM pg_catalog.pg_proc p WHERE d.classid='pg_catalog.pg_proc'::pg_catalog.regclass AND p.oid=d.objid),\n      (SELECT c.relowner FROM pg_catalog.pg_class c WHERE d.classid='pg_catalog.pg_class'::pg_catalog.regclass AND c.oid=d.objid),\n      (SELECT t.typowner FROM pg_catalog.pg_type t WHERE d.classid='pg_catalog.pg_type'::pg_catalog.regclass AND t.oid=d.objid),\n      (SELECT o.oprowner FROM pg_catalog.pg_operator o WHERE d.classid='pg_catalog.pg_operator'::pg_catalog.regclass AND o.oid=d.objid),\n      (SELECT n.nspowner FROM pg_catalog.pg_namespace n WHERE d.classid='pg_catalog.pg_namespace'::pg_catalog.regclass AND n.oid=d.objid))),'-') k,count(*) n\n    FROM pg_catalog.pg_depend d JOIN pg_catalog.pg_extension e ON d.refclassid='pg_catalog.pg_extension'::pg_catalog.regclass AND e.oid=d.refobjid\n    CROSS JOIN LATERAL pg_catalog.pg_identify_object(d.classid,d.objid,0) i\n    WHERE d.deptype='e' GROUP BY 1) x),\n  'pg_stat_statements_initial_privileges',(SELECT jsonb_agg(jsonb_build_array(i.identity,p.privtype,ARRAY(SELECT acl::text FROM unnest(p.initprivs) acl ORDER BY acl::text COLLATE \"C\")::text) ORDER BY i.identity)\n    FROM pg_catalog.pg_init_privs p CROSS JOIN LATERAL pg_catalog.pg_identify_object(p.classoid,p.objoid,p.objsubid) i\n    JOIN pg_catalog.pg_depend d ON d.classid=p.classoid AND d.objid=p.objoid AND d.objsubid=0 AND d.deptype='e'\n    JOIN pg_catalog.pg_extension e ON e.oid=d.refobjid AND e.extname='pg_stat_statements')) AS reading;",
+   "member_privileges": "SELECT jsonb_build_object('reading','extension-member-privileges/1','query_length',length(current_query()),'text_md5',md5(split_part(current_query(),E'\\n\\n-- source: POST /mcp',1)),\n  'captured_at',to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),\n  'client',jsonb_build_object('application_name',current_setting('application_name'),'session_user',session_user::text),\n  'members',(SELECT jsonb_object_agg(x.k,jsonb_build_array(x.n,x.with_acl,x.grantees,x.grantors,x.dig)) FROM (\n    SELECT e.extname||'/'||i.type k,count(*) n,count(m.acl) with_acl,\n      (SELECT string_agg(DISTINCT g,',' ORDER BY g) FROM unnest(array_agg(m.grantees)) g WHERE g IS NOT NULL) grantees,\n      (SELECT string_agg(DISTINCT g,',' ORDER BY g) FROM unnest(array_agg(m.grantors)) g WHERE g IS NOT NULL) grantors,\n      md5(string_agg(i.identity||'|'||coalesce(m.owner,'-')||'|'||coalesce(m.acl,'-'),E'\\n' ORDER BY i.identity COLLATE \"C\")) dig\n    FROM pg_catalog.pg_depend d JOIN pg_catalog.pg_extension e ON d.refclassid='pg_catalog.pg_extension'::pg_catalog.regclass AND e.oid=d.refobjid\n    CROSS JOIN LATERAL pg_catalog.pg_identify_object(d.classid,d.objid,0) i\n    CROSS JOIN LATERAL (SELECT coalesce(\n        (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p WHERE d.classid='pg_catalog.pg_proc'::pg_catalog.regclass AND p.oid=d.objid),\n        (SELECT pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class c WHERE d.classid='pg_catalog.pg_class'::pg_catalog.regclass AND c.oid=d.objid)) owner,\n      coalesce((SELECT ARRAY(SELECT a::text FROM unnest(p.proacl) a ORDER BY a::text COLLATE \"C\")::text FROM pg_catalog.pg_proc p WHERE d.classid='pg_catalog.pg_proc'::pg_catalog.regclass AND p.oid=d.objid AND p.proacl IS NOT NULL),\n        (SELECT ARRAY(SELECT a::text FROM unnest(c.relacl) a ORDER BY a::text COLLATE \"C\")::text FROM pg_catalog.pg_class c WHERE d.classid='pg_catalog.pg_class'::pg_catalog.regclass AND c.oid=d.objid AND c.relacl IS NOT NULL)) acl,\n      coalesce((SELECT string_agg(DISTINCT CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END,',') FROM pg_catalog.pg_proc p, pg_catalog.aclexplode(p.proacl) x WHERE d.classid='pg_catalog.pg_proc'::pg_catalog.regclass AND p.oid=d.objid),\n        (SELECT string_agg(DISTINCT CASE WHEN x.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(x.grantee) END,',') FROM pg_catalog.pg_class c, pg_catalog.aclexplode(c.relacl) x WHERE d.classid='pg_catalog.pg_class'::pg_catalog.regclass AND c.oid=d.objid)) grantees,\n      coalesce((SELECT string_agg(DISTINCT pg_catalog.pg_get_userbyid(x.grantor),',') FROM pg_catalog.pg_proc p, pg_catalog.aclexplode(p.proacl) x WHERE d.classid='pg_catalog.pg_proc'::pg_catalog.regclass AND p.oid=d.objid),\n        (SELECT string_agg(DISTINCT pg_catalog.pg_get_userbyid(x.grantor),',') FROM pg_catalog.pg_class c, pg_catalog.aclexplode(c.relacl) x WHERE d.classid='pg_catalog.pg_class'::pg_catalog.regclass AND c.oid=d.objid)) grantors) m\n    WHERE d.deptype='e' AND e.extname IN ('pgcrypto','uuid-ossp','pg_stat_statements') AND i.type IN ('function','view')\n    GROUP BY 1) x)) AS reading;",
+   "shared_dependencies": "WITH db AS (SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname=pg_catalog.current_database()),\nreading AS (SELECT pg_catalog.jsonb_build_array(s.deptype::text,a.type,a.object_names,a.object_args,pg_catalog.pg_get_userbyid(s.refobjid)::text) x\n  FROM pg_catalog.pg_shdepend s CROSS JOIN LATERAL pg_catalog.pg_identify_object_as_address(s.classid,s.objid,s.objsubid) a\n  WHERE s.dbid=(SELECT db.oid FROM db) AND s.refclassid='pg_catalog.pg_authid'::pg_catalog.regclass\n    AND (s.deptype='i' OR (s.deptype='o' AND s.classid='pg_catalog.pg_extension'::pg_catalog.regclass))),\nrule AS (SELECT pg_catalog.jsonb_build_array('o'::text,a.type,a.object_names,a.object_args,pg_catalog.pg_get_userbyid(e.extowner)::text) x\n    FROM pg_catalog.pg_extension e\n    CROSS JOIN LATERAL pg_catalog.pg_identify_object_as_address('pg_catalog.pg_extension'::pg_catalog.regclass,e.oid,0) a\n    WHERE e.extowner>=12000\n  UNION ALL\n  SELECT DISTINCT pg_catalog.jsonb_build_array('i'::text,a.type,a.object_names,a.object_args,pg_catalog.pg_get_userbyid(r.role)::text)\n    FROM pg_catalog.pg_init_privs p\n    CROSS JOIN LATERAL (SELECT q.grantee FROM pg_catalog.aclexplode(p.initprivs) q\n      UNION SELECT q.grantor FROM pg_catalog.aclexplode(p.initprivs) q) r(role)\n    CROSS JOIN LATERAL pg_catalog.pg_identify_object_as_address(p.classoid,p.objoid,p.objsubid) a\n    WHERE r.role<>0 AND r.role>=12000),\nonly_reading AS (SELECT x FROM reading EXCEPT ALL SELECT x FROM rule),\nonly_rule AS (SELECT x FROM rule EXCEPT ALL SELECT x FROM reading)\nSELECT pg_catalog.jsonb_build_object('reading','extension-shared-dependencies/1','query_length',pg_catalog.length(pg_catalog.current_query()),\n  'text_md5',pg_catalog.md5(pg_catalog.split_part(pg_catalog.current_query(),E'\\n\\n-- source: POST /mcp',1)),\n  'captured_at',pg_catalog.to_char(pg_catalog.clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),\n  'client',pg_catalog.jsonb_build_object('application_name',pg_catalog.current_setting('application_name'),'session_user',session_user::text),\n  'shared_dependencies',(SELECT pg_catalog.jsonb_build_object('rows',pg_catalog.count(*),\n      'owner_rows',pg_catalog.count(*) FILTER (WHERE x->>0='o'),'initial_privilege_rows',pg_catalog.count(*) FILTER (WHERE x->>0='i'),\n      'md5',pg_catalog.md5(coalesce(pg_catalog.string_agg(x::text,E'\\n' ORDER BY x::text COLLATE \"C\"),'')),\n      'by_kind',(SELECT pg_catalog.jsonb_object_agg(z.k,z.n) FROM (SELECT (y.x->>0)||'/'||(y.x->>1)||'/'||(y.x->>4) k,pg_catalog.count(*) n\n        FROM reading y GROUP BY 1) z)) FROM reading),\n  'restore_rule',(SELECT pg_catalog.jsonb_build_object('rows',pg_catalog.count(*),\n      'md5',pg_catalog.md5(coalesce(pg_catalog.string_agg(x::text,E'\\n' ORDER BY x::text COLLATE \"C\"),''))) FROM rule),\n  'only_in_reading',(SELECT pg_catalog.jsonb_build_object('rows',pg_catalog.count(*),'by_kind',(SELECT pg_catalog.jsonb_object_agg(z.k,z.n)\n      FROM (SELECT (y.x->>0)||'/'||(y.x->>1)||'/'||(y.x->>4) k,pg_catalog.count(*) n FROM only_reading y GROUP BY 1) z)) FROM only_reading),\n  'only_in_rule',(SELECT pg_catalog.jsonb_build_object('rows',pg_catalog.count(*),'by_kind',(SELECT pg_catalog.jsonb_object_agg(z.k,z.n)\n      FROM (SELECT (y.x->>0)||'/'||(y.x->>1)||'/'||(y.x->>4) k,pg_catalog.count(*) n FROM only_rule y GROUP BY 1) z)) FROM only_rule),\n  'init_privs',(SELECT pg_catalog.jsonb_object_agg(z.t,z.n) FROM (SELECT p.privtype::text t,pg_catalog.count(*) n FROM pg_catalog.pg_init_privs p GROUP BY 1) z),\n  'initdb_privileges_naming_unpinned_roles',(SELECT pg_catalog.count(*) FROM pg_catalog.pg_init_privs p\n    WHERE p.privtype='i' AND EXISTS (SELECT 1 FROM pg_catalog.aclexplode(p.initprivs) q WHERE (q.grantee<>0 AND q.grantee>=12000) OR q.grantor>=12000))) AS reading"
+  }
+ }
+}

@@ -40,6 +40,7 @@ import { cn, getStatusColorStyle } from "@/lib/utils";
 import { useOrganization } from "@/hooks/useOrganization";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePolicyIssuanceAvailable } from "@/hooks/usePolicyIssuanceAvailable";
 import { useEffectiveViewer } from "@/hooks/useEffectiveViewer";
 import { useContactAssigneeOptions } from "@/hooks/useContactAssigneeOptions";
 import AddToCampaignModal from "@/components/contacts/AddToCampaignModal";
@@ -197,6 +198,7 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   const { organizationId } = useOrganization();
   const { addAppointment } = useCalendar();
   const { profile, user, isImpersonating } = useAuth();
+  const phonePan = usePolicyIssuanceAvailable(profile?.organization_id);
   const { viewer } = useEffectiveViewer();
   const { formatDate, formatDateTime, branding } = useBranding();
   // Contacts Build 5: gate edit/delete by the Contacts catalog. Conversion stays ungated.
@@ -301,6 +303,10 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
   // The saved row already shows in the conversation, so an accepted send refreshes history only
   // while Activity is open; an uncertain outcome refreshes once to show whatever was saved.
   useSmsScopeEvents(smsKey, (event) => {
+    const preview = contactFrom.preview;
+    if (preview?.sms_mode === "enforced" && (contactFrom.unassigned || preview.sms.state === "reserved")) {
+      void contactNumbers.refetch();
+    }
     if (event === "recovery" || rightTab === "Activity") history.refresh();
   });
   const latestContactIdRef = useRef<string | null>(null);
@@ -869,12 +875,19 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       : allStatuses as string[];
 
   return (
-    <div className={cn(
-      "fixed top-16 right-0 bottom-0 bg-background z-40 flex flex-col animate-in slide-in-from-right-2 duration-300 h-[calc(100vh-4rem)] overflow-hidden",
+    <div data-phone-pan={phonePan || undefined} className={cn(
+      "fixed top-16 right-0 bottom-0 bg-background z-40 flex flex-col animate-in slide-in-from-right-2 duration-300 h-[calc(100vh-4rem)]",
+      // Automations pilot agencies only: below 768 px the desktop layout becomes one surface that pans sideways. It opens
+      // on the same right-hand view as before (Call, Schedule, follow-ups) and pans left to the details and policies, so
+      // Confirm issuance can be reached on a phone. Every other agency keeps the layout exactly as it was.
+      phonePan
+        ? "left-0 overflow-x-auto overflow-y-hidden overscroll-x-contain [direction:rtl] md:overflow-hidden md:[direction:ltr]"
+        : "overflow-hidden",
       collapsed ? "md:left-16" : "md:left-60"
     )}>
       {/* HEADER */}
-      <div className="h-16 border-b border-border bg-card flex items-center shrink-0 z-20 shadow-sm relative px-6">
+      <div className={cn("h-16 border-b border-border bg-card flex items-center shrink-0 z-20 shadow-sm relative px-6",
+        phonePan && "w-[66rem] md:w-auto [direction:ltr]")}>
         {/* LEFT SECTION - aligned with Left Column */}
         <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] flex items-center gap-4 shrink-0 px-2">
           <button onClick={tryClose} className="p-2 hover:bg-accent rounded-full text-muted-foreground hover:text-foreground transition-colors shrink-0">
@@ -1001,7 +1014,8 @@ const FullScreenContactView: React.FC<FullScreenContactViewProps> = ({
       </div>
 
       {/* 3 COLUMN LAYOUT - "Island" Style matching Dialer */}
-      <div className="flex flex-1 overflow-hidden min-w-0 w-full p-3 gap-3 bg-accent/5">
+      <div className={cn("flex flex-1 overflow-hidden min-w-0 p-3 gap-3 bg-accent/5",
+        phonePan ? "w-[66rem] md:w-full [direction:ltr]" : "w-full")}>
 
         {/* LEFT DOCK - Contacts Overview */}
         <div className="w-[340px] xl:w-[380px] 2xl:w-[420px] bg-card border border-border rounded-xl flex flex-col min-h-0 overflow-hidden shrink-0 shadow-sm">

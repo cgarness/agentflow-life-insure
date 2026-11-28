@@ -21,3 +21,10 @@ export const otherAgency = 'ba921000-0000-4000-8000-000000000002';
 export const sender = 'ba921000-0000-4000-8000-000000000010';
 export const campaign = 'ba921000-0000-4000-8000-000000000011';
 export const email = n => 'af-ui-'+n+'@example.invalid';
+// A desktop opens on the canvas. The ordered list is one click away and is what these scripts drive.
+export async function listView(page) {
+  const list = page.getByRole('radio',{name:'List',exact:true});
+  await list.waitFor();
+  if (await list.getAttribute('aria-checked') !== 'true') await list.click();
+  await page.getByRole('list',{name:'Ordered steps'}).waitFor();
+}

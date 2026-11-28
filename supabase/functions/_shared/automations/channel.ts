@@ -2,8 +2,8 @@ import type { Db } from "../a2p/types.ts";
 import { dispatch } from "../sms/dispatch.ts";
 import { policy } from "../sms/consent.ts";
 import { contactScope, selectedSender } from "../sms/scope.ts";
-import { phone, UUID } from "../sms/wire.ts";
-import { renderMergeFields } from "../workflowMergeFields.ts";
+import { phone, SmsError, UUID } from "../sms/wire.ts";
+import { fieldValues, renderFields, usesAppointmentField } from "./fields.ts";
 
 interface Claim {
   organization_id: string;
@@ -12,18 +12,27 @@ interface Claim {
   run_id: string;
   node_id: string;
   lease_token: string;
-  contact_type: string;
-  contact_id: string;
+  contact_type: string | null;
+  contact_id: string | null;
   stop_on_reply: boolean;
+  context?: { appointment_start?: string | null; sms_purpose?: string | null } | null;
 }
 interface Node {
   type: "send_sms" | "send_email";
+  /** Version 2 SMS steps carry no author purpose. The published version pins one. */
+  version?: number;
   config: Record<string, unknown>;
 }
 interface Outcome {
-  status: "accepted" | "held" | "failed" | "unknown";
+  status: "accepted" | "held" | "failed" | "unknown" | "skipped";
   reason?: string;
 }
+/** The final send check's answer that finishes the step as skipped (the reminder record, a stop for this time). */
+const SKIP = "skip:";
+/** The final send check's answer for a text owed its one retry: it is sent as any first attempt is. */
+const RETRY = "retry:";
+/** A retry the consent service definitively refuses is not sent, and the run goes on. Other refusals hold it. */
+const OPTED_OUT = new Set(["SMS_SUPPRESSED", "NO_CONSENT"]);
 interface Handoff {
   id: string;
   from_email: string;
@@ -44,10 +53,55 @@ export async function dispatchChannel(
 ): Promise<Outcome> {
   const channel = node.type === "send_email" ? "email" : "sms";
   const config = node.config;
-  const body = renderMergeFields(String(config.body ?? config.body_override ?? ""), contact);
-  const subject = renderMergeFields(String(config.subject ?? config.subject_override ?? ""), contact);
+  if (!claim.contact_id || claim.contact_type !== "lead") {
+    return { status: "held", reason: "Automated messages are available for leads only." };
+  }
+  const contactId: string = claim.contact_id;
+  const contactType: string = claim.contact_type;
+  const rawBody = String(config.body ?? config.body_override ?? "");
+  const rawSubject = String(config.subject ?? config.subject_override ?? "");
+  // A version published under the current rules carries a pinned purpose. Earlier versions keep their stored one.
+  const purpose = claim.context?.sms_purpose ?? (node.version === 2 ? undefined : config.purpose);
+  if (channel === "sms" && purpose !== "informational" && purpose !== "marketing") {
+    return { status: "held", reason: "SMS purpose could not be established. Republish this automation." };
+  }
+  let timezone: string | null = null;
+  if (usesAppointmentField(rawBody) || usesAppointmentField(rawSubject)) {
+    // Appointment wording is written in the recipient's verified time zone, the same evidence the send window uses.
+    const recipient = channel === "email" ? String(contact.email ?? "").trim().toLowerCase() : String(contact.phone ?? "");
+    const { data, error } = await db.rpc("automation_message_timezone", {
+      p_run: claim.run_id, p_channel: channel, p_recipient: recipient,
+    });
+    if (error || typeof data !== "string" || !data) {
+      return { status: "held", reason: "Current recipient eligibility or verified timezone is missing." };
+    }
+    timezone = data;
+  }
+  const values = fieldValues({ contact, appointment_start: claim.context?.appointment_start, timezone });
+  const renderedBody = renderFields(rawBody, values);
+  const renderedSubject = renderFields(rawSubject, values);
+  const missing = [...new Set([...renderedSubject.missing, ...renderedBody.missing])];
+  if (missing.length) return { status: "held", reason: missing.join(" and ") + " could not be filled in for this appointment." };
+  const body = renderedBody.text;
+  const subject = renderedSubject.text;
   const origin = dependencies.env("SUPABASE_URL")?.replace(/\/+$/, "");
   if (!origin || !body.trim()) return { status: "held", reason: "Message configuration is incomplete." };
+  // Asked before a provider request is reserved: an appointment moved or cancelled since the lease holds the
+  // message without spending that request. The handoff checks the same again under lock. A step the reminder record
+  // shows was already given for this appointment time (or a stop holds) is skipped, and the run goes on.
+  const check = await db.rpc("automation_message_check", {
+    p_run: claim.run_id, p_token: claim.lease_token, p_node: claim.node_id,
+  });
+  if (check.error) return { status: "held", reason: "Message eligibility could not be verified." };
+  let retry = false;
+  if (check.data !== null) {
+    const answer = typeof check.data === "string" ? check.data : "";
+    if (answer.startsWith(SKIP)) return { status: "skipped", reason: answer.slice(SKIP.length) };
+    if (answer !== RETRY) {
+      return { status: "held", reason: answer || "Message eligibility could not be verified." };
+    }
+    retry = true;
+  }
   let handedOff = false;
   let messageId: string | undefined;
 
@@ -87,6 +141,14 @@ export async function dispatchChannel(
       if (!smsPolicy?.enforced) {
         return { status: "held", reason: "Agency automated texting policy is unavailable." };
       }
+      // A text refused before its handoff on an earlier lease tries again: the reservation that refusal cancelled is
+      // released, since no provider has seen it, and this attempt reserves afresh.
+      const released = await db.rpc("automation_release_refused_dispatch", {
+        p_run: claim.run_id, p_token: claim.lease_token, p_node: claim.node_id,
+      });
+      if (released.error || released.data !== true) {
+        return { status: "held", reason: "Message eligibility could not be verified." };
+      }
       const destination = phone(contact.phone);
       const result = await dispatch(db, {
         org: claim.organization_id,
@@ -94,15 +156,15 @@ export async function dispatchChannel(
         to: destination,
         from: await selectedSender(db, smsPolicy),
         body,
-        purpose: config.purpose,
-        contactId: claim.contact_id,
-        contactType: claim.contact_type,
+        purpose,
+        contactId: contactId,
+        contactType: contactType,
         verifyRecipient: async () => {
           await contactScope(
             db,
             claim.organization_id,
-            claim.contact_id,
-            claim.contact_type,
+            contactId,
+            contactType,
             destination,
           );
         },
@@ -162,6 +224,35 @@ export async function dispatchChannel(
     }
     return await accepted(payload.id);
   } catch (error) {
+    if (channel === "sms" && !handedOff) {
+      // A reservation this attempt left unsent is cancelled in every texting mode (only while it is still unsent), so
+      // the next lease releases it and reserves the text as it is written then, for a new time included.
+      try {
+        await db.rpc("sms_cancel_prepared_dispatch", {
+          p_org: claim.organization_id, p_key: `automation:${claim.run_id}:${claim.node_id}`,
+        });
+      } catch {
+        // The hold below stands either way; the next attempt finds the reservation as it is.
+      }
+    }
+    if (!handedOff) {
+      // A retry the consent service refuses for good (an opt-out, or no permission) is not sent, and the run goes on.
+      if (retry && error instanceof SmsError && OPTED_OUT.has(error.code)) {
+        return { status: "skipped", reason: "Not retried: the lead can no longer receive this message" };
+      }
+      // Refused before its handoff: asked again, a step another run gave meanwhile (the handoff the race was lost to),
+      // a stop committed meanwhile or a confirmed opt-out is skipped. Anything else holds, as before.
+      try {
+        const again = await db.rpc("automation_message_check", {
+          p_run: claim.run_id, p_token: claim.lease_token, p_node: claim.node_id,
+        });
+        if (!again.error && typeof again.data === "string" && again.data.startsWith(SKIP)) {
+          return { status: "skipped", reason: again.data.slice(SKIP.length) };
+        }
+      } catch {
+        // The hold below stands.
+      }
+    }
     if (channel === "sms" && handedOff) {
       const stored = await db.from("sms_dispatches").select("state").eq(
         "organization_id",

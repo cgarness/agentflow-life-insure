@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { automationApi, type DraftRecord } from "@/lib/automation-api";
 import { readReleaseControls } from "@/lib/automation-release";
@@ -9,6 +10,7 @@ import { emptyGraph } from "../../../../supabase/functions/_shared/automations/g
 
 vi.mock("@/lib/automation-api", () => ({automationApi:{
   status:vi.fn(), validate:vi.fn(async () => []), overlap:vi.fn(async () => []), publish:vi.fn(),
+  smsRequirements:vi.fn(async () => []), campaigns:vi.fn(), dispositions:vi.fn(),
 }}));
 vi.mock("../WorkflowCanvas", () => ({default:() => null}));
 vi.mock("../OrderedWorkflowSteps", () => ({default:() => null}));
@@ -45,13 +47,15 @@ describe("workflow release settings", () => {
     expect(status).toHaveTextContent(admission);
     expect(status).toHaveTextContent(dispatch);
     expect(status).toHaveTextContent("Agency enrollment: " + (enroll ? "On" : "Off"));
-    expect(status).toHaveTextContent("Provider dispatch: " + (send ? "On" : "Off"));
+    expect(status).toHaveTextContent("Agency message delivery: " + (send ? "On" : "Off"));
   });
 
   it.each(["draft","paused","archived"] as const)("respects the %s lifecycle when both agency switches are on", status => {
     render(<AutomationReleaseStatus controls={{enrollment_enabled:true,dispatch_enabled:true}} status={status} trigger="lead_created"/>);
     const panel = screen.getByRole("region",{name:"Workflow status"});
     expect(panel).toHaveTextContent(status);
+    // The switches are the agency's, so a draft never reads as on for itself.
+    expect(panel).toHaveTextContent("Agency enrollment: On");
     expect(panel).not.toHaveTextContent("may go out");
     expect(panel).not.toHaveTextContent("can start a run");
   });
@@ -62,12 +66,14 @@ describe("workflow release settings", () => {
     expect(screen.queryByText(/can start a run/)).toBeNull();
   });
 
-  it("treats missing and invalid switch values as unavailable", () => {
+  it("shows missing and invalid switch values as unknown, never as on or off", () => {
     expect(readReleaseControls({enrollment_enabled:true})).toBeNull();
     const controls = readReleaseControls({enrollment_enabled:false,dispatch_enabled:"true"});
     render(<AutomationReleaseStatus controls={controls} status="active" trigger="lead_created"/>);
-    expect(screen.getByText("Agency enrollment: Unavailable")).toBeVisible();
-    expect(screen.getByText("Provider dispatch: Unavailable")).toBeVisible();
+    const panel = screen.getByRole("region",{name:"Workflow status"});
+    expect(panel).toHaveTextContent("Agency enrollment: Unknown");
+    expect(panel).toHaveTextContent("Agency message delivery: Unknown");
+    expect(panel).not.toHaveTextContent(/: (On|Off)/);
     expect(screen.getByText(/could not be confirmed/)).toBeVisible();
   });
 
@@ -82,19 +88,19 @@ describe("workflow release settings", () => {
       return {...current,version_id:id,release_controls:current.controls};
     });
     render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>
-      <AutomationEditor record={document} scope="fixture" session={3} onBack={vi.fn()} onSaved={vi.fn()}/>
+      <MemoryRouter><AutomationEditor record={document} scope="fixture" session={3} onBack={vi.fn()} onSaved={vi.fn()}/></MemoryRouter>
     </QueryClientProvider>);
-    const review = async () => fireEvent.click(await screen.findByRole("button",{name:"Review & publish"}));
+    const review = async () => fireEvent.click(await screen.findByRole("button",{name:"Save & review"}));
     await review();
-    expect(await screen.findByRole("region",{name:"Publish review controls"})).toHaveTextContent("Provider dispatch: Off");
-    fireEvent.click(screen.getByRole("button",{name:"Publish"}));
+    expect(await screen.findByRole("region",{name:"Publish review controls"})).toHaveTextContent("Agency message delivery: Off");
+    fireEvent.click(screen.getByRole("button",{name:"Publish version"}));
     expect(await screen.findByText(/^Agency controls changed/)).toBeVisible();
     expect(automationApi.publish).toHaveBeenNthCalledWith(1,id,1,3,off);
-    expect(screen.getByRole("button",{name:"Publish"})).toBeDisabled();
-    expect(screen.getByRole("region",{name:"Publish review controls"})).toHaveTextContent("Provider dispatch: On");
+    expect(screen.getByRole("button",{name:"Publish version"})).toBeDisabled();
+    expect(screen.getByRole("region",{name:"Publish review controls"})).toHaveTextContent("Agency message delivery: On");
     await review();
-    await waitFor(() => expect(screen.getByRole("button",{name:"Publish"})).toBeEnabled());
-    fireEvent.click(screen.getByRole("button",{name:"Publish"}));
+    await waitFor(() => expect(screen.getByRole("button",{name:"Publish version"})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button",{name:"Publish version"}));
     const confirmation = await screen.findByRole("region",{name:"Workflow status"});
     expect(within(confirmation).getByRole("status")).toHaveTextContent("Version published.");
     expect(confirmation).toHaveTextContent("Existing runs may send");

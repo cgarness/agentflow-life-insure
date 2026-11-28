@@ -60,6 +60,19 @@ function PolicySalePremium(props: { clientId: string; policyId: string; currentM
   );
 }
 
+// Confirmed issuance for one policy, and the action to confirm it. Loaded the same way; one read per client.
+const PolicyIssuanceSection = lazy(() => import("@/components/contacts/PolicyIssuance"));
+
+function PolicyIssuance(props: { clientId: string; policyId: string; formatDate: (value: string) => string }) {
+  return (
+    <CommissionLoadBoundary>
+      <Suspense fallback={null}>
+        <PolicyIssuanceSection {...props} />
+      </Suspense>
+    </CommissionLoadBoundary>
+  );
+}
+
 // Producing-call link recovery (Reports V2 PKG-C): one status read per contact, loaded the same way.
 const PolicySaleCallLinkStatusSection = lazy(() =>
   import("@/components/contacts/PolicySaleCallLinkStatus").then((module) => ({ default: module.PolicySaleCallLinkStatus })));
@@ -104,6 +117,7 @@ export function ClientPolicies({ client, formatDate, onPolicyRecordChanged }: {
       <>
         <PolicySalePremium clientId={client.id} policyId={primary.policyId} currentMonthly={primary.premiumMonthly}
           formatDate={formatDate} onPolicyRecordChanged={onPolicyRecordChanged} />
+        <PolicyIssuance clientId={client.id} policyId={primary.policyId} formatDate={formatDate} />
         <PolicyCommission clientId={client.id} policyId={primary.policyId} />
         <ClosingAppointmentStatus clientId={client.id} />
         <PolicySaleCallLinkStatus clientId={client.id} />
@@ -150,6 +164,7 @@ export function ClientPolicies({ client, formatDate, onPolicyRecordChanged }: {
                   <PolicySalePremium clientId={client.id} policyId={policy.policyId} currentMonthly={policy.premiumMonthly}
                     formatDate={formatDate} onPolicyRecordChanged={onPolicyRecordChanged} />
                 )}
+                {client.id && policy.policyId && <PolicyIssuance clientId={client.id} policyId={policy.policyId} formatDate={formatDate} />}
                 {client.id && policy.policyId && <PolicyCommission clientId={client.id} policyId={policy.policyId} compact />}
               </AccordionContent>
             </AccordionItem>

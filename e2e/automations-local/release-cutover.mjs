@@ -46,7 +46,9 @@ const oldTables=['public.workflows','public.workflow_nodes','public.workflow_edg
   'public.leads','public.campaign_leads'];
 const newTables=['public.workflow_versions','public.automation_intervals','private.automation_events','private.automation_runs',
   'private.automation_steps','private.automation_intents','private.automation_messages','private.automation_intake_recovery',
-  'private.automation_deferred_admissions','private.automation_reply_watermarks','private.automation_release_controls'];
+  'private.automation_deferred_admissions','private.automation_reply_watermarks','private.automation_task_receipts',
+  'private.automation_sms_purposes','public.inbound_callbacks','public.policy_issuance_confirmations','private.automation_answer_settlements',
+  'private.automation_release_controls'];
 function counts(tables) {
   return JSON.parse(sql('select jsonb_build_object('+tables.map(t=>`'${t}',(select count(*) from ${t})`).join(',')+')'));
 }
@@ -113,7 +115,7 @@ try {
   assert.equal(legacyHash(),priorDigest);
   assert.deepEqual(counts(oldTables),pre);
   assert.deepEqual(Object.values(counts(newTables)),newTables.map(()=>0));
-  console.log('PASS four ordered migrations in '+((performance.now()-start)/1000).toFixed(2)+' s; unchanged six-table legacy hash '+priorDigest+
+  console.log('PASS twelve ordered migrations (the first release, the first-text sender and the seven V2 files) in '+((performance.now()-start)/1000).toFixed(2)+' s; unchanged six-table legacy hash '+priorDigest+
     '; install deltas zero for definitions, enrollments, messages, contacts and control rows.');
   const duringInstall=await login('Super Admin');
   const gapContext=await contextResult(duringInstall);

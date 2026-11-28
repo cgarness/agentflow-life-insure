@@ -36,6 +36,22 @@ export interface DraftRecord {
 
 export interface Issue { node_id?: string; message: string }
 export interface Option { id: string; name: string }
+export interface DispositionOption { id: string; name: string; color: string }
+export interface SavedMessage {
+  id: string;
+  name: string;
+  type: "sms" | "email";
+  subject: string | null;
+  content: string;
+  scope: "agency" | "personal";
+  sms_purpose: "informational" | "marketing" | null;
+}
+/** Consent requirement the server will pin for an SMS step when this draft is published. */
+export interface SmsRequirement {
+  node_id: string;
+  purpose: "informational" | "marketing";
+  basis: "saved_message" | "custom" | "author";
+}
 
 export interface WorkflowSnapshot {
   id: string;
@@ -85,6 +101,10 @@ export const automationApi = {
     rpc<{items: Option[]; selected: Option | null; next_cursor: string | null}>("automation_campaign_options",
       {p_after: after, p_selected: selected || null}),
   sources: (after: string) => rpc<{name: string}[]>("automation_sources", {p_after: after}),
+  dispositions: () => rpc<DispositionOption[]>("automation_disposition_options"),
+  savedMessages: (type: "sms" | "email", search: string, offset: number) =>
+    rpc<{items: SavedMessage[]; more: boolean}>("automation_saved_messages", {p_type: type, p_search: search, p_offset: offset}),
+  smsRequirements: (id: string) => rpc<SmsRequirement[]>("automation_sms_requirements", {p_workflow_id: id}),
   folder: (op: string, id: string | null, values: Record<string, unknown>, session: number) =>
     rpc("automation_folder", { p_operation: op, p_folder_id: id, p_values: values, p_session_revision: session }),
 };

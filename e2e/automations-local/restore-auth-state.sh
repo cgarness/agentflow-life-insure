@@ -3,12 +3,13 @@
 set -euo pipefail
 umask 077
 cd "$(dirname "$0")/../.."
+abspath() { python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }  # realpath, without coreutils
 fail() { echo "$1" >&2; exit 1; }
-[[ $# == 2 && -d $2 ]] || fail 'Use prepare or verify with a schema bundle directory.'
+[[ $# == 3 && -d $2 && -d $3 ]] || fail 'Use prepare or verify with a schema bundle directory and its receipts directory.'
 phase=$1
 case "$phase" in prepare|verify) ;; *) fail 'Unknown Auth rehearsal phase.' ;; esac
-bundle=$(realpath -- "$2")
-receipt=${AUTOMATIONS_AUTH_SOURCE_RECEIPT:-docs/plans/2026-11-21-automations/production-auth-receipt.json}
+bundle=$(abspath "$2")
+receipt="$(abspath "$3")/auth.json"
 db=${AUTOMATIONS_DB_CONTAINER:?dedicated release-full database required}
 : "${PGPASSWORD:?disposable PostgreSQL password required}"
 prefix="af-auto-test-$PPID"
@@ -23,12 +24,12 @@ trap 'rm -rf -- "$work"' EXIT
 [[ -f $bundle/auth-schema-migrations.txt && ! -L $bundle/auth-schema-migrations.txt ]] || fail 'Missing regular Auth version manifest.'
 cp -- "$bundle/auth-schema-migrations.txt" "$work/versions"
 python3 - "$receipt" "$bundle" "$work" <<'PY'
-import hashlib, json, pathlib, re, sys
+import hashlib, json, os, pathlib, re, sys
 receipt_path, bundle, work = map(pathlib.Path, sys.argv[1:])
 if receipt_path.resolve().is_relative_to(bundle.resolve()):
     sys.exit('The trusted Auth receipt must come from outside the supplied bundle.')
 receipt = json.loads(receipt_path.read_text())
-if receipt.get('project_ref') != 'jncvvsvckxhqgqvkppmj' or receipt.get('database') != 'postgres':
+if receipt.get('project_ref') != os.environ.get('AUTOMATIONS_SOURCE_PROJECT', 'jncvvsvckxhqgqvkppmj') or receipt.get('database') != 'postgres':
     sys.exit('Auth receipt source does not match the AgentFlow project.')
 version = receipt['gotrue_version']
 image_digest = receipt['image_index_digest']

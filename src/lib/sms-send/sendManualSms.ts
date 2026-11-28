@@ -1,5 +1,6 @@
 import {
   classifySmsResponse,
+  FIRST_CONTACT_REJECTED,
   matchCanonicalRow,
   noResponse,
   notStarted,
@@ -23,7 +24,7 @@ import {
  * classification → targeted read of the saved row.
  */
 
-export interface ManualSmsRequestBody {
+export type ManualSmsRequestBody = {
   request_id: string;
   actor_id: string;
   organization_id: string;
@@ -31,12 +32,13 @@ export interface ManualSmsRequestBody {
   to: string;
   from?: string;
   expected_sender_id?: string;
-  override_sender_id?: string;
-  body: string;
   contact_id: string;
   contact_type: string;
   lead_id: string;
-}
+} & (
+  | { body: string; first_use?: never; override_sender_id?: string }
+  | { body?: never; first_use: { sender_id: string; generation: number; body: string }; override_sender_id?: never }
+);
 
 export interface SmsDraftOrigin {
   /** The composer's draft sink; without one the text is never restored automatically. */
@@ -84,20 +86,22 @@ function defaultSchedule(run: () => void, ms: number) {
 }
 
 export function manualSmsRequestBody(s: SmsSnapshot): ManualSmsRequestBody {
-  return {
+  const common = {
     request_id: s.requestId,
     actor_id: s.actorId,
     organization_id: s.organizationId,
-    view_as: false,
+    view_as: false as const,
     to: s.to,
     ...(s.senderPreference ? { from: s.senderPreference } : {}),
     ...(s.expectedSenderId ? { expected_sender_id: s.expectedSenderId } : {}),
-    ...(s.overrideSenderId ? { override_sender_id: s.overrideSenderId } : {}),
-    body: s.body,
     contact_id: s.contactId,
     contact_type: s.contactType,
     lead_id: s.contactId,
   };
+  if (s.firstUse) {
+    return { ...common, first_use: { sender_id: s.firstUse.senderId, generation: s.firstUse.generation, body: s.body } };
+  }
+  return { ...common, body: s.body, ...(s.overrideSenderId ? { override_sender_id: s.overrideSenderId } : {}) };
 }
 
 export function createManualSmsSender(deps: ManualSmsSenderDeps) {
@@ -168,6 +172,7 @@ export function createManualSmsSender(deps: ManualSmsSenderDeps) {
     if (!store.isAuthorityCurrent(next)) return;
     if (next.state === "not_sent") {
       store.tryRestore(localId);
+      if (next.snapshot.firstUse && next.code === FIRST_CONTACT_REJECTED) store.emitScope(next.scopeKey, "recovery");
       notify.error(describe(next, "not sent"));
     } else if (next.state === "uncertain") {
       notify.error(describe(next, "not confirmed"));
@@ -213,7 +218,7 @@ export function createManualSmsSender(deps: ManualSmsSenderDeps) {
           try {
             const response = await deps.post(manualSmsRequestBody(record.snapshot), session.accessToken, controller.signal);
             mark(localId, "response");
-            outcome = classifySmsResponse(response.status, response.text);
+            outcome = classifySmsResponse(response.status, response.text, !!record.snapshot.firstUse);
           } catch {
             // Aborting the browser request does not prove the server stopped: never "not sent".
             outcome = noResponse(deadlineReached ? "deadline" : "transport");

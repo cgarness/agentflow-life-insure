@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { automationApi } from "@/lib/automation-api";
 import { workflowFolderApi } from "@/lib/supabase-workflow-folders";
 import WorkflowFolderTabs, { ALL_TAB, UNFILED_TAB } from "./WorkflowFolderTabs";
-import { selectStyle } from "./AutomationBlockPanel";
+import { Badge } from "@/components/ui/badge";
 import { block } from "./lib/draftGraph";
+import { selectStyle } from "./lib/fieldStyles";
+import { workflowStatusBadge } from "./list/statusBadges";
 
 interface Props {
   org: string;
@@ -54,7 +56,10 @@ export default function WorkflowList({org, session, scope, campaign, onCreate, o
     <ul className="space-y-2">{filtered.map(row =>
       <li className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4" key={row.id}>
         <div><button className="text-left font-semibold hover:underline" onClick={() => onOpenWorkflow(row.id)}>{row.name}</button>
-          <p className="text-sm text-muted-foreground">{block(row.trigger_type ?? "")?.label ?? row.trigger_type?.replace(/_/g," ") ?? "Choose trigger"} · {row.status}</p>
+          <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            {block(row.trigger_type ?? "")?.label ?? row.trigger_type?.replace(/_/g," ") ?? "Choose trigger"}
+            <Badge variant={workflowStatusBadge(row.status).tone}>{workflowStatusBadge(row.status).label}</Badge>
+          </p>
           {!row.is_legacy && <p className="text-sm">{workflowEffects(row.status,row.trigger_type,readReleaseControls(row.release_controls))}</p>}
           <p className="text-xs text-muted-foreground">{row.last_activity_at ? "Last activity " + new Date(row.last_activity_at).toLocaleString() : "No activity yet"}</p>
         </div>

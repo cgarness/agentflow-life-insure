@@ -16,6 +16,12 @@ export function sameReleaseControls(a: ReleaseControls | null, b: ReleaseControl
 const admissionByTrigger = new Map([
   ["lead_created","Qualifying new leads can start a run."],
   ["campaign_membership_created","Qualifying new campaign memberships can start a run."],
+  ["disposition_recorded","Qualifying saved dispositions can start a run."],
+  ["appointment_booked","Newly booked appointments can start a run."],
+  ["appointment_outcome_recorded","Qualifying recorded appointment outcomes can start a run."],
+  ["inbound_call_missed","Unanswered inbound calls can start a run."],
+  ["sale_recorded","Newly recorded policy sales can start a run."],
+  ["policy_issuance_confirmed","Newly confirmed policy issuances can start a run."],
 ]);
 
 export function workflowEffects(status: WorkflowStatus, trigger: string | null, controls: ReleaseControls | null) {

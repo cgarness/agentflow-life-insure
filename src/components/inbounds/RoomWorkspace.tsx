@@ -6,6 +6,7 @@ import { useFloatingDialerDispositions } from "@/hooks/useFloatingDialerDisposit
 import { RoomScripts } from "@/components/inbounds/RoomScripts";
 import { RoomStats } from "@/components/inbounds/RoomStats";
 import { RoomRecords } from "@/components/inbounds/RoomRecords";
+import { RoomCallbacks } from "@/components/inbounds/RoomCallbacks";
 import { RoomDisposition } from "@/components/inbounds/RoomDisposition";
 import { RoomHeader } from "@/components/inbounds/RoomHeader";
 import { RoomStatus } from "@/components/inbounds/RoomStatus";
@@ -189,6 +190,7 @@ export function RoomWorkspace({ org, user, name }: {
             </p>
           </div>
         </div>
+        {s && <RoomCallbacks />}
         {s && <RoomRecords data={s} />}
       </div>
     </main>

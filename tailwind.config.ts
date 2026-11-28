@@ -77,6 +77,19 @@ export default {
           DEFAULT: "hsl(var(--info))",
           foreground: "hsl(var(--info-foreground))",
         },
+        // Status badge pairs. Use the text role only on its own surface or on a card.
+        badge: {
+          "neutral-text": "hsl(var(--badge-neutral-text) / <alpha-value>)",
+          "neutral-surface": "hsl(var(--badge-neutral-surface) / <alpha-value>)",
+          "info-text": "hsl(var(--badge-info-text) / <alpha-value>)",
+          "info-surface": "hsl(var(--badge-info-surface) / <alpha-value>)",
+          "success-text": "hsl(var(--badge-success-text) / <alpha-value>)",
+          "success-surface": "hsl(var(--badge-success-surface) / <alpha-value>)",
+          "warning-text": "hsl(var(--badge-warning-text) / <alpha-value>)",
+          "warning-surface": "hsl(var(--badge-warning-surface) / <alpha-value>)",
+          "error-text": "hsl(var(--badge-error-text) / <alpha-value>)",
+          "error-surface": "hsl(var(--badge-error-surface) / <alpha-value>)",
+        },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",

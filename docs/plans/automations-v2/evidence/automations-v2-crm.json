@@ -1,0 +1,48 @@
+{
+  "result": "pass",
+  "viewports": [
+    1440,
+    375
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "phoneTouch": {
+    "firstView": [
+      "Call",
+      "Schedule",
+      "Tasks"
+    ],
+    "fingerPanToPolicies": true,
+    "tapsWithoutSidewaysPan": true
+  },
+  "outsidePilot": {
+    "issuanceList": [],
+    "confirmation": 403,
+    "callbacksAvailable": false,
+    "phoneLayout": "unchanged"
+  },
+  "screenshots": [
+    "automations-v2-contact-tasks-1440-light.png",
+    "automations-v2-contact-tasks-1440-dark.png",
+    "automations-v2-contact-tasks-375-light.png",
+    "automations-v2-contact-tasks-375-dark.png",
+    "automations-v2-confirm-issuance-1440-light.png",
+    "automations-v2-confirm-issuance-1440-dark.png",
+    "automations-v2-client-first-view-375-dark.png",
+    "automations-v2-client-policies-375-dark.png",
+    "automations-v2-confirm-issuance-375-dark.png",
+    "automations-v2-client-first-view-375-light.png",
+    "automations-v2-client-policies-375-light.png",
+    "automations-v2-confirm-issuance-375-light.png",
+    "automations-v2-outside-pilot-client-375-light.png",
+    "automations-v2-inbounds-callbacks-1440-light.png",
+    "automations-v2-inbounds-callbacks-1440-dark.png",
+    "automations-v2-inbounds-callbacks-375-light.png",
+    "automations-v2-inbounds-callbacks-375-dark.png"
+  ],
+  "blockedOutsideRequests": [
+    "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+  ]
+}

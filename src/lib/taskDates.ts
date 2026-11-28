@@ -41,19 +41,27 @@ export function isLocalDateInputTodayOrLater(value: string, now: Date = new Date
   return date.getTime() >= today.getTime();
 }
 
+/** A task is timed only when it says so. A missing flag is an all-day task, as every task was before. */
+export function isTimedTask(task: { all_day?: boolean | null }): boolean {
+  return task.all_day === false;
+}
+
 /**
- * TasksPanel's due-status rule, unchanged: completed wins; otherwise overdue only once the due LOCAL
- * day has passed; a task due today stays "today" all day.
+ * TasksPanel's due-status rule, unchanged for all-day tasks: completed wins; otherwise overdue only once
+ * the due LOCAL day has passed; a task due today stays "today" all day. A task with a time of day
+ * (`allDay` false, set only by automations) is overdue from that moment.
  */
 export function getTaskDueStatus(
   dueDate: string | Date,
   completedAt: string | null | undefined,
   now: Date = new Date(),
+  allDay: boolean = true,
 ): TaskDueStatus {
   if (completedAt) return "completed";
   const due = typeof dueDate === "string" ? new Date(dueDate) : dueDate;
   // Identical to date-fns `isPast(due) && !isToday(due)` / `isToday(due)` evaluated at `now`.
   const sameDay = isSameDay(due, now);
+  if (!allDay && due.getTime() < now.getTime()) return "overdue";
   if (due.getTime() < now.getTime() && !sameDay) return "overdue";
   if (sameDay) return "today";
   return "upcoming";

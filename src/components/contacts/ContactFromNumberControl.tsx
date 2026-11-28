@@ -4,7 +4,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatPhoneNumber, normalizePhoneNumber } from "@/utils/phoneUtils";
 import { readinessLabels } from "@/lib/number-affinity";
-import { contactAssignment } from "@/lib/contact-from-number";
+import { contactAssignment, LOCAL_PRESENCE_OPTION } from "@/lib/contact-from-number";
 import type { useContactFromNumber } from "@/hooks/useContactFromNumber";
 
 type Model = ReturnType<typeof useContactFromNumber>;
@@ -26,7 +26,7 @@ function NumberConfirmation({ model, onClosed }: { model: Model; onClosed: () =>
           {assignment.split ? "This contact has different assigned numbers for calls and texts." :
             assignment.number ? `This contact is assigned to ${formatPhoneNumber(assignment.number)}.` :
               "This contact does not have a shared assigned number."}
-          {` Use ${formatPhoneNumber(pending.sender.number ?? "")} instead?`}
+          {` Use ${formatPhoneNumber(pending.sender.number ?? "")} ${model.canAssign ? "instead" : "for this visit"}?`}
         </DialogDescription>
       </DialogHeader>
       {model.canAssign && <div className="space-y-1.5">
@@ -50,7 +50,7 @@ export function ContactFromNumberControl({ model, legacyNumber, legacyOptions, o
   const trigger = useRef<HTMLSelectElement>(null);
   const selectedId = model.sender?.id ?? "";
   const choices = model.enabled ? model.options : [];
-  const missing = !!selectedId && !choices.some(row => row.id === selectedId);
+  const missing = !model.automatic && !!selectedId && !choices.some(row => row.id === selectedId);
   const inventoryById = useMemo(() => new Map(legacyOptions.map(row => [row.agencyNumberId, row])), [legacyOptions]);
   function stickyLabel(id: string, number: string) {
     const row = inventoryById.get(id);
@@ -61,11 +61,12 @@ export function ContactFromNumberControl({ model, legacyNumber, legacyOptions, o
     <label className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-accent/30 px-2 py-1">
       <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">From:</span>
       <select ref={trigger} aria-label="From number" disabled={model.disabled}
-        value={model.enabled ? selectedId : legacyNumber}
+        value={model.enabled ? (model.automatic ? LOCAL_PRESENCE_OPTION : selectedId) : legacyNumber}
         onChange={event => model.enabled ? model.select(event.target.value) : onLegacyChange(event.target.value)}
         className="min-w-0 max-w-64 cursor-pointer border-none bg-transparent text-xs font-semibold text-foreground outline-none focus:ring-0">
         {model.enabled ? <>
-          {!selectedId && <option value="">{model.sender?.number ? `${formatPhoneNumber(model.sender.number)} · Unavailable` : "Choose a number"}</option>}
+          {model.unassigned && <option value={LOCAL_PRESENCE_OPTION}>AI Local Presence</option>}
+          {!model.unassigned && !selectedId && <option value="">{model.sender?.number ? `${formatPhoneNumber(model.sender.number)} · Unavailable` : "Choose a number"}</option>}
           {missing && <option value={selectedId}>{stickyLabel(selectedId, model.sender?.number ?? "")}</option>}
           {choices.filter(row => row.id).map(row => <option key={row.id!} value={row.id!}>{stickyLabel(row.id!, row.number ?? "")}</option>)}
         </> : legacyOptions.length ? legacyOptions.map(row => <option key={row.number} value={row.number}>{row.label}</option>) :
@@ -75,12 +76,12 @@ export function ContactFromNumberControl({ model, legacyNumber, legacyOptions, o
     {model.enabled && !model.pending && <>
       {model.error ? <div role="alert" className="mt-1 flex items-center gap-1 text-xs text-destructive">
         <span>{model.error}</span><Button size="sm" variant="link" className="h-auto p-0 text-xs" onClick={model.retry}>Retry</Button>
-      </div> : model.sender && <div className="mt-1 text-xs text-muted-foreground">
-        {model.readiness.call !== "ready" && <p>Calls: {readinessLabels[model.readiness.call] ?? "Number unavailable"}</p>}
+      </div> : (model.automatic ? !model.disabled : model.sender) && <div className="mt-1 text-xs text-muted-foreground">
+        {model.readiness.call !== "ready" && model.readiness.call !== "checking" && <p>Calls: {readinessLabels[model.readiness.call] ?? "Number unavailable"}</p>}
         {model.readiness.sms !== "ready" && <p>{readinessLabels[model.readiness.sms] ?? "Texting unavailable"}</p>}
       </div>}
     </>}
-    {model.pending && <NumberConfirmation key={`${model.pending.visit}:${model.pending.sender.id}`}
+    {model.pending && <NumberConfirmation key={`${model.pending.visit}:${model.pending.sender.id}:${model.canAssign}`}
       model={model} onClosed={() => trigger.current?.focus()} />}
   </div>;
 }

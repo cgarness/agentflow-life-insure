@@ -25,7 +25,8 @@ export function prepareEvents() {
       values ('${agency}','${phoneId}','${number}','${service}','registered',true,now());
     insert into private.contact_number_reconciliation(organization_id,complete) values ('${agency}',true);
     select public.set_contact_number_modes('${agency}','enforced','enforced');
-    insert into sms_enrollments(organization_id,phone_e164,informational_confirmed) values ('${agency}','${destination}',true);
+    -- Wording an author writes in the builder needs marketing consent, so the synthetic contact has both kinds.
+    insert into sms_enrollments(organization_id,phone_e164,informational_confirmed,marketing_confirmed) values ('${agency}','${destination}',true,true);
     update private.automation_release_controls set dispatch_enabled=true where organization_id='${agency}';
     insert into leads(id,organization_id,lead_source,first_name,last_name,email,phone,user_id,assigned_agent_id)
       values ('${contact}','${agency}','UI event','Blake','Example','blake@example.invalid','${destination}','${owner}','${owner}');

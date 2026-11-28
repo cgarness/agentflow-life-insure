@@ -44,7 +44,7 @@ create function pg_temp.must_refuse(statement text) returns void language plpgsq
 begin
   begin
     execute statement;
-  exception when insufficient_privilege or serialization_failure or invalid_parameter_value
+  exception when insufficient_privilege or serialization_failure or invalid_parameter_value or sqlstate 'PT409'
                  or invalid_text_representation or raise_exception then
     return;
   end;

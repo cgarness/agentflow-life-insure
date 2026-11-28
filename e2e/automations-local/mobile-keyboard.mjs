@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { APP, launch, session } from "../team-open-local/lib.mjs";
+import { APP, launch, restPointer, session } from "../team-open-local/lib.mjs";
 
 const settings = JSON.parse(readFileSync(process.env.AUTOMATIONS_LOCAL_SETTINGS,"utf8"));
 assert.equal(new URL(settings.API_URL).hostname,"127.0.0.1");
@@ -11,7 +11,7 @@ mkdirSync(dir,{recursive:true});
 const evidence = {sessions:[]};
 const browser = await launch();
 try {
-  const login = session(browser,"keyboard and themes","af-ui-one@example.invalid",settings.PASSWORD,evidence);
+  const login = session(browser,"keyboard and themes","af-ui-one@example.invalid",settings.PASSWORD,evidence,{deviceScaleFactor:2});
   const loginWatch = setInterval(() => {
     for (const context of browser.contexts()) context.setDefaultTimeout(30000);
   }, 100);
@@ -26,6 +26,10 @@ try {
   await trigger.focus();
   await page.keyboard.press("Enter");
   await page.getByRole("button",{name:"New lead created",exact:true}).press("Enter");
+  // The canvas is the desktop default. The ordered list is reached from the keyboard through the view toggle.
+  const listToggle = page.getByRole("radio",{name:"List",exact:true});
+  await listToggle.focus();
+  await page.keyboard.press("Enter");
   const steps = page.getByRole("list",{name:"Ordered steps"}).getByRole("listitem");
   async function addAt(index, name) {
     const add = steps.nth(index).getByRole("button",{name:"Add step",exact:true});
@@ -36,11 +40,18 @@ try {
   }
   await addAt(0,"Wait");
   await addAt(1,"Send SMS");
-  await page.getByLabel("SMS purpose").selectOption("informational");
-  await page.getByLabel("Message body").fill("Hello {{first_name}}");
+  await page.getByLabel("Message",{exact:true}).fill("Hello {{first_name}}");
   await steps.nth(2).getByRole("button",{name:"Move up",exact:true}).press("Enter");
+  // The move re-renders the list. Wait for the new order instead of reading it once.
+  await page.waitForFunction(() => {
+    const rows = [...document.querySelectorAll('[aria-label="Ordered steps"] > li')].map(row => row.innerText);
+    return /Send SMS/.test(rows[1] ?? "") && /Wait/.test(rows[2] ?? "");
+  }, null, {timeout: 5000}).catch(() => {});
   assert.match(await steps.nth(1).innerText(),/Send SMS/);
   assert.match(await steps.nth(2).innerText(),/Wait/);
+  // A selected step opens its settings: beside the list on a wide screen, in a sheet over it on a phone.
+  // Close them so the same page can be checked at both widths.
+  await page.getByRole("button",{name:"Close step settings",exact:true}).press("Enter");
 
   const screenshots = [];
   async function check(theme,width,height) {
@@ -53,12 +64,17 @@ try {
       await menu.click();
     }
     await page.waitForFunction(expected => document.documentElement.classList.contains(expected),theme);
-    assert.equal(await page.getByLabel("Automation canvas").isVisible(),width >= 768);
+    // One layout at a time: the canvas exists only on a wide screen in Canvas view, the timeline is the phone's only view.
+    assert.equal(await page.getByLabel("Automation canvas").count(),0);
+    assert.equal(await page.getByRole("radio",{name:"List",exact:true}).count(),width >= 768 ? 1 : 0);
     assert.equal(await steps.nth(1).getByRole("button",{name:"Move down",exact:true}).isVisible(),true);
     const layout = await page.getByLabel("Ordered steps").boundingBox();
     assert.ok(layout && layout.x >= 0 && layout.x + layout.width <= width + 1);
     const file = "automations-" + width + "-" + theme + ".png";
-    await page.screenshot({path:join(dir,file)});
+    // A theme switch fades colours in, and the menu that switched it is still under the pointer.
+    // Resting the pointer and finishing finite transitions captures the page fully drawn.
+    await restPointer(page);
+    await page.screenshot({path:join(dir,file),animations:"disabled"});
     screenshots.push(file);
   }
   for (const [width,height] of [[1440,1000],[375,812]]) {
@@ -67,6 +83,8 @@ try {
   await steps.nth(1).getByRole("button",{name:"Move down",exact:true}).press("Enter");
   assert.match(await steps.nth(1).innerText(),/Wait/);
   await page.getByRole("button",{name:"Back to automations",exact:true}).click();
+  // Unsaved work is never dropped silently.
+  await page.getByRole("alertdialog").getByRole("button",{name:"Leave without saving",exact:true}).click();
   await page.getByRole("button",{name:"Create automation",exact:true}).waitFor();
   assert.equal(net.requests.filter(req => /rpc\/(save_automation_draft|publish_automation|automation_lifecycle)/.test(req)).length,0);
   const result = {result:"pass",viewports:[375,1440],themes:["light","dark"],screenshots,

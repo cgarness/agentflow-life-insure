@@ -1,0 +1,25 @@
+{
+  "result": "pass",
+  "viewports": [
+    1440,
+    375
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "screenshots": [
+    "automations-v2-message-editor-1440-light.png",
+    "automations-v2-review-1440-light.png",
+    "automations-v2-canvas-1440-light.png",
+    "automations-v2-canvas-1440-dark.png",
+    "automations-v2-list-1440-light.png",
+    "automations-v2-timeline-375-light.png",
+    "automations-v2-timeline-375-dark.png",
+    "automations-v2-step-sheet-375-dark.png",
+    "automations-v2-step-sheet-375-light.png"
+  ],
+  "blockedOutsideRequests": [
+    "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+  ]
+}

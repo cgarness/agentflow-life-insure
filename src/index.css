@@ -32,6 +32,18 @@
     --info: 217 91% 60%;
     --info-foreground: 0 0% 100%;
 
+    /* Status badges: paired text and surface roles from the AgentFlow design standard. */
+    --badge-neutral-text: 215.3 19.3% 34.5%;
+    --badge-neutral-surface: 210 40% 96.1%;
+    --badge-info-text: 225.9 70.7% 40.2%;
+    --badge-info-surface: 213.8 100% 96.9%;
+    --badge-success-text: 142.8 64.2% 24.1%;
+    --badge-success-surface: 140.6 84.2% 92.5%;
+    --badge-warning-text: 22.7 82.5% 31.4%;
+    --badge-warning-surface: 48 96.5% 88.8%;
+    --badge-error-text: 0 70% 35.3%;
+    --badge-error-surface: 0 93.3% 94.1%;
+
     --sidebar-width: 240px;
     --sidebar-width-collapsed: 64px;
     --topbar-height: 64px;
@@ -98,6 +110,17 @@
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
+
+    --badge-neutral-text: 212.7 26.8% 83.9%;
+    --badge-neutral-surface: 217.2 33.3% 17.1%;
+    --badge-info-text: 213.3 96.9% 87.3%;
+    --badge-info-surface: 216.5 52.6% 19%;
+    --badge-success-text: 141.7 76.6% 73.1%;
+    --badge-success-surface: 162.9 52.2% 13.1%;
+    --badge-warning-text: 45.9 96.7% 64.5%;
+    --badge-warning-surface: 36 44.3% 15.5%;
+    --badge-error-text: 352.6 95.7% 81.8%;
+    --badge-error-surface: 336 34.9% 16.9%;
 
     --sidebar-background: 222 47% 7%;
     --sidebar-foreground: 213 31% 91%;

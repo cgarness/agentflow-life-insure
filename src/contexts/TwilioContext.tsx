@@ -20,6 +20,7 @@ import {
 } from "@/lib/twilio-voice";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { ContactCallerRoutingContext, type ContactCallerRouting } from "@/contexts/ContactCallerRoutingContext";
 import { toast } from "sonner";
 import { isVoiceSdkInboundDirection } from "@/lib/voiceSdkNotificationBranch";
 import { normalizePhoneNumber } from "@/utils/phoneUtils";
@@ -267,7 +268,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setDialSessionRingOverride(seconds);
   }, []);
   /** Org default from `phone_settings.api_secret` JSON (`local_presence_enabled`). */
-  const [orgLocalPresenceEnabled, setOrgLocalPresenceEnabled] = useState(true);
+  const [localPresenceSetting, setLocalPresenceSetting] = useState<{ org: string; enabled: boolean } | null>(null);
   const [selectedCallerNumber, setSelectedCallerNumber] = useState<string>(() => {
     return typeof window !== "undefined" ? localStorage.getItem("voice_manual_caller_id") || "" : "";
   });
@@ -457,10 +458,13 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const profile = realProfile;
   const organizationId = (profile as { organization_id?: string | null })?.organization_id;
   const authUserId = user?.id ?? profile?.id ?? null;
+  const orgLocalPresenceEnabled = localPresenceSetting && localPresenceSetting.org === organizationId
+    ? localPresenceSetting.enabled : true;
 
   // Fetch available numbers for the organization
   useEffect(() => {
     if (!profile || !organizationId) return;
+    let cancelled = false;
     
     supabase
       .from("phone_numbers")
@@ -470,7 +474,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       .eq("organization_id", organizationId)
       .in("status", ["active", "Active"])
       .then(({ data }) => {
-        if (data) {
+        if (!cancelled && data) {
           setAvailableNumbers(data);
           // Default caller number must be an automatic-eligible Agency number (Pass 2):
           // never default to a Personal number or an over-cap number.
@@ -480,6 +484,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setDefaultCallerNumber(defaultNum);
         }
       });
+    return () => { cancelled = true; };
   }, [organizationId, profile?.id]);
 
   // Automatic outbound caller-ID pool (Pass 2): ONLY shared Agency numbers
@@ -489,14 +494,19 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // If a campaign group has no eligible Agency number, the pool is left EMPTY and the call is
   // blocked at makeCall — we never silently fall back to the full org pool.
   const [callerIdCampaignGroupId, setCallerIdCampaignGroupId] = useState<string | null>(null);
-  const [callerIdPool, setCallerIdPool] = useState<any[]>([]);
+  const [loadedPool, setLoadedPool] = useState<{ org: string; group: string | null; rows: CallerIdPhoneRow[] } | null>(null);
+  const callerIdPool = useMemo(() => loadedPool?.org === organizationId && loadedPool?.group === callerIdCampaignGroupId
+    ? loadedPool.rows : [], [loadedPool, organizationId, callerIdCampaignGroupId]);
 
   useEffect(() => {
     if (!organizationId) {
-      setCallerIdPool([]);
+      setLoadedPool(null);
       return;
     }
     let cancelled = false;
+    const setCallerIdPool = (rows: CallerIdPhoneRow[]) => {
+      if (!cancelled) setLoadedPool({ org: organizationId, group: callerIdCampaignGroupId, rows });
+    };
 
     const poolSelect =
       "*";
@@ -518,7 +528,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     void (async () => {
       if (!callerIdCampaignGroupId) {
         const rows = await fetchOrgPool();
-        if (!cancelled) setCallerIdPool(rows);
+        setCallerIdPool(rows);
         return;
       }
 
@@ -533,7 +543,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           "[caller-id] number_group_members fetch failed — blocking automatic pool (no org fallback):",
           membersErr.message,
         );
-        if (!cancelled) setCallerIdPool([]);
+        setCallerIdPool([]);
         return;
       }
       const ids = (members || []).map((m: { phone_number_id: string }) => m.phone_number_id);
@@ -541,13 +551,14 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         console.warn(
           "[caller-id] Campaign number group is empty — blocking automatic pool (no org fallback).",
         );
-        if (!cancelled) setCallerIdPool([]);
+        setCallerIdPool([]);
         return;
       }
       const { data, error } = await supabase
         .from("phone_numbers")
         .select(poolSelect)
         .in("id", ids)
+        .eq("organization_id", organizationId)
         .in("status", ["active", "Active"])
         .eq("assignment_type", "agency");
       if (error) {
@@ -555,17 +566,17 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           "[caller-id] group Agency pool fetch failed — blocking automatic pool (no org fallback):",
           error.message,
         );
-        if (!cancelled) setCallerIdPool([]);
+        setCallerIdPool([]);
         return;
       }
       if (!data || data.length === 0) {
         console.warn(
           "[caller-id] Campaign number group has no eligible Agency numbers — blocking automatic pool (no org fallback).",
         );
-        if (!cancelled) setCallerIdPool([]);
+        setCallerIdPool([]);
         return;
       }
-      if (!cancelled) setCallerIdPool(data);
+      setCallerIdPool(data);
     })();
 
     return () => {
@@ -576,22 +587,50 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Fetch global phone settings (ring timeout, etc.)
   useEffect(() => {
     if (!organizationId) return;
+    let cancelled = false;
     supabase
       .from("phone_settings")
       .select("ring_timeout, api_secret")
       .eq("organization_id", organizationId)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (cancelled) return;
         const rt = data?.ring_timeout;
         setPhoneBaselineRing(typeof rt === "number" && !Number.isNaN(rt) && rt > 0 ? rt : 25);
+        if (error) { setLocalPresenceSetting(null); return; }
         try {
           const flags = data?.api_secret ? JSON.parse(String(data.api_secret)) : {};
-          setOrgLocalPresenceEnabled(flags.local_presence_enabled !== false);
+          setLocalPresenceSetting({ org: organizationId, enabled: flags.local_presence_enabled !== false });
         } catch {
-          setOrgLocalPresenceEnabled(true);
+          setLocalPresenceSetting({ org: organizationId, enabled: true });
         }
       });
+    return () => { cancelled = true; };
   }, [organizationId, profile?.id]);
+
+  const contactCallerRouting = useMemo<ContactCallerRouting>(() => ({
+    getContactCallerRole(numberId, number) {
+      if (!organizationId || !authUserId) return null;
+      const row = availableNumbers.find(n => n.organization_id === organizationId && n.id === numberId && n.phone_number === number);
+      if (!row || !isManualCallerIdAllowed(row, authUserId)) return null;
+      return row.assignment_type === "personal" || row.assignment_type === "agency" ? row.assignment_type : null;
+    },
+    async resolveContactLocalCaller(phone, eligibleNumbers) {
+      if (!phone || !authUserId || !organizationId || localPresenceSetting?.org !== organizationId) return "";
+      const ready = new Set(eligibleNumbers);
+      const poolNumbers = new Set(filterAutomaticCallerIdPool(callerIdPool).map(row => row.phone_number));
+      // availableNumbers includes the operator's latest usage increment. The campaign pool
+      // and the contact's channel readiness can each impose a tighter limit than that list.
+      const phones = filterAutomaticCallerIdPool(availableNumbers.filter(row =>
+        row.organization_id === organizationId && row.assignment_type === "agency" &&
+        ready.has(row.phone_number) && poolNumbers.has(row.phone_number)));
+      return selectOutboundCallerId({
+        destinationPhone: phone, contactId: null, phones, localPresenceEnabled: localPresenceSetting.enabled,
+        defaultFallback: "", didLastUsedAt: didLastUsedAtRef.current, now: Date.now(),
+        stickyMinDurationSec: CALLER_ID_STICKY_MIN_DURATION_SEC,
+      }, { queryStickyCaller: async () => null, getStateByAreaCode });
+    },
+  }), [organizationId, authUserId, availableNumbers, callerIdPool, localPresenceSetting]);
 
   // R5: the divergent name-only resolver effect (resolve_inbound_caller_display_name) is removed
   // from the runtime path. Inbound identity now flows from the canonical webhook-written row via
@@ -2599,7 +2638,7 @@ export const TwilioProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         enableIncomingCallAlerts,
       }}
     >
-      {children}
+      <ContactCallerRoutingContext.Provider value={contactCallerRouting}>{children}</ContactCallerRoutingContext.Provider>
     </TwilioVoiceReactContext.Provider>
   );
 };

@@ -5,8 +5,8 @@ import { join } from "node:path";
 
 /**
  * Reports V2 telephony boundary (D3 §4 and §7, D4 §4, A-§7).
- * - TwilioContext is pinned to the approved primary contact From release, commit 553f89d (November 21).
- *   That release checks the selected caller before call-row creation and single-leg Voice.js connection.
+ * - TwilioContext is pinned to the reviewed Full Contact View local-presence candidate, commit 2128bb6.
+ *   The provider exposes organization-scoped caller selection. Admission still checks the selected caller before call-row creation and the single-leg Voice.js connection.
  *   Reports PKG-C and PKG-D do not modify it. Native admission and SDK lifecycle tests cover its behavior.
  * - DialerPage carries exactly the approved PKG-C clause A-§7(a): `sourceCallId={currentCallId}` on the existing
  *   ConvertLeadModal mount, and nothing else from Reports V2. A clause check, not a whole-file hash, so unrelated main
@@ -17,11 +17,11 @@ const ROOT = join(__dirname, "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
-const TWILIO_CONTEXT_RELEASED = "7046e35737782cb74063c371cf00f01f802f7966d976c00f41de02575327b5d3";
+const TWILIO_CONTEXT_REVIEWED = "9216bb6a306bbe54ce740fd7604219500d22cce14663014f3a9c35d6922420d5";
 
 describe("Reports V2 telephony boundary", () => {
-  it("TwilioContext.tsx matches the reviewed primary contact From release", () => {
-    expect(sha256(read("src/contexts/TwilioContext.tsx"))).toBe(TWILIO_CONTEXT_RELEASED);
+  it("TwilioContext.tsx matches the reviewed local-presence provider", () => {
+    expect(sha256(read("src/contexts/TwilioContext.tsx"))).toBe(TWILIO_CONTEXT_REVIEWED);
   });
 
   it("DialerPage carries exactly clause (a): sourceCallId={currentCallId} on the ConvertLeadModal mount", () => {

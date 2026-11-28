@@ -73,8 +73,9 @@ def save(rev, expected, uid):
     return f"select save_automation_draft('{uid}', 'Synthetic', '{draft}', {expected}, {rev});"
 
 def cleanup():
-    child_tables = ["private.automation_steps", "private.automation_intents", "private.automation_runs",
-                    "private.automation_deferred_admissions", "private.automation_events", "private.automation_intake_recovery"]
+    child_tables = ["private.automation_steps", "private.automation_intents", "private.automation_task_receipts",
+                    "private.automation_runs", "private.automation_deferred_admissions", "private.automation_events",
+                    "private.automation_intake_recovery", "private.automation_sms_purposes"]
     children = "\n".join(f"delete from {table} where organization_id='{org}';" for table in child_tables)
     query(f"""begin; {children}
       update public.workflows set automation_version_id=null where organization_id='{org}';

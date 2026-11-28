@@ -160,7 +160,7 @@ begin
   begin
     perform public.automation_activity(-1,pg_temp.runtime_id(3),null,pg_temp.runtime_id(27),'lead');
     raise exception 'Stale session revision could read activity';
-  exception when insufficient_privilege or serialization_failure then null; end;
+  exception when insufficient_privilege or serialization_failure or sqlstate 'PT409' then null; end;
   perform pg_temp.require_result(jsonb_array_length(activity)=2,'both runs are visible on the accessible contact');
   select (item->>'run_id')::uuid into strict selected from jsonb_array_elements(activity) item
    where item->>'workflow_id'=pg_temp.runtime_id(7)::text and (item->>'can_stop')::boolean;
